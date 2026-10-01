@@ -1,0 +1,4 @@
+__pycache__/
+anim/out/
+*.png
+*.mp4
