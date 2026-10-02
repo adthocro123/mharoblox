@@ -11135,6 +11135,232 @@ if not ok78 then
 end
 end
 
+print("== round 84: RADIO WAVES (THE GOLD ORB, THE YELLOW-GREEN BLAST), THE RIVETS")
+do
+local ok84, err84 = pcall(function()
+	local root = myChar:FindFirstChild("HumanoidRootPart")
+	local quirkWas84 = myChar:GetAttribute("Quirk")
+	setAttr(myChar, "Quirk", "Decay")
+	local folder84 = VFX.Folder or workspace
+	local DKP = VFX.DecayKit.PAL
+	local function close(c1, c2)
+		return math.abs(c1.R - c2.R) + math.abs(c1.G - c2.G) + math.abs(c1.B - c2.B) < 0.03
+	end
+	local function named(name)
+		local out = {}
+		for _, p in folder84:GetDescendants() do
+			if p.Name == name and p:IsA("BasePart") then
+				table.insert(out, p)
+			end
+		end
+		return out
+	end
+	local cues84 = {}
+	local realSound84 = VFX.PlaySound
+	VFX.PlaySound = function(name, ...)
+		cues84[name] = (cues84[name] or 0) + 1
+		return realSound84(name, ...)
+	end
+	local rw = Config.FindAbilityById("RadioWaves")
+	local d = Vector3.new(0, 0, -1)
+
+	-- RADIO WAVES: Air Cannon's gold orb swells round his palm (a bright-rimmed
+	-- bubble), flickering violet with black lightning across it
+	VFX.CancelCinematic()
+	VFX.Play("RadioWaves", myChar, { Dir = d }, true)
+	task.wait(rw.Windup * 0.2)
+	local orb = named("RadioOrb")[1]
+	if not (orb and orb.Material == Enum.Material.ForceField and close(orb.Color, DKP.GOLD)) then
+		problem("RADIO 84: the gold orb round his palm (a ForceField bubble)")
+	end
+	local size0 = orb and orb.Size.X or 0
+	local sawViolet, biggest = false, size0
+	local t0 = os.clock()
+	while orb and orb.Parent and os.clock() - t0 < rw.Windup do
+		sawViolet = sawViolet or close(orb.Color, DKP.VIOLET)
+		biggest = math.max(biggest, orb.Size.X)
+		task.wait()
+	end
+	-- (on a slow frame the test can miss a flicker the effect showed: the
+	-- effect's own count)
+	local info = VFX.DecayKit.lastOrb or {}
+	if not (orb and (info.size or biggest) > size0 * 2 and (sawViolet or (info.flickers or 0) >= 2)) then
+		problem("RADIO 84: ...it swells, flickering violet (" .. tostring(info.size) .. ", flickers " .. tostring(info.flickers) .. ")")
+	end
+	task.wait(0.12)
+	if orb and orb.Parent then
+		problem("RADIO 84: the orb pops when the blast goes")
+	end
+	-- THE YELLOW PARTS: the bright yellow streaks tearing out, the yellow-green haze
+	local streaks84 = named("RadioStreak")
+	local yellow = 0
+	for _, p in streaks84 do
+		if close(p.Color, DKP.YELLOW) and p.Material == Enum.Material.Neon then
+			yellow += 1
+		end
+	end
+	if yellow < 8 then
+		problem("RADIO 84: the bright yellow streaks of the blast (" .. yellow .. ")")
+	end
+	-- (the harness applies a tween's goal at once: where they end up)
+	local far = 0
+	task.wait(0.35)
+	for _, p in streaks84 do
+		if (p.CFrame.Position - root.Position).Magnitude > 25 then
+			far += 1
+		end
+	end
+	if far < yellow * 0.5 then
+		problem("RADIO 84: ...tearing out across the fan (" .. far .. " of " .. yellow .. " out past 25 studs)")
+	end
+	local haze = named("RadioHaze")
+	if #haze < 3 or not close(haze[1].Color, DKP.HAZE) then
+		problem("RADIO 84: the street left in yellow-green haze (" .. #haze .. ")")
+	end
+	local tint = game:GetService("Lighting"):FindFirstChild("RadioTint")
+	if not (tint and tint.Enabled) then
+		problem("RADIO 84: the air round it washed yellow-green")
+	end
+	if not (cues84.RadioCharge and cues84.RadioWaves) then
+		problem("RADIO 84: the charge's crackle and the blast")
+	end
+	task.wait(1.5)
+	if tint and tint.TintColor.G < 0.99 then
+		problem("RADIO 84: ...for a moment")
+	end
+
+	-- the jam on someone, for everyone: static crackling round their head
+	local foe = makeR6("Foe84", root.Position + Vector3.new(0, 0, -12))
+	local head = foe:FindFirstChild("Head")
+	head.CFrame = r.CFrame.new(root.Position + Vector3.new(0, 1.5, -12))
+	head.Position = root.Position + Vector3.new(0, 1.5, -12)
+	local before = {}
+	for _, p in folder84:GetDescendants() do
+		before[p] = true
+	end
+	VFX.Play("RadioJam", nil, { Target = foe, Duration = 0.4 }, false)
+	task.wait(0.25)
+	local static = 0
+	for _, p in folder84:GetDescendants() do
+		if not before[p] and p:IsA("BasePart") and close(p.Color, DKP.STATIC) and (p.CFrame.Position - head.Position).Magnitude < 4 then
+			static += 1
+		end
+	end
+	if static < 2 or not cues84.RadioJam then
+		problem("JAM 84: static crackles round a jammed head, for everyone (" .. static .. ")")
+	end
+	task.wait(0.3)
+
+	-- RIVET STAB: rivets grow out of the fingertips, shoot out, pull back in
+	-- (the harness applies every tween's goal at once: each segment's last
+	-- goal is where it ends - drawn back to nothing at its root, not
+	-- crumbled to a stub)
+	local rs = Config.FindAbilityById("RivetStab")
+	local before3 = {}
+	for _, p in folder84:GetDescendants() do
+		before3[p] = true
+	end
+	VFX.Play("RivetStab", myChar, { Dir = d }, true)
+	task.wait(rs.Windup + 0.1)
+	local tendrils, back = 0, 0
+	for _, p in folder84:GetDescendants() do
+		if not before3[p] and p:IsA("BasePart") and close(p.Color, DKP.TENDRIL) then
+			tendrils += 1
+			if p.Size.Z <= 0.06 and p.Transparency >= 0.99 then
+				back += 1
+			end
+		end
+	end
+	if tendrils < 5 * 4 + 5 * 2 then
+		problem("RIVET 84: five rivets grow out of his fingertips and shoot out (" .. tendrils .. " segments)")
+	end
+	if back < tendrils * 0.8 then
+		problem("RIVET 84: ...and pull back into his fingers (" .. back .. " of " .. tendrils .. ")")
+	end
+
+	-- the pin: three rivets from his hand into them, following them as
+	-- they're reeled in, then pulled back in
+	local torso = foe:FindFirstChild("Torso")
+	local froot = foe:FindFirstChild("HumanoidRootPart")
+	local function placeFoe(pos)
+		for _, part in { torso, froot } do
+			part.CFrame = r.CFrame.new(pos)
+			part.Position = pos
+		end
+	end
+	placeFoe(root.Position + Vector3.new(0, 0, -12))
+	local before2 = {}
+	for _, p in folder84:GetDescendants() do
+		before2[p] = true
+	end
+	table.clear(cues84)
+	VFX.Play("RivetPin", myChar, { Target = foe, Pin = 0.3, Reel = 0.25, ReelTo = 5 }, false)
+	task.wait(0.1)
+	local function reaching(pos)
+		local n = 0
+		for _, p in folder84:GetDescendants() do
+			if not before2[p] and p:IsA("BasePart") and p.Parent and close(p.Color, DKP.TENDRIL) and p.Transparency < 0.5 then
+				for _, z in { -1, 1 } do
+					local tip = p.CFrame * r.CFrame.new(0, 0, z * p.Size.Z / 2)
+					if (tip.Position - pos).Magnitude < 1.6 then
+						n += 1
+					end
+				end
+			end
+		end
+		return n
+	end
+	local n1 = reaching(torso.Position)
+	if n1 < 2 then
+		problem("RIVET 84: the pinned one is skewered on the rivets from his hand (" .. n1 .. " reach them)")
+	end
+	placeFoe(root.Position + Vector3.new(0, 0, -7))
+	task.wait(0.1)
+	local n2 = reaching(torso.Position)
+	if n2 < 2 then
+		problem("RIVET 84: ...and they follow them in as they're reeled (" .. n2 .. ")")
+	end
+	if not (cues84.Rivet) then
+		problem("RIVET 84: the pierce's sound")
+	end
+	task.wait(0.3 + 0.25 + 0.35)
+	local left = 0
+	for _, p in folder84:GetDescendants() do
+		if not before2[p] and p:IsA("BasePart") and p.Parent and close(p.Color, DKP.TENDRIL) and p.Transparency < 0.5 then
+			left += 1
+		end
+	end
+	if left > 0 or not cues84.RivetReel then
+		problem("RIVET 84: the reel's whoosh, then the rivets are gone back into his fingers (" .. left .. " left)")
+	end
+
+	-- RIVET STORM, lifting them, the slam
+	VFX.Play("RivetStorm", myChar, {}, true)
+	task.wait(0.35)
+	VFX.Play("RivetLift", myChar, { Targets = { foe }, Lift = 9, Hold = 0.3, Slam = 0.1 }, false)
+	task.wait(0.1)
+	local lifted = reaching(torso.Position)
+	if lifted < 1 then
+		problem("RIVET 84: Rivet Storm: the ones caught are held up on rivets out of his back (" .. lifted .. ")")
+	end
+	table.clear(cues84)
+	VFX.Play("RivetSlam", myChar, { Points = { root.Position + Vector3.new(0, -3, -12) } }, false)
+	task.wait(0.1)
+	if not cues84.TentacleSlam then
+		problem("RIVET 84: ...slammed into the street (its thud)")
+	end
+	task.wait(1)
+	foe:Destroy()
+	VFX.PlaySound = realSound84
+	setAttr(myChar, "Quirk", quirkWas84)
+	VFX.ReleasePose(myChar, 0)
+end)
+if not ok84 then
+	problem("round 84 tests errored: " .. tostring(err84))
+end
+end
+
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")
@@ -12502,6 +12728,7 @@ local okR21, errR21 = pcall(function()
 	end
 	local function punch()
 		table.clear(fired)
+		myRoot.AssemblyLinearVelocity = Vector3.zero -- (round 84: no gravity here - the top of any hop)
 		actions.QuirkPunch("QuirkPunch", Enum.UserInputState.Begin, { UserInputType = Enum.UserInputType.Keyboard, KeyCode = Enum.KeyCode.Unknown })
 		actions.QuirkPunch("QuirkPunch", Enum.UserInputState.End, { UserInputType = Enum.UserInputType.Keyboard, KeyCode = Enum.KeyCode.Unknown })
 		task.wait(Config.M1.Cooldown + 0.05)
@@ -12593,10 +12820,14 @@ local okR21, errR21 = pcall(function()
 		problem("jump held mid-chain: the hop goes (round 75)")
 	end
 	task.wait(Config.M1.ComboReset + 0.1)
-	if not jumpStateEnabled then
-		problem("...but once the chain's run out, it's a jump again")
+	if jumpStateEnabled then
+		problem("...the chain's run out, still holding the press that hopped you: no second jump (round 84)")
 	end
 	keysDown.Space = nil
+	task.wait(0.05)
+	if not jumpStateEnabled then
+		problem("...let go: it's a jump again")
+	end
 	task.wait(Config.M1.ComboReset + 0.1)
 	-- no jump: the plain 4th hit
 	chain3()
@@ -12653,6 +12884,195 @@ end)
 if not okR21 then
 	problem("round 21 scenario crashed: " .. tostring(errR21))
 end
+
+print("== round 84: THE SLAM JUMP GOES ON THE PRESS")
+local ok84j, err84j = pcall(function()
+	localPlayer:SetAttribute("Quirk", "Explosion")
+	setAttr(myChar, "Quirk", "Explosion")
+	myRoot.CFrame = r.CFrame.new(0, 3, 0)
+	myRoot.Position = Vector3.new(0, 3, 0)
+	myHum.FloorMaterial = Enum.Material.Plastic
+	setRaycast(function(_, origin, dir)
+		if dir.Y < 0 then
+			return { Position = Vector3.new(origin.X, 0, origin.Z), Instance = workspace, Normal = Vector3.new(0, 1, 0) }
+		end
+		return nil
+	end)
+	local function click()
+		actions.QuirkPunch("QuirkPunch", Enum.UserInputState.Begin, { UserInputType = Enum.UserInputType.Keyboard, KeyCode = Enum.KeyCode.Unknown })
+		actions.QuirkPunch("QuirkPunch", Enum.UserInputState.End, { UserInputType = Enum.UserInputType.Keyboard, KeyCode = Enum.KeyCode.Unknown })
+	end
+	local function punch()
+		table.clear(fired)
+		click()
+		task.wait(Config.M1.Cooldown + 0.05)
+	end
+	local function lastM1()
+		for i = #fired, 1, -1 do
+			local f = fired[i]
+			if f[1] == "UseAbility" and f[2] == 0 then
+				return f, f[4]
+			end
+		end
+		return nil
+	end
+	local function hopped()
+		for _, f in fired do
+			if f[1] == "UseAbility" and f[2] == Config.PARKOUR_INDEX and f[3] == "SlamHop" then
+				return true
+			end
+		end
+		return false
+	end
+	-- (the harness has no gravity: an earlier test's upward speed would
+	-- hang on forever, and the downslam waits for the top of the hop)
+	local function still()
+		myRoot.AssemblyLinearVelocity = Vector3.zero
+	end
+	local function reset()
+		keysDown.Space = nil
+		still()
+		task.wait(0.1)
+		task.wait(Config.M1.ComboReset + 0.1)
+	end
+	local SL = Config.M1.Slam
+
+	-- 1. Space after hit 3 (its swing done): up you go on the press - no
+	-- waiting for the let-go - and the 4th then is the downslam
+	reset()
+	punch()
+	punch()
+	punch()
+	table.clear(changedStates)
+	table.clear(fired)
+	keysDown.Space = true
+	task.wait(SL.PressGrace + 0.06)
+	if not (table.find(changedStates, "Jumping") and hopped()) then
+		problem("SLAM 84: Space after hit 3 hops you on the press, still held (" .. tostring(table.find(changedStates, "Jumping")) .. ")")
+	end
+	still() -- (the top of the hop)
+	table.clear(fired)
+	click()
+	task.wait(0.3)
+	local f, variant = lastM1()
+	if not f or variant ~= "Down" then
+		problem("SLAM 84: ...and the 4th is the downslam (" .. tostring(variant) .. ")")
+	end
+	-- one press, one jump: still held once you're down, it doesn't jump you again
+	task.wait(0.6)
+	if jumpStateEnabled then
+		problem("SLAM 84: still holding the press that hopped you: no second jump")
+	end
+	keysDown.Space = nil
+	task.wait(0.05)
+	if not jumpStateEnabled then
+		problem("SLAM 84: ...let go and jumping's back")
+	end
+
+	-- 2. pressed during hit 3's swing: the hop the moment the swing (on your
+	-- own screen) lets you - not when the server's late copy of it ends
+	reset()
+	punch()
+	punch()
+	table.clear(changedStates)
+	table.clear(fired)
+	click()
+	local clickAt = os.clock()
+	setAttr(myChar, "CombatActionUntil", workspace:GetServerTimeNow() + 0.7) -- (the server's copy, a ping late)
+	task.wait(0.03)
+	keysDown.Space = true
+	task.wait(0.05)
+	if table.find(changedStates, "Jumping") then
+		problem("SLAM 84: pressed in hit 3's swing - not before the swing's done")
+	end
+	task.wait(math.max((Config.M1.ActionTime or 0.18) + SL.PressGrace + 0.1 - (os.clock() - clickAt), 0))
+	if not (table.find(changedStates, "Jumping") and hopped()) then
+		problem(string.format("SLAM 84: ...hops as soon as the swing ends on your screen (%.2fs after the click), not the server's copy", os.clock() - clickAt))
+	end
+	setAttr(myChar, "CombatActionUntil", nil)
+
+	-- 3. held through hit 3's swing with the 4th clicked into it: the upslam
+	-- (the input buffer runs on Heartbeat, which the harness doesn't drive:
+	-- driven here)
+	local hb84 = true
+	task.spawn(function()
+		local rs = game:GetService("RunService")
+		while hb84 do
+			signalOf(rs, "Heartbeat"):Fire(1 / 60)
+			task.wait(1 / 60)
+		end
+	end)
+	reset()
+	punch()
+	punch()
+	table.clear(changedStates)
+	table.clear(fired)
+	click()
+	task.wait(0.03)
+	keysDown.Space = true
+	task.wait(0.05)
+	click() -- (the 4th, early: kept for the upslam)
+	task.wait((Config.M1.Cooldown or 0.3) + 0.15)
+	f, variant = lastM1()
+	if table.find(changedStates, "Jumping") or hopped() or not f or variant ~= "Up" then
+		problem("SLAM 84: Space held through hit 3's swing with the 4th clicked into it: the upslam, no hop (" .. tostring(variant) .. ")")
+	end
+	keysDown.Space = nil
+	hb84 = false
+
+	-- 4. still the upslam: Space held from before hit 3 (round 83)
+	reset()
+	punch()
+	keysDown.Space = true
+	task.wait(0.05)
+	punch()
+	punch()
+	table.clear(changedStates)
+	table.clear(fired)
+	click()
+	task.wait(0.15)
+	f, variant = lastM1()
+	if table.find(changedStates, "Jumping") or not f or variant ~= "Up" then
+		problem("SLAM 84: held from before hit 3: never a hop, the upslam (" .. tostring(variant) .. ")")
+	end
+	keysDown.Space = nil
+
+	-- 5. a tap after hit 1 and no more clicks: you jump out of the chain
+	-- soon after the next hit was due (ArmWait), not much later
+	reset()
+	punch()
+	local hit1 = os.clock() - (Config.M1.Cooldown + 0.05)
+	table.clear(changedStates)
+	keysDown.Space = true
+	task.wait(0.05)
+	keysDown.Space = nil
+	local due = hit1 + Config.M1.Cooldown + SL.ArmWait + 0.08
+	task.wait(math.max(due - os.clock(), 0))
+	if not table.find(changedStates, "Jumping") then
+		problem(string.format("SLAM 84: a tap after hit 1 with no more clicks jumps by %.2fs after it (ArmWait %.2f)", os.clock() - hit1, SL.ArmWait))
+	end
+	reset()
+
+	-- 6. jammed by Radio Waves: the quirk's moves don't go (M1s do)
+	setAttr(myChar, "JammedUntil", workspace:GetServerTimeNow() + 1)
+	table.clear(fired)
+	actions.QuirkAbility1("QuirkAbility1", Enum.UserInputState.Begin, {})
+	actions.QuirkAbility1("QuirkAbility1", Enum.UserInputState.End, {})
+	task.wait(0.1)
+	for _, ff in fired do
+		if ff[1] == "UseAbility" and ff[2] == 1 then
+			problem("JAM 84: jammed, a move doesn't go")
+		end
+	end
+	setAttr(myChar, "JammedUntil", nil)
+	setRaycast(nil)
+	localPlayer:SetAttribute("Quirk", nil)
+	setAttr(myChar, "Quirk", nil)
+end)
+if not ok84j then
+	problem("round 84 slam jump tests errored: " .. tostring(err84j))
+end
+
 
 print("== parkour, player-driven (round 27): jump vaults/climbs, dash slides, one press per wall hop")
 local okR22, errR22 = pcall(function()

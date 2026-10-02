@@ -5,7 +5,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 78, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 84, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
@@ -15,9 +15,63 @@ videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tool
 
 ---
 
-## Where things stand (Round 78)
+## Where things stand (Round 84)
 
-The last change reworked **United States of Smash** to match All Might vs
+Rounds 79–83 were made in another session, on the owner's `final.rbxl`.
+Round 84 is built on that place. It changed four scripts (`QuirkClient`,
+`QuirkConfig`, `VFX`, `QuirkServer`); nothing else in the place changed.
+
+**The slam jump goes on the press.** In a grounded M1 chain, Space after
+hit 3 hops you as soon as hit 3's swing ends on your own screen. If the
+swing has already ended, it hops `Slam.PressGrace` (0.04 s) after the
+press. It no longer waits for you to let go, or for the server's copy of
+the lock, which arrives a ping late.
+- **Upslam:** hold Space through hit 3's swing with the 4th clicked into
+  it, or hold it from before hit 3. A 4th clicked early with Space held is
+  kept, however early.
+- **One press, one jump:** still holding Space when you land doesn't jump
+  you again.
+- A tap during hits 1–2 with no more clicks jumps out of the chain
+  `Slam.ArmWait` (now 0.12 s) after the next hit was due.
+- **Code:** `QuirkM1Jump` (RenderStep) and `useM1` in `QuirkClient`. Tuning
+  is in `Config.M1.Slam`.
+
+**Shigaraki (Decay)**, from the anime frame by frame:
+- **Radio Waves (ult 1), ep 119 with Air Cannon:**
+  - Air Cannon's gold orb swells round his palm: a ForceField bubble with
+    amber light inside. It flickers violet twice, with black lightning
+    cracked across it.
+  - Then a white pop. The blast rolls out across the fan:
+    - a yellow-green wall with a bright yellow crest and a violet edge;
+    - **the yellow streaks** tearing out ahead of it;
+    - yellow-green haze left on the street, with black lightning hanging in it;
+    - violet lightning striking down the buildings it meets;
+    - the air tinted yellow-green for a moment.
+  - Whoever it jams loses their quirk for `Jam` seconds: no moves (M1s,
+    dashes and the guard still work). Everyone sees static crackling on
+    them (`RadioJam`).
+- **Rivet Stab (R):**
+  - Rivets grow out of his fingertips, shoot out along five lines, and pull
+    back into his fingers.
+  - The nearest one hit is pinned on three rivets (`Pin`), then reeled in
+    to `ReelTo` studs in front of him, still dazed. A boss is only pierced.
+- **Rivet Storm (ult 2):**
+  - Tendrils burst from his hands and back, with a crown of them rising out
+    of his spine.
+  - Everyone caught is lifted `Lift` studs on the rivets, held `Hold`
+    seconds, then slammed into the street (`SlamDamage`, a knockdown).
+- **Code:**
+  - **Server:** `Handlers.RivetStab`, `Kit.rivetReel`, `Handlers.RadioWaves`
+    and `Handlers.RivetStorm` in `QuirkServer`. The jam check is in
+    `Kit.onUseAbility`.
+  - **Client effects:** in VFX's Decay block (`DY`): `Effects.RivetStab`,
+    `RivetPin`, `RadioWaves`, `RadioJam`, `RivetStorm`, `RivetLift` and
+    `RivetSlam`, plus `DY.liveTendril`, `DY.jag` and `DY.strike`.
+  - **Colours:** `PAL.GOLD`, `HAZE` and `YELLOW`.
+
+### Round 78: United States of Smash
+
+Round 78 reworked **United States of Smash** to match All Might vs
 All For One at Kamino (anime ep. 49 / manga ch. 94):
 
 1. **The press:** a lunge (26 studs) with the decoy left. It has to catch
@@ -154,8 +208,34 @@ lune run client_tests.luau ../src    # the client, VFX and HUD, ~60 min; prints 
 
 The harness is a mock: sounds never end, `Debris` never removes anything,
 there's no real physics or raycasts, and only player characters, dummies,
-Twice's doubles and the raid Nomu are found by spatial queries. These checks
-have failed on and off for many rounds and aren't caused by recent work:
+Twice's doubles and the raid Nomu are found by spatial queries. Found in
+round 84:
+- On the client, a tween applies its goal at once, so only end states can
+  be checked.
+- `RunService.Heartbeat` is never fired, so the input buffer never runs.
+  The round 84 slam test drives Heartbeat itself.
+- Nothing applies gravity: a root keeps whatever velocity it was last given.
+
+These checks have failed on and off for many rounds and aren't caused by
+recent work:
 - the two back-dash checks
 - "FLOAT 75: touching down…"
 - the snack machine's "…nobody else can take it"
+
+**Failing on the owner's rounds 79–83 place.** These fail on the upload as
+it came, before round 84. The changes there behind them look deliberate, so
+the old tests are out of date rather than the game being broken:
+- Client:
+  - "…hold BLOCK to guard, let go to drop it": round 82's phone buttons
+    wait to tell a tap from a hold.
+  - "THE CLIPS", "HITSTOP", "M1Brawler4" and "THE CROUCH": the M1 and
+    crouch clips were re-keyed.
+  - "USS 78: … the smash lands 0.06s in": `MoveUSSSmash` was re-keyed in
+    round 79.
+- Server:
+  - "no credit without a hit" and "B's KO count unchanged by A's fall"
+  - "V: BLINK"
+  - "a dummy KO'd by the finisher ragdolls" and "…keeps the hit's motion"
+  - "the M1 finisher … puts them down"
+  - Bakugo's Explosive Speed blitz checks ("B, 40 studs down the lane…" and
+    the six after it)

@@ -75,6 +75,13 @@ HUD.Init(player, Config, {
 			fn()
 		end
 	end,
+	-- (round 82) a button a finger can HOLD: it has a let-go (HIT, BLOCK,
+	-- DASH, the moves). EMOTE only taps on a phone: a tap opens the wheel
+	-- and a tap on one plays it (its let-go needs a mouse to point with)
+	TouchHoldable = function(name)
+		local h = Touch.handlers[name]
+		return h ~= nil and h.up ~= nil and name ~= "QuirkEmote"
+	end,
 })
 VFX.Hooks.Flash = HUD.Flash
 VFX.Hooks.Blind = HUD.Blind
@@ -108,6 +115,7 @@ local FreeCam = { on = false }
 local dashing = false
 local activeDashCleanup
 local CombatInput = { untilAt = 0, pending = nil, buffer = 0.14 }
+local m1Held -- (round 84: set up with the M1 key below; the slam jump reads it)
 
 local function actionRemaining(char)
 	local serverUntil = char and tonumber(char:GetAttribute("CombatActionUntil")) or 0
@@ -455,9 +463,14 @@ local function refreshHud(resetCooldowns)
 end
 
 -- Eraser Head's capture scarf caught you: no quirk for a few seconds
+-- (round 84: nor while Radio Waves has you jammed)
 local function erased(char)
 	if (char:GetAttribute("ErasedUntil") or 0) > workspace:GetServerTimeNow() then
 		HUD.Callout("QUIRK ERASED", Color3.fromRGB(255, 60, 60))
+		return true
+	end
+	if (char:GetAttribute("JammedUntil") or 0) > workspace:GetServerTimeNow() then
+		HUD.Callout("SIGNAL JAMMED", Color3.fromRGB(200, 150, 255))
 		return true
 	end
 	return false
@@ -760,10 +773,27 @@ end
 -- UPSLAM: hold jump and throw the 4th - you stay on your feet: holding jump
 -- through a grounded chain never hops you, whenever you pressed it and
 -- however long you hold it, and it still doesn't once the 4th is out (until
--- you let go). DOWNSLAM: TAP jump during the chain - you hop the moment you
--- let go - and throw the 4th anywhere off the ground.
-local slamJump = { downAt = nil, swung = false, holdUp = false, hopped = false, hopAt = 0 }
-local function jumpHeld(hum)
+-- you let go). DOWNSLAM: TAP jump during the chain (round 83: press and let
+-- go inside Config.M1.Slam.TapMax) - you hop (after hit 3, once its swing
+-- lets you) - and the 4th goes at the top of the hop.
+-- (round 83) downAt: when jump went down; holdUp: the 4th went out as the
+-- upslam (you stay down till you let go); hopAt: the slam hop; armedAt: a tap
+-- waiting for hit 3 to hop; commitAt: a 4th waiting a moment to see whether
+-- jump was a tap (Slam.UpCommit); fixAt: the hop's speed still to set; raw /
+-- rawAt: this frame's jump input, read before it's cleared; groundAt: the
+-- last frame the feet were on something; suppressing: a grounded chain, where
+-- a jump press is the slam's, not a jump; apexAt: a downslam waiting for the
+-- top of the hop (round 81)
+-- (round 84) seenAt: the press QuirkM1Jump has looked at; pressArm: armed by
+-- that press itself (one after hit 3 - it hops without waiting for the
+-- let-go); upAt: a press decided as the upslam (held through hit 3's swing
+-- with the 4th clicked into it); hopPress: the press that hopped you (still
+-- held when you land, it doesn't jump you again)
+local slamJump = { downAt = nil, holdUp = false, hopAt = -1, groundAt = -1, raw = false, suppressing = false }
+-- the jump input itself: Space, the pad's A, or the phone's jump button
+-- (that one only shows as Humanoid.Jump, which Roblox's control script sets
+-- every frame)
+function slamJump.read(hum)
 	if UserInputService:IsKeyDown(Enum.KeyCode.Space) or (hum and hum.Jump) then
 		return true
 	end
@@ -771,6 +801,20 @@ local function jumpHeld(hum)
 		return UserInputService:IsGamepadButtonDown(Enum.UserInputType.Gamepad1, Enum.KeyCode.ButtonA)
 	end)
 	return ok and down == true
+end
+-- jump just went down: a tap still armed is dropped (pressed again and held,
+-- it's the upslam now; let go quickly, it arms again)
+function slamJump.pressed(now)
+	slamJump.downAt, slamJump.armedAt = now, nil
+end
+local function jumpHeld(hum)
+	-- (round 83) QuirkM1Jump clears Humanoid.Jump to keep you on the street in
+	-- a chain, so what it read this frame (before the clear) still counts -
+	-- plus the keys, read now
+	if slamJump.rawAt and os.clock() - slamJump.rawAt < 0.1 then
+		return slamJump.raw or slamJump.read(nil)
+	end
+	return slamJump.read(hum)
 end
 -- studs between your feet and the street
 local function feetHeight(root, hum)
@@ -786,7 +830,11 @@ local function m1Variant(hum, root)
 		return "Down"
 	end
 	-- (round 75) just hopped for it: it's the downslam, however low you are yet
-	if slamJump.hopped and os.clock() - slamJump.hopAt < 0.6 then
+	-- (round 81: while the hop lasts - a jump is ~0.51s; later than this the
+	-- server already has you back on the street)
+	-- (round 83: by the hop's time alone - the old flag was wiped the frame
+	-- after a tap's hop)
+	if os.clock() - slamJump.hopAt < 0.5 then
 		return "Down"
 	end
 	if jumpHeld(hum) then
@@ -795,7 +843,9 @@ local function m1Variant(hum, root)
 	return nil
 end
 
-local function useM1(bufferPress)
+-- bufferPress = false: a retry (held M1, a buffered press); atApex = true:
+-- the downslam held for the top of the hop goes now whatever (round 81)
+local function useM1(bufferPress, atApex)
 	if BlastFly.active and BlastFly.stop then
 		BlastFly.stop("Action") -- (round 73: an M1 drops him out of his flight)
 	end
@@ -814,7 +864,19 @@ local function useM1(bufferPress)
 	local remaining = math.max(actionRemaining(char), m1Next - now)
 	if remaining > 0 or dashing then
 		if bufferPress ~= false then
-			bufferInput(char, remaining, function() useM1(false) end)
+			local run = function() useM1(false) end
+			bufferInput(char, remaining, run)
+			-- (round 84) the 4th clicked into hit 3's swing with jump held down is
+			-- kept however early (the buffer's 0.14s is shorter than the swing):
+			-- that's the upslam, and the slam jump waits on it
+			local fourthNext = (now - m1Last > Config.M1.ComboReset and 1 or m1Count % Config.M1.ComboLength + 1) == Config.M1.ComboLength
+			if not (CombatInput.pending and CombatInput.pending.run == run) and fourthNext and hum and remaining <= 0.4
+				and not dashing and jumpHeld(hum) then
+				CombatInput.pending = { char = char, run = run, readyAt = workspace:GetServerTimeNow() + remaining, expires = os.clock() + remaining + 0.1 }
+			end
+			if CombatInput.pending and CombatInput.pending.run == run then
+				CombatInput.pending.m1 = true -- (round 84: the slam jump asks whether an M1's coming)
+			end
 		end
 		return
 	end
@@ -829,7 +891,39 @@ local function useM1(bufferPress)
 		VFX.Play("Punch", char, { Count = m1Count, Finisher = false }, true)
 		return
 	end
-	if now - m1Last > Config.M1.ComboReset then
+	-- (round 81) THE DOWNSLAM GOES AT THE TOP OF THE HOP: thrown while you're
+	-- still on the way up, it's held (not dropped) until you start to come
+	-- down - up, then down, never a hammer on the way up
+	local fresh = now - m1Last > Config.M1.ComboReset
+	-- (round 83: and the frame or two after the slam hop, before the body's
+	-- had its push up)
+	local fourth = (fresh and 1 or m1Count % Config.M1.ComboLength + 1) == Config.M1.ComboLength
+	if not atApex and hum and root and fourth and (root.AssemblyLinearVelocity.Y > 0.5 or now - slamJump.hopAt < 0.12)
+		and m1Variant(hum, root) == "Down" then
+		slamJump.apexAt = slamJump.apexAt or now
+		return
+	end
+	slamJump.apexAt = nil
+	-- (round 83) the 4th with jump only just pressed (Config.M1.Slam.UpCommit):
+	-- it waits that moment - let go by then and it was a tap (the hop, then
+	-- the downslam at its top); still held, it's the upslam. And with a tap's
+	-- hop still to go (armed), it waits for the hop (a frame: both wait out
+	-- hit 3's lock)
+	local SL = Config.M1.Slam or {}
+	-- (a jump pressed in this same frame - the click came first - isn't
+	-- seen by QuirkM1Jump yet: it counts as just pressed here)
+	if not slamJump.downAt and hum and fourth and jumpHeld(hum) then
+		slamJump.pressed(now)
+	end
+	-- (round 84: a press already decided as the upslam doesn't wait)
+	if not atApex and hum and root and fourth and (slamJump.armedAt
+		or (slamJump.downAt and slamJump.upAt ~= slamJump.downAt and now - slamJump.downAt < (SL.UpCommit or 0.1)
+			and m1Variant(hum, root) == "Up")) then
+		slamJump.commitAt = slamJump.commitAt or now
+		return
+	end
+	slamJump.commitAt = nil
+	if fresh then
 		m1Count = 0
 	end
 	m1Count = m1Count % Config.M1.ComboLength + 1
@@ -838,11 +932,9 @@ local function useM1(bufferPress)
 	m1Next = now + (finisher and Config.M1.FinisherCooldown or Config.M1.Cooldown)
 	predictAction(finisher and (Config.M1.FinisherActionTime or 0.4) or (Config.M1.ActionTime or 0.18))
 	CombatInput.m1Until = CombatInput.untilAt -- (round 65: a side / back dash may cut into it)
-	-- (round 63) a swing with jump held: it's the upslam you're holding it
-	-- for, not a hop
-	if hum and jumpHeld(hum) then
-		slamJump.swung = true
-	end
+	-- (round 81) chaining slows your walk (Config.M1.ChainWalk): through the
+	-- swing and the next one's window, and a beat after
+	CombatInput.m1SlowUntil = now + (finisher and (Config.M1.FinisherActionTime or 0.42) or math.max(Config.M1.Cooldown, Config.M1.ActionTime or 0.18)) + 0.1
 	local variant = finisher and hum and root and m1Variant(hum, root) or nil
 	if variant == "Up" then
 		slamJump.holdUp = true -- (and you stay down till you let go)
@@ -874,50 +966,194 @@ end
 
 -- (round 63) Jump during a grounded M1 chain: HELD it's the upslam (no hop,
 -- however long you hold it - the 4th is thrown standing and you stay on your
--- feet); TAPPED it's a hop for the downslam, the moment you let go. Still
--- held when the chain runs out (ComboReset): an ordinary jump.
+-- feet); TAPPED it's a hop for the downslam. Still held when the chain runs
+-- out (ComboReset): an ordinary jump.
+-- (round 83) Round 75's "held: hop as soon as the swing lets you" is gone (it
+-- was the owner's "holding space makes you jump": Space pressed in the first
+-- ~0.23s of any beat hopped you, and then Roblox's held jump bunny-hopped you
+-- through the chain into a downslam). Now:
+--  * held: never a hop in a grounded chain. It's stopped by clearing
+--    Humanoid.Jump every frame here (Input + 1, after Roblox's control script
+--    sets it at Input) - that's what stops the keys, the pad AND the phone's
+--    jump button. Off a phone the Jumping state is switched off too (on one
+--    that would hide Roblox's jump button and drop the finger on it, which
+--    read as a let-go: every press hopped).
+--  * a tap (pressed and let go inside Slam.TapMax): after hit 3 the hop goes
+--    as you let go (once hit 3's swing lets you); after hit 1 or 2 it's kept
+--    (armed) and goes once hit 3's swing lets you - so the 4th is the one
+--    thrown at the top of the hop. If no more M1s come (Cooldown +
+--    Slam.ArmWait after the last one) it was a jump out of the chain: an
+--    ordinary jump then (not eaten). Pressed again and held, the arm's
+--    dropped (the upslam); a jump pressed the same frame as the 4th's click
+--    counts as just pressed (UpCommit).
+--  * (round 84) AFTER HIT 3 IT'S THE PRESS, NOT THE LET-GO: Space down
+--    after hit 3's click hops you the moment hit 3's swing lets you (your
+--    own screen's count of it - the server's copy comes a ping late), or
+--    Slam.PressGrace after the press if it already has. Still held as the
+--    swing ends with the 4th clicked into it (buffered, or M1 held down),
+--    it's the upslam instead (JJS / TSB: hold jump through the 3rd's
+--    recovery and M1); Space and the 4th pressed together, UpCommit
+--    decides as before. Held from before hit 3, still never a hop; and one
+--    press is one jump - still held when you land, it doesn't jump you again.
+--  * the slam hop rises at Downslam.HopSpeed whatever the quirk's
+--    JumpPower, so the hammer meets the head for everyone.
+--  * the feet off the street for a frame (a curb, a slope) isn't leaving it
+--    (Slam.AirGrace), and nothing else jumps you while you chain: the jump
+--    feel's coyote / buffer jumps and Float's lift check `suppressing`, and
+--    a phone's auto-jump is off.
 do
-	local suppressedOn -- the Humanoid we switched jumping off on
+	local SJ = slamJump
+	-- the slam hop: up at HopSpeed (set once it's seen rising: the jump's own
+	-- push comes in the physics step after ChangeState), its pose here, and
+	-- everyone else is told (the parkour relay). `plain`: a tap that no hit 3
+	-- followed - you were jumping out, so it's your own jump, no slam pose
+	function SJ.hop(char, hum, now, plain)
+		SJ.hopAt, SJ.fixAt = now, not plain and now or nil
+		hum:ChangeState(Enum.HumanoidStateType.Jumping)
+		if plain then
+			return
+		end
+		if VFX.M1Kit and VFX.M1Kit.slamHop then
+			VFX.M1Kit.slamHop(char, true)
+		end
+		UseAbility:FireServer(Config.PARKOUR_INDEX, "SlamHop")
+	end
+	-- (round 84) hit 3's swing on your own screen (the server's lock comes a
+	-- ping late: waiting on it was half the "takes too long to jump")
+	local function ownLock()
+		return CombatInput.untilAt - workspace:GetServerTimeNow()
+	end
 	RunService:BindToRenderStep("QuirkM1Jump", Enum.RenderPriority.Input.Value + 1, function()
-		local _, hum = getCharacter()
-		local held = hum ~= nil and jumpHeld(hum)
+		local char, hum, root = getCharacter()
 		local now = os.clock()
+		-- this frame's jump input, before anything below clears it
+		local raw = hum ~= nil and SJ.read(hum)
+		SJ.raw, SJ.rawAt = raw, now
+		local SL = Config.M1.Slam or {}
 		local len = Config.M1.ComboLength
 		local chain = m1Count >= 1 and m1Count < len and now - m1Last < Config.M1.ComboReset
-		local grounded = hum ~= nil and hum.FloorMaterial ~= Enum.Material.Air
+		local floor = hum ~= nil and hum.FloorMaterial ~= Enum.Material.Air
+		if floor then
+			SJ.groundAt = now
+		end
+		-- (a one-frame Air reading isn't leaving the street; the slam hop is)
+		local grounded = floor or (hum ~= nil and now - SJ.groundAt < (SL.AirGrace or 0.1) and now - SJ.hopAt > 0.3)
 		local hop = false
-		if not held then
-			-- a tap in the chain: up you go as you let go
-			hop = slamJump.downAt ~= nil and not slamJump.swung and not slamJump.hopped and chain and grounded
-			slamJump.downAt, slamJump.swung, slamJump.holdUp, slamJump.hopped = nil, false, false, false
-		elseif not slamJump.downAt then
-			slamJump.downAt = now
+		if raw then
+			if not SJ.downAt then
+				SJ.pressed(now)
+			end
+			-- (round 84) a press after hit 3 is armed as it goes down - it hops
+			-- as soon as hit 3's swing lets you, held or not (the 4th clicked in
+			-- the same frame is UpCommit's to decide)
+			if SJ.seenAt ~= SJ.downAt then
+				SJ.seenAt = SJ.downAt
+				if chain and m1Count == len - 1 and grounded and not SJ.holdUp and not SJ.commitAt then
+					SJ.armedAt, SJ.pressArm = now, SJ.downAt
+				end
+			end
+		elseif SJ.downAt then
+			-- let go: a tap in the chain is the slam hop (armed till hit 3's
+			-- swing lets you); a longer hold let go before the 4th is nothing
+			-- (round 84: a press after hit 3 armed itself already)
+			if SJ.pressArm ~= SJ.downAt and now - SJ.downAt <= (SL.TapMax or 0.2) and chain and grounded and not SJ.holdUp then
+				SJ.armedAt = now
+			end
+			SJ.downAt, SJ.holdUp = nil, false
 		end
-		-- (round 75) held in the chain: no waiting for the let-go - up you go
-		-- as soon as the swing's lock lets you (HopDelay after the press),
-		-- unless an M1 goes out with it held (that's the upslam)
-		if held and slamJump.downAt and not slamJump.swung and not slamJump.hopped and not slamJump.holdUp and chain and grounded
-			and now - slamJump.downAt >= ((Config.M1.Downslam or {}).HopDelay or 0.07) then
-			local c = player.Character
-			if c and actionRemaining(c) <= 0 and not CombatInput.pending then
-				hop = true
+		-- (hop: "slam" - hit 3's out, the 4th goes at its top; "plain" - no
+		-- hit 3 came by Cooldown + ArmWait after the last M1, sized so a
+		-- clicked chain's next hit beats it: a jump out of the chain)
+		if SJ.armedAt then
+			-- (round 84) armed by a press that's still held
+			local pressing = SJ.pressArm ~= nil and SJ.pressArm == SJ.downAt
+			if not char or not grounded or m1Count >= len or dashing or busy(char) then
+				SJ.armedAt = nil
+			elseif pressing and SJ.commitAt then
+				-- the 4th clicked inside PressGrace: it's waiting on UpCommit - held
+				-- on, the upslam; let go, a tap (armed again as you let go)
+				SJ.armedAt, SJ.pressArm = nil, nil
+			elseif m1Count == len - 1 and ownLock() <= 0 and (not pressing or now - SJ.downAt >= (SL.PressGrace or 0.04)) then
+				SJ.armedAt = nil
+				local m1Coming = (CombatInput.pending and CombatInput.pending.m1) or m1Held
+				if pressing and m1Coming then
+					-- held through hit 3's swing with the 4th clicked into it: the upslam
+					SJ.pressArm, SJ.upAt = nil, SJ.downAt
+				else
+					hop = "slam"
+				end
+			elseif m1Count < len - 1 and not CombatInput.pending and now - m1Last > Config.M1.Cooldown + (SL.ArmWait or 0.3) then
+				SJ.armedAt = nil
+				hop = "plain"
 			end
 		end
-		local suppress = hum ~= nil and held and grounded and not hop and not slamJump.hopped and (slamJump.holdUp or chain)
-		if suppress and suppressedOn ~= hum then
-			suppressedOn = hum
+		-- held in a grounded chain (or after the upslam till you let go): no jump
+		-- (round 84: nor still holding the press that hopped you; and never
+		-- while the hop's own push is still going on)
+		local heldOn = SJ.hopPress ~= nil and SJ.hopPress == SJ.downAt
+		SJ.suppressing = hum ~= nil and grounded and hop == false and now - SJ.hopAt > 0.3 and (SJ.holdUp or chain or heldOn)
+		local suppress = SJ.suppressing and raw
+		if suppress then
+			hum.Jump = false
+		end
+		local stateOff = suppress and inputMode ~= "Touch"
+		if stateOff and SJ.stateOff ~= hum then
+			if SJ.stateOff and SJ.stateOff.Parent then
+				SJ.stateOff:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+			end
+			SJ.stateOff = hum
 			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-		elseif not suppress and suppressedOn then
-			if suppressedOn.Parent then
-				suppressedOn:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+		elseif not stateOff and SJ.stateOff then
+			if SJ.stateOff.Parent then
+				SJ.stateOff:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
 			end
-			suppressedOn = nil
+			SJ.stateOff = nil
 		end
-		if hop and hum and hum.Health > 0 and not busy(player.Character) then
-			slamJump.hopped = true
-			slamJump.hopAt = now
-			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-			hum:ChangeState(Enum.HumanoidStateType.Jumping)
+		-- a phone's auto-jump (a body pressed against you) is off while you chain
+		if SJ.suppressing and SJ.autoOff ~= hum then
+			if SJ.autoOff and SJ.autoOff.Parent then
+				SJ.autoOff.AutoJumpEnabled = true
+			end
+			SJ.autoOff = nil
+			if hum.AutoJumpEnabled then
+				SJ.autoOff = hum
+				hum.AutoJumpEnabled = false
+			end
+		elseif not SJ.suppressing and SJ.autoOff then
+			if SJ.autoOff.Parent then
+				SJ.autoOff.AutoJumpEnabled = true
+			end
+			SJ.autoOff = nil
+		end
+		if hop and hum and hum.Health > 0 and not busy(char) then
+			SJ.hop(char, hum, now, hop == "plain")
+			SJ.hopPress = raw and SJ.downAt or nil
+		end
+		if SJ.fixAt and root then
+			local v = root.AssemblyLinearVelocity
+			if now - SJ.fixAt > 0.2 then
+				SJ.fixAt = nil
+			elseif v.Y > 8 then
+				SJ.fixAt = nil
+				local g = tonumber(workspace.Gravity) or 196.2
+				local up = ((Config.M1.Downslam or {}).HopSpeed or 50) - g * math.max(now - SJ.hopAt - 1 / 60, 0)
+				root.AssemblyLinearVelocity = Vector3.new(v.X, math.max(up, 8), v.Z)
+			end
+		end
+		-- (round 81) a downslam thrown on the way up goes at the top of the hop
+		local apexRoot = SJ.apexAt and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if SJ.apexAt and (not apexRoot or (apexRoot.AssemblyLinearVelocity.Y <= 0.5 and now - SJ.hopAt >= 0.12) or now - SJ.apexAt > 0.6) then
+			SJ.apexAt = nil
+			if apexRoot then
+				useM1(false, true)
+			end
+		end
+		-- (round 83) a 4th held back a moment (UpCommit): let go first, it was a
+		-- tap (the hop above, then the downslam held for the top); held on, the
+		-- upslam
+		if SJ.commitAt and (not raw or now - (SJ.downAt or now) >= (SL.UpCommit or 0.1) or now - SJ.commitAt > (SL.UpCommit or 0.1) + 0.1) then
+			SJ.commitAt = nil
+			useM1(false)
 		end
 	end)
 end
@@ -1466,7 +1702,8 @@ do
 	end
 	VFX.Hooks.FloatArm = FloatFly.arm
 	UserInputService.JumpRequest:Connect(function()
-		if not FloatFly.active and FloatFly.armed() then
+		-- (round 83: not in a grounded M1 chain - jump there is the slam's)
+		if not FloatFly.active and FloatFly.armed() and not slamJump.suppressing then
 			local _, hum = getCharacter()
 			if hum and hum.FloorMaterial ~= Enum.Material.Air then
 				task.defer(FloatFly.lift) -- (off the ground first: the jump's own push)
@@ -1655,6 +1892,11 @@ RunService.RenderStepped:Connect(function(dt)
 		local target = sprinting and walk * MOVE.SprintMultiplier or walk
 		if blocking then
 			target = math.min(base, GUARD.BlockWalkSpeed or 7)
+		end
+		-- (round 81) chaining M1s: about half a walk, so walking can't outrun
+		-- the swings (the step and the pull on a landed hit do the closing)
+		if (CombatInput.m1SlowUntil or 0) > os.clock() then
+			target = math.min(target, walk * (Config.M1.ChainWalk or 0.5))
 		end
 		local slowedTo = char:GetAttribute("SlowedTo")
 		if type(slowedTo) == "number" then
@@ -2360,10 +2602,12 @@ do
 		J.jumpWas = held
 		local v = root.AssemblyLinearVelocity
 		-- (something else has the body: a vault, a dash, a stun, a ragdoll...)
+		-- (round 83: ...or a grounded M1 chain - a jump there is the slam's:
+		-- QuirkM1Jump keeps you down or hops you itself)
 		local occupied = Parkour.Busy or dashing or hum.PlatformStand or root.Anchored
 			or char:GetAttribute("Ragdolled") or char:GetAttribute("Stunned") or char:GetAttribute("Submerged")
 			or char:GetAttribute("Frozen") or char:GetAttribute("Finishing") or char:GetAttribute("BeingFinished")
-			or char:GetAttribute("Holding")
+			or char:GetAttribute("Holding") or slamJump.suppressing
 		if grounded then
 			if J.airborne then
 				J.airborne = false
@@ -3002,7 +3246,7 @@ end, false)
 
 -- Punch: tap or HOLD (mouse, B or the mobile HIT button) to keep the combo going.
 -- With a menu open, B closes it instead.
-local m1Held = false
+m1Held = false
 ContextActionService:BindAction("QuirkPunch", function(_, state, input)
 	if uiOpen() and fromGamepad(input) then
 		if state == Enum.UserInputState.Begin then
@@ -3317,6 +3561,115 @@ do
 		local pitch = math.asin(math.clamp(look.Y, -1, 1)) + dir.Y * invert * k * math.rad(PAD.PitchSpeed or 190) * sens * dt
 		pitch = math.clamp(pitch, -math.rad(80), math.rad(80))
 		cam.CFrame = CFrame.new(cam.CFrame.Position) * CFrame.fromEulerAnglesYXZ(pitch, yaw, 0)
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 82) A DRAG THAT STARTS ON A PHONE BUTTON TURNS THE CAMERA
+-- (Config.Look.Touch). The buttons keep the finger (a tap or a hold mustn't
+-- nudge the view), so Roblox's camera never sees a drag that starts on one:
+-- the HUD measures it (HUD.TakeTouchLook) and it's handed to Roblox's own
+-- camera as if Roblox had seen it - added to what its CameraInput.getRotation
+-- returns, at the same speed and sign as its own touch pan. That keeps its
+-- pitch limits, and the Follow camera (a phone's default) counts it as you
+-- turning the camera, so it doesn't swing back behind you. A drag that
+-- starts on open screen is Roblox's already (it never fires a button now),
+-- so it isn't fed twice. Nothing turns during a cutscene, the free cam, a
+-- lock-on (that camera turns itself), a scope, a menu or the emote wheel.
+-- If that PlayerModule isn't there (the test harness, or a future Roblox
+-- one without it), the camera's turned just before Roblox's runs, the way
+-- QuirkPadLook does it - though Roblox's Follow camera can swing a fast turn
+-- back then. The player's camera mode is never changed.
+---------------------------------------------------------------------------
+do
+	local TL = (Config.Look or {}).Touch or {}
+	local TouchLook = { wrapped = false }
+	Parkour.TouchLook = TouchLook -- (for the tests)
+	local UGS = nil
+	pcall(function()
+		UGS = UserSettings():GetService("UserGameSettings")
+	end)
+	-- (only the everyday camera, and only on a phone)
+	function TouchLook.ok()
+		local cam = workspace.CurrentCamera
+		return TL.Enabled ~= false and inputMode == "Touch" and cam ~= nil and cam.CameraType == Enum.CameraType.Custom
+			and not VFX.InCinematic() and not FreeCam.on and not lockTarget and not scoped
+			and not uiOpen() and not HUD.EmoteWheelVisible()
+	end
+	-- a drag (GUI pixels) as camera turn (radians), the way Roblox's
+	-- CameraInput turns a touch pan: Speed per pixel, the pitch eased off
+	-- toward straight up or down (its adjustTouchPitchSensitivity, 25% at
+	-- the pole), then the player's Y invert
+	function TouchLook.rotation(d)
+		local cam = workspace.CurrentCamera
+		local pitch = cam and math.asin(math.clamp(cam.CFrame.LookVector.Y, -1, 1)) or 0
+		local dy = d.Y
+		if dy * pitch < 0 then
+			local curve = 1 - (2 * math.abs(pitch) / math.pi) ^ 0.75
+			dy *= curve * 0.75 + 0.25
+		end
+		local invert = 1
+		if UGS then
+			pcall(function()
+				invert = UGS:GetCameraYInvertValue()
+			end)
+		end
+		local speed = TL.Speed or {}
+		return Vector2.new(d.X * math.rad(speed.Yaw or 1), dy * math.rad(speed.Pitch or 0.66) * invert)
+	end
+	-- this frame's drag as a turn (zero when it isn't ours to turn); the
+	-- HUD's drag is taken either way, so nothing saves up
+	function TouchLook.take()
+		local d = HUD.TakeTouchLook()
+		if d.Magnitude < 1e-4 or not TouchLook.ok() then
+			return Vector2.zero
+		end
+		return TouchLook.rotation(d)
+	end
+	-- Roblox's own camera takes it (CameraInput is shared: ClassicCamera
+	-- calls CameraInput.getRotation through the module's table every frame)
+	task.spawn(function()
+		local ok, CI = pcall(function()
+			local ps = player:WaitForChild("PlayerScripts", 20)
+			local pm = ps and ps:WaitForChild("PlayerModule", 20)
+			local cm = pm and pm:WaitForChild("CameraModule", 20)
+			local ci = cm and cm:WaitForChild("CameraInput", 20)
+			return ci and require(ci)
+		end)
+		if not (ok and type(CI) == "table" and type(CI.getRotation) == "function") then
+			return -- (not there: the turn below does it)
+		end
+		local base = CI.getRotation
+		local hooked = pcall(function()
+			CI.getRotation = function(...)
+				local r = base(...)
+				local fine, add = pcall(TouchLook.take)
+				if fine and typeof(r) == "Vector2" and typeof(add) == "Vector2" and add.Magnitude > 0 then
+					return r + add
+				end
+				return r
+			end
+		end)
+		TouchLook.wrapped = hooked and CI.getRotation ~= base
+	end)
+	-- (the fallback) turn the camera just before Roblox's camera runs
+	RunService:BindToRenderStep("QuirkTouchLook", Enum.RenderPriority.Camera.Value - 1, function()
+		if TouchLook.wrapped then
+			return -- (Roblox's camera takes it itself)
+		end
+		local rot = TouchLook.take()
+		local cam = workspace.CurrentCamera
+		if rot.Magnitude <= 0 or not cam then
+			return
+		end
+		local look = cam.CFrame.LookVector
+		local yaw = math.atan2(-look.X, -look.Z) - rot.X
+		local pitch = math.clamp(math.asin(math.clamp(look.Y, -1, 1)) - rot.Y, -math.rad(80), math.rad(80))
+		cam.CFrame = CFrame.new(cam.CFrame.Position) * CFrame.fromEulerAnglesYXZ(pitch, yaw, 0)
+	end)
+	-- (a new body: nothing held over from the last one)
+	player.CharacterAdded:Connect(function()
+		HUD.TouchRelease()
 	end)
 end
 
@@ -4129,6 +4482,9 @@ end
 local function onCharacter(char)
 	if activeDashCleanup then activeDashCleanup("Interrupted") end
 	CombatInput.untilAt, CombatInput.pending = 0, nil
+	CombatInput.m1SlowUntil, slamJump.apexAt = nil, nil -- (round 81)
+	slamJump.armedAt, slamJump.commitAt, slamJump.fixAt, slamJump.holdUp = nil, nil, nil, false -- (round 83)
+	slamJump.pressArm, slamJump.upAt, slamJump.hopPress = nil, nil, nil -- (round 84)
 	m1Count, m1Last, m1Next = 0, 0, 0
 	guardHeld, m1Held = false, false
 	VFX.CancelCinematic()

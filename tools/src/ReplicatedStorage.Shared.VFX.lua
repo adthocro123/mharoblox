@@ -156,11 +156,15 @@ local FIRE = {
 	Color3.fromRGB(255, 96, 24),
 }
 local ICE_TIP = Color3.fromRGB(222, 244, 255)
--- glacier palette from the reference: pale, see-through, lighter toward the tips
-local ICE_BASE = Color3.fromRGB(158, 210, 240)
-local ICE_MID = Color3.fromRGB(196, 232, 250)
-local ICE_TOP = Color3.fromRGB(238, 249, 255)
-local ICE_OUTLINE = Color3.fromRGB(118, 184, 226)
+-- (round 81) the anime's ice palette (sampled from the Sports Festival
+-- frames): near-white lit faces, a desaturated steel-blue shadow half and a
+-- dark teal ink line. Opaque ice: the cel shading is painted on, not glass.
+-- (more tones - deep crevice, fresh break, frost, the spine's glow - are on
+-- IceKit.PAL)
+local ICE_BASE = Color3.fromRGB(112, 148, 178) -- (the shadow half)
+local ICE_MID = Color3.fromRGB(198, 224, 242) -- (sheets, blocks: the lit body)
+local ICE_TOP = Color3.fromRGB(226, 242, 252) -- (the lit half)
+local ICE_OUTLINE = Color3.fromRGB(36, 84, 116)
 local WIND = Color3.fromRGB(245, 250, 255)
 local EXHAUST = Color3.fromRGB(110, 180, 255)
 local EXHAUST_CORE = Color3.fromRGB(232, 244, 255)
@@ -491,6 +495,13 @@ do -- Sound: its helpers stay local to this block (Luau allows 200 locals per sc
 			end
 		end
 		sound.Ended:Connect(finish)
+		-- (round 81) FadeIn: it rises out of silence over its first FadeIn
+		-- seconds (a bed looping in under the last play dying away)
+		if layer.FadeIn and layer.FadeIn > 0 then
+			local full = sound.Volume
+			sound.Volume = 0
+			tween(sound, layer.FadeIn, { Volume = full }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+		end
 		sound:Play()
 		if start and not sound.IsLoaded then
 			-- a file that's still downloading restarts from 0 once it loads
@@ -628,6 +639,8 @@ end
 -- X = right, Y = up, -Z = forward. lookAt may be "root" to track the subject.
 -- Follow = true moves the whole shot with the subject (leaps, dives).
 -- Cut = true plays a camera-cut whoosh. Fov = { from, to }.
+-- (round 81) A shot's CutGain sets its whoosh's volume (0.7); Quiet = true
+-- cuts without one - where the move's own sound carries the cut.
 
 local Cine = Config.Cinematics or {}
 local cineToken = 0
@@ -659,7 +672,8 @@ local function shotCFrame(spec, basis, root)
 end
 
 -- subject: the character the shots are framed around.
--- opts: { Title, Subtitle, Color, Own = true for the caster, Face = Vector3 }
+-- opts: { Title, Subtitle, Color, Own = true for the caster, Face = Vector3,
+-- (round 81) CutGain = the opening whoosh's volume (1), Quiet = true: none }
 function VFX.Cinematic(subject, shots, opts)
 	opts = opts or {}
 	local cam = workspace.CurrentCamera
@@ -677,6 +691,15 @@ function VFX.Cinematic(subject, shots, opts)
 	local token = cineToken
 	cineActive, cineOwn = true, opts.Own == true
 	local saved = { Type = cam.CameraType, Fov = cam.FieldOfView, Subject = cam.CameraSubject }
+	-- (round 82) no name tag floating over him in the cutscene (a silhouette
+	-- frame would carry it); put back as it was after
+	local subHum = subject:FindFirstChildOfClass("Humanoid")
+	pcall(function()
+		saved.Names = subHum and subHum.DisplayDistanceType
+		if subHum then
+			subHum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+		end
+	end)
 	local start = root.Position
 	local look = opts.Face and (opts.Face - start) or root.CFrame.LookVector
 	look = Vector3.new(look.X, 0, look.Z)
@@ -695,6 +718,11 @@ function VFX.Cinematic(subject, shots, opts)
 			cineRestore = nil
 		end
 		RunService:UnbindFromRenderStep("QuirkCinematic")
+		if saved.Names and subHum and subHum.Parent then
+			pcall(function()
+				subHum.DisplayDistanceType = saved.Names
+			end)
+		end
 		cam.CameraType = saved.Type ~= Enum.CameraType.Scriptable and saved.Type or Enum.CameraType.Custom
 		cam.FieldOfView = saved.Fov
 		-- back to your own body (the one you have now: it may have been
@@ -715,7 +743,9 @@ function VFX.Cinematic(subject, shots, opts)
 	if Cine.Letterbox ~= false then
 		VFX.Hooks.Letterbox(true, opts.Title, opts.Subtitle, opts.Color)
 	end
-	VFX.PlaySound("CineCut", nil, 1)
+	if not opts.Quiet then
+		VFX.PlaySound("CineCut", nil, opts.CutGain or 1)
+	end
 	local index, shotStart = 1, os.clock()
 	RunService:BindToRenderStep("QuirkCinematic", Enum.RenderPriority.Camera.Value, function()
 		if cineToken ~= token then
@@ -732,8 +762,8 @@ function VFX.Cinematic(subject, shots, opts)
 			shotStart += shot.T
 			elapsed = os.clock() - shotStart
 			shot = shots[index]
-			if shot and shot.Cut then
-				VFX.PlaySound("CineCut", nil, 0.7)
+			if shot and shot.Cut and not shot.Quiet then
+				VFX.PlaySound("CineCut", nil, shot.CutGain or 0.7)
 			end
 		end
 		if not shot then
@@ -788,13 +818,19 @@ local SHOTS = {
 		{ T = 0.55, Cut = true, From = { V(-18, 3, -10), "root" }, To = { V(-18, 3, -60), "root" }, Fov = { 70, 70 } },
 		{ T = 0.6, Cut = true, From = { V(8, 6, -95), "root" }, To = { V(10, 8, -100), "root" }, Fov = { 70, 72 } },
 	},
-	-- Todoroki's Heaven-Piercing Ice Wall: over his shoulder as he stomps,
-	-- pulled way back and up to see how wide and high it goes, then from the
-	-- street at its far end looking up the spire as it breaks the clouds
+	-- Todoroki's Heaven-Piercing Ice Wall. (round 81) Four shots in the same
+	-- 3.05 s: low behind his right heel as the knee comes up and the foot
+	-- stamps down; cut on the stomp to a dolly alongside the run's front;
+	-- cut to a worm's-eye view 70 studs short of the crest, tilting up as the
+	-- sunburst erupts; cut back over his shoulder - him small at the left,
+	-- his hand up at it - pulling back and up through the cloud punch (the
+	-- anime's wide side shot). (Effects.IceWall pulls a shot in toward the
+	-- middle of the street if a building's in the way.)
 	IceWall = {
-		{ T = 0.55, From = { V(3, 2.5, 7), V(0, 2, -20) }, To = { V(2.5, 2, 5), V(0, 4, -30) }, Fov = { 60, 68 } },
-		{ T = 1.2, Cut = true, From = { V(-90, 45, 80), V(0, 60, -90) }, To = { V(-170, 140, 150), V(0, 150, -110) }, Fov = { 70, 82 }, Style = Enum.EasingStyle.Quad },
-		{ T = 1.3, Cut = true, From = { V(-55, 8, -110), V(0, 300, -200) }, To = { V(-65, 12, -100), V(0, 340, -205) }, Fov = { 80, 74 }, Style = Enum.EasingStyle.Sine },
+		{ T = 0.55, From = { V(1.6, 0.8, 4), V(0.3, 0.5, -6) }, To = { V(1.4, 0.6, 3.2), V(0.3, 0, -8) }, Fov = { 50, 44 } },
+		{ T = 0.7, Cut = true, From = { V(-50, 14, 8), V(12, 0, -40) }, To = { V(-58, 18, -90), V(12, 10, -150) }, Fov = { 72, 82 } },
+		{ T = 0.55, Cut = true, From = { V(-70, 1, -95), V(0, 15, -160) }, To = { V(-76, 4, -90), V(0, 220, -185) }, Fov = { 80, 86 }, Style = Enum.EasingStyle.Quad },
+		{ T = 1.25, Cut = true, From = { V(16, 3, 24), V(0, 52, -185) }, To = { V(24, 19, 50), V(0, 72, -185) }, Fov = { 78, 84 }, Style = Enum.EasingStyle.Quad },
 	},
 	-- Bakugo's Howitzer Impact: up from under him as he climbs, then a wide
 	-- shot of the fireball coming down
@@ -819,8 +855,9 @@ local function witnessShots(distance)
 end
 
 -- Start the right cutscene for this client: the full one for the caster, a
--- witness cut for anyone close enough, nothing for everyone else
-local function cinematicFor(char, key, isLocal, title, color)
+-- witness cut for anyone close enough, nothing for everyone else.
+-- (round 81) extra: { Quiet, CutGain } for both (VFX.Cinematic's opts)
+local function cinematicFor(char, key, isLocal, title, color, extra)
 	if not Cine.Enabled then
 		return
 	end
@@ -828,8 +865,9 @@ local function cinematicFor(char, key, isLocal, title, color)
 	if not root then
 		return
 	end
+	local quiet, cutGain = extra and extra.Quiet, extra and extra.CutGain
 	if isLocal then
-		VFX.Cinematic(char, SHOTS[key], { Title = title, Color = color, Own = true })
+		VFX.Cinematic(char, SHOTS[key], { Title = title, Color = color, Own = true, Quiet = quiet, CutGain = cutGain })
 		return
 	end
 	if Cine.Witness == false then
@@ -840,7 +878,7 @@ local function cinematicFor(char, key, isLocal, title, color)
 	if myRoot and me ~= char then
 		local dist = (myRoot.Position - root.Position).Magnitude
 		if dist <= (Cine.WitnessRadius or 90) then
-			VFX.Cinematic(me, witnessShots(dist), { Title = title, Color = color, Face = root.Position })
+			VFX.Cinematic(me, witnessShots(dist), { Title = title, Color = color, Face = root.Position, Quiet = quiet, CutGain = cutGain })
 		end
 	end
 end
@@ -1160,9 +1198,11 @@ local MOTIONS = {
 		{ pose = { RightArm = 95, LeftArm = { -40, 0, 20 }, LeftElbow = 40, Waist = { -18, 45, 0 }, RightLeg = -30, LeftLeg = 50, LeftKnee = 50 }, t = 0.05, hold = 0.4, style = Enum.EasingStyle.Back },
 		recover = 0.3,
 	},
-	IceWall = { -- lift the foot... stomp
+	IceWall = { -- lift the foot... stomp... (round 81) and the right hand scoops up at the crest
 		{ pose = { RightLeg = 75, RightKnee = 60, Waist = { 10, 0, 0 }, RightArm = { 40, 0, 40 }, LeftArm = { 40, 0, 40 } }, t = 0.25, hold = 0.24, style = Enum.EasingStyle.Sine },
-		{ pose = { RightLeg = -5, LeftLeg = 35, LeftKnee = 45, Waist = { -25, 0, 0 }, RightArm = { 30, 0, 50 }, LeftArm = { -40, 0, 20 } }, t = 0.06, hold = 0.9 },
+		{ pose = { RightLeg = -5, LeftLeg = 35, LeftKnee = 45, Waist = { -25, 0, 0 }, RightArm = { 30, 0, 50 }, LeftArm = { -40, 0, 20 } }, t = 0.06, hold = 0.5 },
+		{ pose = { RightLeg = -5, LeftLeg = 40, LeftKnee = 50, Waist = { -22, 8, 0 }, RightArm = { -15, 0, 25 }, RightElbow = 20, LeftArm = { -35, 0, 20 }, Neck = { 10, 0, 0 } }, t = 0.25, hold = 0.05, style = Enum.EasingStyle.Sine },
+		{ pose = { RightLeg = -5, LeftLeg = 8, LeftKnee = 8, Waist = { 12, 14, 0 }, RightArm = { 150, 0, 10 }, LeftArm = { -30, 0, 22 }, Neck = { 30, 0, 0 } }, t = 0.3, hold = 0.2, style = Enum.EasingStyle.Back },
 		recover = 0.3,
 	},
 	-- Iida: the spinning roundhouse (leg out, leaning away from it)
@@ -1371,7 +1411,8 @@ MOTIONS.M1Claw4 = { -- five fingers, full lunge
 
 -- Which limb lands each hit, and what shape its swing smear takes
 -- (Straight = forward streaks, Hook/Round = a flat arc, Rise/Drop = a
--- vertical arc). Contact = seconds from the start of the swing to the hit.
+-- vertical arc). Contact = seconds from the start of the swing to the hit
+-- (the procedural motion's; round 81: a clip's own "Hit" key wins).
 local M1_SETS = {
 	Brawler = {
 		{ Motion = "M1Brawler1", Limb = "RightHand", Swing = "Straight", Contact = 0.095 },
@@ -1431,14 +1472,17 @@ VFX.M1Sets = M1_SETS
 -- The 4th hit's JJS variants: Up = the uppercut (hold jump), Down = the
 -- downslam (thrown in the air). Kickers (and Mixed, whose 4th is a kick) use
 -- their legs.
+-- (round 83) the kickers' are keyframed now too (m1.py M1KickUp / M1KickDown:
+-- the rising kick on the street, the axe kick out of the slam hop; the
+-- motions are the R15 fallback), and keep their legs walking or not
 VFX.M1Variants = {
 	Up = {
 		Hands = { Motion = "M1Uppercut", Limb = "RightHand", Swing = "Rise", Contact = 0.13 },
-		Feet = { Motion = "M1KickUp", Limb = "RightFoot", Swing = "Rise", Contact = 0.14 },
+		Feet = { Motion = "M1KickUp", Limb = "RightFoot", Swing = "Rise", Contact = 0.14, AirLegs = true },
 	},
 	Down = {
 		Hands = { Motion = "M1Downslam", Limb = "RightHand", Swing = "Drop", Contact = 0.14 },
-		Feet = { Motion = "M1Kicks4", Limb = "RightFoot", Swing = "Drop", Contact = 0.15 },
+		Feet = { Motion = "M1KickDown", Fallback = "M1Kicks4", Limb = "RightFoot", Swing = "Drop", Contact = 0.15, AirLegs = true },
 	},
 }
 -- (round 62) Creati's weapons: their own uppercut and downslam
@@ -1542,7 +1586,7 @@ MOTIONS.RivetStorm = { { pose = "Menace", t = 0.1, hold = 0.65, style = Enum.Eas
 -- Radio Waves: both hands drawn back while the lightning builds, then both
 -- palms thrust out as the pulse goes
 MOTIONS.RadioWaves = {
-	{ pose = "PunchCharge", t = 0.12, hold = 0.26 },
+	{ pose = "PunchCharge", t = 0.12, hold = 0.31 }, -- (round 84: the orb's longer Windup)
 	{ pose = "Blast", t = 0.05, hold = 0.45, style = Enum.EasingStyle.Back },
 	recover = 0.25,
 }
@@ -1688,7 +1732,19 @@ local function clipAt(j, now)
 	local tr = j.clip
 	local t = now - j.t0
 	if j.holdAt and t > j.holdAt then
-		t = math.max(j.holdAt, t - j.holdFor) -- (round 63: held at the Hold key)
+		if j.holdEnd then
+			-- (round 79) a "HoldEnd" key after "Hold": the clip between them is
+			-- slowed down to fill the hold, so a held pose keeps living (a sink,
+			-- a tremble, a sway) instead of freezing
+			local span = j.holdEnd - j.holdAt
+			if t < j.holdAt + span + j.holdFor then
+				t = j.holdAt + (t - j.holdAt) * span / (span + j.holdFor)
+			else
+				t -= j.holdFor
+			end
+		else
+			t = math.max(j.holdAt, t - j.holdFor) -- (round 63: held at the Hold key)
+		end
 	end
 	local times, cfs = tr.times, tr.cfs
 	local n = #times
@@ -1710,6 +1766,9 @@ local function clipAt(j, now)
 			a = TweenService:GetValue(a, tr.easing[i], tr.dirs[i])
 		end
 		cf = cfs[i]:Lerp(cfs[i + 1], a)
+	end
+	if j.scale and j.scale ~= 1 then
+		cf = cf.Rotation + cf.Position * j.scale -- (round 79: a bigger body moves further)
 	end
 	local k = j.fade > 0 and math.clamp(t / j.fade, 0, 1) or 1
 	local e = 1 - (1 - k) * (1 - k)
@@ -2791,10 +2850,50 @@ end
 VFX.Motions = MOTIONS -- (read-only use: how long a motion runs)
 -- (round 62) a dash: the keyframed clip on an R6 body (it owns the whole
 -- body while it runs), else the motion
-function VFX.DashMotion(char, name)
-	if not VFX.Clip(char, name, { recover = 0.18 }) then
-		VFX.Motion(char, name)
+-- (round 80) ...and once it has landed, if they're walking on out of it (a
+-- direction held), the walk takes the body over right there: the clip's
+-- stand-up is for someone who stopped, and played under a body that's still
+-- moving it was planted feet skating along the street and a shuffle on the
+-- spot before the walk came back - the wobble at the end of a dash
+local DASH_LANDS = { DashFront = "FrontDashTime", DashLeft = "SideDashTime", DashRight = "SideDashTime" }
+local function walkingOn(char, since)
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not hum or not root or hum.Health <= 0 or char:GetAttribute("Stunned") or char:GetAttribute("Ragdolled") then
+		return false
 	end
+	if hum.MoveDirection.Magnitude > 0.1 then
+		return true
+	end
+	-- (someone else's body: its MoveDirection may never reach us. The dash
+	-- lets go at walking pace either way, and a body nobody's steering
+	-- stops a beat later - one still going then is walking)
+	local v = root.AssemblyLinearVelocity
+	return os.clock() - since > 0.08 and Vector3.new(v.X, 0, v.Z).Magnitude > math.max(tonumber(hum.WalkSpeed) or 16, 8) * 0.6
+end
+function VFX.DashMotion(char, name)
+	local clip = VFX.Clip(char, name, { recover = 0.18 })
+	if not clip then
+		VFX.Motion(char, name)
+		return
+	end
+	local MV = Config.Movement or {}
+	local land = name == "DashBack" and ((MV.BackDashBeats or {}).Land or 0.74) or tonumber(MV[DASH_LANDS[name] or ""])
+	if not land or MV.DashWalkOut == false then
+		return
+	end
+	local token = poseTokens[char]
+	task.spawn(function()
+		motionWait(char, land + 0.02) -- (the landing itself always shows)
+		local since = os.clock()
+		while poseTokens[char] == token and char.Parent and os.clock() - since < clip.length - land do
+			if walkingOn(char, since) then
+				VFX.ReleasePose(char, 0.2)
+				return
+			end
+			task.wait(1 / 30)
+		end
+	end)
 end
 ---------------------------------------------------------------------------
 -- (round 61) KEYFRAMED CLIPS: real animations. ReplicatedStorage.Animations
@@ -2845,6 +2944,9 @@ do
 			if kf.Name == "Hold" and not clip.holdAt then
 				clip.holdAt = kf.Time -- (round 63) held here for as long as the move holds the pose
 			end
+			if kf.Name == "HoldEnd" and clip.holdAt and not clip.holdEnd and kf.Time > clip.holdAt then
+				clip.holdEnd = kf.Time -- (round 79) ...or slowed down from Hold to here to fill it
+			end
 			for _, pose in kf:GetDescendants() do
 				local joint = pose:IsA("Pose") and CLIP_JOINTS[pose.Name]
 				if joint and pose.Weight > 0 then
@@ -2880,8 +2982,10 @@ do
 
 	-- Play a clip on an R6 body. opts.legs = false leaves the legs to what
 	-- they were doing (a grounded punch thrown in mid-air); opts.fade /
-	-- opts.recover override the blend in / out. Returns the clip, or nil
-	-- (none, or an R15 body) so the caller falls back to its motion.
+	-- opts.recover override the blend in / out; (round 81) opts.keep = true
+	-- stays on the clip's last key when it ends (the caller lets go: an M1
+	-- holds its guard between hits). Returns the clip, or nil (none, or an
+	-- R15 body) so the caller falls back to its motion.
 	function VFX.Clip(char, name, opts)
 		opts = opts or {}
 		local clip = VFX.GetClip(name)
@@ -2907,6 +3011,11 @@ do
 			layers[char] = layer
 		end
 		local now = poseTime(char, os.clock())
+		-- (round 79) a clip is authored on a stock 2-stud R6 torso; a scaled-up
+		-- body (All Might's 1.5x muscle form) sinks, leans and steps that much
+		-- further, or its feet end up in the street
+		local torso = char:FindFirstChild("Torso")
+		local scale = torso and math.clamp(torso.Size.Y / 2, 0.25, 6) or 1
 		for jointName, tr in clip.tracks do
 			local j = layer.joints[jointName]
 			local motor = (j and j.motor.Parent) and j.motor or findMotor(char, JOINTS[jointName], false)
@@ -2927,11 +3036,12 @@ do
 						motor = motor, clip = tr, from = from, wFrom = weight, wTo = 1, rest = false,
 						t0 = now, fade = opts.fade or Anim.ClipFade or 0.05, dur = math.max(clip.length, 1e-3),
 						holdAt = holdFor > 0 and clip.holdAt or nil, holdFor = holdFor,
+						holdEnd = holdFor > 0 and clip.holdEnd or nil, scale = scale,
 					}
 				end
 			end
 		end
-		if holdFor >= 1e5 then
+		if holdFor >= 1e5 or opts.keep == true then
 			return clip -- (held until something else takes the body)
 		end
 		task.spawn(function()
@@ -3538,89 +3648,419 @@ do
 		part.CanCollide = false
 		task.delay(t, IceKit.solidify, part)
 	end
+
+	-- (round 81) the whole palette. Colours are the parts' albedo: the scene's
+	-- light and the Ice material's mottling do the rest (Ice at a pale colour
+	-- reads frost-white, at the steel blue it reads as shaded ice)
+	IceKit.PAL = {
+		LIT = ICE_TOP, -- a crystal's lit half
+		LIGHT = Color3.fromRGB(196, 222, 240), -- the cross blade's lit half, small shards
+		MID = Color3.fromRGB(148, 184, 210), -- the cross blade's shadow half
+		SHADE = ICE_BASE, -- a crystal's shadow half
+		DEEP = Color3.fromRGB(66, 98, 128), -- crevices, the cores of chunks
+		FRACTURE = Color3.fromRGB(98, 138, 182), -- fresh break faces (bluer than the skin)
+		FROST = Color3.fromRGB(236, 245, 251), -- frost crust, snow, chips
+		EDGE = Color3.fromRGB(214, 246, 255), -- the Neon spine, crack lines
+		OUTLINE = ICE_OUTLINE,
+		MIST = Color3.fromRGB(238, 247, 252),
+		MIST2 = Color3.fromRGB(204, 228, 244),
+		STEAM_DARK = Color3.fromRGB(206, 206, 214),
+		STEAM = STEAM,
+		GLOW = Color3.fromRGB(150, 205, 255), -- the cold light inside big ice
+		TINT = Color3.fromRGB(205, 230, 255), -- the air going cold (ColorCorrection)
+		SKIN = Color3.fromRGB(212, 232, 246), -- frost crusting on a body
+	}
+
+	-- where the sun is (re-read every few seconds): the lit half of every
+	-- crystal is the half that faces it, so the painted shading agrees with
+	-- the engine's
+	local sunAt, sunDir = -100, Vector3.new(0.45, 0.8, 0.4).Unit
+	function IceKit.sun()
+		if os.clock() - sunAt > 4 then
+			sunAt = os.clock()
+			local ok, dir = pcall(function()
+				return game:GetService("Lighting"):GetSunDirection()
+			end)
+			if ok and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 then
+				sunDir = dir.Y < 0 and -dir.Unit or dir.Unit -- (at night: the moon)
+			end
+		end
+		return sunDir
+	end
+
+	-- graphics level 1-3: no crossed blades, no shadows, no lights. Most
+	-- players (phones too) leave graphics on Automatic, which reads 0: for
+	-- them it's the frame time - under 40 fps counts as low
+	IceKit.dt = 1 / 60
+	RunService.Heartbeat:Connect(function(dt)
+		IceKit.dt = IceKit.dt * 0.95 + math.min(tonumber(dt) or 1 / 60, 0.1) * 0.05
+	end)
+	local lowAt, low = -100, false
+	function IceKit.lowEnd()
+		if os.clock() - lowAt > 10 then
+			lowAt = os.clock()
+			local ok, level = pcall(function()
+				return UserSettings():GetService("UserGameSettings").SavedQualityLevel.Value
+			end)
+			if ok and type(level) == "number" and level >= 1 then
+				low = level <= 3 -- (Manual: the slider)
+			else
+				low = IceKit.dt > 1 / 40
+			end
+		end
+		return low
+	end
+
+	-- a WedgePart of ice (newPart only makes Parts)
+	function IceKit.wedge(parent, color, material)
+		local w = Instance.new("WedgePart")
+		w.Anchored = true
+		w.CanCollide = false
+		w.CanQuery = false
+		w.CanTouch = false
+		w.CastShadow = false
+		w.TopSurface = Enum.SurfaceType.Smooth
+		w.BottomSurface = Enum.SurfaceType.Smooth
+		w.Material = material or Enum.Material.Ice
+		w.Reflectance = 0.05
+		w.Color = color
+		w.Size = Vector3.new(0.05, 0.05, 0.05)
+		w.Parent = parent or folder
+		return w
+	end
+
+	-- One folded blade: two wedge halves sharing a spine (the frame's Y axis,
+	-- from its origin), each a long right triangle (a WedgePart's tall back
+	-- face sits on the spine, its slope runs down to the outer edge - the
+	-- point of KW.stake). The halves open +-fold about the spine into a V, so
+	-- the blade is pointed from every side, with its ridge toward the frame's
+	-- +X. hA / hB: each half's width, t: its thickness.
+	function IceKit.placeV(a, b, frame, len, hA, hB, t, fold)
+		len = math.max(len, 0.05)
+		hA, hB = math.max(hA, 0.05), math.max(hB, 0.05)
+		a.Size = Vector3.new(t, len, hA)
+		a.CFrame = frame * CFrame.Angles(0, fold, 0) * CFrame.new(0, len / 2, -hA / 2)
+		b.Size = Vector3.new(t, len, hB)
+		b.CFrame = frame * CFrame.Angles(0, math.pi - fold, 0) * CFrame.new(0, len / 2, -hB / 2)
+	end
+
+	-- the outward faces of a V's two halves (which one is lit)
+	function IceKit.litFirst(frame, fold)
+		local sun = IceKit.sun()
+		local nA = frame:VectorToWorldSpace(Vector3.new(math.cos(fold), 0, -math.sin(fold)))
+		local nB = frame:VectorToWorldSpace(Vector3.new(math.cos(fold), 0, math.sin(fold)))
+		return nA:Dot(sun) >= nB:Dot(sun)
+	end
+
+	-- a frame at `base` with Y along `up` and X (the ridge) turned `turn`
+	-- radians round from the sun, so one face catches the light and the
+	-- other falls in shadow
+	function IceKit.frameFor(base, up, turn)
+		local sun = IceKit.sun()
+		local flat = sun - up * sun:Dot(up)
+		if flat.Magnitude < 0.05 then
+			flat = (math.abs(up.Y) < 0.95 and UP or Vector3.new(1, 0, 0)):Cross(up)
+		end
+		flat = flat.Unit
+		local ridge = flat * math.cos(turn) + up:Cross(flat) * math.sin(turn)
+		return CFrame.fromMatrix(base, ridge, up)
+	end
+	-- the same, with the ridge turned toward `face` (then `turn` radians on)
+	function IceKit.frameFacing(base, up, face, turn)
+		local flat = face - up * face:Dot(up)
+		if flat.Magnitude < 0.05 then
+			return IceKit.frameFor(base, up, turn or 1)
+		end
+		flat = flat.Unit
+		turn = turn or 0
+		return CFrame.fromMatrix(base, flat * math.cos(turn) + up:Cross(flat) * math.sin(turn), up)
+	end
+
+	-- how each layout's crystals are dressed (makeSpike's opts): which get a
+	-- crossed blade, shards at the foot, the Neon ridge. The big layouts (the
+	-- wall, the heatwaves) get the lean default, to keep the part count down.
+	IceKit.STYLE = {
+		IceSpike = { crossAt = 7, shardAt = 16.5, spineAt = 99 },
+		FrostBurst = { crossAt = 9, shardAt = 99, spineAt = 99 },
+		GlacialField = { crossAt = 15, shardAt = 13, spineAt = 20 },
+		default = { crossAt = 20, shardAt = 999, spineAt = 30 },
+	}
+
+	-- every crystal ({ set, base }) by the model it's in, and its parts
+	-- (IceKit.melt shrinks them back down into the street)
+	IceKit.crystals = setmetatable({}, { __mode = "k" })
+	IceKit.crystalPart = setmetatable({}, { __mode = "k" })
+	function IceKit.track(parent, set, base, parts)
+		local list = IceKit.crystals[parent]
+		if not list then
+			list = {}
+			IceKit.crystals[parent] = list
+		end
+		table.insert(list, { set = set, base = base })
+		for _, p in parts or {} do
+			IceKit.crystalPart[p] = true
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
--- Ice spikes (tapered crystal made of 3 segments)
+-- Ice crystals
 ---------------------------------------------------------------------------
 
 local SEGMENTS = SpikeLayouts.SEGMENTS
 
 local SPIKE_COLORS = { ICE_BASE, ICE_MID, ICE_TOP }
 
--- A glassy crystal: three tapering segments, each twisted a little so the
--- facets catch the light, plus a white sheen sliver along one edge.
-local function makeSpike(parent, base, dir, length, thick, collide)
-	local up = dir.Unit
-	local ref = math.abs(up.Y) < 0.95 and UP or Vector3.new(1, 0, 0)
-	local right = ref:Cross(up).Unit
-	local rot = CFrame.fromMatrix(Vector3.zero, right, up) * CFrame.Angles(0, rand(0, math.pi), 0)
-	local parts, rots = {}, {}
-	for i, seg in SEGMENTS do
-		rots[i] = rot * CFrame.Angles(0, math.rad(28) * (i - 1), 0)
-		-- (solid ice, not see-through glass)
-		local p = newPart(Vector3.new(thick * seg.thick, 0.05, thick * seg.thick), CFrame.new(base) * rots[i], SPIKE_COLORS[i], Enum.Material.Ice, nil, parent)
-		p.Transparency = collide and 0.02 or 0.08
-		p.Reflectance = 0.08
-		p.CanCollide = false -- (solid once grown: see IceKit)
-		parts[i] = p
+-- (round 81) A crystal the way the anime paints it: a pointed blade with a
+-- lit half and a shadow half, split down its spine - two WedgeParts folded
+-- into a V (about a right angle), so it's pointed and faceted from every
+-- side. Bigger ones get a second, crossed blade (a four-pointed star in
+-- section, its four faces toned light to dark by how they face the sun), a
+-- thin Neon line glinting down the ridge, and small shards leaning out of
+-- the street at their foot. It punches up out of the street (the width
+-- leads), overshoots a touch and settles, with a puff of frost and flying
+-- chips where it breaks through. Opaque Ice: nothing translucent to flicker;
+-- big ones cast shadows.
+-- Same contract as ever: set(alpha) grows it (0..1), and ice that collides
+-- turns solid once grown (IceKit). opts (all optional):
+--   face = Vector3: turn the ridge toward this (say, back at the caster, so
+--          his view gets the lit and the shadow face); otherwise it's turned
+--          round from the sun
+--   crossAt / shardAt / spineAt = the length from which it gets a crossed
+--          blade (12) / shards at its foot (16; two at 1.7x) / the Neon line
+--          down its ridge (16)
+--   shards = n (overrides shardAt), buried = how deep its base sits under
+--          the street (1.2), quiet = no burst, flat = never a crossed blade,
+--          color = the lit half's colour
+local function makeSpike(parent, base, dir, length, thick, collide, opts)
+	opts = type(opts) == "table" and opts or {}
+	local PAL = IceKit.PAL
+	local up = (typeof(dir) == "Vector3" and dir.Magnitude > 1e-3) and dir.Unit or UP
+	local L = math.max(length, 0.3)
+	local th = math.max(thick, 0.3)
+	local low = IceKit.lowEnd()
+	local frame
+	if typeof(opts.face) == "Vector3" then
+		frame = IceKit.frameFacing(base, up, opts.face, rand(-0.6, 0.6))
+	else
+		frame = IceKit.frameFor(base, up, rand(0.75, 1.3) * (rng:NextNumber() < 0.5 and -1 or 1))
 	end
-	local sheen = newPart(Vector3.new(0.1, 0.05, 0.1), CFrame.new(base) * rot, Color3.new(1, 1, 1), Enum.Material.Neon, nil, parent)
-	sheen.Transparency = 0.3
-	local solid = false
-	local function set(alpha)
-		for i, seg in SEGMENTS do
-			local l = math.max(length * seg.len * alpha, 0.05)
-			local center = base + up * (length * seg.from * alpha + l / 2)
-			parts[i].Size = Vector3.new(thick * seg.thick, l, thick * seg.thick)
-			parts[i].CFrame = CFrame.new(center) * rots[i]
+	-- (a deep fold: the two faces sit ~90 degrees apart, so from most sides
+	-- you see one lit and one in shadow)
+	local fold = math.rad(rand(38, 48))
+	local h = th * 0.72 -- (each half: about the old block's corner; the server carves 0.55 * Thick round its lower half)
+	local hA, hB = h * rand(0.85, 1.1), h * rand(0.85, 1.1)
+	local t = math.clamp(th * 0.12, 0.15, 3) -- (thin: the point stays a point)
+	local lit, shade = opts.color or PAL.LIT, PAL.SHADE
+	local aLit = IceKit.litFirst(frame, fold)
+	local A = IceKit.wedge(parent, aLit and lit or shade)
+	local B = IceKit.wedge(parent, aLit and shade or lit)
+	local solidParts = { A, B }
+	local shadow = L >= 12 and not low
+	A.CastShadow, B.CastShadow = shadow, shadow
+	-- big crystals: a second blade crossed through the first
+	local cross
+	if L >= (opts.crossAt or 12) and th >= 1.8 and not opts.flat and not low then
+		local f2 = frame * CFrame.Angles(0, (rng:NextNumber() < 0.5 and 1 or -1) * math.pi / 2, 0)
+		local fold2 = math.rad(rand(30, 42))
+		local first = IceKit.litFirst(f2, fold2)
+		cross = {
+			frame = f2,
+			fold = fold2,
+			a = IceKit.wedge(parent, first and PAL.LIGHT or PAL.MID),
+			b = IceKit.wedge(parent, first and PAL.MID or PAL.LIGHT),
+			h = h * rand(0.7, 0.85),
+			len = rand(0.82, 0.94),
+		}
+		cross.a.CastShadow, cross.b.CastShadow = shadow, shadow
+		table.insert(solidParts, cross.a)
+		table.insert(solidParts, cross.b)
+		if not opts.color then
+			-- (four faces now: the two turned most to the sun are lit, the
+			-- other two in shadow, light to dark)
+			local sun = IceKit.sun()
+			local faces = {}
+			for _, e in { { A, frame, fold, 1 }, { B, frame, fold, -1 }, { cross.a, f2, fold2, 1 }, { cross.b, f2, fold2, -1 } } do
+				local n = e[2]:VectorToWorldSpace(Vector3.new(math.cos(e[3]), 0, -e[4] * math.sin(e[3])))
+				table.insert(faces, { part = e[1], d = n:Dot(sun) })
+			end
+			table.sort(faces, function(x, y)
+				return x.d > y.d
+			end)
+			for i, face in faces do
+				face.part.Color = ({ PAL.LIT, PAL.LIGHT, PAL.MID, PAL.SHADE })[i]
+			end
+		end
+	end
+	-- the glint down the ridge (on the crease, so it never floats)
+	local spine
+	if L >= (opts.spineAt or 16) then
+		spine = newPart(Vector3.one * 0.05, frame, PAL.EDGE, Enum.Material.Neon, nil, parent)
+		spine.Transparency = 0.2
+	end
+	local nt = math.clamp(th * 0.05, 0.1, 1.2)
+	-- small shards leaning out of the street round its foot
+	local shards = {}
+	local buried = opts.buried or 1.2
+	local shardAt = opts.shardAt or 16
+	local nShards = opts.shards or (L >= shardAt * 1.7 and 2 or L >= shardAt and 1 or 0)
+	for _ = 1, nShards do
+		local az = rand(0, math.pi * 2)
+		local out = frame.XVector * math.cos(az) + frame.ZVector * math.sin(az)
+		out = Vector3.new(out.X, 0, out.Z)
+		out = out.Magnitude > 0.05 and out.Unit or frame.XVector
+		local sdir = (UP * rand(0.9, 1.3) + out * rand(0.8, 1.3) + up * 0.4).Unit
+		local sbase = base + up * buried + out * h * rand(0.6, 1) - UP * 0.5
+		local sf = IceKit.frameFor(sbase, sdir, rand(0.75, 1.3) * (rng:NextNumber() < 0.5 and -1 or 1))
+		local sfold = math.rad(rand(22, 34))
+		local first = IceKit.litFirst(sf, sfold)
+		table.insert(shards, {
+			frame = sf,
+			fold = sfold,
+			a = IceKit.wedge(parent, first and PAL.LIGHT or PAL.SHADE),
+			b = IceKit.wedge(parent, first and PAL.SHADE or PAL.LIGHT),
+			len = L * rand(0.2, 0.34) + buried * 0.3,
+			h = h * rand(0.38, 0.55),
+			lag = rand(0.08, 0.3),
+		})
+	end
+	local solid, burst = false, false
+	-- alpha: 0..1 (growSpikes eases it out-cubic); raw = take alpha as the
+	-- size itself (melting it back down)
+	local function set(alpha, raw)
+		alpha = math.clamp(tonumber(alpha) or 0, 0, 1)
+		local g = alpha
+		if not raw then
+			-- undo the out-cubic, then a quick overshoot that settles (back-out)
+			local x = 1 - (1 - alpha) ^ (1 / 3)
+			g = 1 + 2.3 * (x - 1) ^ 3 + 1.3 * (x - 1) ^ 2
+		end
+		g = math.max(g, 0)
+		local wk = math.max(math.min(g * 1.7, 1), g) -- (the width leads: it punches out fat, not as a needle)
+		local len = L * g
+		IceKit.placeV(A, B, frame, len, hA * wk, hB * wk, t, fold)
+		if cross then
+			IceKit.placeV(cross.a, cross.b, cross.frame, len * cross.len, cross.h * wk, cross.h * wk * 0.9, t * 0.85, cross.fold)
+		end
+		if spine then
+			spine.Size = Vector3.new(nt, math.max(len * 0.74, 0.05), nt)
+			spine.CFrame = frame * CFrame.new(t * 0.5 * math.cos(fold) + nt * 0.2, len * 0.4, 0)
+		end
+		for _, s in shards do
+			local gs = math.clamp((g - s.lag) / (1 - s.lag), 0, 1.1)
+			local ws = math.max(math.min(gs * 1.7, 1), gs)
+			IceKit.placeV(s.a, s.b, s.frame, s.len * gs, s.h * ws, s.h * ws * 0.85, t * 0.6, s.fold)
+		end
+		if not burst and g > 0.02 and not raw and not opts.quiet then
+			burst = true
+			if IceKit.groundBurst then
+				IceKit.groundBurst(base + up * buried, th, L)
+			end
 		end
 		if collide and alpha >= 1 and not solid then
 			solid = true
-			for _, p in parts do
+			for _, p in solidParts do
 				IceKit.solidify(p)
 			end
 		end
-		local l1 = math.max(length * 0.72 * alpha, 0.05)
-		local c1 = base + up * (l1 / 2)
-		sheen.Size = Vector3.new(thick * 0.1, l1, thick * 0.1)
-		sheen.CFrame = CFrame.new(c1) * rot * CFrame.new(thick * 0.4, 0, -thick * 0.4)
 	end
 	set(0)
+	local all = table.clone(solidParts)
+	if spine then
+		table.insert(all, spine)
+	end
+	for _, s in shards do
+		table.insert(all, s.a)
+		table.insert(all, s.b)
+	end
+	IceKit.track(parent, set, base, all)
 	return set
 end
 
--- Thick white fog hugging the ground at the glacier's base
-local function iceFog(pos, radius, duration)
-	for _ = 1, math.floor(6 + radius / 4) do
-		local off = Vector3.new(rand(-1, 1), 0, rand(-1, 1)) * radius
-		local fog = newPart(Vector3.new(1, 1, 1), CFrame.new(pos + off + Vector3.new(0, 1, 0)), Color3.fromRGB(240, 248, 252), nil, nil)
-		local mesh = Instance.new("SpecialMesh")
-		mesh.MeshType = Enum.MeshType.Sphere
-		mesh.Parent = fog
-		fog.Transparency = 1
-		local w = rand(10, 18) * math.max(radius / 20, 0.6)
-		tween(fog, 0.4, { Size = Vector3.new(w, rand(3, 5), w * rand(0.6, 1)), Transparency = 0.3 })
-		tween(fog, 1.2, {
-			Transparency = 1,
-			CFrame = CFrame.new(pos + off * 1.2 + Vector3.new(0, 2.5, 0)),
-		}, Enum.EasingStyle.Quad, Enum.EasingDirection.In, duration)
-		cleanup(fog, duration + 1.3)
+-- Cold fog rolling out along the ground at the ice's foot. (round 81) Soft
+-- smoke particles spilling out of a flat box - it used to be a dozen opaque
+-- balls. along (optional): lay the box out along that direction (a line of
+-- ice) instead of round the point.
+local function iceFog(pos, radius, duration, along)
+	local PAL = IceKit.PAL
+	local flat = typeof(along) == "Vector3" and Vector3.new(along.X, 0, along.Z) or nil
+	local size, cf
+	if flat and flat.Magnitude > 0.05 then
+		size = Vector3.new(math.max(radius * 0.45, 6), 1, radius * 2)
+		cf = CFrame.lookAt(pos + UP * 0.8, pos + UP * 0.8 + flat)
+	else
+		size = Vector3.new(radius * 1.6, 1, radius * 1.6)
+		cf = CFrame.new(pos + UP * 0.8)
 	end
+	local holder = newPart(size, cf, Color3.new(), nil, nil)
+	holder.Transparency = 1
+	local k = math.clamp(radius / 14, 0.6, 3)
+	local pe = Instance.new("ParticleEmitter")
+	pe.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	pe.Color = ColorSequence.new(PAL.MIST, PAL.MIST2)
+	pe.LightEmission = 0.1
+	pe.LightInfluence = 0.7
+	pe.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 3 * k),
+		NumberSequenceKeypoint.new(0.4, 7 * k),
+		NumberSequenceKeypoint.new(1, 11 * k),
+	})
+	pe.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.15, 0.5),
+		NumberSequenceKeypoint.new(0.7, 0.72),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	pe.Lifetime = NumberRange.new(1.4, 2.4)
+	pe.Speed = NumberRange.new(2, 6)
+	pe.SpreadAngle = Vector2.new(85, 85)
+	pe.Acceleration = Vector3.new(0, -1, 0) -- (cold air sinks)
+	pe.Drag = 1.5
+	pe.Rotation = NumberRange.new(0, 360)
+	pe.RotSpeed = NumberRange.new(-20, 20)
+	pe.ZOffset = -1
+	pe.Shape = Enum.ParticleEmitterShape.Box
+	pe.Rate = 0
+	pe.Parent = holder
+	pe:Emit(math.floor(6 + radius * 0.5))
+	pe.Rate = math.clamp(radius * 0.4, 3, 16)
+	task.delay(duration, function()
+		pe.Enabled = false
+	end)
+	cleanup(holder, duration + 2.6)
 end
 
-local function iceSparkles(pos, radius, duration)
-	local holder = newPart(Vector3.new(radius, radius * 0.8, radius), CFrame.new(pos + Vector3.new(0, radius * 0.4, 0)), Color3.new(), nil, nil)
+-- Glints on the ice. (round 81) Four-point twinkles that pop and vanish,
+-- big enough to read across the street (not a fizz of tiny sparks).
+local function iceSparkles(pos, radius, duration, along)
+	local flat = typeof(along) == "Vector3" and Vector3.new(along.X, 0, along.Z) or nil
+	local size, cf
+	if flat and flat.Magnitude > 0.05 then
+		size = Vector3.new(math.max(radius * 0.4, 6), math.max(radius * 0.4, 5), radius * 2)
+		cf = CFrame.lookAt(pos + UP * size.Y * 0.5, pos + UP * size.Y * 0.5 + flat)
+	else
+		size = Vector3.new(radius, radius * 0.8, radius)
+		cf = CFrame.new(pos + UP * radius * 0.4)
+	end
+	local holder = newPart(size, cf, Color3.new(), nil, nil)
 	holder.Transparency = 1
+	local k = math.clamp(radius / 14, 0.8, 3)
 	local pe = Instance.new("ParticleEmitter")
 	pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	pe.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(170, 225, 255))
-	pe.LightEmission = 0.8
-	pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0) })
-	pe.Speed = NumberRange.new(0.5, 2)
-	pe.Lifetime = NumberRange.new(0.5, 1.1)
-	pe.SpreadAngle = Vector2.new(180, 180)
-	pe.Rate = math.floor(radius * 2.5)
+	pe.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 238, 255))
+	pe.LightEmission = 1
+	pe.LightInfluence = 0
+	pe.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.15, 1.3 * k),
+		NumberSequenceKeypoint.new(0.4, 0.3 * k),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	pe.Speed = NumberRange.new(0, 0.6)
+	pe.Lifetime = NumberRange.new(0.35, 0.6)
+	pe.Rotation = NumberRange.new(0, 45)
+	pe.ZOffset = 2.5 -- (in front of the opaque ice it sits on)
+	pe.Rate = math.clamp(radius * 0.7, 4, 26)
 	pe.Shape = Enum.ParticleEmitterShape.Box
 	pe.Parent = holder
 	task.delay(duration, function()
@@ -3629,23 +4069,38 @@ local function iceSparkles(pos, radius, duration)
 	cleanup(holder, duration + 1.2)
 end
 
--- Grow a list of {set=fn, delay=s} over time
+-- Grow a list of {set=fn, delay=s} over time (out-cubic). (round 81) A piece
+-- that's done drops out of the loop: they used to be set again every frame
+-- until the last one had finished.
 local function growSpikes(list, growTime)
+	growTime = math.max(tonumber(growTime) or 0.15, 0.01)
 	local t0 = os.clock()
 	local done = false
+	local pending, started = {}, {}
+	for i, s in list do
+		pending[i] = s
+	end
 	local conn
 	conn = RunService.Heartbeat:Connect(function()
 		local t = os.clock() - t0
-		local all = true
-		for _, s in list do
-			local a = math.clamp((t - s.delay) / growTime, 0, 1)
-			local eased = 1 - (1 - a) ^ 3
-			-- a spike shattered mid-growth is simply done
-			if pcall(s.set, eased) and a < 1 then
-				all = false
+		local i = 1
+		while i <= #pending do
+			local s = pending[i]
+			local a = math.clamp((t - (s.delay or 0)) / growTime, 0, 1)
+			local keep = true
+			if a > 0 or not started[s] then
+				started[s] = true
+				-- a spike shattered mid-growth is simply done
+				keep = pcall(s.set, 1 - (1 - a) ^ 3) and a < 1
+			end
+			if keep then
+				i += 1
+			else
+				pending[i] = pending[#pending]
+				pending[#pending] = nil
 			end
 		end
-		if all then
+		if #pending == 0 then
 			done = true
 			conn:Disconnect()
 		end
@@ -3660,20 +4115,35 @@ end
 -- ledge, a roof), the sheet carries on level and a column of ice holds it
 -- up from the ground below - so it's all one piece, joined to him.
 -- Width grows by Spread per stud out; Speed = studs a second it's laid.
+-- (round 81) Skirt = a ragged white frost crust spreads out past its edges a
+-- beat ahead of the ice (Snow, below the sheet's top: nothing coplanar).
 local ICE_SHEETS = {
-	IceSpike = { Width = 6, Spread = 0.05, Speed = 150 },
+	IceSpike = { Width = 8, Spread = 0.06, Speed = 150, Skirt = true },
 	IceWall = { Width = 14, Spread = 0.8, Speed = 160 }, -- (as wide as the glacier: HEAVEN.Width)
 	Heatwave = { Width = 10, Spread = 0.3, Speed = 120 },
 	HeatwaveMax = { Width = 12, Spread = 0.4, Speed = 130 },
-	FrostBurst = { Radius = 11 },
-	GlacialField = { Radius = 40 },
+	FrostBurst = { Radius = 13.5, Skirt = true }, -- (round 81: out past the second ring)
+	GlacialField = { Radius = 40, Skirt = true },
 }
-local function iceSheet(model, ground, d, layoutName, reach)
+local function iceSheet(model, ground, d, layoutName, reach, skirtParent)
 	local spec = ICE_SHEETS[layoutName]
 	if not spec then
 		return
 	end
 	local LIFT = 0.35 -- (the sheet's top sits this far above the street: no flicker against it)
+	-- (round 81) a round patch of frost crust lying on the street (its top a
+	-- hair above it, and each a different hair, so overlapping patches never
+	-- share a plane), spreading out from nothing; overlapping, they make a
+	-- ragged white edge. Not inked: the line runs round the ice.
+	local skirtN = 0
+	local function skirt(at, radius, delay)
+		skirtN += 1
+		local top = at + UP * (0.06 + (skirtN % 4) * 0.035)
+		local cf = CFrame.new(top - UP * 0.15) * CFrame.Angles(0, 0, math.rad(90))
+		local p = newPart(Vector3.new(0.3, radius * 0.6, radius * 0.6), cf, IceKit.PAL.FROST, Enum.Material.Snow, Enum.PartType.Cylinder, skirtParent or model)
+		tween(p, 0.25, { Size = Vector3.new(0.3, radius * 2, radius * 2) }, Enum.EasingStyle.Quad, nil, delay)
+		return p
+	end
 	local function column(top, w, depthAlong, delay)
 		local hit = groundRay(top - UP * 2.5, 200)
 		local drop = hit and (top.Y - 2.4 - hit.Position.Y) or 200
@@ -3692,6 +4162,23 @@ local function iceSheet(model, ground, d, layoutName, reach)
 		for i = 1, 8 do
 			local a = i / 8 * math.pi * 2
 			column(ground + UP * LIFT + Vector3.new(math.cos(a), 0, math.sin(a)) * spec.Radius * 0.7, spec.Radius * 0.35, spec.Radius * 0.35, 0.1)
+		end
+		if spec.Skirt then
+			-- (round 81) frost crust round the rim, past the ice: a few big
+			-- patches a little off-centre, and smaller ones bulging out of the
+			-- edge - ragged, not a neat circle
+			local R = spec.Radius
+			for _ = 1, 2 do
+				local a = rand(0, math.pi * 2)
+				skirt(ground + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(0.5, 2.2), R + rand(1, 2.5), 0.05)
+			end
+			local n = math.clamp(math.floor(R * 0.22), 4, 9)
+			local a0 = rand(0, math.pi * 2)
+			for i = 1, n do
+				local a = a0 + (i / n) * math.pi * 2 + rand(-0.3, 0.3)
+				local r = math.min(R * rand(0.12, 0.2) + 1.5, 7)
+				skirt(ground + Vector3.new(math.cos(a), 0, math.sin(a)) * (R + r * rand(0.1, 0.5)), r, R / 120)
+			end
 		end
 		return
 	end
@@ -3715,35 +4202,65 @@ local function iceSheet(model, ground, d, layoutName, reach)
 		tween(slab, 0.16, { Size = Vector3.new(w, 2.4, step + 0.6) }, Enum.EasingStyle.Quad, nil, delay)
 		IceKit.solidAfter(slab, delay + 0.18)
 		column(top, w * 0.55, step * 0.9, delay + 0.04)
+		if spec.Skirt and hit and math.abs(hit.Position.Y - y) < 0.5 and (s / step) % 2 == 0 then
+			-- (round 81) the white frost crust leads the ice out, wider than it
+			local right = d:Cross(UP)
+			skirt(Vector3.new(at.X, y, at.Z) + right * rand(-0.3, 0.3) * w, w * rand(0.56, 0.7), math.max(delay - 0.03, 0))
+		end
 	end
 end
 
 -- Build a seeded layout from SpikeLayouts (same spikes the server carves with)
 local BIG_ICE = { IceWall = true, GlacialField = true, HeatwaveMax = true }
 
-local function spikeLayout(layoutName, data, root, d, _outline)
+local function spikeLayout(layoutName, data, root, d, outline)
 	local origin = typeof(data.Origin) == "Vector3" and data.Origin or root.Position
 	local seed = typeof(data.Seed) == "number" and data.Seed or rng:NextInteger(1, 2 ^ 30)
+	local ground = groundPoint(origin)
 	-- (each spike on the street where it stands: the server snaps the same way)
-	local layout, growTime, anchor = SpikeLayouts[layoutName](groundPoint(origin), d, seed, function(pos)
+	local layout, growTime, anchor = SpikeLayouts[layoutName](ground, d, seed, function(pos)
 		local hit = groundRay(pos + UP * 3, 140)
 		return hit and hit.Position or nil
 	end)
-	local model = outlineModel(ICE_OUTLINE)
+	-- (round 81) Inked in groups, dark teal (the outline argument is honoured
+	-- now): neighbouring crystals sit in different groups, so a line runs
+	-- between them where they overlap - not only round the whole mass - and
+	-- the sheet is a group of its own. The frost crust isn't inked.
+	local ink = typeof(outline) == "Color3" and outline or ICE_OUTLINE
+	local model = Instance.new("Model")
+	model.Name = "Ice"
+	model.Parent = folder
+	local groups = {}
+	for k = 1, (#layout > 40 and 3 or 2) do
+		local group = outlineModel(ink)
+		group.Name = "Crystals"
+		group.Parent = model
+		groups[k] = group
+	end
+	local sheet = outlineModel(ink)
+	sheet.Name = "Sheet"
+	sheet.Parent = model
 	local list = {}
 	local far = 0
-	for _, sp in layout do
-		table.insert(list, { set = makeSpike(model, sp.Base, sp.Dir, sp.Length, sp.Thick, sp.Collide), delay = sp.Delay })
+	local style = IceKit.STYLE[layoutName] or IceKit.STYLE.default
+	for i, sp in layout do
+		-- (each ridge turned back toward his foot: his view gets both faces)
+		local set = makeSpike(groups[(i - 1) % #groups + 1], sp.Base, sp.Dir, sp.Length, sp.Thick, sp.Collide, {
+			buried = 1.6, face = ground - sp.Base, crossAt = style.crossAt, shardAt = style.shardAt, spineAt = style.spineAt,
+			-- (a big field bursts off every third crystal, not all ninety)
+			quiet = #layout > 24 and (i % 3 ~= 1),
+		})
+		table.insert(list, { set = set, delay = sp.Delay })
 		far = math.max(far, (sp.Base - anchor).Magnitude)
 	end
 	-- (everything grows out of a sheet of ice from his foot)
-	iceSheet(model, groundPoint(origin), d, layoutName, far + (anchor - groundPoint(origin)).Magnitude)
+	iceSheet(sheet, ground, d, layoutName, far + (anchor - ground).Magnitude, model)
 	growSpikes(list, growTime)
 	local radius = math.clamp(far * 0.6, 8, 45)
 	local ring = layoutName == "FrostBurst" or layoutName == "GlacialField"
 	local center = ring and anchor or anchor + d * far * 0.45
-	iceFog(center, radius, 2.5)
-	iceSparkles(center, radius, 2)
+	iceFog(center, radius, 2.5, not ring and d or nil)
+	iceSparkles(center, radius, 2, not ring and d or nil)
 	if BIG_ICE[layoutName] and nearCamera(center, 120) then
 		task.delay(growTime * 0.6, function()
 			VFX.ImpactFrame(0.12)
@@ -3752,50 +4269,859 @@ local function spikeLayout(layoutName, data, root, d, _outline)
 	return model, anchor
 end
 
-local function shatter(model, maxShards)
+-- A burst of cold mist. (round 81) Soft white smoke rolling out low and
+-- sinking - no outline: it used to make a whole outlined model, and a
+-- Highlight, every call.
+local function frostMist(pos, scale, count)
+	IceKit.particles(pos, "mist", math.max(math.floor((count or 6) * 2.5), 3), scale or 1)
+end
+
+-- (round 81) How ice ends. It breaks apart in a quick ripple out from
+-- opts.from (the caster's end, say; by default its middle) - each piece goes
+-- the moment the ripple reaches it, a big mass whitening for a blink first -
+-- into chunks sized to the piece they came off. Chunks are dealt round the
+-- pieces in turn, biggest first, so a big crystal gives big chunks and no
+-- piece is skipped. They're two-tone Ice with bluer fresh-break faces,
+-- inked, anchored and flown by one loop - no physics, nothing to bump into -
+-- tumbling out, bouncing once, skidding to a stop on the street and
+-- shrinking away. A cold puff, glints and the crunch at its middle.
+-- opts: { from = Vector3, speed = ripple studs/s, force = fling scale,
+-- quiet = no sound }
+local function shatter(model, maxShards, opts)
 	if not model or not model.Parent then
 		return
 	end
-	local count = 0
-	local center
+	opts = type(opts) == "table" and opts or {}
+	local PAL = IceKit.PAL
+	local pieces = {}
+	local lx, ly, lz, hx, hy, hz = math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge
 	for _, p in model:GetDescendants() do
 		if p:IsA("BasePart") then
-			center = center or p.Position
-			local n = math.clamp(math.floor(p.Size.Magnitude / 7), 1, 3)
-			for _ = 1, n do
-				if count >= (maxShards or 120) then
-					break
-				end
-				count += 1
-				local s = math.clamp(p.Size.X * rand(0.3, 0.6), 0.5, 4)
-				local shard = Instance.new("Part")
-				shard.Size = Vector3.new(s, s * rand(0.8, 1.8), s * rand(0.5, 1))
-				shard.Color = SPIKE_COLORS[rng:NextInteger(1, 3)]
-				shard.Material = Enum.Material.Glass
-				shard.Transparency = 0.2
-				shard.CanQuery = false
-				shard.CanTouch = false
-				shard.CastShadow = false
-				shard.CFrame = p.CFrame
-					* CFrame.new(rand(-0.4, 0.4) * p.Size.X, rand(-0.45, 0.45) * p.Size.Y, rand(-0.4, 0.4) * p.Size.Z)
-					* CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6))
-				shard.Parent = folder
-				shard.AssemblyLinearVelocity = rng:NextUnitVector() * rand(8, 25) + Vector3.new(0, 12, 0)
-				shard.AssemblyAngularVelocity = rng:NextUnitVector() * 10
-				tween(shard, 0.5, { Size = Vector3.one * 0.05, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 1.1)
-				cleanup(shard, 1.7)
-			end
+			table.insert(pieces, p)
+			local pos = p.CFrame.Position
+			lx, ly, lz = math.min(lx, pos.X), math.min(ly, pos.Y), math.min(lz, pos.Z)
+			hx, hy, hz = math.max(hx, pos.X), math.max(hy, pos.Y), math.max(hz, pos.Z)
 		end
 	end
-	if center then
-		dustPuffs(center, 1.3, 6, Color3.fromRGB(238, 246, 252), 0.9, ICE_OUTLINE)
-		VFX.PlaySound("Shatter", center, 0.8)
+	if #pieces == 0 then
+		model:Destroy()
+		return
 	end
-	model:Destroy()
+	local center = Vector3.new((lx + hx) / 2, (ly + hy) / 2, (lz + hz) / 2)
+	local extent = Vector3.new(hx - lx, hy - ly, hz - lz).Magnitude
+	local from = typeof(opts.from) == "Vector3" and opts.from or center
+	-- chunks per piece, dealt in turn (round 1: one each, biggest first...)
+	local solid = {}
+	for _, p in pieces do
+		if p.Material ~= Enum.Material.Neon and p.Transparency < 0.9 and p.Size.Magnitude > 0.4 then
+			table.insert(solid, p)
+		end
+	end
+	table.sort(solid, function(a, b)
+		return a.Size.Magnitude > b.Size.Magnitude
+	end)
+	local per, dealt = {}, 0
+	local cap = math.max(math.floor(tonumber(maxShards) or 120), 0)
+	for round = 1, 4 do
+		local any = false
+		for _, p in solid do
+			if dealt >= cap then
+				break
+			end
+			if round <= math.clamp(math.floor(p.Size.Magnitude / 6), 1, 4) then
+				per[p] = (per[p] or 0) + 1
+				dealt += 1
+				any = true
+			end
+		end
+		if not any or dealt >= cap then
+			break
+		end
+	end
+	local debris = outlineModel(ICE_OUTLINE)
+	debris.Name = "IceChunks"
+	local flying = {}
+	local spawning = true
+	local tones = { nil, PAL.FRACTURE, PAL.LIT, PAL.DEEP }
+	local function chunk(cf, size, color, floorY, k)
+		local a, b, c = size.X, size.Y, size.Z
+		local mid = math.max(math.min(a, b), math.min(math.max(a, b), c)) -- (the middle of the three)
+		local s = math.clamp(mid * rand(0.45, 0.8), 0.5, 12)
+		local tone = tones[(k - 1) % 4 + 1] or color
+		local piece
+		if rng:NextNumber() < 0.45 then
+			piece = IceKit.wedge(debris, tone)
+		else
+			piece = newPart(Vector3.one, CFrame.new(), tone, Enum.Material.Ice, nil, debris)
+			piece.Reflectance = 0.05
+		end
+		piece.Size = Vector3.new(s, s * rand(0.5, 0.9), s * rand(0.6, 1.2))
+		local pos = (cf * CFrame.new(rand(-0.35, 0.35) * a, rand(-0.4, 0.4) * b, rand(-0.35, 0.35) * c)).Position
+		local rot = CFrame.Angles(rand(0, 6.28), rand(0, 6.28), rand(0, 6.28))
+		piece.CFrame = CFrame.new(pos) * rot
+		local away = Vector3.new(pos.X - from.X, 0, pos.Z - from.Z)
+		if away.Magnitude < 0.1 then
+			away = Vector3.new(rand(-1, 1), 0, rand(-1, 1)) + Vector3.new(0.01, 0, 0)
+		end
+		local slow = math.clamp(1.6 / math.sqrt(s), 0.35, 1.2) * (opts.force or 1)
+		local vel = (away.Unit * rand(8, 22) + rng:NextUnitVector() * 5 + UP * rand(14, 28)) * slow
+		local life = rand(1.1, 1.7)
+		tween(piece, 0.4, { Size = Vector3.one * 0.05, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, life)
+		cleanup(piece, life + 0.45)
+		table.insert(flying, {
+			part = piece, pos = pos, vel = vel, rot = rot, axis = rng:NextUnitVector(), spin = rand(4, 12),
+			floor = floorY + s * 0.3, dies = os.clock() + life + 0.45,
+		})
+	end
+	local conn
+	conn = RunService.Heartbeat:Connect(function(dt)
+		dt = math.clamp(tonumber(dt) or 1 / 60, 0, 0.05)
+		local i = 1
+		while i <= #flying do
+			local c = flying[i]
+			local alive = c.part.Parent ~= nil and os.clock() < c.dies
+			if alive and not c.still then
+				local v = c.vel
+				if c.landed then
+					v *= math.max(1 - 5 * dt, 0) -- (skidding to a stop)
+					if v.Magnitude < 0.6 then
+						c.still = true
+					end
+				else
+					v -= Vector3.new(0, 90 * dt, 0)
+				end
+				local pos = c.pos + v * dt
+				if not c.landed and pos.Y < c.floor then
+					pos = Vector3.new(pos.X, c.floor, pos.Z)
+					if v.Y < -20 and not c.bounced then
+						c.bounced = true
+						v = Vector3.new(v.X * 0.5, -v.Y * 0.28, v.Z * 0.5)
+						c.spin *= 0.5
+					else
+						c.landed = true
+						v = Vector3.new(v.X * 0.6, 0, v.Z * 0.6)
+						c.spin *= 0.25
+					end
+				end
+				c.vel, c.pos = v, pos
+				c.rot = CFrame.fromAxisAngle(c.axis, c.spin * dt) * c.rot
+				c.part.CFrame = CFrame.new(pos) * c.rot
+			end
+			if alive then
+				i += 1
+			else
+				flying[i] = flying[#flying]
+				flying[#flying] = nil
+			end
+		end
+		if not spawning and #flying == 0 then
+			conn:Disconnect()
+		end
+	end)
+	-- a big mass whitens for a blink as it cracks
+	local crack = (#pieces >= 24 and not opts.instant) and 0.07 or 0
+	if crack > 0 then
+		for _, p in solid do
+			tween(p, crack, { Color = p.Color:Lerp(PAL.FROST, 0.5) })
+		end
+	end
+	local speed = opts.speed or math.max(extent / 0.3, 90)
+	local last = 0
+	for _, p in pieces do
+		local delay = crack + math.min((p.CFrame.Position - from).Magnitude / speed, 0.6)
+		last = math.max(last, delay)
+		local function go()
+			if not p.Parent then
+				return
+			end
+			local n = per[p] or 0
+			if n > 0 then
+				local cf, size, color = p.CFrame, p.Size, p.Color
+				local hit = groundRay(cf.Position, 80)
+				local floorY = hit and hit.Position.Y or (cf.Position.Y - size.Magnitude / 2)
+				for k = 1, n do
+					chunk(cf, size, color, floorY, k)
+				end
+			end
+			p:Destroy()
+		end
+		if delay <= 0 then
+			go()
+		else
+			task.delay(delay, go)
+		end
+	end
+	task.delay(last + 0.05, function()
+		spawning = false
+		if model.Parent then
+			model:Destroy()
+		end
+	end)
+	cleanup(debris, last + 2.4)
+	local k = math.clamp(extent / 14, 0.5, 4)
+	frostMist(center, k, math.clamp(math.floor(4 + extent / 6), 4, 14))
+	IceKit.particles(center, "glint", math.clamp(math.floor(6 + extent / 4), 6, 30), k)
+	if not opts.quiet then
+		VFX.PlaySound("Shatter", center, math.clamp(0.6 + extent / 80, 0.6, 1.3))
+	end
 end
 
-local function frostMist(pos, scale, count)
-	dustPuffs(pos, scale, count, Color3.fromRGB(236, 246, 252), 2.4, ICE_OUTLINE)
+---------------------------------------------------------------------------
+-- (round 81) The rest of the ice kit, shared by every ice move (Todoroki's
+-- and anyone else's): particle bursts, the frost-crack line, mist riding a
+-- wave, melting, steam, frost crusting over a body, breath fog, the air
+-- going cold, snow, cold light. All of it lives on IceKit (VFX's main chunk
+-- is at its 200-local limit). Signatures:
+--   IceKit.particles(pos, kind, n, k [, life, attachment]) -> emitter, attachment
+--       kind: "mist" | "puff" | "chips" | "glint" | "steam"; k = size scale
+--   IceKit.groundBurst(pos, thick, length)   frost puff + chips where ice breaks the street
+--   IceKit.chips(pos, k, n [, parent])       a few real ice chunks flung up (anchored, tweened)
+--   IceKit.crackLine(from, d, length [, opts]) a frost crack racing along the street
+--       opts: { speed = 240, width = 0.3, life = 1.1, segments, wander = 1.6, sheet = studs of sheet under it, delay }
+--   IceKit.mistRun(from, to, time [, k])      cold mist riding a wave's front
+--   IceKit.melt(model [, opts])               sag into the street + gloss + steam (fire ends ice)
+--       opts: { from, time = 0.8, warm = lit by fire, quiet }
+--   IceKit.steam(pos, k, count [, opts])      two-tone cel-shaded steam puffs (+ haze)
+--       opts: { warm, rise = 1, delay = 0 }
+--   IceKit.frostBody(char [, opts]) -> handle  frost crusted over the right side of a body
+--       opts: { side = 1 (right) / -1, alpha = 0.2, fadeIn = 0.6, life, fadeOut = 0.8,
+--               spikes = true, sparkle = true, color }; handle.off(t) melts it away
+--   IceKit.breath(char, duration [, every])   cold breath puffing from the mouth
+--   IceKit.coldTint(strength, hold, fade)     the air goes cold: a blue-white screen tint
+--   IceKit.snow(cf, size, duration, rate [, k]) soft flakes sifting down from a box
+--   IceKit.light(pos, range, brightness, life [, color]) a cold PointLight that fades
+---------------------------------------------------------------------------
+do
+	local PAL = IceKit.PAL
+	local NS, NK = NumberSequence.new, NumberSequenceKeypoint.new
+	local SMOKE = "rbxasset://textures/particles/smoke_main.dds"
+	local RECIPES = {
+		-- cold mist rolling out low and sinking
+		mist = function(pe, k)
+			pe.Texture = SMOKE
+			pe.Color = ColorSequence.new(PAL.MIST, PAL.MIST2)
+			pe.LightEmission = 0.1
+			pe.LightInfluence = 0.7
+			pe.Size = NS({ NK(0, 1.5 * k), NK(0.35, 4.5 * k), NK(1, 7 * k) })
+			pe.Transparency = NS({ NK(0, 0.35), NK(0.6, 0.65), NK(1, 1) })
+			pe.Lifetime = NumberRange.new(0.9, 1.6)
+			pe.Speed = NumberRange.new(3 * k + 2, 8 * k + 3)
+			pe.SpreadAngle = Vector2.new(80, 80)
+			pe.Drag = 2.2
+			pe.Acceleration = Vector3.new(0, -2, 0)
+			pe.Rotation = NumberRange.new(0, 360)
+			pe.RotSpeed = NumberRange.new(-30, 30)
+		end,
+		-- the puff of frost where ice breaks up through the street
+		puff = function(pe, k)
+			pe.Texture = SMOKE
+			pe.Color = ColorSequence.new(PAL.MIST)
+			pe.LightEmission = 0.15
+			pe.LightInfluence = 0.6
+			pe.Size = NS({ NK(0, 0.8 * k), NK(0.3, 2.6 * k), NK(1, 4 * k) })
+			pe.Transparency = NS({ NK(0, 0.25), NK(0.5, 0.6), NK(1, 1) })
+			pe.Lifetime = NumberRange.new(0.45, 0.8)
+			pe.Speed = NumberRange.new(6 * k, 14 * k)
+			pe.SpreadAngle = Vector2.new(70, 70)
+			pe.Drag = 4
+			pe.Acceleration = Vector3.new(0, -3, 0)
+			pe.Rotation = NumberRange.new(0, 360)
+			pe.RotSpeed = NumberRange.new(-40, 40)
+		end,
+		-- flat flakes of ice, tumbling
+		chips = function(pe, k)
+			pe.Texture = "rbxasset://textures/triangle.png"
+			pe.Color = ColorSequence.new(PAL.FROST, PAL.LIGHT)
+			pe.LightEmission = 0.1
+			pe.LightInfluence = 1
+			pe.Size = NS({ NK(0, 0.45 * k), NK(1, 0.2 * k) })
+			pe.Squash = NS({ NK(0, -0.4), NK(0.5, 0.4), NK(1, -0.4) })
+			pe.Lifetime = NumberRange.new(0.5, 0.9)
+			pe.Speed = NumberRange.new(14 * k, 30 * k)
+			pe.SpreadAngle = Vector2.new(40, 40)
+			pe.Drag = 0.5
+			pe.Acceleration = Vector3.new(0, -70, 0)
+			pe.Rotation = NumberRange.new(0, 360)
+			pe.RotSpeed = NumberRange.new(-400, 400)
+		end,
+		-- four-point twinkles
+		glint = function(pe, k)
+			pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			pe.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 238, 255))
+			pe.LightEmission = 1
+			pe.LightInfluence = 0
+			pe.Size = NS({ NK(0, 0), NK(0.15, 1.3 * k), NK(0.4, 0.3 * k), NK(1, 0) })
+			pe.Lifetime = NumberRange.new(0.35, 0.6)
+			pe.Speed = NumberRange.new(2 * k, 8 * k)
+			pe.SpreadAngle = Vector2.new(180, 180)
+			pe.Drag = 3
+			pe.ZOffset = 2
+		end,
+		-- big soft steam, rising
+		steam = function(pe, k)
+			pe.Texture = SMOKE
+			pe.Color = ColorSequence.new(STEAM, Color3.fromRGB(226, 226, 232))
+			pe.LightEmission = 0.15
+			pe.LightInfluence = 0.45
+			pe.Size = NS({ NK(0, 2 * k), NK(0.3, 6 * k), NK(1, 10 * k) })
+			pe.Transparency = NS({ NK(0, 1), NK(0.08, 0.3), NK(0.6, 0.55), NK(1, 1) })
+			pe.Lifetime = NumberRange.new(1.4, 2.6)
+			pe.Speed = NumberRange.new(4 * k, 10 * k)
+			pe.SpreadAngle = Vector2.new(35, 35)
+			pe.Drag = 1
+			pe.Acceleration = Vector3.new(0, 6, 0)
+			pe.Rotation = NumberRange.new(0, 360)
+			pe.RotSpeed = NumberRange.new(-30, 30)
+		end,
+	}
+
+	-- an attachment at `pos` to hang emitters / lights on (in the Terrain: no part)
+	local function anchorAt(pos, life)
+		local att = Instance.new("Attachment")
+		att.Name = "IceFX"
+		local ok, terrain = pcall(function()
+			return workspace.Terrain
+		end)
+		terrain = ok and terrain or nil
+		if terrain then
+			att.Parent = terrain
+			att.WorldPosition = pos
+			cleanup(att, life)
+		else
+			local holder = newPart(Vector3.one * 0.2, CFrame.new(pos), Color3.new(), nil, nil)
+			holder.Transparency = 1
+			att.Parent = holder
+			cleanup(holder, life)
+		end
+		return att
+	end
+
+	function IceKit.particles(pos, kind, n, k, life, att)
+		local recipe = RECIPES[kind]
+		if not recipe or typeof(pos) ~= "Vector3" then
+			return nil, nil
+		end
+		att = att or anchorAt(pos, life or 3.2)
+		local pe = Instance.new("ParticleEmitter")
+		pe.Enabled = false
+		recipe(pe, math.max(tonumber(k) or 1, 0.05))
+		pe.Parent = att
+		pe:Emit(math.max(math.floor(tonumber(n) or 4), 1))
+		return pe, att
+	end
+
+	function IceKit.groundBurst(pos, thick, len)
+		if (len or 0) < 3.5 then
+			return
+		end
+		local k = math.clamp((thick or 2) / 2.6, 0.45, 3.5)
+		-- (capped: a field of 90 crystals bursts 90 times at once)
+		local scale = IceKit.lowEnd() and 0.5 or 1
+		local _, att = IceKit.particles(pos, "puff", math.max(math.floor(math.min(4 + 4 * k, 10) * scale), 2), k)
+		IceKit.particles(pos, "chips", math.max(math.floor((4 + 5 * k) * scale), 2), math.sqrt(k), nil, att)
+		if len >= 20 and thick >= 4 and not IceKit.lowEnd() then
+			IceKit.chips(pos, k, 2)
+		end
+	end
+
+	function IceKit.chips(pos, k, n, parent)
+		for _ = 1, n or 3 do
+			local s = rand(0.5, 1) * k
+			local c = IceKit.wedge(parent or folder, rng:NextNumber() < 0.5 and PAL.LIGHT or PAL.FROST)
+			c.Size = Vector3.new(s * 0.5, s, s * 0.8)
+			local rot = CFrame.Angles(rand(0, 6.28), rand(0, 6.28), rand(0, 6.28))
+			c.CFrame = CFrame.new(pos) * rot
+			local a = rand(0, math.pi * 2)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			local r = math.sqrt(k)
+			local apex = pos + out * rand(3, 7) * r + UP * rand(4, 9) * r
+			local land = pos + out * rand(6, 12) * r + UP * s * 0.3
+			local t1 = rand(0.18, 0.26)
+			tween(c, t1, { CFrame = CFrame.new(apex) * rot * CFrame.Angles(2, 1, 0) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			tween(c, t1 * 1.2, { CFrame = CFrame.new(land) * rot * CFrame.Angles(4, 2, 1) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, t1)
+			tween(c, 0.35, { Size = Vector3.one * 0.05, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, t1 * 2.2 + 0.5)
+			cleanup(c, t1 * 2.2 + 0.9)
+		end
+	end
+
+	function IceKit.crackLine(from, d, length, opts)
+		opts = type(opts) == "table" and opts or {}
+		local flat = Vector3.new(d.X, 0, d.Z)
+		if flat.Magnitude < 0.05 or length <= 0 then
+			return
+		end
+		flat = flat.Unit
+		local right = flat:Cross(UP)
+		local speed = opts.speed or 240
+		local width = opts.width or 0.3
+		local life = opts.life or 1.1
+		local wander = opts.wander or 1.6
+		local n = opts.segments or math.clamp(math.floor(length / 7), 3, 14)
+		local function onGround(s, lat)
+			local at = from + flat * s + right * lat
+			local hit = groundRay(at + UP * 2, 14)
+			local y = hit and hit.Position.Y or at.Y
+			return Vector3.new(at.X, y + ((opts.sheet and s <= opts.sheet) and 0.42 or 0.08), at.Z)
+		end
+		local function seg(a, b, t, w)
+			local p = newPart(Vector3.new(w, 0.12, (b - a).Magnitude + w), CFrame.lookAt((a + b) / 2, b), PAL.EDGE, Enum.Material.Neon)
+			p.Transparency = 1
+			tween(p, 0.04, { Transparency = 0.1 }, nil, nil, t)
+			tween(p, 0.6, { Transparency = 1, Size = Vector3.new(0.05, 0.05, p.Size.Z) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, t + life)
+			cleanup(p, t + life + 0.65)
+		end
+		local lat = 0
+		local prev = onGround(0, 0)
+		for i = 1, n do
+			local s = length * i / n
+			lat = math.clamp(lat + rand(-1.4, 1.4), -wander, wander)
+			local here = onGround(s, lat)
+			local t = (opts.delay or 0) + s / speed
+			seg(prev, here, t, width)
+			-- a short branch off every third step
+			if i % 3 == 2 then
+				local side = rng:NextNumber() < 0.5 and -1 or 1
+				local tipAt = onGround(s + rand(0.5, 2), lat + side * rand(1.5, 3))
+				seg(here, tipAt, t + 0.03, width * 0.7)
+			end
+			prev = here
+		end
+	end
+
+	function IceKit.mistRun(from, to, time, k)
+		k = k or 1
+		local holder = newPart(Vector3.new(2, 1, 2), CFrame.new(from), Color3.new(), nil, nil)
+		holder.Transparency = 1
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = SMOKE
+		pe.Color = ColorSequence.new(PAL.MIST, PAL.MIST2)
+		pe.LightEmission = 0.1
+		pe.LightInfluence = 0.7
+		pe.Size = NS({ NK(0, 1.5 * k), NK(0.4, 4 * k), NK(1, 7 * k) })
+		pe.Transparency = NS({ NK(0, 0.4), NK(0.6, 0.68), NK(1, 1) })
+		pe.Lifetime = NumberRange.new(0.8, 1.4)
+		pe.Speed = NumberRange.new(3 * k, 8 * k)
+		pe.SpreadAngle = Vector2.new(70, 70)
+		pe.Drag = 2
+		pe.Acceleration = Vector3.new(0, -1.5, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.RotSpeed = NumberRange.new(-30, 30)
+		pe.Shape = Enum.ParticleEmitterShape.Box
+		pe.Rate = 60
+		pe.Parent = holder
+		tween(holder, time, { CFrame = CFrame.new(to) }, Enum.EasingStyle.Linear)
+		task.delay(time, function()
+			pe.Enabled = false
+		end)
+		cleanup(holder, time + 1.6)
+	end
+
+	function IceKit.steam(pos, k, count, opts)
+		opts = type(opts) == "table" and opts or {}
+		k = k or 1
+		local dark = opts.warm and Color3.fromRGB(232, 196, 178) or PAL.STEAM_DARK
+		local light = opts.warm and Color3.fromRGB(255, 240, 228) or PAL.STEAM
+		local delay = opts.delay or 0
+		for i = 1, count or 6 do
+			local off = Vector3.new(rand(-1, 1), rand(0, 0.5), rand(-1, 1)) * 3 * k
+			local size = rand(3, 5.5) * k
+			local to = pos + off * 1.5 + UP * rand(3, 7) * k * (opts.rise or 1)
+			celPuff(folder, pos + off * 0.4, to, size, dark:Lerp(light, rand(0, 0.25)), light, rand(0.3, 0.5), rand(1, 1.6), delay + i * 0.03)
+		end
+		if delay > 0 then
+			task.delay(delay, IceKit.particles, pos + UP * k, "steam", math.floor(6 + 4 * k), k)
+		else
+			IceKit.particles(pos + UP * k, "steam", math.floor(6 + 4 * k), k)
+		end
+	end
+
+	function IceKit.melt(model, opts)
+		if not model or not model.Parent then
+			return
+		end
+		opts = type(opts) == "table" and opts or {}
+		local time = opts.time or 0.8
+		local crystals, parts = {}, {}
+		local function collect(inst)
+			for _, c in IceKit.crystals[inst] or {} do
+				table.insert(crystals, c)
+			end
+		end
+		collect(model)
+		local lx, ly, lz, hx, hy, hz = math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge
+		for _, d in model:GetDescendants() do
+			if d:IsA("Model") then
+				collect(d)
+			elseif d:IsA("BasePart") then
+				table.insert(parts, d)
+				local pos = d.CFrame.Position
+				lx, ly, lz = math.min(lx, pos.X), math.min(ly, pos.Y), math.min(lz, pos.Z)
+				hx, hy, hz = math.max(hx, pos.X), math.max(hy, pos.Y), math.max(hz, pos.Z)
+			end
+		end
+		if #parts == 0 then
+			model:Destroy()
+			return
+		end
+		local center = Vector3.new((lx + hx) / 2, (ly + hy) / 2, (lz + hz) / 2)
+		local extent = Vector3.new(hx - lx, hy - ly, hz - lz).Magnitude
+		local from = typeof(opts.from) == "Vector3" and opts.from or center
+		local speed = math.max(extent / 0.5, 60)
+		local slush = Color3.fromRGB(184, 208, 224)
+		local warm = Color3.fromRGB(255, 214, 178)
+		local last = 0
+		for _, p in parts do
+			p.CanCollide = false
+			local delay = math.min((p.CFrame.Position - from).Magnitude / speed, 0.8)
+			last = math.max(last, delay)
+			local lit = 0
+			if opts.warm then
+				lit = 0.12
+				tween(p, lit, { Color = p.Color:Lerp(warm, 0.55) }, nil, nil, delay)
+			end
+			tween(p, time, { Reflectance = 0.3, Color = p.Color:Lerp(slush, 0.6) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, delay + lit)
+			tween(p, time * 0.35, { Transparency = math.max(p.Transparency, 0.5) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, delay + time * 0.65)
+			if not IceKit.crystalPart[p] then
+				-- the sheet, columns, blocks: thinning away into the street
+				tween(p, time, { CFrame = p.CFrame - UP * (math.min(p.Size.Magnitude, 12) + 0.5) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, delay + time * 0.2)
+			end
+		end
+		for _, c in crystals do
+			c.delay = math.min((c.base - from).Magnitude / speed, 0.8)
+		end
+		local t0 = os.clock()
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			local t = os.clock() - t0
+			local all = true
+			for _, c in crystals do
+				if not c.gone then
+					local k = math.clamp((t - c.delay) / time, 0, 1)
+					if k > 0 then
+						-- tip first: it shortens from the top, faster as it goes
+						if not pcall(c.set, 1 - k * k, true) or k >= 1 then
+							c.gone = true
+						end
+					end
+					all = all and c.gone == true
+				end
+			end
+			if all then
+				conn:Disconnect()
+			end
+		end)
+		-- steam rolling up off it, in a wave with the melt
+		local k = math.clamp(extent / 16, 0.5, 3.5)
+		local puffs = math.clamp(math.floor(2 + extent / 10), 2, 8)
+		for i = 1, puffs do
+			local p = parts[rng:NextInteger(1, #parts)]
+			local at = p and p.CFrame.Position or center
+			IceKit.steam(at, k * rand(0.6, 1), 2, { warm = opts.warm, delay = math.min((at - from).Magnitude / speed, 0.8) + time * 0.3 + i * 0.02 })
+		end
+		if not opts.quiet then
+			VFX.PlaySound("IceMelt", center, math.clamp(0.6 + extent / 80, 0.6, 1.3))
+		end
+		task.delay(last + time + 0.15, function()
+			if model.Parent then
+				model:Destroy()
+			end
+		end)
+	end
+
+	function IceKit.breath(char, duration, every)
+		local head = char and char:FindFirstChild("Head")
+		if not head or not head:IsA("BasePart") then
+			return
+		end
+		every = math.max(every or 0.8, 0.2)
+		local att = Instance.new("Attachment")
+		att.Name = "IceBreath"
+		att.Position = Vector3.new(0, -head.Size.Y * 0.15, -head.Size.Z * 0.55)
+		att.Parent = head
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = SMOKE
+		pe.Color = ColorSequence.new(PAL.MIST)
+		pe.LightEmission = 0.1
+		pe.LightInfluence = 0.7
+		pe.Size = NS({ NK(0, 0.25), NK(1, 1.5) })
+		pe.Transparency = NS({ NK(0, 0.4), NK(1, 1) })
+		pe.Lifetime = NumberRange.new(0.7, 1.1)
+		pe.Speed = NumberRange.new(2, 3.5)
+		pe.SpreadAngle = Vector2.new(12, 12)
+		pe.EmissionDirection = Enum.NormalId.Front
+		pe.Drag = 2.5
+		pe.Acceleration = Vector3.new(0, 0.6, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.Enabled = false
+		pe.Parent = att
+		task.spawn(function()
+			local t = 0
+			while t < (duration or 3) and att.Parent do
+				pe:Emit(4)
+				task.wait(every)
+				t += every
+			end
+			cleanup(att, 1.3)
+		end)
+		return att
+	end
+
+	local tintToken = 0
+	function IceKit.coldTint(strength, hold, fade)
+		local Lighting = game:GetService("Lighting")
+		local cc = Lighting:FindFirstChild("IceColdTint")
+		if not cc then
+			cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "IceColdTint"
+			cc.Parent = Lighting
+		end
+		tintToken += 1
+		local token = tintToken
+		local s = math.clamp(tonumber(strength) or 1, 0, 1.5)
+		cc.Enabled = true
+		tween(cc, 0.08, {
+			TintColor = Color3.new(1, 1, 1):Lerp(PAL.TINT, math.min(s, 1)),
+			Saturation = -0.2 * s,
+			Contrast = 0.1 * s,
+			Brightness = 0.04 * s,
+		})
+		task.delay(0.08 + (hold or 0.4), function()
+			if token == tintToken then
+				tween(cc, fade or 1.5, { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0, Brightness = 0 }, Enum.EasingStyle.Sine)
+			end
+		end)
+	end
+
+	function IceKit.snow(cf, size, duration, rate, k)
+		k = k or 1
+		local holder = newPart(size, cf, Color3.new(), nil, nil)
+		holder.Transparency = 1
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/whiteCircle.png"
+		pe.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(222, 238, 250))
+		pe.LightEmission = 0.3
+		pe.LightInfluence = 0.6
+		pe.Size = NS({ NK(0, 0.3 * k), NK(1, 0.2 * k) })
+		pe.Transparency = NS({ NK(0, 1), NK(0.1, 0.15), NK(0.85, 0.3), NK(1, 1) })
+		pe.Lifetime = NumberRange.new(3, 6)
+		pe.Speed = NumberRange.new(1, 3)
+		pe.EmissionDirection = Enum.NormalId.Bottom
+		pe.SpreadAngle = Vector2.new(30, 30)
+		pe.Acceleration = Vector3.new(0, -3, 0)
+		pe.Drag = 0.6
+		pe.Rate = rate or 20
+		pe.Shape = Enum.ParticleEmitterShape.Box
+		pe.Parent = holder
+		task.delay(duration, function()
+			pe.Enabled = false
+		end)
+		cleanup(holder, duration + 6.5)
+		return holder
+	end
+
+	function IceKit.light(pos, range, brightness, life, color)
+		if IceKit.lowEnd() then
+			return nil
+		end
+		local att = anchorAt(pos, (life or 2) + 0.5)
+		local light = Instance.new("PointLight")
+		light.Color = color or PAL.GLOW
+		light.Range = math.min(range or 20, 60)
+		light.Brightness = 0
+		light.Shadows = false
+		light.Parent = att
+		tween(light, 0.15, { Brightness = brightness or 1.5 })
+		tween(light, 0.5, { Brightness = 0 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, math.max((life or 2) - 0.5, 0))
+		return light
+	end
+
+	-- frost crust specs, in each limb's own space: { limb names, size scale,
+	-- offset (Y in fractions of the limb's height, X in its width) }
+	local CRUST_R6 = {
+		{ "Right Arm", Vector3.new(1.12, 0.58, 1.12), Vector3.new(0, -0.21, 0) }, -- forearm and hand
+		{ "Right Arm", Vector3.new(1.14, 0.2, 1.14), Vector3.new(0, 0.39, 0) }, -- the shoulder
+		{ "Right Leg", Vector3.new(1.1, 0.42, 1.1), Vector3.new(0, -0.27, 0) }, -- the shin
+		{ "Torso", Vector3.new(0.48, 0.6, 1.1), Vector3.new(0.27, 0.17, 0) }, -- the right of the chest
+		{ "Head", Vector3.new(0.19, 0.82, 1.1), Vector3.new(0.24, 0.05, 0) }, -- the right of the face
+	}
+	local CRUST_R15 = {
+		{ "RightLowerArm", Vector3.new(1.14, 1.04, 1.14), Vector3.zero },
+		{ "RightHand", Vector3.new(1.16, 1.1, 1.16), Vector3.zero },
+		{ "RightUpperArm", Vector3.new(1.14, 0.45, 1.14), Vector3.new(0, 0.28, 0) },
+		{ "RightLowerLeg", Vector3.new(1.12, 0.8, 1.12), Vector3.new(0, -0.08, 0) },
+		{ "UpperTorso", Vector3.new(0.48, 0.6, 1.1), Vector3.new(0.27, 0.15, 0) },
+		{ "Head", Vector3.new(0.3, 0.8, 1.08), Vector3.new(0.36, 0.05, 0) },
+	}
+	-- small spikes of frost sticking out: { limb, base (fractions of the
+	-- limb's half-size), direction, length, thickness }
+	local SPIKES_R6 = {
+		{ "Right Arm", Vector3.new(1, 0.75, 0), Vector3.new(0.8, 1, 0.1), 1.1, 0.5 },
+		{ "Right Arm", Vector3.new(1, -0.35, 0.4), Vector3.new(1, -0.15, 0.5), 0.8, 0.42 },
+		{ "Right Arm", Vector3.new(0.6, -0.6, 1), Vector3.new(0.3, -0.3, 1), 0.7, 0.36 },
+		{ "Right Leg", Vector3.new(0.6, 0.1, -1), Vector3.new(0.3, 0.4, -1), 0.6, 0.36 },
+		{ "Torso", Vector3.new(0.8, 0.9, 1), Vector3.new(0.4, 1, 0.6), 0.9, 0.45 },
+	}
+	local SPIKES_R15 = {
+		{ "RightUpperArm", Vector3.new(1, 0.7, 0), Vector3.new(0.8, 1, 0.1), 1.1, 0.5 },
+		{ "RightLowerArm", Vector3.new(1, -0.2, 0.4), Vector3.new(1, -0.15, 0.5), 0.8, 0.42 },
+		{ "RightLowerArm", Vector3.new(0.6, -0.5, 1), Vector3.new(0.3, -0.3, 1), 0.7, 0.36 },
+		{ "RightLowerLeg", Vector3.new(0.6, 0.6, -1), Vector3.new(0.3, 0.4, -1), 0.6, 0.36 },
+		{ "UpperTorso", Vector3.new(0.8, 0.9, 1), Vector3.new(0.4, 1, 0.6), 0.9, 0.45 },
+	}
+	local function mirrored(name, side)
+		if side == 1 then
+			return name
+		end
+		return (name:gsub("Right", "Left"))
+	end
+	local function stick(limb, p)
+		local w = Instance.new("Weld")
+		w.Part0 = limb
+		w.Part1 = p
+		w.C0 = limb.CFrame:ToObjectSpace(p.CFrame)
+		w.Parent = p
+		p.Massless = true
+		p.Anchored = false
+	end
+
+	function IceKit.frostBody(char, opts)
+		opts = type(opts) == "table" and opts or {}
+		local handle = { parts = {} }
+		function handle.off() end
+		if not char or not char.Parent then
+			return handle
+		end
+		local side = opts.side == -1 and -1 or 1
+		local isR6 = char:FindFirstChild("Torso") ~= nil
+		local alpha = opts.alpha or 0.2
+		local color = opts.color or PAL.SKIN
+		local parts = handle.parts
+		for _, spec in isR6 and CRUST_R6 or CRUST_R15 do
+			local limb = char:FindFirstChild(mirrored(spec[1], side))
+			if limb and limb:IsA("BasePart") then
+				local s = limb.Size
+				local off = CFrame.new(side * spec[3].X * s.X, spec[3].Y * s.Y, 0)
+				local size = Vector3.new(s.X * spec[2].X, s.Y * spec[2].Y, s.Z * spec[2].Z)
+				if spec[1] == "Head" and isR6 then
+					size = Vector3.new(s.Y * 0.4, s.Y * 0.82, s.Z * 1.1) -- (the head's mesh is ~1.2 studs across, whatever its box)
+					off = CFrame.new(side * s.Y * 0.44, spec[3].Y * s.Y, 0)
+				end
+				local p = newPart(size, limb.CFrame * off, color, Enum.Material.Ice, nil, folder)
+				p.Name = "Frost"
+				p.Transparency = 1
+				p.Reflectance = 0.05
+				stick(limb, p)
+				table.insert(parts, p)
+			end
+		end
+		if opts.spikes ~= false then
+			for _, spec in isR6 and SPIKES_R6 or SPIKES_R15 do
+				local limb = char:FindFirstChild(mirrored(spec[1], side))
+				if limb and limb:IsA("BasePart") then
+					local half = limb.Size / 2
+					local at = limb.CFrame * Vector3.new(side * spec[2].X * half.X, spec[2].Y * half.Y, spec[2].Z * half.Z)
+					local dir = limb.CFrame:VectorToWorldSpace(Vector3.new(side * spec[3].X, spec[3].Y, spec[3].Z)).Unit
+					local f = IceKit.frameFor(at - dir * 0.15, dir, rand(0.8, 1.2))
+					local fold = math.rad(28)
+					local first = IceKit.litFirst(f, fold)
+					local a = IceKit.wedge(folder, first and PAL.LIT or PAL.SHADE)
+					local b = IceKit.wedge(folder, first and PAL.SHADE or PAL.LIT)
+					IceKit.placeV(a, b, f, spec[4], spec[5], spec[5] * 0.9, spec[5] * 0.4, fold)
+					for _, w in { a, b } do
+						w.Name = "Frost"
+						w.Transparency = 1
+						stick(limb, w)
+						table.insert(parts, w)
+					end
+				end
+			end
+		end
+		for _, p in parts do
+			-- (the crust lets the body show through a little; the spikes are solid)
+			tween(p, opts.fadeIn or 0.6, { Transparency = p:IsA("WedgePart") and 0 or alpha })
+		end
+		local emitters = {}
+		local arm = char:FindFirstChild(mirrored(isR6 and "Right Arm" or "RightLowerArm", side))
+		local att
+		if arm and arm:IsA("BasePart") and opts.sparkle ~= false then
+			att = Instance.new("Attachment")
+			att.Name = "FrostAura"
+			att.Position = Vector3.new(0, -arm.Size.Y * (isR6 and 0.2 or 0), 0)
+			att.Parent = arm
+			local glint = Instance.new("ParticleEmitter")
+			RECIPES.glint(glint, 0.35)
+			glint.Speed = NumberRange.new(0.2, 0.8)
+			glint.Rate = 6
+			glint.Parent = att
+			local trickle = Instance.new("ParticleEmitter")
+			trickle.Texture = SMOKE
+			trickle.Color = ColorSequence.new(PAL.MIST)
+			trickle.LightInfluence = 0.8
+			trickle.Size = NS({ NK(0, 0.5), NK(1, 1.8) })
+			trickle.Transparency = NS({ NK(0, 0.75), NK(0.3, 0.6), NK(1, 1) })
+			trickle.Lifetime = NumberRange.new(0.9, 1.5)
+			trickle.Speed = NumberRange.new(0.5, 1.5)
+			trickle.SpreadAngle = Vector2.new(60, 60)
+			trickle.Acceleration = Vector3.new(0, -3, 0)
+			trickle.Drag = 1
+			trickle.Rate = 8
+			trickle.Parent = att
+			emitters = { glint, trickle }
+		end
+		local watch
+		function handle.off(t)
+			if handle.gone then
+				return
+			end
+			handle.gone = true
+			if watch then
+				watch:Disconnect()
+			end
+			t = t or opts.fadeOut or 0.8
+			for _, p in parts do
+				if p.Parent then
+					tween(p, t, { Transparency = 1 })
+					cleanup(p, t + 0.05)
+				end
+			end
+			for _, pe in emitters do
+				pe.Enabled = false
+			end
+			if att then
+				cleanup(att, t + 1.6)
+			end
+			if arm and arm.Parent and opts.steam ~= false then
+				IceKit.steam(arm.CFrame.Position, 0.35, 3)
+			end
+		end
+		-- (if the body goes, its frost goes with it: nothing left loose)
+		watch = char.AncestryChanged:Connect(function(_, parent)
+			if not parent then
+				handle.gone = true
+				for _, p in parts do
+					p:Destroy()
+				end
+				if watch then
+					watch:Disconnect()
+				end
+			end
+		end)
+		if opts.life then
+			task.delay(opts.life, handle.off)
+		end
+		return handle
+	end
+
+	-- the builders by name too (and the kit on VFX, for tests and tools)
+	IceKit.makeSpike = makeSpike
+	IceKit.grow = growSpikes
+	IceKit.sheet = iceSheet
+	IceKit.layout = spikeLayout
+	IceKit.shatter = shatter
+	IceKit.mist = frostMist
+	IceKit.fog = iceFog
+	IceKit.sparkles = iceSparkles
+	VFX.IceKit = IceKit
 end
 
 ---------------------------------------------------------------------------
@@ -3849,7 +5175,9 @@ end
 local function m1Color(char)
 	local q = char:GetAttribute("Quirk")
 	if q == "HalfCold" then
-		return char:GetAttribute("QuirkAlt") and FIRE[3] or ICE_TIP
+		-- (round 81) a clear icy blue: the old near-white vanished into the
+		-- white wind arc it's drawn over
+		return char:GetAttribute("QuirkAlt") and FIRE[3] or Color3.fromRGB(104, 188, 255)
 	end
 	return M1_TRAIL[q or ""] or WIND
 end
@@ -3897,14 +5225,126 @@ local function bodyAhead(root, dir, reach)
 	return false
 end
 
--- M1 step-in: slides you along the ground only (gravity and the floor still
--- act on you), with a bounded force, and not at all when you're already in reach
-local function lunge(root, dir, speed, duration)
-	if bodyAhead(root, dir, 4.5) then
-		return
+---------------------------------------------------------------------------
+-- (round 81) THE M1 CHAIN, JJS-SMOOTH (VFX.M1Kit): the swing's small
+-- committed step in the coil; the hit played on the attacker's own screen
+-- the moment the fist lands (no waiting on the server: `predict`), with a
+-- pull of about a stud toward whoever was hit that never closes the gap
+-- under Config.M1.Stick.MinGap; the server's confirmation of it isn't played
+-- twice, and on everyone's screen it lands on the swing's contact frame
+-- (`serverHit`); the victim's own reaction clip held through the stun
+-- (`react`); the guard held between hits while the chain's live
+-- (`holdGuard`); the downslam's touchdown (`slamLand`).
+---------------------------------------------------------------------------
+VFX.M1Kit = {
+	swings = setmetatable({}, { __mode = "k" }), -- [char] = { start, contactAt } of its latest swing (os.clock)
+	predicted = setmetatable({}, { __mode = "k" }), -- [target] = { os.clock(), ... } each hit my client played on them
+	confirmed = setmetatable({}, { __mode = "k" }), -- [target] = os.clock() the server's word on my hit came first
+	-- the victim's reaction clip for each hit (m1react.py)
+	REACT = { [1] = "M1React1", [2] = "M1React2", [3] = "M1React3", [4] = "M1ReactFinisher", Up = "M1ReactUp", Down = "M1ReactDown", Air = "M1ReactUp" },
+	BODY = Vector3.new(1, 2.5, 1), -- half a body: its root within this of the box counts (the server's Rewind)
+	-- (round 83) the uppercut's victim landing while still stunned (react)
+	UPLAND = "M1ReactUpLand",
+	hops = setmetatable({}, { __mode = "k" }), -- [char] = os.clock() of its slam hop (slamHop)
+	-- [char] = { target, at, played } my own downslam's predicted hit: its
+	-- ground beat plays on my screen as I land (slamLand), not the server's
+	slams = setmetatable({}, { __mode = "k" }),
+}
+
+-- every body that can be punched: players, dummies, Twice's doubles, the raid
+function VFX.M1Kit.bodies()
+	local out = {}
+	for _, plr in Players:GetPlayers() do
+		if plr.Character then
+			table.insert(out, plr.Character)
+		end
 	end
+	for _, holder in { "Dummies", "TwiceClones", "NomuRaid" } do
+		local f = workspace:FindFirstChild(holder)
+		for _, m in f and f:GetChildren() or {} do
+			if m:IsA("Model") then
+				table.insert(out, m)
+			end
+		end
+	end
+	return out
+end
+
+-- how far `root` may still travel along `dir` (up to `want` studs) before
+-- it's nearer than MinGap studs (root to root) to anyone standing in front
+-- (round 83: `gap` instead of MinGap - the uppercut's step, Stick.UpGap;
+-- `tall`: how far above or below him they still count - 5, or more for the
+-- downslam coming down from the top of its hop)
+function VFX.M1Kit.room(root, dir, want, gap, tall)
+	local minGap = gap or (Config.M1.Stick or {}).MinGap or 3
+	local room = want
+	for _, model in VFX.M1Kit.bodies() do
+		local r = model:FindFirstChild("HumanoidRootPart")
+		local h = model:FindFirstChildOfClass("Humanoid")
+		if r and r ~= root and h and h.Health > 0 then
+			local v = r.Position - root.Position
+			local flat = Vector3.new(v.X, 0, v.Z)
+			local fwd = flat:Dot(dir)
+			local side = (flat - dir * fwd).Magnitude
+			if fwd > 0 and side < minGap and math.abs(v.Y) < (tall or 5) then
+				room = math.min(room, fwd - math.sqrt(minGap * minGap - side * side))
+			end
+		end
+	end
+	return math.max(room, 0)
+end
+
+-- Drive a plane LinearVelocity `dist` studs along `dir` over `duration`:
+-- "bump" eases up and back down (a step), "stick" is Config.M1.Stick's
+-- shape (held, then fading out: the pull, the same as the victim's push).
+-- `left` (optional) says how much further it may go; it stops at 0.
+function VFX.M1Kit.glide(lv, dir, dist, duration, shape, left)
+	local ST = Config.M1.Stick or {}
+	local hold, fade = ST.Hold or 0.06, ST.Fade or 0.1
+	local function speedAt(t)
+		if shape == "bump" then
+			return dist * math.pi / (2 * duration) * math.sin(math.pi * math.clamp(t / duration, 0, 1))
+		end
+		local top = dist / (hold + fade / 2)
+		return t < hold and top or top * math.max(1 - (t - hold) / fade, 0)
+	end
+	local cur = 0
+	local function set(v)
+		cur = v
+		lv.PlaneVelocity = Vector2.new(dir.X * v, dir.Z * v)
+	end
+	set(math.min(speedAt(1 / 60), left and math.max(left(), 0) * 60 or math.huge))
+	task.spawn(pcall, function() -- (pcall: the body may be gone before it's over)
+		local t0 = os.clock()
+		local last, moved = t0, 0
+		while lv.Parent ~= nil do
+			local now = os.clock()
+			local t, dt = now - t0, math.max(now - last, 1 / 60)
+			moved += cur * (now - last)
+			last = now
+			local room = left and left() or math.huge
+			if t >= duration or moved >= dist - 0.01 or room <= 0.02 then
+				break
+			end
+			-- (never more than a frame's worth short of the stop: no overshoot)
+			set(math.min(speedAt(t), (dist - moved) / dt, room / dt))
+			task.wait()
+		end
+		-- (switched off now, gone a beat later - Debris usually beats it to it)
+		pcall(function()
+			lv.Enabled = false
+		end)
+		task.delay(0.3, pcall, function()
+			lv:Destroy()
+		end)
+	end)
+end
+
+-- a plane LinearVelocity on the root (bounded force: it slides you along the
+-- ground only; gravity and the floor still act on you)
+function VFX.M1Kit.mover(root, name, duration)
 	local att = Instance.new("Attachment")
-	att.Name = "LungeAttachment"
+	att.Name = name
 	att.Parent = root
 	local lv = Instance.new("LinearVelocity")
 	lv.Attachment0 = att
@@ -3912,11 +5352,472 @@ local function lunge(root, dir, speed, duration)
 	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
 	lv.PrimaryTangentAxis = Vector3.new(1, 0, 0)
 	lv.SecondaryTangentAxis = Vector3.new(0, 0, 1)
-	lv.PlaneVelocity = Vector2.new(dir.X * speed, dir.Z * speed)
+	lv.PlaneVelocity = Vector2.new(0, 0)
 	lv.MaxForce = moverForce(root, 3000)
 	lv.Parent = root
-	cleanup(lv, duration)
-	cleanup(att, duration)
+	cleanup(lv, duration + 0.05)
+	cleanup(att, duration + 0.05)
+	return lv
+end
+
+-- (round 81) the hit-confirmed pull: about a stud toward whoever was hit,
+-- easing out, never nearer than MinGap studs. Returns how far it set out to go.
+function VFX.M1Kit.pull(root, targetRoot, want)
+	local ST = Config.M1.Stick or {}
+	local minGap = ST.MinGap or 3
+	local v = targetRoot.Position - root.Position
+	local flat = Vector3.new(v.X, 0, v.Z)
+	if flat.Magnitude < 0.1 then
+		return 0
+	end
+	local dir = flat.Unit
+	local function left()
+		local w = targetRoot.Position - root.Position
+		return Vector3.new(w.X, 0, w.Z).Magnitude - minGap
+	end
+	local dist = math.min(want or ST.Pull or 1.1, left())
+	if dist < 0.05 then
+		return 0
+	end
+	local duration = (ST.Hold or 0.06) + (ST.Fade or 0.1)
+	VFX.M1Kit.glide(VFX.M1Kit.mover(root, "M1PullAttachment", duration), dir, dist, duration, "stick", left)
+	return dist
+end
+
+-- moving under its own steam (walking): your own body by the stick / keys,
+-- anyone else's by how fast it's going across the ground
+function VFX.M1Kit.moving(char, hum, root, isLocal)
+	local me = Players.LocalPlayer and Players.LocalPlayer.Character
+	if isLocal or char == me then
+		return hum ~= nil and hum.MoveDirection.Magnitude > 0.1
+	end
+	local v = root.AssemblyLinearVelocity
+	return Vector3.new(v.X, 0, v.Z).Magnitude > 4.5
+end
+
+-- M1 step-in (round 81): the small committed step in the swing's coil - it
+-- eases on and off, and it closes in no nearer than MinGap studs to whoever
+-- is in front (it used to be a hard shove that skipped itself whenever
+-- anyone stood within 4.5 studs: exactly when hits connect)
+local function lunge(root, dir, dist, duration, gap)
+	local function left()
+		return VFX.M1Kit.room(root, dir, 99, gap)
+	end
+	local room = math.min(dist, left())
+	if room < 0.05 then
+		return
+	end
+	VFX.M1Kit.glide(VFX.M1Kit.mover(root, "LungeAttachment", duration), dir, room, duration, "bump", left)
+end
+
+-- the swing box's extra reach, the server's way (a Stand's arm, Creati's weapon)
+function VFX.M1Kit.reach(char)
+	local q = Config.Quirks[char:GetAttribute("Quirk") or ""]
+	local reach = 0
+	if q and q.Stand then
+		reach += q.StandReach or 2.5
+	end
+	local w = VFX.WeaponOf and VFX.WeaponOf(char)
+	local spec = w and q and q.Weapons and q.Weapons[w]
+	if spec then
+		reach += spec.Reach or 0
+	end
+	return reach
+end
+
+-- could my swing land on them (as far as this screen can tell)? A guard, a
+-- body lying in the street (only a downslam hits that), Infinity, a clash,
+-- DIO's stopped time: the server decides those, so no guess is made
+function VFX.M1Kit.hittable(model, swing)
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then
+		return false
+	end
+	local slam = swing.variant == "Down"
+	if (model:GetAttribute("Ragdolled") or guarding[model] or model:GetAttribute("Blocking")) and not slam then
+		return false
+	end
+	for _, flag in { "Clashing", "PlayingUno", "Infinity", "Frozen", "TimeStopped", "BeingFinished" } do
+		if model:GetAttribute(flag) then
+			return false
+		end
+	end
+	local me = Players.LocalPlayer
+	if me and model:GetAttribute("TwiceClone") == me.UserId then
+		return false -- (his own doubles: his hits go through them)
+	end
+	local owner = Players:GetPlayerFromCharacter(model)
+	return not (owner and (owner == me or owner:GetAttribute("GodMode")))
+end
+
+-- (round 81) LOCAL HIT PREDICTION: at the swing's contact frame the same box
+-- the server checks (Config.M1.HitboxSize / HitboxForward; the downslam's
+-- taller, lower one) is run on my own screen against everyone else, and
+-- whoever is in it takes the hit right now - the spark, the sound, the freeze
+-- on both bodies, the shake, their reaction - and I'm pulled in toward them.
+-- The server still decides the damage, the stun and the shove; its word on
+-- the hit then plays nothing twice (serverHit). A whiff is just the swing.
+-- Returns the bodies it hit.
+function VFX.M1Kit.predict(char, root, look, swing)
+	local K = VFX.M1Kit
+	local M1 = Config.M1
+	local size, drop = M1.HitboxSize, 0
+	if swing.variant == "Down" then
+		size = size + Vector3.new(0, 5, 0) + ((M1.Downslam or {}).HitboxExtra or Vector3.zero)
+		drop = -3
+	end
+	local reach = swing.reach or 0
+	size += Vector3.new(0, 0, reach)
+	local yaw = math.atan2(-look.X, -look.Z)
+	local cf = CFrame.new(root.Position) * CFrame.Angles(0, yaw, 0) * CFrame.new(0, drop, -(M1.HitboxForward or 3.5) - reach / 2)
+	local half = size / 2 + K.BODY
+	local hits = {}
+	for _, model in K.bodies() do
+		local r = model:FindFirstChild("HumanoidRootPart")
+		if r and model ~= char and K.hittable(model, swing) then
+			local lp = cf:PointToObjectSpace(r.Position)
+			if math.abs(lp.X) <= half.X and math.abs(lp.Y) <= half.Y and math.abs(lp.Z) <= half.Z then
+				table.insert(hits, model)
+			end
+		end
+	end
+	if #hits == 0 then
+		return hits
+	end
+	-- (the air combo: both of you off the ground - the server's own test)
+	local function height(r)
+		local below = groundRay(r.Position, 40)
+		return below and r.Position.Y - below.Position.Y or 99
+	end
+	local airborne = height(root) > 3 + (M1.DownslamHeight or 0.6) * 0.5
+	local stop = (swing.variant == "Up" and (M1.Uppercut or {}).Hitstop) or (swing.variant == "Down" and (M1.Downslam or {}).Hitstop)
+		or (swing.finisher and M1.FinisherHitstop) or M1.Hitstop
+	local nearest, nearestD
+	for _, target in hits do
+		local r = target.HumanoidRootPart
+		local d = (r.Position - root.Position).Magnitude
+		if not nearestD or d < nearestD then
+			nearest, nearestD = r, d
+		end
+		-- (the server's word on this very swing got here first: it's played)
+		if (K.confirmed[target] or 0) < swing.start then
+			local kind = swing.kind
+			if type(kind) == "number" and kind < 4 and airborne and height(r) > 4.5 then
+				kind = "Air"
+			end
+			-- (one mark per swing: at a high ping the server's word on the
+			-- last hit lands after this one's played, and mustn't use it up)
+			local marks = K.predicted[target] or {}
+			K.predicted[target] = marks
+			table.insert(marks, os.clock())
+			local ok, err = pcall(Effects.Hit, nil, {
+				Target = target, Attacker = Players.LocalPlayer, Amount = swing.finisher and M1.FinisherDamage or M1.Damage,
+				Hitstop = stop, Heavy = swing.finisher or nil, M1 = kind, Predicted = true,
+			})
+			if not ok then
+				warn("[VFX] M1 prediction failed: " .. tostring(err))
+			end
+		end
+	end
+	if (swing.pull or 0) > 0 and nearest then
+		K.pull(root, nearest, swing.pull)
+	end
+	return hits
+end
+
+-- (round 81) The server's word on an M1 hit (from Effects.Hit). On every
+-- screen it lands on the swing's contact frame (the server checks a hair
+-- before it); on the attacker's own screen a hit already played there
+-- (predict) isn't played again (the combo counter still counts it: the
+-- client's HUD.ComboHit). True when it's already been played.
+function VFX.M1Kit.serverHit(target, attacker, attackerChar)
+	local K = VFX.M1Kit
+	local me = Players.LocalPlayer
+	local mine = me ~= nil and attacker == me
+	local swing = attackerChar and K.swings[attackerChar]
+	local current = false
+	if swing then
+		local wait = swing.contactAt - os.clock()
+		if mine then
+			-- (my own hit, here well before this swing could land: it's the last
+			-- swing's; otherwise just after my own guess at the contact)
+			current = wait <= 0.02
+			wait = wait > 0.02 and -1 or wait + 0.03
+		end
+		if wait > 0 and wait < 0.12 then
+			task.wait(wait)
+		end
+	end
+	if not mine then
+		return false
+	end
+	-- (the oldest of my marks on them is this word's: a mark nothing came
+	-- for - my guess hit, the server's missed - is dropped after a second)
+	local marks = K.predicted[target]
+	while marks and marks[1] and os.clock() - marks[1] > 1 do
+		table.remove(marks, 1)
+	end
+	if marks and marks[1] then
+		table.remove(marks, 1)
+		if not marks[1] then
+			K.predicted[target] = nil
+		end
+		return true
+	end
+	K.predicted[target] = nil
+	-- (the server's word on this very swing came first: my screen doesn't
+	-- play it again - not for the last swing's, or this one would be lost)
+	if current then
+		K.confirmed[target] = os.clock()
+	end
+	return false
+end
+
+-- the stun each M1 puts on (the reaction clip is held through it)
+function VFX.M1Kit.stunFor(kind)
+	local M1 = Config.M1
+	if kind == "Up" then
+		return (M1.Uppercut or {}).Stun or 1.3
+	elseif kind == "Air" then
+		return (M1.AirJuggle or {}).Stun or 0.7
+	elseif kind == 4 or kind == "Down" then
+		return 0 -- (the ragdoll takes over)
+	end
+	return M1.Stun or 0.7
+end
+
+-- (round 81) the M1 victim's own reaction (m1react.py): snapped into from
+-- whatever pose they're in, then its living hold (Hold..HoldEnd) stretched to
+-- the stun, so a chained victim never drifts back to standing between hits.
+-- False (no clip, an R15 body) and the caller plays the flinch instead.
+function VFX.M1Kit.react(target, kind)
+	local name = VFX.M1Kit.REACT[kind]
+	local clip = name and VFX.GetClip(name)
+	if not clip then
+		return false
+	end
+	local hold = clip.holdAt and math.max(VFX.M1Kit.stunFor(kind) - (clip.holdEnd or clip.holdAt), 0) or 0
+	local played = VFX.Clip(target, name, { fade = 0.03, holdFor = hold, recover = 0.25 }) ~= nil
+	if played and (kind == "Up" or kind == "Air") then
+		VFX.M1Kit.upLand(target, poseTokens[target], VFX.M1Kit.stunFor(kind))
+	end
+	return played
+end
+
+-- (round 83) THE UPPERCUT'S VICTIM COMES DOWN: the airborne arch is held
+-- only while they're up there. Once they've been launched (a stud off the
+-- street), the frame the feet reach it again - still stunned - they land
+-- into M1ReactUpLand (the knees take it, a stagger), held for the stun
+-- that's left; they used to stand on the street in the mid-air arch for
+-- half a second. Never launched within a beat (pinned, armoured): the arch
+-- plays on as before. `token`: the reaction clip's pose token.
+function VFX.M1Kit.upLand(target, token, stun)
+	task.spawn(pcall, function() -- (pcall: the body may be gone before it lands)
+		local root = target:FindFirstChild("HumanoidRootPart")
+		local torso = target:FindFirstChild("Torso")
+		local stand = 3 * (torso and math.clamp(torso.Size.Y / 2, 0.25, 6) or 1)
+		local t0 = os.clock()
+		local up = false
+		while root and root.Parent and poseTokens[target] == token and os.clock() - t0 < stun do
+			local below = groundRay(root.Position, 60)
+			local height = below and root.Position.Y - below.Position.Y or 99
+			if height > stand + 1 then
+				up = true
+			elseif up and height <= stand + 0.35 and root.AssemblyLinearVelocity.Y <= 1 then
+				local left = stun - (os.clock() - t0)
+				local clip = VFX.GetClip(VFX.M1Kit.UPLAND)
+				if clip and left > 0.15 and not target:GetAttribute("Ragdolled") then
+					local hold = clip.holdAt and math.max(left - (clip.holdEnd or clip.holdAt), 0) or 0
+					VFX.Clip(target, VFX.M1Kit.UPLAND, { fade = 0.05, holdFor = hold, recover = 0.25 })
+				end
+				return
+			elseif not up and os.clock() - t0 > 0.7 then
+				return
+			end
+			task.wait()
+		end
+	end)
+end
+
+-- (round 83) THE SLAM HOP's pose (m1.py M1SlamHop): the rear leg pushing
+-- off, the knees tucking up, the fists gathered to the chest, held to the
+-- top of the hop where the downslam starts on exactly that pose. Played by
+-- the hopper's own screen at the hop (QuirkClient) and on everyone else's
+-- from the parkour relay. If no downslam comes, it eases to standing as he
+-- lands (or after a second). (Hopped the moment hit 3's swing lets him -
+-- 0.18s in, the arm still out on the strike, ~70 degrees from the hop's
+-- first pose - it blends in longer: up to M1ClipFade + 0.07, not a snap.)
+function VFX.M1Kit.slamHop(char, isLocal)
+	local base = Anim.M1ClipFade or 0.07
+	local s = VFX.M1Kit.swings[char]
+	local since = s and os.clock() - s.start or 1
+	local clip = VFX.Clip(char, "M1SlamHop", { fade = base + math.clamp(0.3 - since, 0, 0.12) * 0.6, keep = true })
+	VFX.M1Kit.hops[char] = os.clock()
+	if not clip then
+		return false
+	end
+	local token = poseTokens[char]
+	task.spawn(pcall, function()
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local torso = char:FindFirstChild("Torso")
+		local stand = 3 * (torso and math.clamp(torso.Size.Y / 2, 0.25, 6) or 1)
+		local t0 = os.clock()
+		local up = false
+		while root and root.Parent and poseTokens[char] == token and os.clock() - t0 < 1 do
+			local below = groundRay(root.Position, 40)
+			local height = below and root.Position.Y - below.Position.Y or 99
+			up = up or height > stand + 1
+			if up and height <= stand + 0.35 and root.AssemblyLinearVelocity.Y <= 1 then
+				break
+			end
+			task.wait()
+		end
+		if poseTokens[char] == token and char.Parent then
+			setPose(char, nil, Anim.ClipRecover or 0.25, Enum.EasingStyle.Sine)
+		end
+	end)
+	return true
+end
+
+-- (round 83) the uppercut's kick on the attacker's own screen: the camera
+-- tips up `deg` degrees at the hit and eases back over `time`, after the
+-- camera's own update. Roblox's camera carries on next frame from wherever
+-- this one left it pointing, so only the change in the tilt is put on each
+-- frame (kickOn: what's on it now) and the last frame takes it all back off
+-- - the whole tilt every frame added up, ~15 degrees higher per uppercut.
+function VFX.M1Kit.kick(deg, time)
+	local K = VFX.M1Kit
+	K.kickAt, K.kickDeg, K.kickTime = os.clock(), deg or 2, math.max(time or 0.25, 0.05)
+	if K.kickBound then
+		return
+	end
+	K.kickBound, K.kickOn = true, 0
+	RunService:BindToRenderStep("QuirkM1Kick", Enum.RenderPriority.Camera.Value + 2, function()
+		local t = os.clock() - K.kickAt
+		local cam = workspace.CurrentCamera
+		local k = 0
+		if t < K.kickTime then
+			-- (up fast - a frame or two - then eased back down)
+			local rise = 0.04
+			k = t < rise and t / rise or 1 - (t - rise) / (K.kickTime - rise)
+			k = k * k * (3 - 2 * k)
+		end
+		local a = math.rad(K.kickDeg * k)
+		if cam then
+			cam.CFrame = cam.CFrame * CFrame.Angles(a - K.kickOn, 0, 0)
+		end
+		K.kickOn = a
+		if t >= K.kickTime or not cam then
+			K.kickBound, K.kickOn = false, 0
+			RunService:UnbindFromRenderStep("QuirkM1Kick")
+		end
+	end)
+end
+
+-- (round 81) between hits the guard stays up (the clip's last key) while the
+-- chain is live (Config.M1.ComboReset since the swing) - not the eased drop
+-- to idle and the pop back up every hit - then it eases to standing; walking
+-- off hands the body to the walk at once. `token`: the clip's pose token.
+function VFX.M1Kit.holdGuard(char, token, length, isLocal)
+	task.spawn(pcall, function() -- (pcall: the body may be gone before it's over)
+		motionWait(char, length)
+		if poseTokens[char] ~= token or not char.Parent then
+			return
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local reset = Config.M1.ComboReset or 1.1
+		while poseTokens[char] == token and char.Parent do
+			local s = VFX.M1Kit.swings[char]
+			if not (s and hum and root) or os.clock() - s.start >= reset or char:GetAttribute("Stunned") or char:GetAttribute("Ragdolled")
+				or VFX.M1Kit.moving(char, hum, root, isLocal) then
+				break
+			end
+			task.wait(1 / 30)
+		end
+		if poseTokens[char] == token and char.Parent then
+			setPose(char, nil, Anim.ClipRecover or 0.25, Enum.EasingStyle.Sine)
+		end
+	end)
+end
+
+-- (round 81) THE DOWNSLAM'S TOUCHDOWN: the hammer's air pose rides the drop,
+-- and the frame the feet reach the street the landing takes over (both feet
+-- down, knees deep, fists low: M1SlamLand, its Hit key on the touchdown), a
+-- puff of dust and a thud; then the guard. No clip: it eases to standing
+-- (and so does a slam that's still falling `wait` seconds on).
+function VFX.M1Kit.slamLand(char, token, isLocal, wait)
+	task.spawn(pcall, function() -- (pcall: the body may be gone before it lands)
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+		local stand = 3 * (torso and torso.Name == "Torso" and math.clamp(torso.Size.Y / 2, 0.25, 6) or 1)
+		local t0 = os.clock()
+		while root and root.Parent and poseTokens[char] == token and os.clock() - t0 < (wait or 1) do
+			local below = groundRay(root.Position, 40)
+			if below and root.Position.Y - below.Position.Y <= stand + 0.35 and root.AssemblyLinearVelocity.Y <= 1 then
+				local g = below.Position
+				local clip = VFX.Clip(char, "M1SlamLand", { fade = 0.03, keep = true })
+				dustPuffs(g, 0.7, 5, Color3.fromRGB(205, 196, 190), 0.6, false)
+				-- (round 83) my own slam that landed: the street cracks now, all
+				-- of it at once (slamBeat) - else the landing's own thud
+				if not (isLocal and VFX.M1Kit.slamBeat(char)) then
+					shockDisc(g + UP * 0.2, UP, 1.5, 9, 0.22, WIND)
+					VFX.PlaySound("HeroLand", g, 0.7)
+					if isLocal then
+						VFX.ShakeAt(g, 0.7, 30, 0.15)
+					end
+				end
+				if clip then
+					VFX.M1Kit.holdGuard(char, poseTokens[char], clip.length, isLocal)
+				else
+					setPose(char, nil, 0.22, Enum.EasingStyle.Sine)
+				end
+				return
+			end
+			task.wait()
+		end
+		if root and poseTokens[char] == token and char.Parent then
+			setPose(char, nil, Anim.ClipRecover or 0.25, Enum.EasingStyle.Sine)
+		end
+		-- (round 83) never seen landing in the slam's pose - something else
+		-- took the body (a dash out of it, a hit on him), or it ran out: the
+		-- street's beat still waits for HIM to reach it (by his height alone
+		-- now, as long as the beat may still play), never shaking the street
+		-- with him still up there
+		local s = isLocal and VFX.M1Kit.slams[char]
+		while s and not s.played and root and root.Parent and os.clock() - s.at < 1.5 do
+			local below = groundRay(root.Position, 40)
+			if below and root.Position.Y - below.Position.Y <= stand + 1 then
+				VFX.M1Kit.slamBeat(char)
+				break
+			end
+			task.wait()
+		end
+	end)
+end
+
+-- (round 83) ONE GROUND BEAT. My own downslam that my screen saw land
+-- (predict, kept in M1Kit.slams) cracks the street where THEY are the
+-- moment I land: the crater, the ring, the dust, the rocks, the sound, the
+-- impact frame and the shake all at once (Effects.Downslam) - it used to
+-- be three: the hit's, the server's crater while I still hung in the air,
+-- and my landing's thud. The server's broadcast of it isn't played again
+-- on my screen (Effects.Downslam); everyone else plays the server's, which
+-- it times to my landing. A whiff has no beat. True when it played.
+function VFX.M1Kit.slamBeat(char)
+	local s = VFX.M1Kit.slams[char]
+	if not s or s.played or os.clock() - s.at > 1.5 then
+		return false
+	end
+	s.played = os.clock()
+	local troot = s.target and s.target:FindFirstChild("HumanoidRootPart")
+	local root = char:FindFirstChild("HumanoidRootPart")
+	local at = (troot and troot.Position) or (root and root.Position)
+	if not at then
+		return false
+	end
+	Effects.Downslam(nil, { Pos = groundPoint(at), Target = s.target, Beat = true })
+	return true
 end
 
 -- (round 62) CREATI'S WEAPONS: the one in her hand (the server's
@@ -3982,6 +5883,11 @@ function VFX.WeaponHitCue(char)
 end
 
 -- M1: four hits, each a load-up, a snap, a held contact frame and a recovery
+-- (round 81) ...run together the JJS way (VFX.M1Kit): one swing's follow-
+-- through blends into the next one's coil, a small committed step in the
+-- coil, the whoosh just before the fist lands, the hit itself on your own
+-- screen the moment it lands, a pull toward whoever you hit, the guard held
+-- between hits, and the downslam's touchdown
 function Effects.Punch(char, data, isLocal)
 	local root, hum = charParts(char)
 	if not root then
@@ -3990,6 +5896,7 @@ function Effects.Punch(char, data, isLocal)
 	if char:GetAttribute("Kaiju") and VFX.KaijuSlam and VFX.KaijuSlam(char, data) then
 		return -- Overhaul's kaiju: a giant arm comes down instead
 	end
+	local K = VFX.M1Kit
 	local count = math.clamp(data.Count or 1, 1, 4)
 	local finisher = data.Finisher == true
 	-- (round 66) a Stand user's M1s are the Stand's: it hands back the fist
@@ -4008,16 +5915,51 @@ function Effects.Punch(char, data, isLocal)
 	-- legs to the fall; the downslam's own legs tuck and kick.
 	local below = groundRay(root.Position, 40)
 	local airborne = not below or root.Position.Y - below.Position.Y > 4.2
+	-- (round 81) walking on through the chain: the walk keeps the legs (the
+	-- punch rides on top of it), so the guard's planted feet never skate
+	local walking = not airborne and hum ~= nil and K.moving(char, hum, root, isLocal)
+	local slam = data.Variant == "Down" and finisher
 	local clip
 	if standFist then
 		VFX.Pose(char, finisher and "StandCommandFin" or (count % 2 == 1 and "StandCommand" or "StandCommandL"), finisher and 0.55 or 0.32)
 	else
-		clip = VFX.Clip(char, hit.Motion, { legs = not airborne or hit.Motion == "M1Downslam" or hit.AirLegs == true })
+		-- (round 81) faded in from the last swing's follow-through (M1ClipFade),
+		-- and kept on its guard at the end (holdGuard / slamLand let go)
+		-- (round 83) the 4th's variants start on hit 3's pose at the 0.3s click
+		-- (the downslam on the slam hop's): thrown later than that - a slower
+		-- click, a 4th that waited for UpCommit - the body's further on into
+		-- the guard, so it blends in longer (up to 0.15s) instead of snapping
+		local fade = Anim.M1ClipFade
+		local last = K.swings[char]
+		local hopped = slam and os.clock() - (K.hops[char] or -1) < 0.8
+		if variant and last and not hopped then
+			local base = Anim.M1ClipFade or 0.07
+			fade = math.clamp(base + (os.clock() - last.start - 0.32) * 0.4, base, 0.15)
+		end
+		-- (a downslam with no slam hop's tuck under it - the hop's relay
+		-- dropped on this screen, a 4th thrown off a ledge - starts from hit
+		-- 3's guard, ~85 degrees from the tuck its clip starts on: blended in
+		-- over SlamFade, not snapped)
+		if slam and not hopped then
+			fade = math.max(fade or 0, (Config.M1.Downslam or {}).SlamFade or 0.14)
+		end
+		clip = VFX.Clip(char, hit.Motion, {
+			legs = (not airborne and not walking) or hit.Motion == "M1Downslam" or hit.AirLegs == true,
+			fade = fade, keep = true,
+		})
 		if not clip then
 			VFX.Motion(char, hit.Fallback or hit.Motion)
 		end
 	end
+	local token = poseTokens[char]
 	local contact = (clip and clip.hit) or hit.Contact
+	-- (round 81) this swing, for the hit's timing on every screen (serverHit)
+	-- and the guard between hits (holdGuard)
+	local swing = { start = os.clock(), contactAt = os.clock() + contact }
+	K.swings[char] = swing
+	if clip and not slam then
+		K.holdGuard(char, token, clip.length, isLocal)
+	end
 	local color = m1Color(char)
 	local names = LIMBS[hit.Limb] or LIMBS.RightHand
 	local limbPart = standFist or limb(char, names[1], names[2])
@@ -4028,27 +5970,77 @@ function Effects.Punch(char, data, isLocal)
 	end
 	local stopTrail = (kit and VFX.WeaponTrail(char, kit, finisher))
 		or (limbPart and addTrail(limbPart, color, finisher and 0.2 or 0.12, finisher and 1.1 or 0.7))
-	local windup = finisher and 0.1 or 0.05
-	task.wait(windup)
+	local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+	-- the step into the hit: your own client moves you (it owns your physics)
+	local grounded = hum ~= nil and hum.FloorMaterial ~= Enum.Material.Air
+	local hover
+	if isLocal and hum and not char:GetAttribute("Ragdolled") then
+		if grounded then
+			-- (round 81) a small committed step in the coil, easing on and off
+			-- (walking, the walk is the step); the real closing is the pull on
+			-- a landed hit
+			local STEP = Config.M1.Step or {}
+			local dist = (data.Variant == "Up" and finisher and (STEP.Up or 0.4)) or (finisher and (STEP.Finisher or 0.9)) or (STEP.Distance or 0.4)
+			-- (round 83) the uppercut steps in under them (Stick.UpGap): its
+			-- clip's feet are planted for the whole Step.Up, and mid-chain the
+			-- gap's already down to MinGap
+			local upGap = not standFist and clip and data.Variant == "Up" and finisher and (Config.M1.Stick or {}).UpGap or nil
+			if not walking then
+				lunge(root, look, dist * (standFist and 0.45 or 1), math.max(contact - 0.02, 0.06), upGap)
+			end
+		elseif slam then
+			-- (round 83) the downslam: no hang at the top any more (round 81 held
+			-- him there 0.29s and the hammer met the air ~4 studs over their
+			-- head) - he falls through the coil under gravity, drifting forward
+			-- (Downslam.Drift: a plane mover, gravity still acts), so from the
+			-- slam hop's fixed height the fists land on the head at the contact;
+			-- then frozen through the hitstop and driven down (below)
+			local drift = K.mover(root, "SlamDriftAttachment", contact)
+			local DSd = Config.M1.Downslam or {}
+			local speed = DSd.Drift or 6
+			-- (it stops Downslam.Gap from whoever's under him - from the top of
+			-- the hop down: near enough that the fists, about 2 studs out in
+			-- front, come down on their head; MinGap would put them in front
+			-- of the face - never nearer, never a frame's worth past it)
+			local function driftOn(dt)
+				local room = K.room(root, look, 99, DSd.Gap or 2.2, 12)
+				drift.PlaneVelocity = Vector2.new(look.X, look.Z) * math.min(speed, room / dt)
+			end
+			driftOn(1 / 60)
+			task.spawn(pcall, function()
+				local last = os.clock()
+				while drift.Parent ~= nil and drift.Enabled do
+					task.wait()
+					if drift.Parent == nil or not drift.Enabled then
+						break
+					end
+					local now = os.clock()
+					driftOn(math.max(now - last, 1 / 60))
+					last = now
+				end
+			end)
+			hover = function()
+				pcall(function()
+					drift.Enabled = false
+				end)
+			end
+		else
+			dash(root, look * 6 + UP * 3, 0.12) -- air combo: hang in the air a moment
+		end
+	end
+	-- (round 81) the whoosh on the strike's way in, just before the fist lands
+	-- (on the swing's own clock: a freeze holds it back with the pose)
+	motionWait(char, math.max(contact - 0.03, 0))
 	if not root.Parent then
 		if stopTrail then
 			stopTrail()
 		end
 		return
 	end
-	local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
-	-- the step into the hit: your own client moves you (it owns your physics)
-	if isLocal and hum and not char:GetAttribute("Ragdolled") then
-		if hum.FloorMaterial ~= Enum.Material.Air then
-			-- (the uppercut steps in less: you want to be under them)
-			lunge(root, look, ((data.Variant == "Up" and 12) or (finisher and 26) or 15) * (standFist and 0.45 or 1), finisher and 0.09 or 0.06)
-		else
-			dash(root, look * 6 + UP * 3, 0.12) -- air combo: hang in the air a moment
-		end
-	end
+	look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
 	local swingCue = kit and (finisher and kit.Heavy or kit.Swing) or (finisher and "HeavySwing" or "Swing")
 	VFX.PlaySound(swingCue, root.Position + look * 2, finisher and 0.9 or 0.8)
-	task.wait(math.max(contact - windup, 0.02))
+	motionWait(char, math.min(contact, 0.03))
 	if stopTrail then
 		stopTrail(finisher and 0.15 or 0.06)
 	end
@@ -4063,6 +6055,58 @@ function Effects.Punch(char, data, isLocal)
 		center += look * (1.5 - flatOffset:Dot(look))
 	end
 	swingSmear(root, hit.Swing, center, color, finisher)
+	-- (round 81) THE CONTACT: on your own screen the hit lands right now
+	local landed -- (round 83) the bodies my screen saw it land on
+	if isLocal and not char:GetAttribute("Ragdolled") then
+		local SK = Config.M1.Stick or {}
+		landed = K.predict(char, root, look, {
+			start = swing.start, finisher = finisher, variant = finisher and data.Variant or nil,
+			kind = (finisher and (data.Variant == "Up" or data.Variant == "Down") and data.Variant) or (finisher and 4) or count,
+			reach = K.reach(char),
+			-- (pulled in on the street - not the stand user, who stands his ground)
+			pull = (grounded and not standFist and not slam) and ((data.Variant == "Up" and finisher) and (SK.UpPull or 0.5) or (SK.Pull or 1.1)) or 0,
+		})
+	end
+	local struck = landed ~= nil and #landed > 0
+	if slam then
+		-- after the freeze: down after them, and the touchdown
+		if isLocal and hum and not char:GetAttribute("Ragdolled") then
+			local DS = Config.M1.Downslam or {}
+			if hover then
+				hover()
+			end
+			-- (round 83) the street takes it as HE lands (slamLand plays the
+			-- ground beat for this hit then), and a landed slam freezes his body
+			-- with his pose through the hitstop - the pose clock stopped and the
+			-- body used to fall on through it
+			if struck then
+				K.slams[char] = { target = landed[1], at = os.clock() }
+			end
+			local stop = struck and (DS.Hitstop or 0.12) or 0
+			local thaw = stop > 0 and dash(root, Vector3.zero, stop) or nil
+			task.delay(stop, function()
+				if thaw then
+					thaw()
+				end
+				if root.Parent and hum.FloorMaterial == Enum.Material.Air then
+					-- driven down only as far as the street is (a slam thrown low,
+					-- or off a curb, would press him into it): his momentum carries
+					-- the last half stud into a normal landing
+					local dive = DS.Dive or 45
+					local below = groundRay(root.Position, 60)
+					local clear = below and (root.Position.Y - below.Position.Y - 3) or 60
+					if clear > 1 then
+						-- (round 83) a landed one carries him back off them
+						-- (Downslam.Recoil): he comes down about MinGap away, not
+						-- in them; a whiff on only while there's room
+						local on = struck and -(DS.Recoil or 8) or (K.room(root, look, 0.2, nil, 12) >= 0.2 and 2 or 0)
+						dash(root, look * on - UP * dive, math.min(0.1, (clear - 0.5) / dive))
+					end
+				end
+			end)
+		end
+		K.slamLand(char, token, isLocal, (clip and clip.length or 0.8) - contact + 0.3)
+	end
 	if data.Variant == "Up" and finisher then
 		-- (round 63) you stay on your feet (RiseWith 0); a RiseWith carries
 		-- you up after them
@@ -4075,13 +6119,20 @@ function Effects.Punch(char, data, isLocal)
 		streaks(center, UP, 9, 1.2, 7, 16, WIND, 0.3)
 		billboardRing(center + UP * 1.5, 1.5, 9, color == WIND and Color3.new(1, 1, 1) or color, 5, 0.2)
 		VFX.PlaySound("Uppercut", center, 1)
-		VFX.ShakeAt(center, 1, 35, 0.15)
+		-- (round 83) a landed one already shakes (the hit); on my own screen
+		-- the camera tips up with the launch instead
+		if struck then
+			local UPC = Config.M1.Uppercut or {}
+			K.kick(UPC.KickDeg or 2, UPC.KickTime or 0.25)
+		else
+			VFX.ShakeAt(center, 1, 35, 0.15)
+		end
 	elseif data.Variant == "Down" and finisher then
 		-- the spike: wind driven down off the fists
 		shockDisc(center - UP, -UP, 1.5, 12, 0.22, WIND, 6)
 		streaks(center, -UP, 9, 1.2, 7, 14, WIND, 0.25)
 		billboardRing(center, 1.5, 9, color == WIND and Color3.new(1, 1, 1) or color, 5, 0.2)
-		VFX.ShakeAt(center, 1, 35, 0.15)
+		-- (round 83: the shake is the street's, as he lands - slamLand)
 	elseif finisher then
 		local g = groundPoint(root.Position)
 		if (root.Position - g).Magnitude < 5 then
@@ -4121,6 +6172,17 @@ function Effects.Punch(char, data, isLocal)
 		VFX.HellflamePunch(char, count, finisher, fist, look) -- (Endeavor: every punch flares)
 	elseif q == "Blueflame" and VFX.BlueflamePunch then
 		VFX.BlueflamePunch(char, count, finisher, fist, look) -- (Dabi: blue fire off every hit)
+	elseif q == "Decay" and VFX.DecayPunch then
+		VFX.DecayPunch(char, count, finisher, fist, look) -- (round 83, Shigaraki: the claws rake, the 4th is five fingers)
+	elseif q == "HalfCold" then
+		-- (round 81) Todoroki: frost puffs and ice chips fly off every ice-side
+		-- hit, embers off the fire side's
+		if char:GetAttribute("QuirkAlt") then
+			sparks(fist, 0.35 * big, FIRE[1], FIRE[3], finisher and 10 or 5)
+		else
+			local _, att = IceKit.particles(fist, "chips", finisher and 10 or 5, 0.5 * big)
+			IceKit.particles(fist, "puff", finisher and 6 or 3, 0.45 * big, nil, att)
+		end
 	elseif q == "Explosion" and VFX.PalmBlast then
 		-- Bakugo: every hit goes off in his palm (and the 4th one's a real blast)
 		VFX.PalmBlast(fist, look, (finisher and 2 or 1.1) * (char:GetAttribute("UltActive") and 1.3 or 1))
@@ -4138,28 +6200,60 @@ function Effects.Punch(char, data, isLocal)
 		shockDisc(fist, look, 2, 10 * big * 2, 0.2, WIND, 8)
 		bolt(fist, 1.5, GOLD)
 	elseif q == "HalfCold" then
+		-- (round 81) the ult's hits alternate sides: ice bursting off the fist
+		-- in a star of crystals that shatters a beat later, then a flare of
+		-- flame with a white-hot heart
 		if count % 2 == 1 then
+			local model = outlineModel(ICE_OUTLINE)
+			local list = {}
+			local side = look:Cross(UP)
+			local n = finisher and 5 or 3
+			for i = 1, n do
+				local a = i / n * math.pi * 2 + rand(-0.3, 0.3)
+				local out = UP * math.cos(a) + side * math.sin(a)
+				table.insert(list, {
+					set = makeSpike(model, fist - look * 0.6 + out * 0.4, (look * 1.1 + out * 0.9).Unit, rand(1.6, 2.4) * big, 0.8 * big, false, { quiet = true, shards = 0, flat = true }),
+					delay = i * 0.01,
+				})
+			end
+			growSpikes(list, 0.06)
 			frostMist(fist, 0.4 * big * 2, 2)
+			IceKit.particles(fist, "glint", 4, 0.5 * big)
+			task.delay(0.3, function()
+				shatter(model, finisher and 8 or 5, { from = fist, instant = true, quiet = true })
+			end)
 		else
 			local f = newPart(Vector3.one, CFrame.new(fist), FIRE[3], Enum.Material.Neon, Enum.PartType.Ball)
 			tween(f, 0.2, { Size = Vector3.one * 4 * big * 2, Transparency = 1 })
 			cleanup(f, 0.25)
+			local core = newPart(Vector3.one * 0.6, CFrame.new(fist), FIRE[1], Enum.Material.Neon, Enum.PartType.Ball)
+			tween(core, 0.12, { Size = Vector3.one * 2.6 * big, Transparency = 1 })
+			cleanup(core, 0.15)
+			sparks(fist, 0.5 * big, FIRE[1], FIRE[3], 8)
 		end
 	elseif q == "Engine" then
 		streaks(fist, look, 6, 1, 4, 10, EXHAUST, 0.15)
-	elseif q == "Decay" then
-		dustPuffs(fist, 0.5 * big, 3, Color3.fromRGB(150, 140, 142), 0.8, Color3.fromRGB(70, 60, 66))
-		sparks(fist, 0.4 * big, Color3.fromRGB(150, 140, 142), Color3.fromRGB(214, 62, 66), 8)
 	elseif q == "Limitless" then
 		shockDisc(fist, look, 1, 9 * big, 0.2, Color3.fromRGB(170, 120, 255), 4)
 	end
 end
 
 -- Server: a downslam's victim hits the street
+-- (round 83: the server times it to the attacker's landing and says whose
+-- it is - data.Attacker. On the attacker's own screen his landing already
+-- played it, or is about to (M1Kit.slamBeat, data.Beat): not twice)
 function Effects.Downslam(_, data)
 	local g = typeof(data.Pos) == "Vector3" and data.Pos
 	if not g then
 		return
+	end
+	if not data.Beat then
+		local me = Players.LocalPlayer
+		local mine = me ~= nil and data.Attacker == me and me.Character
+		local s = mine and VFX.M1Kit.slams[mine]
+		if s and s.target == data.Target and os.clock() - s.at < 1.5 then
+			return
+		end
 	end
 	shockDisc(g + UP * 0.3, UP, 2, 22, 0.35, WIND)
 	billboardRing(g + UP * 0.6, 2, 18, Color3.new(1, 1, 1), 4, 0.3)
@@ -4170,8 +6264,14 @@ function Effects.Downslam(_, data)
 		streaks(g + UP * 0.5, Vector3.new(math.cos(a), 0.25, math.sin(a)).Unit, 1, 0.4, 4, 9, WIND, 0.25)
 	end
 	VFX.PlaySound("Downslam", g, 1)
-	VFX.ShakeAt(g, 2.2, 90, 0.35)
-	if nearCamera(g, 45) then
+	-- (round 83: his own slam's beat shakes his screen and frames it however
+	-- the camera's placed)
+	if data.Beat then
+		VFX.Shake(2.2, 0.35)
+	else
+		VFX.ShakeAt(g, 2.2, 90, 0.35)
+	end
+	if data.Beat or nearCamera(g, 45) then
 		VFX.ImpactFrame(0.06)
 	end
 end
@@ -4203,6 +6303,16 @@ function Effects.Hit(_, data)
 	local attacker = typeof(data.Attacker) == "Instance" and data.Attacker:IsA("Player") and data.Attacker or nil
 	local attackerChar = attacker and attacker.Character
 	local heavy = data.Heavy == true or (data.Amount or 0) >= 15
+	-- (round 81) an M1: it lands on the swing's contact frame, and on the
+	-- attacker's own screen it already has (VFX.M1Kit.predict) - the server's
+	-- word on it then plays nothing twice
+	if data.M1 ~= nil and not data.Predicted and VFX.M1Kit.serverHit(target, attacker, attackerChar) then
+		return
+	end
+	-- (round 83) a downslam's contact is the freeze and a light shake; the
+	-- impact frame and the big shake are the street's, as he lands
+	-- (Effects.Downslam): one slam, not three
+	local slamHit = data.M1 == "Down"
 	-- hitstop: both fighters hang on the contact frame for a beat
 	if type(data.Hitstop) == "number" and data.Hitstop > 0 then
 		local stop = math.min(data.Hitstop, 0.2)
@@ -4212,7 +6322,7 @@ function Effects.Hit(_, data)
 		end
 		local me = Players.LocalPlayer and Players.LocalPlayer.Character
 		if me and (me == attackerChar or me == target) then
-			VFX.Shake(heavy and 1.1 or 0.35, stop + 0.06)
+			VFX.Shake(slamHit and 0.6 or heavy and 1.1 or 0.35, stop + 0.06)
 		end
 	end
 	-- (round 63) the contact, JJS-style: an ink-sharp star of light where the
@@ -4224,7 +6334,9 @@ function Effects.Hit(_, data)
 	local aroot = attackerChar and attackerChar:FindFirstChild("HumanoidRootPart")
 	local along = aroot and (pos - aroot.Position) or Vector3.zero
 	along = along.Magnitude > 0.5 and along.Unit or rng:NextUnitVector()
-	local tint = attackerChar and M1_TRAIL[attackerChar:GetAttribute("Quirk") or ""] or Color3.new(1, 1, 1)
+	-- (round 83) a quirk's hits can be tinted apart from its M1 trail (VFX.HitTints: Decay's are dust, not red)
+	local aq = attackerChar and attackerChar:GetAttribute("Quirk") or ""
+	local tint = attackerChar and ((VFX.HitTints and VFX.HitTints[aq]) or M1_TRAIL[aq]) or Color3.new(1, 1, 1)
 	VFX.HitStar(pos - along * 0.8, heavy and 7 or 4.6, tint)
 	local core = newPart(Vector3.one, CFrame.new(pos - along * 0.6), Color3.new(1, 1, 1), Enum.Material.Neon, Enum.PartType.Ball)
 	tween(core, 0.05, { Size = Vector3.one * (heavy and 4.2 or 3) })
@@ -4246,7 +6358,7 @@ function Effects.Hit(_, data)
 			dustPuffs(g, 0.7, 4, Color3.fromRGB(210, 202, 194), 0.6, false)
 		end
 		local me = Players.LocalPlayer and Players.LocalPlayer.Character
-		if me and (me == attackerChar or me == target) then
+		if me and (me == attackerChar or me == target) and not slamHit then
 			VFX.ImpactFrame(0.045)
 		end
 	end
@@ -4258,19 +6370,26 @@ function Effects.Hit(_, data)
 	h.Parent = target
 	tween(h, 0.25, { FillTransparency = 1 })
 	cleanup(h, 0.3)
-	-- (round 77) some fighters' punches sound like their own (Config.HitSounds)
-	local own = attackerChar and Config.HitSounds and Config.HitSounds[attackerChar:GetAttribute("Quirk") or ""]
-	VFX.PlaySound(own and (heavy and own[2] or own[1]) or (heavy and "HeavyHit" or "Hit"), pos, heavy and 1 or 0.8)
-	-- (round 62) Creati's weapon lands with its own sound on top
-	local weaponCue = attackerChar and VFX.WeaponHitCue(attackerChar)
-	if weaponCue then
-		VFX.PlaySound(weaponCue, pos, heavy and 1 or 0.85)
+	-- (round 81) Quiet: the move plays its own sound for this hit (United
+	-- States of Smash's decoy and slam) - the generic one would double it
+	if not data.Quiet then
+		-- (round 77) some fighters' punches sound like their own (Config.HitSounds)
+		local own = attackerChar and Config.HitSounds and Config.HitSounds[attackerChar:GetAttribute("Quirk") or ""]
+		VFX.PlaySound(own and (heavy and own[2] or own[1]) or (heavy and "HeavyHit" or "Hit"), pos, heavy and 1 or 0.8)
+		-- (round 62) Creati's weapon lands with its own sound on top
+		local weaponCue = attackerChar and VFX.WeaponHitCue(attackerChar)
+		if weaponCue then
+			VFX.PlaySound(weaponCue, pos, heavy and 1 or 0.85)
+		end
 	end
 	if VFX.BLOOD then
 		VFX.BLOOD.hit(target, attackerChar, data.Amount or 0, heavy)
 	end
 	if not target:GetAttribute("Ragdolled") and not target:GetAttribute("Frozen") then
-		VFX.Motion(target, flinchFor(target, attackerChar, heavy))
+		-- (round 81) an M1's own reaction clip, held through the stun; else the flinch
+		if not (data.M1 ~= nil and VFX.M1Kit.react(target, data.M1)) then
+			VFX.Motion(target, flinchFor(target, attackerChar, heavy))
+		end
 	end
 end
 
@@ -4851,10 +6970,25 @@ do
 		end)
 	end
 
+	-- (round 83) the hand-measured shape (Config.Voice Fixed) of the clip a
+	-- line plays, found by the asset's number in its id (nil: the line's own
+	-- Id) - or nil if that clip wasn't measured by hand
+	function VC.fixed(line, id)
+		local list = line and line.Fixed
+		if type(list) ~= "table" then
+			return nil
+		end
+		local num = string.match(tostring(id or line.Id or ""), "(%d+)%s*$")
+		return num and list[num] or nil
+	end
+
 	-- where a clip starts, how long to wait first, and where it stops, for its
-	-- beat to land beatAt seconds from now (nil: from the top of the speech)
-	function VC.plan(line, shape, beatAt)
-		shape = shape or {}
+	-- beat to land beatAt seconds from now (nil: from the top of the speech).
+	-- (round 83) id: the clip it plays; a Fixed clip's own numbers win over
+	-- anything measured, and its Stop is where it stops (4th result: true)
+	function VC.plan(line, shape, beatAt, id)
+		local fixed = VC.fixed(line, id)
+		shape = fixed or shape or {}
 		local first = math.max((shape.First or line.First or 0) - 0.04, 0)
 		local beat = shape.Beat or line.Beat
 		local start, wait = first, 0
@@ -4867,11 +7001,11 @@ do
 				start = math.max(first, math.min(beat - beatAt, first + (line.MaxCut or 0)))
 			end
 		end
-		local stop = line.Trim and (shape.Cut or line.Cut) or nil
+		local stop = (fixed and fixed.Stop) or (line.Trim and (shape.Cut or line.Cut)) or nil
 		if stop and stop < start + 0.4 then
 			stop = nil
 		end
-		return start, wait, stop
+		return start, wait, stop, fixed ~= nil and stop ~= nil
 	end
 
 	-- a line (Config.Voice name) from `where` (a part, or a point), louder the
@@ -4896,7 +7030,7 @@ do
 		end
 		local near = math.clamp(1 - (dist - range * 0.4) / (range * 0.6), 0, 1)
 		local shape = VC.shapes[id] or nil
-		local start, wait, stop = VC.plan(line, shape, beatAt)
+		local start, wait, stop, hard = VC.plan(line, shape, beatAt, id)
 		local s = Instance.new("Sound")
 		s.Name = "Voice_" .. name
 		s.SoundId = id
@@ -4909,6 +7043,17 @@ do
 				return
 			end
 			local t0 = os.clock()
+			if hard and s.IsLoaded then
+				-- (round 83) a hand-measured stop: the engine won't play past it
+				-- either, if the fade below runs a frame or two late (only on a
+				-- loaded clip - a region set before it loads isn't reliable). The
+				-- region starts where the line does: Play() with regions on may
+				-- start it from the region's Min (from 0 it'd fade out before "GOT")
+				pcall(function()
+					s.PlaybackRegionsEnabled = true
+					s.PlaybackRegion = NumberRange.new(start, stop + 0.08)
+				end)
+			end
 			s.TimePosition = start
 			s:Play()
 			if start > 0 and not s.IsLoaded then
@@ -5458,16 +7603,24 @@ function Effects.IceSpike(char, data, isLocal, ability)
 		face(root, d)
 	end
 	VFX.Pose(char, "Ground", 0.45)
+	-- (round 81) a jagged wave racing out from his hand: a frost crack shoots
+	-- along the street ahead of it, white frost puffs off the slam, then the
+	-- crystals tear up out of the street one after another, bigger as they go,
+	-- with a roll of mist riding the front
+	local g0 = groundPoint(typeof(data.Origin) == "Vector3" and data.Origin or root.Position)
+	IceKit.particles(g0 + d * 1.5, "puff", 10, 1.2)
+	IceKit.crackLine(g0 + d * 2, d, 52, { speed = 260, delay = 0.06, sheet = 48, width = 0.3, segments = 4 })
 	task.wait(0.12)
 	if not root.Parent then
 		return
 	end
 	local model, origin = spikeLayout("IceSpike", data, root, d)
-	frostMist(origin + d * 20, 0.8, 6)
+	IceKit.mistRun(origin + UP, origin + d * 46 + UP, 0.3, 1)
+	task.delay(0.3, frostMist, origin + d * 44, 0.9, 5)
 	VFX.PlaySound("Ice", origin, 0.8)
 	VFX.ShakeAt(origin, 0.8, 60, 0.25)
 	task.wait((ability and ability.IceDuration) or 3)
-	shatter(model, 40)
+	shatter(model, 40, { from = origin })
 end
 
 function Effects.FrostBurst(char, data, _isLocal, ability)
@@ -5476,163 +7629,1302 @@ function Effects.FrostBurst(char, data, _isLocal, ability)
 		return
 	end
 	VFX.Pose(char, "Ground", 0.4)
+	-- (round 81) an explosion of frost out of the street round him: a white
+	-- blast of cold air and cracks racing outward, the inner ring of big
+	-- crystals bursting out leaning away from him, a second ring of smaller
+	-- ones thrown further a beat later, frost crusting the street past them
+	local g0 = groundPoint(typeof(data.Origin) == "Vector3" and data.Origin or root.Position)
+	IceKit.particles(g0 + UP * 0.5, "puff", 12, 1.6)
 	task.wait(0.15)
 	if not root.Parent then
 		return
 	end
 	local model, origin = spikeLayout("FrostBurst", data, root, flatten(data.Dir, root))
-	shockDisc(origin + Vector3.new(0, 0.5, 0), UP, 4, 36, 0.4, ICE_TIP)
-	frostMist(origin, 1.2, 10)
+	shockDisc(origin + Vector3.new(0, 0.5, 0), UP, 4, 40, 0.4, ICE_TIP)
+	shockDisc(origin + Vector3.new(0, 1.5, 0), UP, 2, 28, 0.55, IceKit.PAL.MIST2)
+	local a0 = rand(0, math.pi * 2)
+	for i = 1, 5 do
+		local a = a0 + i / 5 * math.pi * 2 + rand(-0.2, 0.2)
+		local out = Vector3.new(math.cos(a), 0, math.sin(a))
+		IceKit.crackLine(origin + out * 2, out, rand(14, 18), { speed = 200, segments = 2, wander = 1, sheet = 13, width = 0.3 })
+		task.delay(0.05, frostMist, origin + out * rand(9, 12), 1, 3)
+	end
+	frostMist(origin, 1.3, 8)
+	sparks(origin + UP * 1.5, 1.1, ICE_TIP, Color3.fromRGB(150, 210, 255), 24)
+	IceKit.light(origin + UP * 4, 26, 1.4, 2.6)
+	if nearCamera(origin, 40) then
+		IceKit.coldTint(0.5, 0.15, 0.7)
+	end
 	VFX.PlaySound("Ice", origin, 0.9)
 	VFX.ShakeAt(origin, 1.2, 70, 0.3)
 	task.wait((ability and ability.IceDuration) or 3)
-	shatter(model, 50)
+	shatter(model, 50, { from = origin })
 end
 
--- HEAVEN-PIERCING ICE WALL (ult): the stomp, then a glacier from his foot
--- that fans out across the street and climbs past the rooftops into the
--- sky as it runs out ahead of him. Frost races along the street ahead of
--- it, the air goes cold and blue, the spire at the far end punches a hole
--- through the clouds, and snow drifts down off it while it stands.
-function Effects.IceWall(char, data, isLocal, ability)
-	local root = charParts(char)
-	if not root then
-		return
+-- HEAVEN-PIERCING ICE WALL (ult). (round 81) Rebuilt to the anime's own shot
+-- of it (the Sero match): his right foot stamps down and frosts the street, a
+-- run of feathered blades races out of it along the street, and 160 studs
+-- out the ice bursts into a SUNBURST - long, pointed, two-tone blades fanned
+-- out from one point round a mound of billowy ice, the middle one piercing
+-- the clouds - as his right hand scoops up at it. Each beat has its own hit
+-- (the stomp, the crest, the cloud punch: sound, shake, frame). It stands for
+-- IceDuration in cold mist and diamond dust, creaking, then cracks: the
+-- tallest tips break off and fall, and the rest melts into steam from his end
+-- outward. The shape is SpikeLayouts.IceWall's (the server carves the city
+-- with the same blades); the ice is solid once grown and stops blocking at
+-- exactly IceDuration.
+do
+	local IW = {} -- (one table: the chunk is at its 200-local limit)
+	IceKit.wall = IW
+	IW.LIT = Color3.fromRGB(214, 234, 248)
+	IW.SHADE = Color3.fromRGB(122, 155, 182)
+	IW.RUN_LIT = Color3.fromRGB(232, 244, 252)
+	IW.RUN_SHADE = Color3.fromRGB(150, 180, 202)
+	IW.MOUND = Color3.fromRGB(238, 246, 252)
+	IW.MOUND_SHADE = Color3.fromRGB(176, 204, 226)
+	IW.NEON = Color3.fromRGB(235, 250, 255)
+	IW.OUTLINE = Color3.fromRGB(36, 84, 116)
+	IW.CARPET = Color3.fromRGB(220, 238, 250)
+	IW.SNOW = Color3.fromRGB(240, 248, 255)
+	IW.CRACK = Color3.fromRGB(150, 225, 255)
+	IW.MELT = Color3.fromRGB(170, 200, 220)
+	IW.WET = Color3.fromRGB(90, 120, 145)
+	IW.STEAM_DARK = Color3.fromRGB(206, 206, 214)
+	IW.MIST_DARK = Color3.fromRGB(200, 218, 234)
+	IW.FOLD = math.rad(20)
+	IW.FLIP = CFrame.Angles(0, math.pi, 0)
+	IW.SMOKE = "rbxasset://textures/particles/smoke_main.dds"
+	IW.SPARKLE = "rbxasset://textures/particles/sparkles_main.dds"
+	-- which outline each kind of blade is drawn with (one Highlight per group,
+	-- so there are lines between the groups: 7 in all, the crest's two
+	-- alternating); and which ones grow with a little overshoot
+	IW.GROUP = { Run = "Run", Foot = "Run", Mound = "Mound", Mid = "Mid", Back = "Back", Skirt = "Skirt", Ridge = "Skirt" }
+	IW.BACK = { Crest = 1, Back = 1, Mound = 1.7 }
+
+	function IW.ease(kind, a)
+		local s = IW.BACK[kind]
+		if s then
+			local x = a - 1
+			return 1 + (s + 1) * x * x * x + s * x * x
+		end
+		return 1 - (1 - a) ^ 3
 	end
-	local d = flatten(data.Dir, root)
-	if isLocal then
-		face(root, d)
-		VFX.Hooks.Dim(0.35, 0.55)
+
+	-- a low graphics setting: no crossed blades, no shadows, one light, half the particles
+	-- (the same test as the rest of the ice: IceKit.lowEnd)
+	function IW.low()
+		return IceKit.lowEnd()
 	end
-	cinematicFor(char, "IceWall", isLocal, (ability and ability.Name) or "HEAVEN-PIERCING ICE WALL", ICE_TIP)
-	VFX.Motion(char, "IceWall")
-	local g0 = groundPoint(root.Position)
-	frostMist(g0 + d * 2, 0.6, 4)
-	-- the stomp freezes the street: frost cracks race out ahead, fanning wide
-	local HV = SpikeLayouts.HEAVEN or {}
-	local L, H, W = HV.Length or 200, HV.Height or 330, HV.Width or 170
-	local right = d:Cross(UP)
-	for lane = -3, 3 do
+
+	function IW.sun()
+		local ok, dir = pcall(function()
+			return game:GetService("Lighting"):GetSunDirection()
+		end)
+		if ok and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 then
+			return dir.Unit
+		end
+		return Vector3.new(0.45, 0.75, -0.48).Unit
+	end
+
+	-- is this viewer's camera (or what it's looking at) near pos?
+	function IW.near(pos, radius)
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return false
+		end
+		return (cam.CFrame.Position - pos).Magnitude < radius or (cam.Focus.Position - pos).Magnitude < radius
+	end
+
+	-- a big beat is heard in full by whoever's watching it (150+ studs off, a
+	-- placed sound rolls off to a whisper), from where it is by everyone else
+	function IW.sound(name, pos, loud, gain)
+		if loud then
+			VFX.PlaySound(name, nil, (gain or 1) * 0.8)
+		else
+			VFX.PlaySound(name, pos, gain or 1)
+		end
+	end
+
+	-- the camera kicks wider for a moment (not during a cutscene)
+	function IW.kick(amount)
+		local cam = workspace.CurrentCamera
+		if not cam or VFX.InCinematic() then
+			return
+		end
+		local base = cam.FieldOfView
+		tween(cam, 0.06, { FieldOfView = base + amount }, Enum.EasingStyle.Quad)
+		task.delay(0.3, function()
+			if math.abs(cam.FieldOfView - (base + amount)) < 0.5 then
+				tween(cam, 0.3, { FieldOfView = base }, Enum.EasingStyle.Sine)
+			end
+		end)
+	end
+
+	-- his cutscene, kept out of the buildings: a shot set out to the side of
+	-- the street is pulled in toward the middle of it until nothing stands
+	-- between (SHOTS.IceWall as authored on an open street)
+	function IW.shots(root, d)
+		local facing = CFrame.lookAt(root.Position, root.Position + d)
+		rayParams.FilterDescendantsInstances = characterList()
+		local function clear(spec)
+			local pos = spec[1]
+			local from = facing * Vector3.new(0, pos.Y, pos.Z)
+			local to = facing * pos
+			if (to - from).Magnitude > 4 then
+				local hit = workspace:Raycast(from, to - from, rayParams)
+				if hit then
+					local k = math.max((hit.Position - from).Magnitude - 4, 0) / (to - from).Magnitude
+					pos = Vector3.new(pos.X * k, pos.Y, pos.Z)
+				end
+			end
+			return { pos, spec[2] }
+		end
+		local out = {}
+		for i, shot in SHOTS.IceWall do
+			local s = table.clone(shot)
+			s.From = clear(shot.From)
+			s.To = clear(shot.To or shot.From)
+			out[i] = s
+		end
+		return out
+	end
+
+	function IW.wedge(size, cf, color, parent)
+		local p = Instance.new("WedgePart")
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.Material = Enum.Material.Ice
+		p.Reflectance = 0.05
+		p.Size = size
+		p.CFrame = cf
+		p.Color = color
+		p.Parent = parent
+		return p
+	end
+
+	-- A blade of ice (e: a SpikeLayouts.IceWall entry). Two WedgeParts meet
+	-- along its ridge, each folded 20 degrees back off it (a shallow V: two
+	-- facets, and some depth edge-on); the facet turned to the sun is LIT, the
+	-- other SHADE. Star crosses a second, narrower pair through it at 90
+	-- degrees (pointed from every side); Hero runs a thin Neon line down its
+	-- ridge. rec.shape(l, hw) draws it l studs long and hw half-wide;
+	-- rec.set(a) grows it out of its base (a = 0..1: longer, then wider).
+	function IW.blade(parent, e, lit, shade, sun, star)
+		local up = e.Dir.Unit
+		local n = typeof(e.Face) == "Vector3" and (e.Face - up * e.Face:Dot(up)) or Vector3.zero
+		if n.Magnitude < 1e-3 then
+			n = (math.abs(up.Y) < 0.95 and UP or Vector3.new(1, 0, 0)):Cross(up)
+		end
+		n = n.Unit
+		local frame = CFrame.fromMatrix(e.Base, n, up, n:Cross(up)) -- (X: its face, Y: along it)
+		local L = e.Length
+		local w = e.Width or e.Thick / 0.7
+		local t = e.Depth or math.max(1, L * 0.05)
+		local rec = { e = e, frame = frame, L = L, w = w, t = t, parts = {}, halves = {} }
+		local turns = { CFrame.new() }
+		if e.Star and star then
+			turns[2] = CFrame.Angles(0, math.pi / 2, 0)
+		end
+		for i, turn in turns do
+			local pair = {}
+			for sgn = -1, 1, 2 do
+				local h = { k = i == 1 and 1 or 0.75, turn = turn, sgn = sgn, fold = CFrame.Angles(0, -sgn * IW.FOLD, 0), flip = sgn > 0 and IW.FLIP or CFrame.new() }
+				h.part = IW.wedge(Vector3.new(t, 0.1, 0.1), frame, lit, parent)
+				table.insert(pair, h)
+				table.insert(rec.halves, h)
+				table.insert(rec.parts, h.part)
+			end
+			-- (the facet turned more to the sun is the lit one)
+			local firstLit = (frame * turn * pair[1].fold).XVector:Dot(sun) >= (frame * turn * pair[2].fold).XVector:Dot(sun)
+			pair[1].part.Color = firstLit and lit or shade
+			pair[2].part.Color = firstLit and shade or lit
+		end
+		local ridge
+		if e.Hero then
+			ridge = newPart(Vector3.new(0.25, 0.1, 1), frame, IW.NEON, Enum.Material.Neon, nil, parent)
+			ridge.Transparency = 0.15
+			rec.ridge = ridge
+		end
+		local rw = math.clamp(w * 0.03, 0.6, 1.6)
+		function rec.shape(l, hw)
+			l = math.max(l, 0.1)
+			rec.l, rec.hw = l, hw
+			for _, h in rec.halves do
+				local z = math.max(hw * h.k, 0.05)
+				h.part.Size = Vector3.new(t, l, z)
+				h.part.CFrame = frame * h.turn * CFrame.new(0, l / 2, 0) * h.fold * CFrame.new(0, 0, h.sgn * z / 2) * h.flip
+			end
+			if ridge then
+				ridge.Size = Vector3.new(0.25, math.max(l * 0.85, 0.05), rw)
+				ridge.CFrame = frame * CFrame.new(t / 2 + 0.1, l * 0.425, 0)
+			end
+		end
+		function rec.set(a)
+			rec.shape(L * a, w / 2 * (0.3 + 0.7 * math.clamp(a, 0, 1)))
+		end
+		rec.set(0)
+		return rec
+	end
+
+	-- a chunk of the mound: billowy frozen surf, cel-shaded like a puff (a
+	-- shaded body, a white top toward the sun), swelling up out of the street
+	function IW.mound(parent, e, sun)
+		local D = e.Length
+		local c = e.Base + UP * (2 + D * 0.12)
+		local toSun = Vector3.new(sun.X, math.max(sun.Y, 0.35), sun.Z).Unit
+		local body = newPart(Vector3.one * 0.2, CFrame.new(c), IW.MOUND_SHADE, Enum.Material.Ice, Enum.PartType.Ball, parent)
+		local top = newPart(Vector3.one * 0.2, CFrame.new(c), IW.MOUND, Enum.Material.Snow, Enum.PartType.Ball, parent)
+		local rec = { e = e, L = D, w = D, t = D, parts = { body, top }, mound = true }
+		function rec.shape(l)
+			l = math.max(l, 0.2)
+			rec.l = l
+			local at = c - UP * (D - math.min(l, D)) * 0.5
+			body.Size = Vector3.one * l
+			body.CFrame = CFrame.new(at)
+			top.Size = Vector3.one * l * 0.78
+			top.CFrame = CFrame.new(at + toSun * l * 0.13)
+		end
+		function rec.set(a)
+			rec.shape(D * a)
+		end
+		rec.set(0)
+		return rec
+	end
+
+	-- one Heartbeat loop runs every timed change of a cast: fn(k), k going
+	-- 0 -> 1 over `time` seconds from `delay` seconds from now
+	function IW.animate(w, delay, time, fn)
+		table.insert(w.anims, { t0 = os.clock() + delay, time = math.max(time, 1e-3), fn = fn })
+		if w.animConn then
+			return
+		end
+		w.animConn = RunService.Heartbeat:Connect(function()
+			-- (gone - its time ran out, or something else broke it up: every
+			-- step stops with it, so nothing is built into a destroyed model)
+			if not w.container.Parent then
+				table.clear(w.anims)
+				w.animConn:Disconnect()
+				w.animConn = nil
+				return
+			end
+			local now = os.clock()
+			for i = #w.anims, 1, -1 do
+				local a = w.anims[i]
+				local k = (now - a.t0) / a.time
+				if k >= 0 then
+					if k >= 1 then
+						table.remove(w.anims, i)
+					end
+					local ok, err = pcall(a.fn, math.min(k, 1))
+					if not ok then
+						if k < 1 then
+							table.remove(w.anims, i)
+						end
+						warn("[VFX] IceWall: " .. tostring(err))
+					end
+				end
+			end
+			if #w.anims == 0 and w.animConn then
+				w.animConn:Disconnect()
+				w.animConn = nil
+			end
+		end)
+	end
+
+	-- a blade of the layout: built when it starts to grow (nothing sits
+	-- waiting on the street ahead of the run), grown on its own clock (Delay
+	-- after the stomp, over Grow), solid once it's grown
+	function IW.add(w, e, crestIndex)
+		local kind = e.Kind or "Run"
+		local group = w.groups[kind == "Crest" and ((crestIndex or 0) % 2 == 0 and "CrestA" or "CrestB") or IW.GROUP[kind] or "Run"]
+		local rec
+		IW.animate(w, (e.Delay or 0) - (os.clock() - w.stomp), e.Grow or 0.3, function(k)
+			if not rec then
+				if kind == "Mound" then
+					rec = IW.mound(group, e, w.sun)
+				else
+					local pale = kind == "Run" or kind == "Foot"
+					rec = IW.blade(group, e, pale and IW.RUN_LIT or IW.LIT, pale and IW.RUN_SHADE or IW.SHADE, w.sun, not w.low)
+					-- the crest throws its shadow down the street (and the back row's middle)
+					if not w.low and (kind == "Crest" or (kind == "Back" and e.Hero)) then
+						for _, h in rec.halves do
+							h.part.CastShadow = h.k == 1
+						end
+					end
+				end
+				table.insert(w.recs, rec)
+			end
+			rec.set(IW.ease(kind, k))
+			if k >= 1 then
+				IW.grown(w, rec)
+			end
+		end)
+	end
+
+	function IW.grown(w, rec)
+		rec.grown = true
+		if w.exiting then
+			return
+		end
+		if rec.e.Collide ~= false then
+			for _, p in rec.parts do
+				IceKit.solidify(p)
+			end
+		end
+		-- powder bursts off each big blade's tip as it tops out
+		local kind = rec.e.Kind
+		if (kind == "Crest" or kind == "Back") and w.burst and w.burst.Parent then
+			w.burst.Parent.CFrame = CFrame.new(rec.e.Base + rec.frame.YVector * rec.L)
+			w.burst:Emit(w.low and 3 or 6)
+		end
+	end
+
+	-- the carpet's top at s studs out from his foot
+	function IW.topAt(w, s)
+		local row = w.rows[math.clamp(math.floor(s / 8) + 1, 1, math.max(#w.rows, 1))]
+		return row and row.y or w.g0.Y + 0.35
+	end
+
+	-- The frost carpet: Ice slabs laid from his foot at the run's speed
+	-- (ICE_SHEETS.IceWall), as wide as the glacier - each on the street under
+	-- it, or carried on level where the street drops away, held up by a
+	-- column - with a Snow rim along both edges (laid as fast, straight down
+	-- the true edge, so the slabs' steps don't show) and Snow plates creeping
+	-- out past it.
+	function IW.carpet(w, parent)
+		local spec = ICE_SHEETS.IceWall or {}
+		local W0, spread, speed = spec.Width or 14, spec.Spread or 0.8, spec.Speed or 160
+		local LIFT, step = 0.35, 8
+		local g, d, right = w.g0, w.d, w.right
+		local level = g.Y
+		local rows = {}
+		for s = 0, w.reach + 4, step do
+			local width = W0 + s * spread
+			local at = g + d * (s + step / 2)
+			local hit = groundRay(Vector3.new(at.X, level + 1, at.Z), 60)
+			local y = level
+			if hit and hit.Position.Y > level - 3 then
+				y = hit.Position.Y
+				level = y
+			end
+			local top = Vector3.new(at.X, y + LIFT, at.Z)
+			table.insert(rows, { s = s, y = top.Y, width = width })
+			task.delay(s / speed, function()
+				if w.exiting or not parent.Parent then
+					return
+				end
+				local slab = newPart(Vector3.new(0.5, 2.4, 0.5), CFrame.lookAt(top - UP * 1.2, top - UP * 1.2 + d), IW.CARPET, Enum.Material.Ice, nil, parent)
+				slab.Reflectance = 0.05
+				tween(slab, 0.16, { Size = Vector3.new(width, 2.4, step + 0.6) }, Enum.EasingStyle.Quad)
+				IceKit.solidAfter(slab, 0.18)
+				table.insert(w.flat, { part = slab, s = s, slab = true })
+				local below = groundRay(top - UP * 2.5, 200)
+				local drop = below and (top.Y - 2.4 - below.Position.Y) or 200
+				if drop >= 1.5 then
+					local col = newPart(Vector3.new(width * 0.55, 0.2, step * 0.9), CFrame.lookAt(top - UP * 2.4, top - UP * 2.4 + d), IW.RUN_SHADE, Enum.Material.Ice, nil, parent)
+					local mid = top - UP * (2.4 + drop / 2)
+					tween(col, 0.3, { Size = Vector3.new(width * 0.55, drop + 0.4, step * 0.9), CFrame = CFrame.lookAt(mid, mid + d) }, Enum.EasingStyle.Quad, nil, 0.04)
+					IceKit.solidAfter(col, 0.36)
+					table.insert(w.flat, { part = col, s = s, column = true })
+				end
+			end)
+		end
+		w.rows = rows
+		-- the rims: a Snow strip down each edge of every stretch at one height
+		local i = 1
+		while i <= #rows do
+			local j = i
+			while j < #rows and math.abs(rows[j + 1].y - rows[i].y) < 0.05 do
+				j += 1
+			end
+			local a, b = rows[i], rows[j]
+			for side = -1, 1, 2 do
+				local function edge(sp)
+					local p = g + d * sp + right * side * (W0 + math.max(sp - step / 2, 0) * spread) / 2
+					return Vector3.new(p.X, a.y + 0.14, p.Z)
+				end
+				local p0, p1 = edge(a.s), edge(b.s + step)
+				local len = (p1 - p0).Magnitude
+				task.delay(a.s / speed, function()
+					if w.exiting or not parent.Parent then
+						return
+					end
+					local rim = newPart(Vector3.new(4.5, 0.25, 0.1), CFrame.lookAt(p0, p1), IW.SNOW, Enum.Material.Snow, nil, parent)
+					tween(rim, len / speed, { Size = Vector3.new(4.5, 0.25, len), CFrame = CFrame.lookAt((p0 + p1) / 2, p1) }, Enum.EasingStyle.Linear)
+					table.insert(w.flat, { part = rim, s = (a.s + b.s) / 2 })
+				end)
+			end
+			i = j + 1
+		end
+		-- frost creeping out over the street past its edges: Snow diamonds
+		-- half under the rim, their points spreading out over the street
+		for i = 1, w.low and 6 or 12 do
+			local s = (i - 0.5) / (w.low and 6 or 12) * math.max(w.reach - 10, 20) + 6 + rand(-4, 4)
+			local side = i % 2 == 0 and 1 or -1
+			local p = g + d * s + right * side * (W0 + s * spread) / 2
+			local at = Vector3.new(p.X, IW.topAt(w, s) - LIFT + 0.1, p.Z)
+			local out = right * side * rand(1.5, 4)
+			local size = rand(7, 13)
+			local turn = CFrame.lookAt(at, at + d) * CFrame.Angles(0, math.rad(45 + rand(-12, 12)), 0)
+			task.delay(s / speed + 0.1, function()
+				if w.exiting or not parent.Parent then
+					return
+				end
+				local plate = newPart(Vector3.new(0.5, 0.2, 0.5), turn, IW.SNOW, Enum.Material.Snow, nil, parent)
+				plate.Transparency = 0.1
+				tween(plate, 1.5, { Size = Vector3.new(size, 0.2, size * rand(0.6, 1)), CFrame = turn + out }, Enum.EasingStyle.Sine)
+				table.insert(w.flat, { part = plate, s = s })
+			end)
+		end
+	end
+
+	-- frost cracks racing over the carpet with its front (from the stomp, at its speed)
+	function IW.cracks(w)
+		local spec = ICE_SHEETS.IceWall or {}
+		local W0, spread, speed = spec.Width or 14, spec.Spread or 0.8, spec.Speed or 160
+		local g, d, right = w.g0, w.d, w.right
+		for lane = 1, 4 do
+			local frac = (lane - 2.5) / 1.5 * 0.7
+			local prev, prevS = nil, 0
+			for k = 0, 5 do
+				local s = k == 0 and 2 or math.clamp(k / 5 * w.reach + rand(-6, 6), prevS + 4, w.reach)
+				local half = (W0 + s * spread) / 2
+				local p = g + d * s + right * (frac + rand(-0.12, 0.12)) * half
+				p = Vector3.new(p.X, IW.topAt(w, s) + 0.08, p.Z)
+				if prev then
+					local a, len, delay = prev, (p - prev).Magnitude, prevS / speed
+					task.delay(delay, function()
+						if not w.container.Parent then
+							return
+						end
+						local seg = newPart(Vector3.new(1, 0.12, 0.1), CFrame.lookAt(a, p), IW.CRACK, Enum.Material.Neon, nil, folder)
+						seg.Transparency = 0.1
+						tween(seg, len / speed, { Size = Vector3.new(1, 0.12, len), CFrame = CFrame.lookAt((a + p) / 2, p) }, Enum.EasingStyle.Linear)
+						tween(seg, 1.4, { Transparency = 1, Color = Color3.fromRGB(230, 248, 255) }, Enum.EasingStyle.Quad, nil, 1.2)
+						task.delay(2.7, function()
+							seg:Destroy()
+						end)
+					end)
+				end
+				prev, prevS = p, s
+			end
+		end
+	end
+
+	-- the stomp: a frost disc spreads under his right foot and small blades
+	-- burst up round it
+	function IW.footBurst(w, char)
+		local leg = char:FindFirstChild("Right Leg") or char:FindFirstChild("RightFoot")
+		local foot = (leg and leg:IsA("BasePart")) and leg.Position or (w.g0 + w.right * 0.6)
+		foot = Vector3.new(foot.X, w.g0.Y, foot.Z)
+		local disc = newPart(Vector3.new(0.2, 2, 2), CFrame.new(foot + UP * 0.5) * CFrame.Angles(0, 0, math.rad(90)), IW.SNOW, Enum.Material.Snow, Enum.PartType.Cylinder, w.groups.Run)
+		disc.Transparency = 0.3
+		tween(disc, 0.12, { Size = Vector3.new(0.2, 20, 20) }, Enum.EasingStyle.Quad)
+		table.insert(w.flat, { part = disc, s = 0 })
+		for i = 1, 8 do
+			local a = i / 8 * math.pi * 2 + rand(-0.3, 0.3)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			local len = rand(3, 6)
+			IW.add(w, {
+				Kind = "Foot", Base = foot + out * rand(1.4, 2.6) - UP * 0.6, Dir = (UP + out * rand(0.5, 1)).Unit, Length = len,
+				Width = len * 0.4, Depth = 0.5, Face = -w.d, Delay = rand(0, 0.04), Grow = 0.09, Collide = false,
+			})
+		end
+		shockDisc(foot + UP * 0.6, UP, 4, 40, 0.35, ICE_TIP)
+	end
+
+	function IW.emitter(w, size, cf, props)
+		local holder = newPart(size, cf, Color3.new(), nil, nil, folder)
+		holder.Transparency = 1
+		local pe = Instance.new("ParticleEmitter")
+		for k, v in props do
+			pe[k] = v
+		end
+		pe.Parent = holder
+		table.insert(w.emitters, pe)
+		return pe
+	end
+
+	function IW.smoke(rate, size0, size1, trans, life, speed)
+		return {
+			Texture = IW.SMOKE,
+			Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(220, 235, 250)),
+			Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, size0), NumberSequenceKeypoint.new(1, size1) }),
+			Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, trans), NumberSequenceKeypoint.new(1, 1) }),
+			Lifetime = life,
+			Speed = speed,
+			Rate = rate,
+			LightInfluence = 0.5,
+			Rotation = NumberRange.new(0, 360),
+			RotSpeed = NumberRange.new(-25, 25),
+			Shape = Enum.ParticleEmitterShape.Box,
+		}
+	end
+
+	-- a four-point star flashing off the ice in the sun (BillboardGui, studs)
+	function IW.glint(pos, size, life)
+		local anchor = newPart(Vector3.one * 0.1, CFrame.new(pos), IW.NEON, nil, nil, folder)
+		anchor.Transparency = 1
+		local bb = Instance.new("BillboardGui")
+		bb.Size = UDim2.new(size * 0.1, 0, size * 0.1, 0)
+		bb.LightInfluence = 0
+		bb.Brightness = 3
+		bb.AlwaysOnTop = false
+		bb.MaxDistance = 3000
+		bb.Adornee = anchor
+		bb.Parent = anchor
+		for i = 1, 3 do
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Position = UDim2.fromScale(0.5, 0.5)
+			f.Size = i == 1 and UDim2.fromScale(1, 0.045) or i == 2 and UDim2.fromScale(0.045, 1) or UDim2.fromScale(0.16, 0.16)
+			f.BackgroundColor3 = Color3.new(1, 1, 1)
+			f.BorderSizePixel = 0
+			f.Parent = bb
+			if i < 3 then
+				local grad = Instance.new("UIGradient")
+				grad.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) })
+				grad.Rotation = i == 1 and 0 or 90
+				grad.Parent = f
+			else
+				local corner = Instance.new("UICorner")
+				corner.CornerRadius = UDim.new(0.5, 0)
+				corner.Parent = f
+			end
+		end
+		tween(bb, life * 0.3, { Size = UDim2.new(size, 0, size, 0) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		task.delay(life * 0.3, function()
+			tween(bb, life * 0.7, { Size = UDim2.new(0, 0, 0, 0) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		end)
+		task.delay(life + 0.05, function()
+			anchor:Destroy()
+		end)
+	end
+
+	-- a breath of fog off someone, every `every` seconds
+	function IW.breath(char, times, every)
 		task.spawn(function()
-			local prev = g0 + d * 2
-			for k = 1, 12 do
-				local s = k / 12 * L
-				local spread = 7 + s * (W / 2 - 7) / L
-				local nextP = groundPoint(g0 + d * s + right * (lane / 3) * spread * 0.9 + right * rand(-4, 4)) + UP * 0.25
-				local seg = newPart(Vector3.new(0.35, 0.12, (nextP - prev).Magnitude), CFrame.lookAt((prev + nextP) / 2, nextP), Color3.fromRGB(150, 225, 255), Enum.Material.Neon)
-				seg.Transparency = 0.15
-				tween(seg, 1.4, { Transparency = 1, Color = Color3.fromRGB(230, 248, 255) }, Enum.EasingStyle.Quad, nil, 0.9)
-				cleanup(seg, 2.5)
-				prev = nextP
-				task.wait(L / 12 / 260)
+			for _ = 1, times do
+				local head = char and char.Parent and char:FindFirstChild("Head")
+				if not head then
+					return
+				end
+				local look = head.CFrame.LookVector
+				local p = head.Position + look * 0.7 - UP * 0.25
+				celPuff(folder, p, p + look * rand(2, 3) + UP * 0.5, rand(1, 1.5), Color3.fromRGB(214, 224, 234), Color3.new(1, 1, 1), 0.25, 0.7)
+				task.wait(every)
 			end
 		end)
 	end
-	task.wait(0.55)
-	if not root.Parent then
-		return
-	end
-	local model, origin = spikeLayout("IceWall", data, root, d, Color3.fromRGB(36, 84, 116))
-	-- the air goes cold: everything nearby tints icy blue for a moment
-	if nearCamera(origin + d * L * 0.5, L * 1.6) then
-		local tint = Instance.new("ColorCorrectionEffect")
-		tint.Name = "IceWallTint"
-		tint.TintColor = Color3.fromRGB(200, 232, 255)
-		tint.Saturation = -0.15
-		tint.Brightness = 0.05
-		tint.Parent = game:GetService("Lighting")
-		tween(tint, 2.6, { TintColor = Color3.new(1, 1, 1), Saturation = 0, Brightness = 0 }, Enum.EasingStyle.Sine, nil, 1)
-		cleanup(tint, 3.8)
-	end
-	-- a wall of freezing mist rolling along its base, the whole width
-	for s = 10, L, 14 do
-		task.delay(s / 160, function()
-			local spread = 7 + s * (W / 2 - 7) / L
-			for _ = 1, 2 do
-				frostMist(origin + d * s + right * rand(-spread, spread) + Vector3.new(0, rand(4, 30), 0), 2.6, 4)
+
+	-- the cold has a price (canon): frost over his right arm and leg, with a
+	-- glitter of it on them - from the first moment on his shoe
+	function IW.frost(char)
+		local names = char:FindFirstChild("Right Arm") and { "Right Leg", "Right Arm" } or { "RightFoot", "RightLowerLeg", "RightUpperLeg", "RightHand", "RightLowerArm", "RightUpperArm" }
+		local shells, glitter = {}, {}
+		for _, name in names do
+			local limb = char:FindFirstChild(name)
+			if limb and limb:IsA("BasePart") then
+				local shell = Instance.new("Part")
+				shell.Name = "IceWallFrost"
+				shell.Size = limb.Size * 1.06
+				shell.CFrame = limb.CFrame
+				shell.Color = Color3.fromRGB(238, 249, 255)
+				shell.Material = Enum.Material.Ice
+				shell.Transparency = 1
+				shell.CanCollide = false
+				shell.CanQuery = false
+				shell.CanTouch = false
+				shell.CastShadow = false
+				shell.Massless = true
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = limb
+				weld.Part1 = shell
+				weld.Parent = shell
+				shell.Parent = folder
+				table.insert(shells, shell)
+				if name == "Right Leg" or name == "RightFoot" or name == "Right Arm" or name == "RightLowerArm" then
+					local pe = Instance.new("ParticleEmitter")
+					pe.Texture = IW.SPARKLE
+					pe.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(170, 225, 255))
+					pe.LightEmission = 0.8
+					pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 0) })
+					pe.Lifetime = NumberRange.new(0.4, 0.8)
+					pe.Speed = NumberRange.new(0.5, 1.5)
+					pe.SpreadAngle = Vector2.new(180, 180)
+					pe.Rate = 0
+					pe.Parent = shell
+					glitter[#glitter + 1] = pe
+				end
 			end
-			VFX.ShakeAt(origin + d * s, 1.6, 150, 0.2)
-		end)
+		end
+		if glitter[1] then
+			glitter[1].Rate = 14 -- (the shoe first)
+		end
+		local f = {}
+		function f.show()
+			for _, s in shells do
+				tween(s, 0.5, { Transparency = 0.3 })
+			end
+			if glitter[1] then
+				glitter[1].Rate = 4
+			end
+			if glitter[2] then
+				glitter[2].Rate = 8
+			end
+		end
+		function f.off(hold, fade)
+			task.delay(hold, function()
+				for _, pe in glitter do
+					pe.Rate = 0
+				end
+				for _, s in shells do
+					tween(s, fade, { Transparency = 1 }, Enum.EasingStyle.Sine)
+				end
+				task.delay(fade + 0.1, function()
+					for _, s in shells do
+						s:Destroy()
+					end
+				end)
+			end)
+		end
+		return f
 	end
-	-- the spire breaks the clouds: a ring of cloud blown out round its tip,
-	-- light pouring down through the hole, a shock ring across the sky
-	task.delay(L / 160 + 0.25, function()
-		local peak = origin + d * L * 0.95 + UP * H * 0.92
+
+	-- the air goes cold round the crest: breath on everyone near it (8 at most)
+	function IW.chill(w, caster)
+		local list = {}
+		for _, plr in Players:GetPlayers() do
+			if plr.Character and plr.Character ~= caster then
+				table.insert(list, plr.Character)
+			end
+		end
+		local dummies = workspace:FindFirstChild("Dummies")
+		if dummies then
+			for _, m in dummies:GetChildren() do
+				table.insert(list, m)
+			end
+		end
+		local n = 0
+		for _, c in list do
+			local r = c:FindFirstChild("HumanoidRootPart")
+			if n < 8 and r then
+				local rel = r.Position - w.g0
+				local along = rel:Dot(w.d)
+				if along > -40 and along < 330 and (rel - w.d * along).Magnitude < 150 then
+					n += 1
+					IW.breath(c, 4, 0.85)
+				end
+			end
+		end
+	end
+
+	-- the crest bursts: the screen hit, a ring along the street, the cold
+	-- mist rolling out from under it
+	function IW.crestHit(w, isLocal)
+		local F = w.F
+		if isLocal or IW.near(F, 250) then
+			VFX.ImpactFrame(0.1)
+		end
+		VFX.ShakeAt(F, 3.6, 420, 1)
+		if IW.near(F, 300) then
+			IW.kick(8)
+		end
+		shockDisc(F + UP * 3, UP, 30, 320, 0.9, Color3.fromRGB(236, 246, 252))
+		for i = 1, w.low and 8 or 16 do
+			local a = rand(0, math.pi * 2)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			celPuff(folder, F + UP * 4, F + out * rand(40, 110) + UP * rand(2, 14), rand(14, 30), IW.MIST_DARK, Color3.fromRGB(244, 250, 255), 0.45, 1.6, i * 0.01)
+		end
+		sparks(F + UP * 20, 4, ICE_TIP, Color3.fromRGB(120, 200, 255), 60)
+	end
+
+	-- the centre blade's tip punches through the clouds: a ring of cloud blown
+	-- out round it, light pouring down through the hole, a sun glint on it
+	function IW.peakHit(w, isLocal)
+		local peak, F, d = w.peak, w.F, w.d
 		shockDisc(peak, UP, 20, 260, 1.4, Color3.fromRGB(240, 248, 255))
 		billboardRing(peak, 20, 220, Color3.fromRGB(235, 246, 255), 14, 0.9)
-		for i = 1, 14 do
-			local a = i / 14 * math.pi * 2
+		for i = 1, w.low and 7 or 14 do
+			local a = i / (w.low and 7 or 14) * math.pi * 2
 			local out = Vector3.new(math.cos(a), 0, math.sin(a))
-			local puff = newPart(Vector3.new(16, 8, 16), CFrame.new(peak + out * 30), Color3.fromRGB(245, 250, 255), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
-			puff.Transparency = 0.25
-			tween(puff, 2.4, { Size = Vector3.new(60, 18, 60), CFrame = CFrame.new(peak + out * rand(110, 150) + UP * rand(-6, 10)), Transparency = 1 }, Enum.EasingStyle.Quad)
-			cleanup(puff, 2.5)
+			celPuff(folder, peak + out * 20, peak + out * rand(100, 150) + UP * rand(-8, 10), rand(26, 42), Color3.fromRGB(214, 226, 240), Color3.fromRGB(250, 252, 255), 0.5, 1.8, rand(0, 0.08))
 		end
 		for _ = 1, 7 do
 			local from = peak + UP * 120 + Vector3.new(rand(-30, 30), 0, rand(-30, 30))
-			local to = origin + d * L * rand(0.5, 1) + right * rand(-W / 3, W / 3)
+			local to = F + d * rand(-40, 60) + w.right * rand(-60, 60)
 			local shaft = newPart(Vector3.new(rand(3, 7), rand(3, 7), (to - from).Magnitude), CFrame.lookAt((from + to) / 2, to), Color3.fromRGB(230, 244, 255), Enum.Material.Neon)
 			shaft.Transparency = 1
 			tween(shaft, 0.35, { Transparency = 0.7 })
-			tween(shaft, 1.6, { Transparency = 1 }, Enum.EasingStyle.Sine, nil, 0.6)
-			cleanup(shaft, 2.4)
+			task.delay(0.6, function()
+				tween(shaft, 1.6, { Transparency = 1 }, Enum.EasingStyle.Sine)
+			end)
+			task.delay(2.4, function()
+				shaft:Destroy()
+			end)
 		end
-		frostMist(peak, 4, 12)
-		sparks(peak, 5, ICE_TIP, Color3.fromRGB(120, 200, 255), 80)
-		VFX.PlaySound("IceWallRise", peak, 1)
-	end)
-	-- snow drifting down off it for as long as it stands
-	local duration = (ability and ability.IceDuration) or 9
-	do
-		local center = origin + d * L * 0.55 + UP * H * 0.55
-		local holder = newPart(Vector3.new(W * 0.8, 4, L * 0.9), CFrame.lookAt(center, center + d), Color3.new(), nil, nil)
-		holder.Transparency = 1
-		local pe = Instance.new("ParticleEmitter")
-		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-		pe.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 230, 255))
-		pe.LightEmission = 0.6
-		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0.4) })
-		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0.2), NumberSequenceKeypoint.new(1, 1) })
-		pe.Speed = NumberRange.new(4, 10)
-		pe.Lifetime = NumberRange.new(5, 8)
-		pe.Acceleration = Vector3.new(0, -9, 0)
-		pe.SpreadAngle = Vector2.new(60, 60)
-		pe.EmissionDirection = Enum.NormalId.Bottom
-		pe.Rate = 90
-		pe.Shape = Enum.ParticleEmitterShape.Box
-		pe.Parent = holder
-		task.delay(duration, function()
-			pe.Enabled = false
-		end)
-		cleanup(holder, duration + 8.5)
+		IW.glint(peak + UP * 4, 90, 0.45)
+		task.delay(0.6, IW.glint, peak - w.frameDown * 30, 40, 0.3)
+		IW.sound("IceWallPeak", peak, isLocal or IW.near(F, 320))
+		VFX.ShakeAt(peak, 1.2, 600, 0.5)
 	end
-	sparks(origin + d * 20, 2, ICE_TIP, Color3.fromRGB(120, 200, 255), 60)
-	VFX.PlaySound("IceWallRise", origin + d * 20, 1.3)
-	VFX.ShakeAt(origin, 3.2, 260, 0.9)
-	task.wait(duration)
-	shatter(model, 260)
+
+	-- now and then a chunk breaks off a tip and falls, the ice groaning
+	function IW.creak(w)
+		local pool = {}
+		for _, rec in w.recs do
+			if rec.grown and not rec.cut and (rec.e.Kind == "Crest" or rec.e.Kind == "Back") then
+				table.insert(pool, rec)
+			end
+		end
+		local rec = pool[1] and pool[rng:NextInteger(1, #pool)]
+		if not rec then
+			return
+		end
+		local axis = rec.frame.YVector
+		local from = rec.e.Base + axis * (rec.l or rec.L) * rand(0.88, 0.96)
+		local size = rand(2, 4)
+		local hit = groundRay(from, 600)
+		local land = hit and hit.Position or Vector3.new(from.X, w.g0.Y, from.Z)
+		local chunk = newPart(Vector3.new(size, size * 1.4, size * 0.7), CFrame.new(from) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), IW.LIT, Enum.Material.Ice, nil, w.groups.Back)
+		tween(chunk, 0.8, { CFrame = CFrame.new(land + UP * size * 0.4) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		VFX.PlaySound("IceWallCreak", rec.e.Base + axis * (rec.l or rec.L) * 0.35, 1)
+		task.delay(0.8, function()
+			celPuff(folder, land, land + UP * 3, rand(4, 7), IW.MIST_DARK, Color3.new(1, 1, 1), 0.2, 0.8)
+			chunk:Destroy()
+		end)
+	end
+
+	-- the end, part one: the tallest blades crack across two-thirds of the way
+	-- up, and the top third breaks off and topples (anchored, swung down
+	-- about the break), landing in a burst of mist and chunks
+	function IW.topple(w, rec, delay)
+		local fr, L, t = rec.frame, rec.l or rec.L, rec.t
+		local cut = 0.67
+		local hw = rec.hw or rec.w / 2
+		local hwCut = hw * (1 - cut)
+		rec.cut = true
+		local cracks = {}
+		local zs = { -hwCut, -hwCut * 0.3, hwCut * 0.35, hwCut }
+		for k = 1, 3 do
+			local wob = L * 0.014 * (k % 2 == 0 and 1 or -1)
+			local a = (fr * CFrame.new(t / 2 + 0.3, L * cut + wob, zs[k])).Position
+			local b = (fr * CFrame.new(t / 2 + 0.3, L * cut - wob, zs[k + 1])).Position
+			table.insert(cracks, newPart(Vector3.new(0.7, 0.7, (b - a).Magnitude + 0.5), CFrame.lookAt((a + b) / 2, b), Color3.fromRGB(200, 240, 255), Enum.Material.Neon, nil, w.container))
+		end
+		task.delay(delay, function()
+			for _, c in cracks do
+				c:Destroy()
+			end
+			if not rec.halves[1] or not rec.halves[1].part.Parent then
+				return
+			end
+			local pieceL = L * (1 - cut)
+			local pivot = (fr * CFrame.new(0, L * cut, 0)).Position
+			local pieces = {}
+			for _, h in rec.halves do
+				local z = math.max(hwCut * h.k, 0.05)
+				local cf = fr * h.turn * CFrame.new(0, L * cut + pieceL / 2, 0) * h.fold * CFrame.new(0, 0, h.sgn * z / 2) * h.flip
+				table.insert(pieces, { part = IW.wedge(Vector3.new(t, pieceL, z), cf, h.part.Color, h.part.Parent), cf = cf })
+			end
+			rec.shape(L * cut, hw) -- (what's left: a shorter blade)
+			local up = fr.YVector
+			local lean = Vector3.new(up.X, 0, up.Z)
+			lean = lean.Magnitude > 0.05 and lean.Unit or w.right * (rng:NextNumber() < 0.5 and 1 or -1)
+			local axis = UP:Cross(lean).Unit
+			local spin = math.rad(rand(50, 85))
+			local drop = math.clamp(pivot.Y - w.g0.Y - 30, 40, 150)
+			local out = lean * rand(20, 40)
+			IW.animate(w, 0, rand(0.8, 0.9), function(k)
+				local e = k * k
+				local T = CFrame.new(pivot + out * e - UP * drop * e) * CFrame.fromAxisAngle(axis, spin * e) * CFrame.new(-pivot)
+				for _, q in pieces do
+					q.part.CFrame = T * q.cf
+				end
+				if k >= 1 then
+					IW.landing(w, pieces[1].part.CFrame.Position, rec.w)
+					for _, q in pieces do
+						tween(q.part, 0.45, { Transparency = 1 })
+						task.delay(0.5, function()
+							q.part:Destroy()
+						end)
+					end
+				end
+			end)
+		end)
+	end
+
+	function IW.landing(w, at, width)
+		VFX.ShakeAt(at, 1.2, 150, 0.3)
+		VFX.PlaySound("IceWallCrack", at, 0.6)
+		for _ = 1, w.low and 3 or 5 do
+			local off = Vector3.new(rand(-1, 1), 0, rand(-1, 1)) * 10
+			celPuff(folder, at, at + off + UP * rand(4, 12), rand(10, 18), IW.MIST_DARK, Color3.new(1, 1, 1), 0.3, 1.2)
+		end
+		local size = math.clamp(width * 0.25, 2, 12)
+		for _ = 1, w.low and 6 or 10 do
+			local s = size * rand(0.4, 1)
+			local a = rand(0, math.pi * 2)
+			local chunk = newPart(Vector3.new(s, s * rand(0.6, 1.3), s * rand(0.5, 1)), CFrame.new(at) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), rng:NextNumber() < 0.5 and IW.LIT or IW.SHADE, Enum.Material.Ice, nil, folder)
+			local dest = at + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(10, 30) - UP * rand(5, 20)
+			tween(chunk, rand(0.6, 0.9), { CFrame = CFrame.new(dest) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), Size = Vector3.one * 0.1 }, Enum.EasingStyle.Quad)
+			task.delay(1, function()
+				chunk:Destroy()
+			end)
+		end
+	end
+
+	-- the end, part two: each blade goes glassy and shrinks back into its
+	-- base, tip first...
+	function IW.melt(w, rec, at)
+		task.delay(at, function()
+			for _, p in rec.parts do
+				if p.Parent then
+					tween(p, 0.3, { Transparency = 0.35, Color = IW.MELT, Reflectance = 0.25 })
+				end
+			end
+			if rec.ridge then
+				tween(rec.ridge, 0.3, { Transparency = 1 })
+			end
+		end)
+		local l0, hw0
+		IW.animate(w, at, 0.8, function(k)
+			l0 = l0 or rec.l or rec.L
+			hw0 = hw0 or rec.hw or rec.w / 2
+			local a = 1 - k * k
+			if rec.mound then
+				rec.shape(l0 * a)
+			else
+				rec.shape(l0 * a, hw0 * (0.4 + 0.6 * a))
+			end
+			if k >= 1 then
+				for _, p in rec.parts do
+					p:Destroy()
+				end
+				if rec.ridge then
+					rec.ridge:Destroy()
+				end
+			end
+		end)
+	end
+
+	-- ...and the carpet thaws to a wet sheen on the street
+	function IW.thaw(item, at)
+		task.delay(at, function()
+			local p = item.part
+			if not p.Parent then
+				return
+			end
+			if item.column then
+				tween(p, 0.8, { Transparency = 1 })
+				return
+			end
+			p.Material = Enum.Material.SmoothPlastic
+			local goal = { Color = IW.WET, Reflectance = 0.3, Transparency = 0.4 }
+			if item.slab then
+				goal.Size = Vector3.new(p.Size.X, 0.3, p.Size.Z)
+				goal.CFrame = p.CFrame + UP * 0.76
+			end
+			tween(p, 0.8, goal, Enum.EasingStyle.Sine)
+		end)
+	end
+
+	-- (canon) if he's still close, his LEFT hand flickers with flame as it melts
+	function IW.handFlame(w, char)
+		local hand = char and char.Parent and (char:FindFirstChild("Left Arm") or char:FindFirstChild("LeftHand"))
+		if not (hand and hand:IsA("BasePart")) or (hand.Position - w.g0).Magnitude > 60 then
+			return
+		end
+		task.spawn(function()
+			for i = 1, 8 do
+				if not hand.Parent then
+					return
+				end
+				local at = (hand.CFrame * CFrame.new(0, -hand.Size.Y / 2, 0)).Position
+				local lick = newPart(Vector3.one * rand(0.4, 0.7), CFrame.new(at + Vector3.new(rand(-0.3, 0.3), 0, rand(-0.3, 0.3))), FIRE[i % 3 + 1], Enum.Material.Neon, Enum.PartType.Ball)
+				tween(lick, 0.35, { Size = Vector3.one * 0.05, CFrame = CFrame.new(at + UP * rand(1, 1.8)), Transparency = 0.6 }, Enum.EasingStyle.Quad)
+				task.delay(0.4, function()
+					lick:Destroy()
+				end)
+				task.wait(0.15)
+			end
+		end)
+	end
+
+	function IW.exit(w, isLocal, char)
+		w.exiting = true
+		local loud = isLocal or IW.near(w.F, 320)
+		-- (its time is up: it stops blocking at once)
+		for _, p in w.container:GetDescendants() do
+			if p:IsA("BasePart") then
+				p.CanCollide = false
+			end
+		end
+		IW.sound("IceWallCrack", w.F + UP * 40, loud)
+		for _, pe in w.emitters do
+			pe.Enabled = false
+		end
+		local tall = {}
+		for _, rec in w.recs do
+			if rec.grown and (rec.e.Kind == "Crest" or rec.e.Kind == "Back") then
+				table.insert(tall, rec)
+			end
+		end
+		table.sort(tall, function(a, b)
+			return a.L > b.L
+		end)
+		for i = 1, math.min(6, #tall) do
+			IW.topple(w, tall[i], 0.3 + (i - 1) * 0.12)
+		end
+		-- from his end outward: blades melt, steam billows off them
+		local puffs = 0
+		for _, rec in w.recs do
+			local s = math.max((rec.e.Base - w.g0):Dot(w.d), 0)
+			local at = 0.3 + s / 120 + (rec.cut and 0.6 or 0)
+			IW.melt(w, rec, at)
+			if puffs < (w.low and 20 or 40) and rng:NextNumber() < (rec.e.Kind == "Run" and 0.25 or 0.6) then
+				puffs += 1
+				local p = rec.mound and (rec.e.Base + UP * rec.L * 0.5) or (rec.e.Base + rec.frame.YVector * (rec.l or rec.L) * rand(0.15, 0.45))
+				task.delay(at, function()
+					celPuff(folder, p, p + UP * rand(20, 60) + Vector3.new(rand(-8, 8), 0, rand(-8, 8)), rand(12, 40), IW.STEAM_DARK, STEAM, 0.6, rand(2, 3))
+				end)
+			end
+		end
+		for _, item in w.flat do
+			IW.thaw(item, 0.3 + item.s / 120)
+		end
+		local steam = IW.emitter(w, Vector3.new(170, 40, 80), CFrame.lookAt(w.F + UP * 30, w.F + UP * 30 + w.d), IW.smoke(w.low and 15 or 30, 20, 60, 0.5, NumberRange.new(2, 3), NumberRange.new(4, 10)))
+		steam.Color = ColorSequence.new(STEAM, Color3.fromRGB(226, 226, 232))
+		steam.Acceleration = Vector3.new(0, 4, 0)
+		steam.EmissionDirection = Enum.NormalId.Top
+		steam.Enabled = false
+		task.delay(0.3, function()
+			steam.Enabled = true
+			IW.sound("IceWallMelt", w.g0 + w.d * 60, loud)
+			IW.handFlame(w, char)
+		end)
+		task.delay(1.4, function()
+			IW.sound("IceWallMelt", w.F + UP * 20, loud, 0.8)
+		end)
+		task.delay(2.6, function()
+			steam.Enabled = false
+		end)
+		for _, l in w.lights do
+			tween(l, 2.2, { Brightness = 0 }, Enum.EasingStyle.Sine, nil, 0.3)
+		end
+		-- the wet sheen dries off; everything's gone 3.5 s after the end began
+		task.delay(2.4, function()
+			for _, item in w.flat do
+				if item.part.Parent then
+					tween(item.part, 1, { Transparency = 1 })
+				end
+			end
+		end)
+		task.delay(3.5, function()
+			w.container:Destroy()
+		end)
+		task.delay(6.5, function()
+			for _, pe in w.emitters do
+				if pe.Parent then
+					pe.Parent:Destroy()
+				end
+			end
+		end)
+	end
+
+	function IW.build(char, root, data, d)
+		local origin = typeof(data.Origin) == "Vector3" and data.Origin or root.Position
+		local seed = typeof(data.Seed) == "number" and data.Seed or rng:NextInteger(1, 2 ^ 30)
+		local g0 = groundPoint(origin)
+		-- (each blade on the street where it stands: the server snaps the same way)
+		local layout, _, anchor, peak = SpikeLayouts.IceWall(g0, d, seed, function(pos)
+			local hit = groundRay(pos + UP * 3, 140)
+			return hit and hit.Position or nil
+		end)
+		local w = {
+			d = d, right = d:Cross(UP), g0 = g0, anchor = anchor, stomp = os.clock(),
+			recs = {}, flat = {}, lights = {}, emitters = {}, anims = {}, rows = {},
+			low = IW.low(), sun = IW.sun(),
+		}
+		w.F = anchor + d * ((SpikeLayouts.HEAVEN and SpikeLayouts.HEAVEN.Focus) or 160)
+		w.peak = peak or (w.F + UP * 320)
+		w.frameDown = (w.peak - w.F).Unit
+		local reach = 40
+		for _, e in layout do
+			reach = math.max(reach, (e.Base - g0):Dot(d))
+		end
+		w.reach = reach
+		local container = Instance.new("Model")
+		container.Name = "HeavenPiercingIceWall"
+		container.Parent = folder
+		w.container = container
+		w.groups = {}
+		for _, name in { "Run", "CrestA", "CrestB", "Mid", "Back", "Skirt", "Mound" } do
+			local m = outlineModel(IW.OUTLINE)
+			m.Name = "IceWall" .. name
+			m.Parent = container
+			w.groups[name] = m
+		end
+		-- powder off the tips (moved to each one as it tops out)
+		w.burst = IW.emitter(w, Vector3.one * 2, CFrame.new(w.F), IW.smoke(0, 6, 24, 0.35, NumberRange.new(1.2, 2), NumberRange.new(6, 14)))
+		w.burst.SpreadAngle = Vector2.new(180, 180)
+		w.burst.Acceleration = Vector3.new(0, -10, 0)
+		w.burst.Drag = 1
+		IW.carpet(w, w.groups.Run)
+		local crest = 0
+		for _, e in layout do
+			if e.Kind == "Crest" then
+				crest += 1
+			end
+			IW.add(w, e, crest)
+		end
+		IW.footBurst(w, char)
+		IW.cracks(w)
+		return w
+	end
+
+	function Effects.IceWall(char, data, isLocal, ability)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local d = flatten(data.Dir, root)
+		local title = (ability and ability.Name) or "HEAVEN-PIERCING ICE WALL"
+		if isLocal then
+			face(root, d)
+			VFX.Hooks.Dim(0.35, 0.55)
+			if Cine.Enabled then
+				VFX.Cinematic(char, IW.shots(root, d), { Title = title, Color = ICE_TIP, Own = true })
+			end
+		else
+			cinematicFor(char, "IceWall", false, title, ICE_TIP)
+		end
+		VFX.Motion(char, "IceWall")
+		-- the cold gathers: frost over his right shoe, his breath, a faint ring
+		-- of frost closing in under him as the knee comes up
+		local g = groundPoint(root.Position)
+		local frost = IW.frost(char)
+		task.delay(0.05, function()
+			VFX.PlaySound("IceWallGather", root.Position, 1)
+		end)
+		IW.breath(char, 1, 0)
+		task.delay(0.27, function()
+			shockDisc(g + UP * 0.3, UP, 13, 5, 0.25, ICE_TIP)
+		end)
+		task.wait(0.55)
+		if not root.Parent then
+			frost.off(0, 0.3)
+			return
+		end
+		-- THE STOMP (the server's hits start now, at the run's speed)
+		local w = IW.build(char, root, data, d)
+		local F = w.F
+		local g0 = w.g0
+		local duration = (ability and ability.IceDuration) or 9
+		VFX.PlaySound("IceWallStomp", g0 + UP, 1)
+		VFX.ShakeAt(g0, 2.2, 140, 0.3)
+		sparks(g0 + d * 3 + UP, 1.5, ICE_TIP, Color3.fromRGB(120, 200, 255), 40)
+		-- the run: the street tearing up and a mist riding its front, a
+		-- crunch and a jolt every 40 studs
+		local runMist = IW.emitter(w, Vector3.new(14, 1, 4), CFrame.lookAt(g0 + UP * 2, g0 + UP * 2 + d), IW.smoke(w.low and 20 or 40, 6, 20, 0.45, NumberRange.new(1, 1.8), NumberRange.new(2, 6)))
+		runMist.SpreadAngle = Vector2.new(70, 70)
+		IW.animate(w, 0, 0.95, function(k)
+			local s = 5 + 152 * k
+			local at = g0 + d * s + UP * 2
+			if not runMist.Parent then
+				return
+			end
+			runMist.Parent.Size = Vector3.new((14 + s * 0.8) * 0.8, 1, 4)
+			runMist.Parent.CFrame = CFrame.lookAt(at, at + d)
+			if k >= 1 then
+				runMist.Enabled = false
+			end
+		end)
+		for k = 1, 4 do
+			local s = 40 * k
+			task.delay(s / 160, function()
+				local front = w.anchor + d * s
+				front = Vector3.new(front.X, IW.topAt(w, s + 5), front.Z)
+				rocks(front + w.right * rand(-20, 20), 1.5, 4)
+				VFX.ShakeAt(front, 1, 120, 0.25)
+				if k <= 3 then
+					VFX.PlaySound("IceWallRun", front, 1)
+				end
+			end)
+		end
+		-- THE CREST (0.9 s): the sunburst erupts round the mound
+		task.delay(0.88, function()
+			IW.sound("IceWallCrest", F + UP * 30, isLocal or IW.near(F, 320))
+		end)
+		task.delay(0.9, function()
+			IW.crestHit(w, isLocal)
+			frost.show()
+		end)
+		task.delay(0.95, function()
+			local mist = IW.emitter(w, Vector3.new(170, 2, 60), CFrame.lookAt(F + UP, F + UP + d), IW.smoke(w.low and 12 or 25, 20, 55, 0.55, NumberRange.new(3, 5), NumberRange.new(4, 10)))
+			mist.SpreadAngle = Vector2.new(60, 60)
+			mist.EmissionDirection = Enum.NormalId.Top
+			task.delay(3, function()
+				mist.Rate = w.low and 3 or 6
+			end)
+		end)
+		-- it stands: diamond dust and powder falling off it, a cold light in it
+		task.delay(1.2, function()
+			if w.exiting then
+				return
+			end
+			local top = F + UP * 170 + d * 40
+			IW.emitter(w, Vector3.new(300, 260, 140), CFrame.lookAt(top, top + d), {
+				Texture = IW.SPARKLE,
+				Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(200, 235, 255)),
+				LightEmission = 1,
+				Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2.6), NumberSequenceKeypoint.new(1, 1.2) }),
+				Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0.1), NumberSequenceKeypoint.new(1, 1) }),
+				Lifetime = NumberRange.new(3, 5),
+				Speed = NumberRange.new(0.5, 2),
+				SpreadAngle = Vector2.new(180, 180),
+				Acceleration = Vector3.new(0, -6, 0),
+				Rate = w.low and 30 or 60,
+				Shape = Enum.ParticleEmitterShape.Box,
+			})
+			local curtain = IW.emitter(w, Vector3.new(220, 40, 100), CFrame.lookAt(F + UP * 230 + d * 50, F + UP * 230 + d * 51), IW.smoke(w.low and 6 or 12, 8, 30, 0.6, NumberRange.new(3, 5), NumberRange.new(2, 6)))
+			curtain.Acceleration = Vector3.new(0, -8, 0)
+			curtain.EmissionDirection = Enum.NormalId.Bottom
+			local spots = { { F + UP * 12, 60, 2.5 }, { g0 + d * 90 + UP * 6, 40, 1.5 }, { F + UP * 90, 60, 1.2 } }
+			for i = 1, w.low and 1 or 3 do
+				local holder = newPart(Vector3.one * 0.2, CFrame.new(spots[i][1]), Color3.new(), nil, nil, w.container)
+				holder.Transparency = 1
+				local light = Instance.new("PointLight")
+				light.Color = Color3.fromRGB(140, 200, 255)
+				light.Range = spots[i][2]
+				light.Brightness = 0
+				light.Shadows = false
+				light.Parent = holder
+				tween(light, 0.4, { Brightness = spots[i][3] })
+				table.insert(w.lights, light)
+			end
+			-- the air goes cold near it
+			if IW.near(F, 320) then
+				local tint = Instance.new("ColorCorrectionEffect")
+				tint.Name = "IceWallTint"
+				tint.TintColor = Color3.fromRGB(200, 232, 255)
+				tint.Saturation = -0.15
+				tint.Brightness = 0.05
+				tint.Contrast = 0.1
+				tint.Parent = game:GetService("Lighting")
+				tween(tint, 3, { TintColor = Color3.new(1, 1, 1), Saturation = 0, Brightness = 0, Contrast = 0 }, Enum.EasingStyle.Sine, nil, 1.5)
+				task.delay(4.6, function()
+					tint:Destroy()
+				end)
+			end
+			IW.chill(w, char)
+			IW.breath(char, 5, 0.8)
+		end)
+		-- THE CLOUD PUNCH (1.3 s), at the centre blade's real tip
+		task.delay(1.3, function()
+			IW.peakHit(w, isLocal)
+		end)
+		-- creaks while it stands
+		task.delay(2, function()
+			for _ = 1, 5 do
+				if w.exiting or not w.container.Parent then
+					return
+				end
+				IW.creak(w)
+				task.wait(rand(1.4, 2.2))
+			end
+		end)
+		frost.off(4, 6)
+		task.wait(duration)
+		IW.exit(w, isLocal, char)
+	end
 end
 
 -- Server-driven: encase a target in ice
 local iceBlocks = setmetatable({}, { __mode = "k" }) -- [someone frozen] = the block of ice round them
 
+-- (round 81) Ice grown up over them, sized to the body (a big body gets a
+-- big block): one block of ice round them that you can just see them
+-- through, and crystals bursting up and out of it - a crown of them fanning
+-- out round their feet, as if it came up out of the street, a few off the
+-- shoulders - with a crack of frost and a puff of cold. (The block is the
+-- one piece of ice at the middle of them; every crystal sits out past it.)
 function Effects.Freeze(_, data)
 	local target = data.Target
 	local root = target and target:FindFirstChild("HumanoidRootPart")
 	if not root then
 		return
 	end
-	local model = outlineModel(ICE_OUTLINE)
-	local block = newPart(Vector3.new(1, 1, 1), root.CFrame, ICE_MID, Enum.Material.Ice, nil, model)
-	block.Transparency = 0.25 -- (you can just make out who's inside)
-	block.Reflectance = 0.08
-	tween(block, 0.15, { Size = Vector3.new(5.5, 7.5, 5.5) }, Enum.EasingStyle.Back)
+	local ext = Vector3.new(4, 5, 2)
+	pcall(function()
+		local e = target:GetExtentsSize()
+		if typeof(e) == "Vector3" and e.Magnitude > 1 then
+			ext = e
+		end
+	end)
+	local k = math.clamp(ext.Y / 5, 0.7, 3)
+	local wide = math.clamp(math.max(ext.X, ext.Z), 2.4 * k, 6 * k)
+	local model = Instance.new("Model")
+	model.Name = "Frozen"
+	model.Parent = folder
+	local shell = outlineModel(ICE_OUTLINE)
+	shell.Parent = model
+	local crown = outlineModel(ICE_OUTLINE)
+	crown.Parent = model
+	-- (the block holds them from the feet to the chest: head and shoulders
+	-- stick out of it, so you see who's frozen)
+	local feetY, topY = root.Position.Y - ext.Y * 0.6, root.Position.Y + ext.Y * 0.4
+	for _, n in { "Left Leg", "Right Leg", "LeftFoot", "RightFoot", "Head" } do
+		local p = target:FindFirstChild(n)
+		if p and p:IsA("BasePart") then
+			local y = p.CFrame.Position.Y
+			if n == "Head" then
+				topY = y + p.Size.Y / 2
+			else
+				feetY = math.min(feetY, y - p.Size.Y / 2)
+			end
+		end
+	end
+	local tilt = CFrame.Angles(math.rad(rand(-4, 4)), rand(0, math.pi * 2), math.rad(rand(-4, 4)))
+	local feet = Vector3.new(root.Position.X, feetY, root.Position.Z)
+	local blockH = math.max(topY - feetY, 2) * 0.72 + 0.3
+	local block = newPart(Vector3.new(1, 1, 1), CFrame.new(feet + UP * (blockH / 2 - 0.2)) * root.CFrame.Rotation * tilt, ICE_MID, Enum.Material.Ice, nil, shell)
+	block.Transparency = 0.3 -- (you can just make out the body in it)
+	block.Reflectance = 0.06
+	tween(block, 0.15, { Size = Vector3.new(wide * 1.1 + 0.8, blockH, wide * 1.1 + 0.8) }, Enum.EasingStyle.Back)
+	local list = {}
+	feet += UP * 0.3
+	local a0 = rand(0, math.pi * 2)
+	for i = 1, 6 do
+		local a = a0 + i / 6 * math.pi * 2 + rand(-0.25, 0.25)
+		local out = Vector3.new(math.cos(a), 0, math.sin(a))
+		local dir = (UP * rand(1.1, 1.5) + out * rand(0.7, 1) + rng:NextUnitVector() * 0.15).Unit
+		local set = makeSpike(crown, feet + out * (wide * 0.5 + 0.4), dir, rand(2.8, 4.4) * k, rand(1.6, 2.2) * k, false, { shards = 0, quiet = true, buried = 0.3, crossAt = 99 })
+		table.insert(list, { set = set, delay = i * 0.012 })
+	end
+	for i = 1, 3 do
+		local a = a0 + (i + 0.5) / 3 * math.pi * 2
+		local out = Vector3.new(math.cos(a), 0, math.sin(a))
+		local at = feet + out * (wide * 0.5 + 0.5) + UP * (blockH * rand(0.55, 0.8))
+		local dir = (UP * 1.3 + out * rand(0.8, 1.1) + rng:NextUnitVector() * 0.2).Unit
+		local set = makeSpike(crown, at, dir, rand(2, 3) * k, rand(1.2, 1.6) * k, false, { shards = 0, quiet = true, buried = 0, crossAt = 99 })
+		table.insert(list, { set = set, delay = 0.05 + i * 0.015 })
+	end
+	growSpikes(list, 0.12)
+	frostMist(feet, 0.7 * k, 5)
+	IceKit.particles(root.Position, "glint", 8, 0.6 * k)
+	VFX.PlaySound("IceFreeze", root.Position, 1)
 	local entry = { model = model }
 	iceBlocks[target] = entry
 	task.wait(data.Duration or 2)
 	if not entry.gone then
 		entry.gone = true
-		shatter(model, 12)
+		shatter(model, 14, { from = root.Position, instant = true })
 	end
 	if iceBlocks[target] == entry then
 		iceBlocks[target] = nil
@@ -5648,8 +8940,8 @@ function Effects.Thaw(_, data)
 	end
 	entry.gone = true
 	iceBlocks[target] = nil
-	shatter(entry.model, 24)
 	local root = target:FindFirstChild("HumanoidRootPart")
+	shatter(entry.model, 24, { from = root and root.Position or nil, instant = true, force = 1.4 })
 	if root then
 		frostMist(root.Position, 0.9, 6)
 		VFX.PlaySound("Ice", root.Position, 1.1)
@@ -5937,15 +9229,26 @@ end
 do -- TODOROKI's close-range moves (one table: the local limit)
 	local TD = {}
 
-	-- a slab of ice rising out of the street, facing `d`
-	function TD.slab(parent, center, d, size, time)
-		local p = newPart(Vector3.new(size.X, 0.2, size.Z), CFrame.lookAt(center - UP * size.Y / 2, center - UP * size.Y / 2 + d), ICE_MID, Enum.Material.Ice, nil, parent)
-		tween(p, time, { Size = size, CFrame = CFrame.lookAt(center, center + d) }, Enum.EasingStyle.Back)
+	-- a slab of ice rising out of the street, facing `d`. (round 81) It
+	-- heaves up leaning back away from him (lean, radians), so its foot
+	-- stays planted on the street and the face he punches them into tilts
+	-- up at him; the crest is crystals, not this block's flat top.
+	function TD.slab(parent, center, d, size, time, lean)
+		local tilt = CFrame.Angles(-(lean or 0), 0, 0)
+		local foot = center - UP * size.Y / 2
+		local pivot = CFrame.lookAt(foot, foot + d) * tilt
+		local p = newPart(Vector3.new(size.X, 0.2, size.Z), pivot * CFrame.new(0, 0.1, 0), ICE_MID, Enum.Material.Ice, nil, parent)
+		p.CastShadow = not IceKit.lowEnd()
+		tween(p, time, { Size = size, CFrame = pivot * CFrame.new(0, size.Y / 2, 0) }, Enum.EasingStyle.Back)
 		IceKit.solidAfter(p, time + 0.02)
-		return p
+		return p, pivot
 	end
 
-	-- GLACIER BREAKER, part 1: the frost-fisted punch
+	-- GLACIER BREAKER, part 1: the frost-fisted punch. (round 81) The
+	-- keyframed power straight: VFX.Motion looked for a "MoveM1Brawler4" clip
+	-- that doesn't exist, so it always fell back to the procedural one. His
+	-- right arm crusts over with frost as he throws it.
+	TD.punchAt = setmetatable({}, { __mode = "k" })
 	function Effects.GlacierBreaker(char, data, isLocal)
 		local root = charParts(char)
 		if not root then
@@ -5956,75 +9259,182 @@ do -- TODOROKI's close-range moves (one table: the local limit)
 			face(root, d)
 			dash(root, d * 50, 0.12)
 		end
-		VFX.Motion(char, "M1Brawler4")
-		frostMist(handPos(char, true), 0.4, 3)
+		TD.punchAt[char] = os.clock()
+		if not VFX.Clip(char, "M1Brawler4") then
+			VFX.Motion(char, "M1Brawler4")
+		end
+		IceKit.frostBody(char, { fadeIn = 0.12, life = 0.85, fadeOut = 0.35, steam = false })
+		local hand = handPos(char, true)
+		IceKit.particles(hand, "mist", 6, 0.45)
+		IceKit.particles(hand, "glint", 4, 0.45)
 		VFX.PlaySound("HeavySwing", root.Position, 1)
 	end
 
 	-- GLACIER BREAKER, part 2 (the server says who): a wall of ice erupts
 	-- behind them and they're pinned to it, frozen in... then he stomps and
-	-- a pillar of ice bursts up under them and the wall shatters
+	-- a pillar of ice bursts up under them and the wall shatters.
+	-- (round 81) The wall is a glacier, not a plank: a thick slab heaving up
+	-- leaning back, a crest of crystals along its top and a sunburst of big
+	-- blades fanning out behind it (the anime's silhouette), teeth at its
+	-- foot and a frost crust spreading round it, frost cracks racing off. Ice
+	-- grows over them where they hit it - a block round the body and spikes
+	-- off the wall pinning them. The pillar is a hero spire with blades
+	-- breaking out round its foot; the wall breaks up in a ripple out from
+	-- them, the pillar a moment later.
 	function Effects.GlacierPin(char, data)
 		local root = charParts(char)
 		local target = typeof(data.Target) == "Instance" and data.Target or nil
 		if not root or not target then
 			if root then
-				frostMist(root.Position + root.CFrame.LookVector * 4, 0.5, 3) -- (a punch into thin air)
+				-- (a punch into thin air: a cold puff and a spray of chips off the fist)
+				local at = root.Position + root.CFrame.LookVector * 4
+				frostMist(at, 0.5, 3)
+				IceKit.particles(at, "chips", 6, 0.5)
 			end
 			return
 		end
 		local d = typeof(data.Dir) == "Vector3" and data.Dir or flatten(root.CFrame.LookVector, root)
+		local right = d:Cross(UP)
 		local wallAt = typeof(data.Pos) == "Vector3" and data.Pos or (root.Position + d * 7.5)
 		local g = groundPoint(wallAt)
-		local model = outlineModel(ICE_OUTLINE)
-		-- the wall, and the ice that grows over them where they hit it
-		TD.slab(model, g + UP * 5 + d * 0.5, d, Vector3.new(12, 11, 2.6), 0.12)
-		for _ = 1, 6 do
-			local p = g + UP * rand(1, 8) + d:Cross(UP) * rand(-5, 5)
-			local sp = newPart(Vector3.one * rand(1.5, 3), CFrame.new(p) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), ICE_TIP, Enum.Material.Ice, nil, model)
-			sp.Transparency = 0.1
-		end
 		local tr = target:FindFirstChild("HumanoidRootPart")
-		if tr then
-			local shell = newPart(Vector3.new(1, 1, 1), tr.CFrame, ICE_MID, Enum.Material.Ice, nil, model)
-			shell.Transparency = 0.35
-			tween(shell, 0.12, { Size = Vector3.new(4.6, 6.4, 3.4) }, Enum.EasingStyle.Back)
+		local model = Instance.new("Model")
+		model.Name = "GlacierWall"
+		model.Parent = folder
+		local wall = outlineModel(ICE_OUTLINE)
+		wall.Parent = model
+		local fan = outlineModel(ICE_OUTLINE)
+		fan.Parent = model
+		-- the wall: the slab, then the crest and the fan behind it
+		local _, pivot = TD.slab(wall, g + UP * 3.4 + d * 0.8, d, Vector3.new(9.5, 6.8, 3.4), 0.12, math.rad(12))
+		local list = {}
+		local function spike(parent, base, dir, len, thick, delay, opts)
+			table.insert(list, { set = makeSpike(parent, base, dir, len, thick, false, opts), delay = delay })
 		end
-		VFX.Pose(char, "PunchR", 0.3)
+		local toward = root.Position
+		for i = 1, 4 do
+			-- (along the top edge, leaning back and out)
+			local x = (i - 2.5) / 1.5
+			local top = (pivot * CFrame.new(x * 3.6, 6.2, 0)).Position
+			spike(wall, top, (UP + d * 0.3 + right * x * 0.5).Unit, rand(6, 8.5) * (1 - math.abs(x) * 0.25), 2.6, 0.05 + math.abs(x) * 0.02, { face = toward, shards = 0, buried = 1.4 })
+		end
+		for i = 1, 7 do
+			-- (the sunburst: rooted behind the wall, fanning out wide)
+			local a = (i - 4) / 3 * math.rad(60)
+			local dir = (UP * math.cos(a) + right * math.sin(a) + d * 0.26).Unit
+			local len = (19 - math.abs(i - 4) * 2.7) * rand(0.9, 1.1)
+			spike(fan, g + d * 2.3 + right * math.sin(a) * 2, dir, len, 3.2 + len * 0.06, 0.03 + math.abs(i - 4) * 0.018, { face = toward, crossAt = 11, shards = 0 })
+		end
+		for i = 1, 4 do
+			-- (low teeth at its foot, jutting out at him and to the sides)
+			local x = (i - 2.5) / 1.5
+			local at = g + d * rand(-0.6, 0.2) + right * x * 5.2
+			spike(wall, at, (UP * 0.8 - d * 0.6 + right * x * 0.7).Unit, rand(2.4, 3.6), 1.5, 0.06, { quiet = true, shards = 0, buried = 0.6 })
+		end
+		-- frost crust spreading round its foot (not inked, and not broken up
+		-- with the ice: it fades once the wall's gone)
+		local crust = newPart(Vector3.new(0.3, 2, 2), CFrame.new(g + UP * 0.08 + d * 0.5) * CFrame.Angles(0, 0, math.rad(90)), IceKit.PAL.FROST, Enum.Material.Snow, Enum.PartType.Cylinder, folder)
+		tween(crust, 0.22, { Size = Vector3.new(0.3, 16, 16) }, Enum.EasingStyle.Quad)
+		local function thaw()
+			tween(crust, 0.7, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.3)
+			cleanup(crust, 1.1)
+		end
+		-- the ice that grows over them where they hit it
+		local hold = outlineModel(ICE_OUTLINE)
+		hold.Parent = model
+		if tr then
+			local body = tr.CFrame
+			local shell = newPart(Vector3.new(1, 1, 1), body * CFrame.new(0, -0.3, 0), ICE_MID, Enum.Material.Ice, nil, hold)
+			shell.Transparency = 0.35 -- (you can just make them out inside)
+			shell.Reflectance = 0.06
+			tween(shell, 0.12, { Size = Vector3.new(4.4, 5.6, 2.8) }, Enum.EasingStyle.Back)
+			for _, off in { Vector3.new(-2.6, 1.2, 0), Vector3.new(2.6, 1.4, 0), Vector3.new(-2.2, -2.2, 0), Vector3.new(2.3, -2, 0) } do
+				-- (spikes off the wall clamping them to it)
+				local at = Vector3.new(tr.Position.X, 0, tr.Position.Z) + right * off.X + UP * (tr.Position.Y + off.Y) + d * 1.6
+				local out = (right * math.sign(off.X) * 0.8 - d + UP * math.sign(off.Y) * 0.35).Unit
+				spike(hold, at, out, rand(2.6, 3.6), 1.3, 0.04, { quiet = true, shards = 0, buried = 0.4, face = toward })
+			end
+			IceKit.particles(tr.Position, "puff", 10, 1)
+			IceKit.particles(tr.Position, "chips", 12, 0.9)
+			IceKit.particles(tr.Position, "glint", 8, 0.6)
+		end
+		growSpikes(list, 0.13)
+		for _, side in { -1, 1, 0 } do
+			local dir = side == 0 and -d or (right * side - d * 0.35).Unit
+			IceKit.crackLine(g + d * 0.4, dir, side == 0 and 7 or 11, { speed = 180, width = 0.28, life = 0.8, wander = 1.2 })
+		end
+		IceKit.light(g + UP * 5 - d * 3, 26, 1.4, 1)
+		-- (his swing's already under way in the clip: only pose him when it isn't)
+		if os.clock() - (TD.punchAt[char] or -1) > 0.6 then
+			VFX.Pose(char, "PunchR", 0.3)
+		end
 		VFX.PlaySound("Ice", wallAt, 1)
+		VFX.PlaySound("IceFreeze", wallAt, 0.8)
 		VFX.PlaySound("HeavyHit", wallAt, 0.9)
 		VFX.ShakeAt(wallAt, data.Shatter and 2 or 1.4, 60, 0.2)
+		if nearCamera(wallAt, 50) then
+			IceKit.coldTint(0.35, 0.1, 0.5)
+		end
 		if data.Shatter and tr then
 			-- (their ice shattered by the punch: a burst of shards off them)
 			shockDisc(tr.Position, d, 2, 12, 0.25, ICE_TIP)
 			frostMist(tr.Position, 1, 6)
+			IceKit.chips(tr.Position, 1.2, 4)
 			if nearCamera(tr.Position, 60) then
 				VFX.ImpactFrame(0.05)
 			end
 		end
 		task.wait(data.Time or 0.55)
 		if not root.Parent then
-			shatter(model, 30)
+			shatter(model, 30, { from = tr and tr.Position or wallAt })
+			thaw()
 			return
 		end
-		-- the stomp... and the pillar
+		-- the stomp... and the pillar: a hero spire, blades breaking out round its foot
 		VFX.Pose(char, "Stomp", 0.4)
 		local base = groundPoint(tr and tr.Position or wallAt - d * 2)
 		local pillar = outlineModel(ICE_OUTLINE)
-		local set = makeSpike(pillar, base - UP * 2, (UP * 3 + d).Unit, 22, 6, true)
-		growSpikes({ { set = set, delay = 0 } }, 0.12)
-		shockDisc(base + UP * 0.5, UP, 3, 24, 0.3, ICE_TIP)
+		local up = (UP * 3 + d).Unit
+		local spire = { { set = makeSpike(pillar, base - UP * 2, up, 24, 6.5, true, { face = toward, shards = 2 }), delay = 0 } }
+		for i = 1, 3 do
+			local a = (i / 3) * math.pi * 2 + rand(-0.4, 0.4)
+			local out = (right * math.cos(a) + d * math.sin(a)).Unit
+			table.insert(spire, {
+				set = makeSpike(pillar, base + out * 2.6 - UP, (up + out * rand(0.55, 0.8)).Unit, rand(10, 14), 3.4, false, { face = toward, shards = 0 }),
+				delay = 0.03 + i * 0.015,
+			})
+		end
+		growSpikes(spire, 0.14)
+		shockDisc(base + UP * 0.5, UP, 3, 26, 0.3, IceKit.PAL.MIST)
+		IceKit.particles(base + UP, "puff", 14, 1.6)
+		IceKit.particles(base + UP, "chips", 16, 1.3)
+		for i = 1, 4 do
+			local a = i / 4 * math.pi * 2 + 0.4
+			IceKit.crackLine(base, Vector3.new(math.cos(a), 0, math.sin(a)), rand(9, 13), { speed = 200, width = 0.32, life = 0.9 })
+		end
+		IceKit.light(base + UP * 8, 34, 2, 1.8)
 		frostMist(base, 1.2, 8)
 		VFX.PlaySound("IceWallRise", base, 0.9)
 		VFX.ShakeAt(base, 2, 90, 0.35)
+		if nearCamera(base, 50) then
+			VFX.ImpactFrame(0.05)
+		end
 		task.wait(0.1)
-		shatter(model, 40)
-		task.wait(2)
-		shatter(pillar, 30)
+		shatter(model, 40, { from = tr and tr.Position or base, force = 1.3 })
+		thaw()
+		task.wait(1.7)
+		shatter(pillar, 30, { from = base + up * 24 })
 	end
 
 	-- ICE SLIDER: a ramp of ice shoots out along the aim, he skates up it
-	-- and flies off the lip at the end
+	-- and flies off the lip at the end. (round 81) A real ramp, not a
+	-- floating staircase: a sloped deck of ice on a solid body of ice right
+	-- down to the street, laid out ahead of him, widening toward the lip;
+	-- rails of crystals growing up both edges as it's laid (leaning out and
+	-- back), a crest of blades flaring up at the lip, frost crust spreading
+	-- along its foot and a frost crack racing ahead. Chips spray off his
+	-- skates as he rides. It stands for the move's IceDuration, then breaks
+	-- up in a ripple from his end.
 	function Effects.IceSlider(char, data, isLocal, ability)
 		local root, hum = charParts(char)
 		if not root then
@@ -6036,30 +9446,99 @@ do -- TODOROKI's close-range moves (one table: the local limit)
 		local ride = ability.RideTime or 0.75
 		local rise = 16
 		local g = groundPoint(root.Position)
-		local model = outlineModel(ICE_OUTLINE)
-		-- the ramp: a run of slabs climbing away from him, a spike or two on each side
+		local model = Instance.new("Model")
+		model.Name = "IceSlider"
+		model.Parent = folder
+		local deck = outlineModel(ICE_OUTLINE)
+		deck.Parent = model
+		local rails = outlineModel(ICE_OUTLINE)
+		rails.Parent = model
 		local step = 6
 		local right = d:Cross(UP)
 		local function surface(s)
 			local k = math.clamp(s / range, 0, 1)
 			return g + d * s + UP * (rise * k * k)
 		end
+		local function laid(s)
+			return math.clamp(s / range, 0, 1) * ride * 0.8
+		end
+		local toward = root.Position
+		local list, crusts = {}, {}
 		for s = 0, range, step do
 			local a, b = surface(s), surface(s + step)
+			local delay = laid(s)
+			local w = 7 + 2 * s / range
+			-- the deck
 			local mid = (a + b) / 2 - UP * 1
-			local slab = newPart(Vector3.new(0.4, 2, 0.4), CFrame.lookAt(mid, mid + (b - a)), ICE_MID, Enum.Material.Ice, nil, model)
-			tween(slab, 0.12, { Size = Vector3.new(7, 2, (b - a).Magnitude + 0.4) }, Enum.EasingStyle.Quad, nil, s / range * ride * 0.8)
-			IceKit.solidAfter(slab, s / range * ride * 0.8 + 0.14)
-			if s % 18 == 0 then
+			local slab = newPart(Vector3.new(0.4, 2, 0.4), CFrame.lookAt(mid, mid + (b - a)), ICE_MID, Enum.Material.Ice, nil, deck)
+			slab.Transparency = 1 -- (nothing hanging there before it's laid)
+			tween(slab, 0.02, { Transparency = 0 }, nil, nil, delay)
+			tween(slab, 0.12, { Size = Vector3.new(w, 2, (b - a).Magnitude + 0.4) }, Enum.EasingStyle.Quad, nil, delay)
+			IceKit.solidAfter(slab, delay + 0.14)
+			-- the body of ice under it, down to the street: a block up to the
+			-- deck's low end, a wedge filling the slope above that
+			local flat = Vector3.new(mid.X, g.Y, mid.Z)
+			local low = a.Y - 2 - g.Y
+			if low > 0.3 then
+				local body = newPart(Vector3.new(w * 0.86, 0.2, step + 0.2), CFrame.lookAt(flat + UP * 0.1, flat + UP * 0.1 + d), ICE_BASE, Enum.Material.Ice, nil, deck)
+				body.Transparency = 1
+				tween(body, 0.02, { Transparency = 0 }, nil, nil, delay + 0.03)
+				tween(body, 0.14, { Size = Vector3.new(w * 0.86, low, step + 0.2), CFrame = CFrame.lookAt(flat + UP * low / 2, flat + UP * low / 2 + d) }, Enum.EasingStyle.Quad, nil, delay + 0.03)
+				IceKit.solidAfter(body, delay + 0.2)
+			end
+			local slope = b.Y - a.Y
+			if slope > 0.25 and low > -1.5 then
+				-- (a WedgePart's tall face is its back: back to the far end)
+				local base = math.max(a.Y - 2, g.Y)
+				local h = b.Y - 2 - base
+				local c = Vector3.new(mid.X, base + h / 2, mid.Z)
+				local wedge = IceKit.wedge(deck, ICE_BASE)
+				wedge.Size = Vector3.new(w * 0.86, 0.2, step)
+				wedge.CFrame = CFrame.lookAt(c, c - d)
+				wedge.Transparency = 1
+				tween(wedge, 0.02, { Transparency = 0 }, nil, nil, delay + 0.03)
+				tween(wedge, 0.14, { Size = Vector3.new(w * 0.86, h, step) }, Enum.EasingStyle.Quad, nil, delay + 0.03)
+				IceKit.solidAfter(wedge, delay + 0.2)
+			end
+			-- rails of crystals up both edges, growing as the deck is laid
+			if s % 12 == 6 or s == 0 then
+				local k = s / range
 				for side = -1, 1, 2 do
-					local set = makeSpike(model, a + right * side * 3.8 - UP * 1, (UP + right * side * 0.4).Unit, rand(4, 7), 1.6, false)
-					set(1)
+					local at = a + right * side * (w / 2 - 0.3) - UP * 1.6
+					local dir = (UP + right * side * rand(0.55, 0.85) - d * 0.25).Unit
+					table.insert(list, {
+						set = makeSpike(rails, at, dir, 3 + 5 * k + rand(0, 1.5), 1.5 + k, false, { face = toward, shards = 0, buried = 0.8 }),
+						delay = delay + rand(0.02, 0.06),
+					})
 				end
 			end
+			-- frost crust spreading along its foot (not inked, and not broken
+			-- up with the ice: it fades after)
+			if s % 12 == 0 then
+				local p = newPart(Vector3.new(0.3, 1, 1), CFrame.new(flat + UP * (0.07 + (s % 24) * 0.002) + right * rand(-1, 1)) * CFrame.Angles(0, 0, math.rad(90)), IceKit.PAL.FROST, Enum.Material.Snow, Enum.PartType.Cylinder, folder)
+				table.insert(crusts, p)
+				local r = w * rand(1.3, 1.6)
+				p.Transparency = 1
+				tween(p, 0.02, { Transparency = 0 }, nil, nil, math.max(delay - 0.03, 0))
+				tween(p, 0.22, { Size = Vector3.new(0.3, r, r) }, Enum.EasingStyle.Quad, nil, math.max(delay - 0.03, 0))
+			end
 		end
+		-- the crest at the lip: blades flaring up and out either side of it
+		local lip = surface(range)
+		for i, x in { -1.15, -0.75, 0.75, 1.15 } do
+			table.insert(list, {
+				set = makeSpike(rails, lip + right * x * 4.6 - UP * 1.5, (UP * 1.1 + d * 0.6 + right * x * 0.55).Unit, rand(6, 8.5) - math.abs(x) * 1.5, 2.4, false, { face = toward, shards = 0 }),
+				delay = laid(range) + 0.04 + i * 0.012,
+			})
+		end
+		growSpikes(list, 0.13)
+		IceKit.crackLine(g + d * 2, d, range + 14, { speed = range / (ride * 0.8), width = 0.34, life = ride + 0.5, wander = 2 })
+		IceKit.mistRun(g + d * 3 + UP, g + d * range + UP, ride * 0.8, 1.1)
+		IceKit.particles(g + d * 2 + UP * 0.5, "puff", 10, 1.2)
 		VFX.Pose(char, "Skate", ride + 0.2)
 		VFX.PlaySound("Ice", root.Position, 1)
-		local stopTrail = addTrail(root, ICE_TIP, 0.3, 2)
+		VFX.PlaySound("IceFreeze", root.Position + d * 20, 0.7)
+		local stopTrail = addTrail(root, Color3.fromRGB(150, 212, 255), 0.3, 2)
 		if isLocal and hum then
 			face(root, d)
 			VFX.Fly(char, root, hum, ride, function(a)
@@ -6074,12 +9553,22 @@ do -- TODOROKI's close-range moves (one table: the local limit)
 		end
 		local t0 = os.clock()
 		while os.clock() - t0 < ride and root.Parent do
-			frostMist(root.Position - UP * 2, 0.4, 2)
+			-- (spray off his skates)
+			local feet = root.Position - UP * 2.4
+			local _, att = IceKit.particles(feet, "chips", 4, 0.6, 1.2)
+			IceKit.particles(feet, "mist", 3, 0.5, nil, att)
 			task.wait(0.08)
 		end
 		stopTrail(0)
-		task.wait(3)
-		shatter(model, 40)
+		-- off the lip: a last spray and a glint
+		IceKit.particles(lip + UP, "chips", 12, 1)
+		IceKit.particles(lip + UP * 2, "glint", 6, 0.8)
+		task.wait(ability.IceDuration or 3)
+		shatter(model, 40, { from = g })
+		for _, p in crusts do
+			tween(p, 0.8, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.2)
+			cleanup(p, 1.1)
+		end
 	end
 
 	-- JET KINDLING, part 1: flames jet out of his elbow and rocket him along
@@ -6243,8 +9732,153 @@ function Effects.FlamePillar(char, data, isLocal, ability)
 	VFX.ShakeAt(target, 2, 110, 0.4)
 end
 
+---------------------------------------------------------------------------
+-- (round 81) FIRE MEETS ICE: the superheated air letting go. Canon
+-- Flashfreeze Heatwave chills the air with his ice, then heats it in an
+-- instant with his fire: the ice flashes to steam and the air explodes. So
+-- no fireball and no dark smoke - a white-hot flash round a white-yellow
+-- heart, blue-white shock rings racing out, and a dome of white steam
+-- billows (cool grey-blue in their shadow, sunlit white on top, warm-lit
+-- where the fire was) thrown on ahead and rolling out along the street,
+-- soft steam hanging on after, and the street left wet.
+--   IceKit.steamBlast(center, d, k [, opts])   k = size (1 = Heatwave); opts.quiet = no sound
+---------------------------------------------------------------------------
+do
+	local WHITE_HOT = Color3.fromRGB(255, 253, 242)
+	local CORE = Color3.fromRGB(255, 240, 178) -- (white-yellow: superheated air, not a fireball)
+	local SHOCK = Color3.fromRGB(190, 228, 255) -- (blue-white)
+	local BODY = Color3.fromRGB(234, 238, 245) -- (the steam's shadow side: a pale cool grey)
+	local LIGHT = Color3.fromRGB(253, 253, 255)
+	local WARM = Color3.fromRGB(255, 224, 190) -- (lit by the fire, at first)
+	local INK = Color3.fromRGB(150, 172, 196)
+
+	-- one billow of steam: a cool grey body with a white cap on top (a touch
+	-- toward the sun), swelling out of the blast, rolling on and up, then
+	-- thinning away
+	local function billow(model, from, to, size, delay, life, warm)
+		local sun = IceKit.sun()
+		local cap = (UP * 0.2 + Vector3.new(sun.X, 0, sun.Z) * 0.07) * size
+		local body = newPart(Vector3.one * 0.4, CFrame.new(from), warm and WARM or BODY, nil, Enum.PartType.Ball, model)
+		local hi = newPart(Vector3.one * 0.3, CFrame.new(from), warm and WARM or LIGHT, nil, Enum.PartType.Ball, model)
+		local grow = rand(0.22, 0.34)
+		tween(body, grow, { Size = Vector3.one * size, CFrame = CFrame.new(to) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out, delay)
+		tween(hi, grow, { Size = Vector3.one * size * 0.74, CFrame = CFrame.new(to + cap) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out, delay)
+		if warm then
+			tween(body, 0.35, { Color = BODY }, Enum.EasingStyle.Sine, nil, delay + grow * 0.6)
+			tween(hi, 0.3, { Color = LIGHT }, Enum.EasingStyle.Sine, nil, delay + grow * 0.6)
+		end
+		local drift = (to - from) * 0.35 + UP * size * rand(0.35, 0.6)
+		tween(body, life, { Size = Vector3.one * size * 1.18, CFrame = CFrame.new(to + drift) }, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, delay + grow)
+		tween(hi, life, { Size = Vector3.one * size * 0.9, CFrame = CFrame.new(to + drift + cap * 1.1) }, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, delay + grow)
+		local fade = delay + grow + life
+		tween(body, 0.6, { Size = Vector3.one * 0.2, CFrame = CFrame.new(to + drift * 1.25) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, fade)
+		tween(hi, 0.5, { Size = Vector3.one * 0.1, CFrame = CFrame.new(to + drift * 1.25 + cap) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, fade)
+		return fade + 0.65
+	end
+
+	-- ice taking the colour of his fire as the flames reach along it from
+	-- `from` (glossy, orange-lit): the flames travel `speed` studs a second
+	-- along d, and the furthest piece lights up `span` seconds after the first
+	--   IceKit.fireLit(model, from, d, speed, span)
+	function IceKit.fireLit(model, from, d, speed, span)
+		local warm = Color3.fromRGB(255, 186, 120)
+		for _, p in model:GetDescendants() do
+			if p:IsA("BasePart") and p.Material ~= Enum.Material.Snow then
+				local at = math.clamp((p.CFrame.Position - from):Dot(d) / math.max(speed, 1), 0, span or 0.4)
+				tween(p, 0.12, { Color = p.Color:Lerp(warm, 0.5), Reflectance = 0.25 }, nil, nil, at)
+			end
+		end
+	end
+
+	function IceKit.steamBlast(center, d, k, opts)
+		opts = type(opts) == "table" and opts or {}
+		k = math.max(tonumber(k) or 1, 0.2)
+		local flat = typeof(d) == "Vector3" and Vector3.new(d.X, 0, d.Z) or Vector3.zero
+		flat = flat.Magnitude > 0.05 and flat.Unit or Vector3.new(0, 0, -1)
+		local right = flat:Cross(UP)
+		local hit = groundRay(center + UP * 2, 60)
+		local g = hit and hit.Position or (center - UP * 6 * k)
+		-- the white-hot heart: a flash of white round a white-yellow core
+		local core = newPart(Vector3.one * 2 * k, CFrame.new(center), WHITE_HOT, Enum.Material.Neon, Enum.PartType.Ball)
+		tween(core, 0.06, { Size = Vector3.one * 13 * k })
+		tween(core, 0.24, { Size = Vector3.one * 3 * k, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.08)
+		cleanup(core, 0.35)
+		local heart = newPart(Vector3.one * 1.5 * k, CFrame.new(center), CORE, Enum.Material.Neon, Enum.PartType.Ball)
+		heart.Transparency = 0.2
+		tween(heart, 0.09, { Size = Vector3.one * 20 * k })
+		tween(heart, 0.3, { Size = Vector3.one * 24 * k, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0.09)
+		cleanup(heart, 0.45)
+		IceKit.light(center, 60, 7, 0.7, Color3.fromRGB(255, 240, 210))
+		-- the shock: blue-white rings racing out along the street and on ahead
+		shockDisc(g + UP * 0.7, UP, 6 * k, 120 * k, 0.6, SHOCK)
+		shockDisc(center, flat, 5 * k, 64 * k, 0.45, SHOCK, 34 * k)
+		billboardRing(center, 4 * k, 90 * k, SHOCK, 16, 0.45)
+		billboardRing(center, 3 * k, 46 * k, Color3.new(1, 1, 1), 0, 0.2, true)
+		streaks(center, flat, math.floor(18 + 10 * k), 7 * k, 14 * k, 100 * k, WIND, 0.42)
+		-- the steam: a dome of billows bursting out of it, thrown on ahead
+		-- (one Highlight: the ink line, and a flat white fill over the lot that
+		-- lifts the shadowed side - steam reads white from every side, cel-shaded)
+		local model, ink = outlineModel(INK)
+		model.Name = "SteamBlast"
+		ink.FillColor = Color3.new(1, 1, 1)
+		ink.FillTransparency = 0.55
+		local longest = 0
+		for _ = 1, math.floor(10 + 9 * k) do
+			local a = rand(0, math.pi * 2)
+			local up = rand(0.15, 1) ^ 0.6
+			local out = (flat * math.cos(a) + right * math.sin(a)) * math.sqrt(1 - up * up) + UP * up
+			local reach = rand(5, 14) * k * (out:Dot(flat) < -0.3 and 0.6 or 1)
+			local size = rand(11, 18) * k * (1 - up * 0.25)
+			local to = center + out * reach + flat * rand(2, 6) * k
+			to = Vector3.new(to.X, math.max(to.Y, g.Y + size * 0.3), to.Z)
+			longest = math.max(longest, billow(model, center + out * 2 * k, to, size, reach / (90 * k) + rand(0, 0.04), rand(1.3, 2.1), reach < 7 * k))
+		end
+		-- a low skirt of steam rolling out along the street (the pressure
+		-- wave): billows half sunk into it, so they read as rolling domes
+		local ring = math.floor(8 + 4 * k)
+		for i = 1, ring do
+			local a = i / ring * math.pi * 2 + rand(-0.2, 0.2)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			-- (thrown on ahead: it barely rolls back toward him)
+			local reach = rand(12, 20) * k * (out:Dot(flat) < -0.3 and 0.55 or 1)
+			local size = rand(7, 10) * k
+			local to = g + out * reach + flat * (5 * k + reach * 0.3) + UP * size * 0.12
+			longest = math.max(longest, billow(model, g + out * 4 * k + UP * size * 0.12, to, size, 0.06 + reach / (150 * k), rand(1, 1.6), false))
+		end
+		cleanup(model, longest + 0.1)
+		-- soft steam through it all, and a haze that hangs on a moment
+		local pe = IceKit.particles(center, "steam", math.floor(20 + 12 * k), 2.6 * k, 5)
+		IceKit.particles(g + UP * 1.5, "mist", math.floor(16 + 10 * k), 2.6 * k)
+		if pe then
+			pe.Rate = 10 + 6 * k
+			pe.Enabled = true
+			task.delay(1.4, function()
+				pe.Enabled = false
+			end)
+		end
+		-- (the melt leaves the street wet)
+		groundMark(g, 13 * k, Color3.fromRGB(70, 78, 88), 4)
+		if nearCamera(center, 80 * k + 40) then
+			VFX.Hooks.Flash(Color3.fromRGB(255, 252, 238), 0.3)
+			if k >= 1.3 then
+				VFX.ImpactFrame(0.1)
+			end
+		end
+		if not opts.quiet then
+			VFX.PlaySound("SteamBlast", center, math.clamp(0.6 + 0.3 * k, 0.5, 1.3))
+		end
+		VFX.ShakeAt(center, 3.6 * k, 220 * k, 0.8)
+	end
+end
+
 -- Flashfreeze Heatwave: ice wall, fire straight into it, flash-heated air blast.
--- opts scales it up for the ult version.
+-- opts scales it up for the ult version. (round 81) Canon order: the cold
+-- (his right foot plants, frost bursts off the street and races out ahead,
+-- his right side crusts over, his breath fogs), the ice (a wave of it heaves
+-- up), the heat (his left side flares and flames pour into the ice: it glows
+-- orange, sags and boils off into steam - his frost steaming off with it),
+-- then the superheated air explodes: IceKit.steamBlast, and what's left of
+-- the ice is hurled out of it in chunks.
 local function heatwaveCore(char, data, isLocal, opts)
 	local root = charParts(char)
 	if not root then
@@ -6255,46 +9889,83 @@ local function heatwaveCore(char, data, isLocal, opts)
 		face(root, d)
 		VFX.Hooks.Dim(0.5, opts.DimTime)
 	end
-	-- 1) right side: ice mound in front
+	local k = opts.Scale
+	-- 1) the cold
 	VFX.Pose(char, "Ground", 0.7)
-	frostMist(groundPoint(root.Position) + d * 2, 0.6, 4)
+	local foot = groundPoint(root.Position)
+	IceKit.particles(foot + d * 2 + UP * 0.5, "puff", math.floor(8 + 6 * k), 1.5 * k)
+	IceKit.crackLine(foot + d * 1.5, d, opts.BlastOffset + 12 * k, { speed = 110, width = 0.3 * k, life = 0.8 })
+	local frost = IceKit.frostBody(char, { fadeIn = 0.3, fadeOut = 0.45, spikes = k > 1.2 })
+	IceKit.breath(char, 1, 0.35)
+	if nearCamera(root.Position, 60) then
+		IceKit.coldTint(0.3 * k, 0.25, 0.6)
+	end
 	task.wait(opts.IceWait)
 	if not root.Parent then
+		frost.off(0.3)
 		return
 	end
-	local ice, origin = spikeLayout(opts.Layout, data, root, d, Color3.fromRGB(36, 84, 116))
-	frostMist(origin + d * (opts.BlastOffset - 2), 1.4 * opts.Scale, 6)
+	-- 2) the ice
+	local ice, origin = spikeLayout(opts.Layout, data, root, d, ICE_OUTLINE)
+	frostMist(origin + d * (opts.BlastOffset - 2), 1.4 * k, 6)
 	VFX.PlaySound("Ice", origin, 1)
-	VFX.ShakeAt(origin, 1.5 * opts.Scale, 100, 0.3)
+	VFX.ShakeAt(origin, 1.5 * k, 100, 0.3)
 	task.wait(0.35)
 	if not root.Parent then
 		shatter(ice, 60)
+		frost.off(0.3)
 		return
 	end
-	-- 2) left side: flame straight into the ice
+	-- 3) the heat: flames into the ice, which melts away into steam
+	local center = origin + d * opts.BlastOffset + UP * (7 * k)
 	VFX.Pose(char, "PunchL", 0.6)
 	VFX.PlaySound("Fire", root.Position, 1)
+	VFX.PlaySound("SteamHiss", origin + d * opts.BlastOffset * 0.5, 0.8 + 0.2 * k)
+	frost.off(0.4)
+	-- (the ice takes the fire's colour as the flames reach along it - glossy,
+	-- slushy - and sags tip first into the street; the steam off it boils up
+	-- white and goes up with the blast)
+	local flameSpeed = opts.StreamLength * 2.6
+	IceKit.fireLit(ice, origin, d, flameSpeed, opts.StreamTime)
+	local sagging = {}
+	for _, m in { ice, table.unpack(ice:GetDescendants()) } do
+		for _, c in IceKit.crystals[m] or {} do
+			table.insert(sagging, { set = c.set, at = math.clamp((c.base - origin):Dot(d) / flameSpeed, 0, opts.StreamTime) })
+		end
+	end
+	local t0, sag = os.clock(), nil
+	sag = RunService.Heartbeat:Connect(function()
+		local t = os.clock() - t0
+		if not ice.Parent or t > opts.StreamTime + 0.4 then
+			sag:Disconnect()
+			return
+		end
+		for _, c in sagging do
+			local a = math.clamp((t - c.at) / 0.45, 0, 1)
+			if a > 0 and not c.gone then
+				c.gone = not pcall(c.set, 1 - 0.6 * a * a, true)
+			end
+		end
+	end)
+	IceKit.light(center - UP * 4 * k, 50, 3, opts.StreamTime + 0.25, Color3.fromRGB(255, 170, 90))
+	task.spawn(function()
+		for i = 1, 4 do
+			IceKit.particles(origin + d * (opts.BlastOffset * (0.2 + i * 0.22)) + UP * k, "steam", math.floor(5 + 3 * k), 1.2 * k)
+			task.wait(opts.StreamTime / 4)
+		end
+	end)
 	Flame.stream(char, root, d, opts.StreamTime, opts.StreamLength)
-	-- 3) flash-heated air explodes
-	local center = origin + d * opts.BlastOffset + UP * (7 * opts.Scale)
-	shatter(ice, 120)
-	toonExplosion(center, opts.BlastScale, { SmokeLife = 3 })
-	for i = 1, 6 do
-		task.delay(i * 0.03, function()
-			shockDisc(center - d * 8, d, 12 * opts.Scale, 52 * opts.Scale, 0.55, Color3.fromRGB(255, 236, 200), 70 * opts.Scale)
-		end)
+	-- 4) the superheated air explodes
+	IceKit.steamBlast(center, d, opts.SteamScale or k)
+	if ice.Parent then
+		shatter(ice, math.floor(16 * k), { from = center, instant = true, force = 2.2, quiet = true })
 	end
-	streaks(center, d, 40, 12 * opts.Scale, 18, 140 * opts.Scale, FIRE[1], 0.45)
-	if nearCamera(center, 130 * opts.Scale) then
-		VFX.Hooks.Flash(Color3.fromRGB(255, 226, 180), 0.35)
-	end
-	VFX.ShakeAt(center, 4 * opts.Scale, 220 * opts.Scale, 0.8)
 end
 
 function Effects.Heatwave(char, data, isLocal)
 	heatwaveCore(char, data, isLocal, {
 		Layout = "Heatwave", IceWait = 0.4, StreamTime = 0.4, StreamLength = 26,
-		BlastOffset = 18, BlastScale = 3.4, Scale = 1, DimTime = 1.1,
+		BlastOffset = 18, BlastScale = 3.4, Scale = 1, DimTime = 1.1, SteamScale = 1.15,
 	})
 end
 
@@ -6360,22 +10031,50 @@ function Effects.SideSwap(char, data)
 		shockDisc(g + UP * 0.4, UP, 3, 26, 0.35, FIRE[2])
 		sparks(root.Position, 1)
 		VFX.PlaySound("Fire", g, 0.7)
+		-- (round 81) his left side flares up, and the frost on his right
+		-- steams off
+		local arm = limb(char, "LeftUpperArm", "Left Arm")
+		if arm then
+			local putOut = Flame.attach(arm, 2.2, 1.4)
+			task.delay(0.6, putOut)
+		end
+		local iceArm = limb(char, "RightUpperArm", "Right Arm")
+		IceKit.steam((iceArm and iceArm.Position or root.Position) + UP * 0.5, 0.45, 3)
+		VFX.PlaySound("SteamHiss", root.Position, 0.45)
 	else
+		-- (round 81) frost crawls over his right side and his left side's
+		-- flames die in a puff of steam; ice bursts up round his feet in a
+		-- crown leaning outward (taller on his right, his ice side) out of a
+		-- patch of frost, with a cold puff and glints
 		local model = outlineModel(ICE_OUTLINE)
 		local list = {}
+		local right = root.CFrame.RightVector
+		right = Vector3.new(right.X, 0, right.Z).Magnitude > 0.05 and Vector3.new(right.X, 0, right.Z).Unit or Vector3.new(1, 0, 0)
+		local a0 = rand(0, 0.6)
 		for i = 1, 10 do
-			local a = i / 10 * math.pi * 2
+			local a = a0 + i / 10 * math.pi * 2
 			local out = Vector3.new(math.cos(a), 0, math.sin(a))
-			local dir = (UP * 1.4 + out + rng:NextUnitVector() * 0.2).Unit
-			table.insert(list, { set = makeSpike(model, g + out * 4 - UP, dir, rand(3, 5), 1.2, false), delay = i * 0.01 })
+			local onRight = math.max(out:Dot(right), 0)
+			local dir = (UP * rand(1.1, 1.4) + out * rand(0.7, 1) + rng:NextUnitVector() * 0.12).Unit
+			local len = rand(2.8, 3.8) + onRight * 2.4
+			table.insert(list, { set = makeSpike(model, g + out * (3.4 + onRight * 0.6) - UP * 0.8, dir, len, 1.2 + onRight * 0.5, false, { quiet = true, shards = 0, face = root.Position }), delay = i * 0.01 })
 		end
 		growSpikes(list, 0.12)
+		local crust = newPart(Vector3.new(0.3, 2, 2), CFrame.new(g + UP * 0.07) * CFrame.Angles(0, 0, math.rad(90)), IceKit.PAL.FROST, Enum.Material.Snow, Enum.PartType.Cylinder, folder)
+		tween(crust, 0.18, { Size = Vector3.new(0.3, 11, 11) }, Enum.EasingStyle.Quad)
+		tween(crust, 0.4, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.75)
+		cleanup(crust, 1.2)
+		IceKit.frostBody(char, { fadeIn = 0.2, life = 0.9, fadeOut = 0.5, steam = false })
+		local fireArm = limb(char, "LeftUpperArm", "Left Arm")
+		IceKit.steam((fireArm and fireArm.Position or root.Position) + UP * 0.5, 0.4, 2)
 		frostMist(g, 0.8, 6)
-		shockDisc(g + UP * 0.4, UP, 3, 26, 0.35, ICE_TIP)
+		IceKit.particles(root.Position, "glint", 8, 0.6)
+		shockDisc(g + UP * 0.4, UP, 3, 26, 0.35, IceKit.PAL.MIST)
 		sparks(root.Position, 1, ICE_TIP, Color3.fromRGB(120, 200, 255), 20)
 		VFX.PlaySound("Ice", g, 0.7)
+		VFX.PlaySound("IceFreeze", root.Position, 0.5)
 		task.delay(0.8, function()
-			shatter(model, 20)
+			shatter(model, 20, { from = g, instant = true })
 		end)
 	end
 	VFX.ShakeAt(g, 0.6, 40, 0.2)
@@ -7929,11 +11628,22 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 		RightArm = { 135, 20, 20 }, RightElbow = 4, RightWrist = { -65, 0, 0 }, LeftArm = { -30, 0, 60 }, LeftElbow = 35,
 		Waist = { -12, 26, 0 }, Neck = { -6, -16, 0 }, RightLeg = -34, RightKnee = 48, LeftLeg = 52, LeftKnee = 86,
 	}
+	-- (round 83) retimed for the 0.5s time-crawl (it was 1.3s)
 	MOTIONS.BlitzFlip = {
-		{ pose = "BlitzFlipTuck", t = 0.1, hold = 0.04, style = SNAP },
-		{ pose = "BlitzFlip", t = 0.7, hold = 1.6, style = Enum.EasingStyle.Sine },
+		{ pose = "BlitzFlipTuck", t = 0.07, hold = 0.02, style = SNAP },
+		{ pose = "BlitzFlip", t = 0.3, hold = 0.25, style = Enum.EasingStyle.Sine },
 		recover = 0.25,
 	}
+	-- (round 83) the blitz on an R15 body (an R6 one plays MoveBlitzOpen /
+	-- MoveBlitzBlast / MoveBlitzBlastL): the opener's palm in their face, and
+	-- the blast from in front at the end of each overtake, the palms in turn
+	POSES.BlitzPalmL = {
+		LeftArm = { 90, 0, 0 }, LeftElbow = 4, LeftWrist = { -55, 0, 0 }, RightArm = { -35, 0, 24 }, RightElbow = 30,
+		Waist = { -10, -24, 0 }, Neck = { -2, 14, 0 }, RightLeg = 30, LeftLeg = -14, RightKnee = 50, LeftKnee = 24,
+	}
+	MOTIONS.BlitzOpen = { { pose = "BlitzPalm", t = 0.1, hold = 0.04, style = SNAP }, { pose = "Blast", t = 0.06, hold = 0.18 }, recover = 0.2 }
+	MOTIONS.BlitzBlast = { { pose = "BlitzPalm", t = 0.05, hold = 0.14, style = SNAP }, recover = 0.2 }
+	MOTIONS.BlitzBlastL = { { pose = "BlitzPalmL", t = 0.05, hold = 0.14, style = SNAP }, recover = 0.2 }
 	BK.blitz = setmetatable({}, { __mode = "k" }) -- [char] = the blitz going
 
 	-- one bead of sweat popping somewhere on him: a tiny star of light
@@ -8178,6 +11888,265 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 		end
 	end
 
+	-- (round 83) THE BLITZ'S PIECES. A ghost of his body at `at`, posed the
+	-- way he is right now (a frame of him left behind: the afterimages of
+	-- the blink and of every overtake) - neon, fading
+	function BK.ghost(char, at, color, life, alpha)
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local rel = root.CFrame:Inverse()
+		for _, part in char:GetChildren() do
+			if part:IsA("BasePart") and part ~= root and part.Transparency < 1 then
+				local g = part:Clone()
+				if g then
+					g:ClearAllChildren()
+					if g:IsA("MeshPart") then
+						g.TextureID = ""
+					end
+					g.Anchored, g.CanCollide, g.CanQuery, g.CanTouch, g.CastShadow, g.Massless = true, false, false, false, false, true
+					g.LocalTransparencyModifier = 0 -- (his own body is hidden mid-blur)
+					g.Material = Enum.Material.Neon
+					g.Color = color
+					g.Transparency = alpha or 0.35
+					g.CFrame = at * (rel * part.CFrame)
+					g.Name = "BlitzGhost"
+					g.Parent = folder
+					tween(g, life, { Transparency = 1 })
+					cleanup(g, life + 0.05)
+				end
+			end
+		end
+	end
+
+	-- his body shown or hidden on this screen (hidden while he's a blur)
+	function BK.shown(char, shown)
+		if VFX.PV and VFX.PV.setShown then
+			VFX.PV.setShown(char, shown)
+		end
+	end
+
+	-- an R6 body's clip, its "Hit" landing `lead` seconds from now (held on
+	-- its Hold key till then); an R15 body plays the motion
+	function BK.play(char, clipName, lead, motion)
+		local c = Anim.MoveClips ~= false and VFX.GetClip(clipName)
+		if not (c and VFX.Clip(char, clipName, { holdFor = math.max(lead - (c.hit or 0), 0), recover = 0.2 })) then
+			VFX.Motion(char, motion)
+		end
+	end
+
+	-- his blur round them on a leg of the plan (a from 0 to 1) - the same
+	-- curve the server carries him along (Kit.blitzCurve)
+	function BK.curve(leg, a)
+		return (1 - a) ^ 2 * leg.Was + 2 * a * (1 - a) * leg.Via + a * a * leg.Him
+	end
+	function BK.tangent(leg, a, fallback)
+		local v = BK.curve(leg, math.min(a + 0.05, 1)) - BK.curve(leg, math.max(a - 0.05, 0))
+		return v.Magnitude > 0.05 and v.Unit or fallback
+	end
+
+	-- the opener, on "GOT": his palm goes off in their face (an impact
+	-- frame for anyone close) and throws them down the lane
+	function BK.opener(char, at, d, gain)
+		local face = at + UP * 1.2
+		BK.palm(handPos(char, true), d, 1.6)
+		toonExplosion(face - d * 0.3, 1.5, { NoDebris = true, NoScorch = true, SmokeLife = 1 })
+		shockDisc(face, d, 2, 16, 0.25, Color3.new(1, 1, 1), 4)
+		billboardRing(face, 2, 16, FIRE[1], 6, 0.25)
+		streaks(face, d, 12, 1, 6, 18, FIRE[1], 0.3)
+		VFX.HitStar(face, 9, FIRE[1])
+		local MG = VFX.MANGA
+		if MG then
+			MG.flare(face, Color3.new(1, 1, 1), 3, 0.3)
+			MG.impact(face, 0.06, { Radius = 90 })
+		end
+		VFX.PlaySound("BlitzOpen", face, 0.9 * gain)
+		VFX.ShakeAt(face, 1.6, 100, 0.25)
+	end
+
+	-- one overtake (leg k of n): the jets that throw him, a burning streak
+	-- along his line round them, a row of ghosts of him on it, the
+	-- propulsion pops, his body gone for the blur, and the street scorched
+	-- under him
+	function BK.overtake(char, leg, k, gain)
+		local dur = math.max(leg.Arrive - leg.Go, 0.03)
+		local first = BK.tangent(leg, 0.05, leg.Way)
+		BK.shown(char, false)
+		BK.palm(leg.Was - first * 0.6 + UP * 0.3, -first, 1 + 0.15 * k)
+		VFX.PlaySound("BlitzPass", leg.Was, (0.8 + 0.1 * k) * gain)
+		for i = 1, 6 do
+			local a0, a1 = (i - 1) / 6, i / 6
+			task.delay(dur * a0, function()
+				local p0, p1 = BK.curve(leg, a0), BK.curve(leg, a1)
+				local seg = newPart(Vector3.new(0.8, 0.8, (p1 - p0).Magnitude + 0.4), CFrame.lookAt((p0 + p1) / 2, p1), FIRE[1]:Lerp(Color3.new(1, 1, 1), a1 * 0.6), Enum.Material.Neon)
+				seg.Name = "BlitzDash"
+				seg.Transparency = 0.1
+				tween(seg, 0.3, { Size = Vector3.new(0.05, 0.05, seg.Size.Z), Transparency = 1 }, Enum.EasingStyle.Quad, nil, 0.04)
+				cleanup(seg, 0.4)
+				-- (the burn it leaves on the street under it)
+				local hit = groundRay(p0, 40)
+				local hit1 = groundRay(p1, 40)
+				if hit and hit1 then
+					local g0, g1 = hit.Position + UP * 0.05, hit1.Position + UP * 0.05
+					local burn = newPart(Vector3.new(0.7 + 0.08 * k, 0.05, (g1 - g0).Magnitude + 0.3), CFrame.lookAt((g0 + g1) / 2, g1), Color3.fromRGB(36, 28, 26), Enum.Material.SmoothPlastic)
+					burn.Name = "BlitzScorch"
+					burn.Transparency = 0.2
+					tween(burn, 1.5, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, 5)
+					cleanup(burn, 6.6)
+					groundMark(g0, 0.8 + 0.1 * k, Color3.fromRGB(40, 32, 30), 5)
+				end
+			end)
+		end
+		for i = 1, 5 do
+			local a = (i - 0.5) / 5
+			task.delay(dur * a, function()
+				local p = BK.curve(leg, a)
+				BK.ghost(char, CFrame.lookAt(p, p + BK.tangent(leg, a, leg.Way)) * CFrame.Angles(math.rad(-80), 0, 0),
+					FIRE[3]:Lerp(Color3.new(1, 1, 1), i / 6), 0.2 + i * 0.03, 0.2 + i * 0.06)
+			end)
+		end
+		for _, a in { 0.15, 0.35, 0.6 } do
+			task.delay(dur * a, function()
+				BK.pop(BK.curve(leg, a) - BK.tangent(leg, a, leg.Way) * 0.8, 0.8 + 0.15 * k, 0)
+			end)
+		end
+	end
+
+	-- the sonic boom as he goes past them (rings off him; from the 2nd
+	-- overtake on, it hits them too)
+	function BK.boom(leg, k, troot, gain)
+		local p = typeof(leg.PassAt) == "Vector3" and leg.PassAt or leg.To
+		for i = 0, 2 do
+			task.delay(i * 0.03, function()
+				local disc = shockDisc(p + leg.Way * (i * 1.2), leg.Way, 1.5 + i, 10 + i * 4 + 2 * k, 0.22, Color3.new(1, 1, 1))
+				disc.Name = "BlitzBoom"
+			end)
+		end
+		billboardRing(p, 1, 10 + 2 * k, Color3.new(1, 1, 1), 4, 0.2)
+		if leg.Boom then
+			local at = (troot and troot.Parent and troot.Position or leg.To) + UP * 0.6
+			VFX.HitStar(at, 4 + k, Color3.new(1, 1, 1))
+			sparks(at, 0.6, Color3.new(1, 1, 1), FIRE[1], 6)
+		end
+		VFX.PlaySound("BlitzBoom", p, (0.7 + 0.1 * k) * gain)
+		VFX.ShakeAt(p, 0.8 + 0.2 * k, 70, 0.15)
+	end
+
+	-- the blast from in front at the end of overtake k (of n): it throws them
+	-- back the other way, higher - bigger every time, and an impact frame
+	-- on the last one before the flip
+	function BK.blast(char, leg, k, n, gain)
+		local face = leg.To + UP * 1.2
+		local back = -leg.Way
+		BK.palm(handPos(char, k % 2 == 1), back, 1.3 + 0.2 * k)
+		toonExplosion(face + leg.Way * 0.5, 1.1 + 0.25 * k, { NoDebris = true, NoScorch = true, SmokeLife = 0.8 })
+		shockDisc(face, back, 2, 12 + 3 * k, 0.25, FIRE[2], 3)
+		streaks(face, back, 8 + 2 * k, 0.8, 6, 14 + 3 * k, FIRE[1], 0.28)
+		VFX.HitStar(face, 6 + k, FIRE[1])
+		local MG = VFX.MANGA
+		if MG then
+			MG.flare(face, FIRE[1], 1.6 + 0.4 * k, 0.2)
+			if k == n - 1 then
+				MG.impact(face, 0.06, { Radius = 90 })
+			end
+		end
+		VFX.PlaySound("BlitzHit", face, (0.8 + 0.1 * k) * gain)
+		VFX.ShakeAt(face, 1 + 0.4 * k, 90, 0.2)
+	end
+
+	-- his cutscene, from the plan (the USS way: SHOTS built at the event),
+	-- framed on the plan's own heights. In his facing as VFX.Cinematic frames
+	-- it (his root right now), so a body that replicated late doesn't throw
+	-- the shots off. The camera keeps to one side of the lane (his right -
+	-- the palm - unless the other side has more room; a wall pulls it in):
+	-- the two of them face to face, low; cut on "GOT" to a worm's-eye view
+	-- tracking them down the lane; cut on each blast, tracking them back up
+	-- it and down again, higher and closer every time; the two heads in
+	-- profile for the flip and the crawl; behind him and to the side, down
+	-- the street, for the Explosion (BlastShot). One soft whoosh, into the
+	-- crawl: the blasts carry the other cuts (tools/r83 render_plan.py)
+	function BK.blitzShots(data, d, root, ability)
+		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		if look.Magnitude < 0.05 then
+			look = Vector3.new(0, 0, -1)
+		end
+		local basis = CFrame.lookAt(root.Position, root.Position + look.Unit)
+		-- (round 83 review) a shot's eye is pulled in short of anything between
+		-- it and what it's on (`on`: the subject nearest it; the look-at if
+		-- nil) - a wall, an awning: the camera's never inside a building
+		local function S(eye, at, on)
+			on = on or at
+			pcall(function()
+				local gap = eye - on
+				if gap.Magnitude > 0.5 then
+					local hit = workspace:Raycast(on, gap, rayParams)
+					if hit then
+						eye = on + gap.Unit * math.max(hit.Distance - 0.8, math.min(1, hit.Distance * 0.5))
+					end
+				end
+			end)
+			return { basis:PointToObjectSpace(eye), basis:PointToObjectSpace(at) }
+		end
+		local legs = data.Legs
+		local at, from = data.At, typeof(data.From) == "Vector3" and data.From or data.At - d * 2.6
+		local right = d:Cross(UP)
+		right = right.Magnitude > 0.1 and right.Unit or Vector3.new(1, 0, 0)
+		local mid = at
+		for _, leg in legs do
+			mid += leg.To
+		end
+		mid /= (#legs + 1)
+		-- (round 83 review) and out to the side no further than the street's
+		-- walls (clear: the room on the open side; it used to put the camera
+		-- 6 out however close they were)
+		local side, clear = right, 15
+		pcall(function()
+			rayParams.FilterDescendantsInstances = characterList()
+			local a = workspace:Raycast(mid + UP, right * 15, rayParams)
+			local b = workspace:Raycast(mid + UP, -right * 15, rayParams)
+			local ra, rb = a and a.Distance or 15, b and b.Distance or 15
+			side = rb > ra + 0.5 and -right or right
+			clear = math.max(ra, rb)
+		end)
+		local cap = math.max(clear - 1.5, clear * 0.6)
+		local dist = math.min(math.clamp(clear - 1.5, 6, 11), cap)
+		local street = at.Y - 2.4
+		local function flat(p, y)
+			return Vector3.new(p.X, y, p.Z)
+		end
+		-- 1: face to face, low from the side, his palm coming up to their face
+		local pair = (at + from) / 2
+		local near = math.min(9, dist)
+		local shots = {
+			{ T = math.max(tonumber(data.Open) or 0.2, 0.05), From = S(pair + side * near + d * 1.5 + UP * 0.4, pair + UP * 1.1),
+				To = S(pair + side * (near - 1) + d * 1.3 + UP * 0.4, pair + UP * 1.1), Fov = { 42, 36 } },
+		}
+		for k, leg in legs do
+			if k == 1 then
+				-- 2: "GOT" - a worm's-eye view tracking them down the lane
+				table.insert(shots, { T = leg.T1 - leg.T0, Cut = true, Quiet = true, Fov = { 60, 66 },
+					From = S(flat(leg.From, street) + side * dist - leg.Way * 2, leg.From + UP * 0.5), To = S(flat(leg.To, street + 0.6) + side * dist + leg.Way, leg.To + UP * 0.4) })
+			else
+				-- 3...: tracking them back up the lane and down again, higher and closer
+				local r, h = math.min(math.max(dist + 1 - 1.5 * (k - 2), 5), cap), 1.5 - 0.4 * (k - 2)
+				table.insert(shots, { T = leg.T1 - leg.T0, Cut = true, Quiet = true, Fov = { 58, 62 },
+					From = S(leg.From + side * r + UP * h - leg.Way * 1.5, leg.From + UP * 0.4), To = S(leg.To + side * r + UP * (h - 0.2) + leg.Way * 1.5, leg.To + UP * 0.4) })
+			end
+		end
+		local last = legs[#legs]
+		-- the two heads in profile for the flip and the crawl
+		local heads = (last.To + last.Him) / 2 + UP * 1.5
+		table.insert(shots, { T = tonumber(data.Time) or ability.SlowMo or 0.5, Cut = true, CutGain = 0.35, Fov = { 50, 40 },
+			From = S(heads + side * math.min(9, cap) + UP * 0.4, heads), To = S(heads + side * math.min(7, cap) + UP * 0.2, heads) })
+		-- behind him and to the side, down the street, as the fireball drives them off
+		local dF = -last.Way
+		local hang = last.Him + UP * (tonumber(data.FlipRise) or ability.FlipRise or 3) -- (round 83 review: less under a ceiling)
+		table.insert(shots, { T = ability.BlastShot or 0.8, Cut = true, Quiet = true, Style = Enum.EasingStyle.Quad, Fov = { 70, 80 },
+			From = S(hang - dF * 5 + side * math.min(4, cap) + UP, last.To + dF * 25 + UP, hang), To = S(hang - dF * 8 + side * math.min(5, cap) + UP * 3, last.To + dF * 35 + UP * 2, hang) })
+		return shots
+	end
+
 	function Effects.ExplosiveSpeed(char, data, isLocal, ability)
 		local root = charParts(char)
 		if not root then
@@ -8192,9 +12161,33 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 		BK.blitz[char] = st
 		local windUp = ability.WindUp or 0.6
 		VFX.MuteGait(char, windUp + 1.2) -- (nothing fighting the crouch or the flight)
-		VFX.Motion(char, "BlitzCrouch")
-		-- (round 76) "I'M THE FINAL BOSS, GOT IT?" (trimmed before "...ALL FOR ONE!!")
-		VFX.Voice("FinalBoss", root)
+		-- (round 79) an R6 body's clip is held on its coil (Hold..HoldEnd, slowed
+		-- down to fill it) through the whole wind-up - it used to run out 0.4s
+		-- early, stand him up, then snap into the flight
+		local crouch = Anim.MoveClips ~= false and VFX.GetClip("MoveBlitzCrouch")
+		if not (crouch and crouch.holdAt and VFX.Clip(char, "MoveBlitzCrouch", { holdFor = math.max(windUp - crouch.length, 0), recover = 0.125 })) then
+			VFX.Motion(char, "BlitzCrouch")
+		end
+		-- (round 76) "I'M THE FINAL BOSS, GOT IT?" - (round 83) "GOT" lined up
+		-- on the blitz's opener (OpenAt; on his own screen a round trip later,
+		-- when the server's opener gets back to him) and out right after
+		-- "IT?" (Config.Voice FinalBoss Fixed). Kept, so a cancel can stop it
+		-- and the blitz can keep its own sounds under it till then
+		local openAt = ability.OpenAt or 1.5
+		if isLocal then
+			local okPing, ping = pcall(function()
+				return Players.LocalPlayer:GetNetworkPing()
+			end)
+			openAt += (okPing and type(ping) == "number") and math.clamp(ping, 0, 0.3) or 0
+		end
+		st.voice = VFX.Voice("FinalBoss", root, openAt)
+		local line = Config.Voice and Config.Voice.FinalBoss
+		if line and VFX.VC then
+			local s0, w0, stop = VFX.VC.plan(line, nil, openAt)
+			if stop then
+				st.quietUntil = os.clock() + w0 + (stop - s0) + 0.06
+			end
+		end
 		VFX.PlaySound("BlitzCharge", root.Position, 1)
 		dustPuffs(groundPoint(root.Position), 0.6, 3, Color3.fromRGB(200, 190, 175), 0.6, false)
 		BK.cracks(root.Position, d, windUp)
@@ -8259,16 +12252,15 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 			-- someone was in the lane: he's simply THERE - a line of afterimages
 			-- where he was, the street going off under it
 			VFX.MuteGait(char, 1.4)
+			-- (round 83) ghosts of his body down the lane (they were flat neon
+			-- slabs), out of the set and leaning into the run, fire to white
+			for s = 0, length, math.max(5, length / 10) do
+				local k = s / math.max(length, 1)
+				local at = from + d * s
+				BK.ghost(char, CFrame.lookAt(at, at + d) * CFrame.Angles(math.rad(-20 - 30 * k), 0, 0), FIRE[2]:Lerp(Color3.new(1, 1, 1), k * 0.7), 0.2 + k * 0.15, 0.3 + k * 0.3)
+			end
 			VFX.Pose(char, "BlitzFly", 0.08) -- (the frame he arrives in: still flying)
 			streaks(from + UP * 1.5, d, 14, 1.4, 10, length, Color3.new(1, 1, 1), 0.3)
-			for s = 0, length, 2.5 do
-				local k = s / math.max(length, 1)
-				local at = from + d * s + UP * 0.3
-				local ghost = newPart(Vector3.new(1.7, 1, 4.6), CFrame.lookAt(at, at + d), FIRE[1]:Lerp(Color3.new(1, 1, 1), k * 0.6), Enum.Material.Neon)
-				ghost.Transparency = 0.4 + k * 0.25
-				tween(ghost, 0.2 + k * 0.12, { Transparency = 1, Size = Vector3.new(0.5, 0.3, 4.6) })
-				cleanup(ghost, 0.35 + k * 0.12)
-			end
 			if isLocal then
 				VFX.Hooks.SpeedLines(0.3)
 			end
@@ -8278,7 +12270,14 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 			return
 		end
 		VFX.MuteGait(char, time + 0.4)
-		VFX.Pose(char, "BlitzFly", time + 0.1)
+		-- (round 79) held so the flight ends as the server sets him upright at
+		-- the end of the lane (an R6 clip's Hold..HoldEnd stretch counted)
+		local fly = Anim.MoveClips ~= false and VFX.GetClip("PoseBlitzFly")
+		local flyHold = time + 0.1
+		if fly and fly.holdAt and fly.holdEnd then
+			flyHold = math.max(time - (fly.holdEnd - fly.holdAt), 0.05)
+		end
+		VFX.Pose(char, "BlitzFly", flyHold)
 		streaks(from + UP * 1.5, d, 10, 1.2, 8, length, Color3.new(1, 1, 1), time + 0.2)
 		if isLocal then
 			VFX.Hooks.SpeedLines(time + 0.2)
@@ -8299,6 +12298,131 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 			if st.stopTrail then
 				st.stopTrail(0.15)
 				st.stopTrail = nil
+			end
+		end)
+	end
+
+	-- (round 83) THE BLITZ, a leapfrog down the lane, drawn from the server's
+	-- plan (Kit.blitzPlan - the server runs the same clock, so the bodies it
+	-- moves land on these beats): the face-off, the opener on "GOT", then
+	-- each overtake - the blur past them, the boom, the blast from in front
+	-- - till the last one ends in the flip (ExplosiveSpeedCatch). Its own
+	-- clock (st.blitz): the flight's flag (st.dead) only stops the flight's
+	-- palms and trail, which stop here.
+	function Effects.ExplosiveSpeedBlitz(char, data, _isLocal, ability)
+		local root = charParts(char)
+		local legs = type(data.Legs) == "table" and data.Legs or {}
+		if not root or typeof(data.At) ~= "Vector3" or #legs == 0 then
+			return
+		end
+		for _, leg in legs do
+			for _, key in { "From", "To", "Way", "Was", "Via", "Him" } do
+				if typeof(leg[key]) ~= "Vector3" then
+					return
+				end
+			end
+			for _, key in { "T0", "T1", "Go", "Arrive" } do
+				if type(leg[key]) ~= "number" then
+					return
+				end
+			end
+		end
+		ability = ability or Config.FindAbilityById("ExplosiveSpeed") or {}
+		local st = BK.blitz[char] or { dead = false }
+		BK.blitz[char] = st
+		st.dead = true
+		if st.stopTrail then
+			st.stopTrail(0)
+			st.stopTrail = nil
+		end
+		local token = {}
+		st.blitz = token
+		local d = typeof(data.Dir) == "Vector3" and flatten(data.Dir, root) or flatten(root.CFrame.LookVector, root)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		local t0 = os.clock()
+		local open = math.max(tonumber(data.Open) or 0.2, 0)
+		local flip = tonumber(data.Flip) or legs[#legs].T1
+		VFX.MuteGait(char, flip + 1)
+		-- the camera: his cutscene, built from the plan; a short cut for
+		-- anyone else near - not the one he's caught (their own camera
+		-- follows them down the lane)
+		local me = Players.LocalPlayer
+		local mine = me ~= nil and me.Character == char
+		if not (me and target and me.Character == target) then
+			if mine then
+				SHOTS.ExplosiveSpeedBlitz = BK.blitzShots(data, d, root, ability)
+			end
+			cinematicFor(char, "ExplosiveSpeedBlitz", mine, ability.Name or "EXPLOSIVE SPEED", FIRE[2], { Quiet = true })
+		end
+		local MG = VFX.MANGA
+		local function going()
+			return BK.blitz[char] == st and st.blitz == token and char.Parent ~= nil
+		end
+		-- (under "GOT IT?": half as loud, so the line stays on top)
+		local function gain()
+			return (st.quietUntil and os.clock() < st.quietUntil) and 0.5 or 1
+		end
+		local events = {}
+		local function at(t, fn)
+			table.insert(events, { T = t, Do = fn })
+		end
+		-- the face-off: his palm coming up to their face; it goes off on "GOT"
+		BK.play(char, "MoveBlitzOpen", open, "BlitzOpen")
+		at(open, function()
+			BK.opener(char, data.At, d, gain())
+			if troot and troot.Parent then
+				st.stopVictim = addTrail(troot, FIRE[2], 0.3, 2)
+			end
+			-- colour streaming past, for anyone close (RushBlitz's bands, in fire)
+			if MG and nearCamera(data.At, 120) then
+				MG.lines(math.max(flip - open, 0.2), { Kind = "stream", Colors = { FIRE[1], FIRE[2], FIRE[3], Color3.new(1, 1, 1) }, Angle = -18, Alpha = 0.35 })
+			end
+		end)
+		for k, leg in legs do
+			local last = k == #legs
+			-- flat out for the blur (a moment before it, so the ghosts catch it)
+			at(math.max(leg.Go - 0.03, leg.T0 + 0.04), function()
+				VFX.Pose(char, "BlitzFly", leg.Arrive - leg.Go + 0.08)
+			end)
+			at(leg.Go, function()
+				BK.overtake(char, leg, k, gain())
+			end)
+			if type(leg.Pass) == "number" then
+				at(leg.Pass, function()
+					BK.boom(leg, k, troot, gain())
+				end)
+			end
+			at(leg.Arrive, function()
+				BK.shown(char, true)
+				if not last then
+					BK.play(char, k % 2 == 1 and "MoveBlitzBlast" or "MoveBlitzBlastL", leg.T1 - leg.Arrive, k % 2 == 1 and "BlitzBlast" or "BlitzBlastL")
+				end
+			end)
+			if not last then
+				at(leg.T1, function()
+					BK.blast(char, leg, k, #legs, gain())
+				end)
+			end
+		end
+		table.sort(events, function(a, b)
+			return a.T < b.T
+		end)
+		task.spawn(function()
+			for _, ev in events do
+				while going() and os.clock() - t0 < ev.T do
+					task.wait()
+				end
+				if not going() then
+					break
+				end
+				ev.Do()
+			end
+			-- (whatever happened: his body back, their trail out)
+			BK.shown(char, true)
+			if st.stopVictim then
+				st.stopVictim(0.1)
+				st.stopVictim = nil
 			end
 		end)
 	end
@@ -8387,7 +12511,18 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 			if st.endFlare then
 				st.endFlare()
 			end
+			if st.stopVictim then
+				st.stopVictim(0)
+				st.stopVictim = nil
+			end
 			BK.blitz[char] = nil
+		end
+		BK.shown(char, true)
+		-- (round 83 review) the Explosion's the knockout: his cutscene's last
+		-- shot makes way for the KO's kill cam, which comes right after it
+		local me = Players.LocalPlayer
+		if data.KO == true and me and me.Character == char and VFX.InOwnCinematic() then
+			VFX.CancelCinematic()
 		end
 		local at = typeof(data.Pos) == "Vector3" and data.Pos
 		if not at then
@@ -8421,6 +12556,14 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 		if nearCamera(at, 60) then
 			VFX.ImpactFrame(0.1)
 			VFX.Hooks.Flash(Color3.fromRGB(255, 236, 200), 0.25)
+			-- (round 83) the panel's focus lines on it too
+			if VFX.MANGA then
+				VFX.MANGA.lines(0.3, { Kind = "focus" })
+			end
+		end
+		-- (round 83) the music ducks under it (as United States of Smash does)
+		if nearCamera(at, 260) and VFX.Hooks.DuckMusic then
+			VFX.Hooks.DuckMusic(0.2, 0.04, 0.35, 2)
 		end
 		VFX.ShakeAt(at, 4.5, 170, 0.55)
 		-- the one it hit: flying off trailing fire, popping as they go
@@ -8471,10 +12614,14 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 		VFX.Pose(char, "Land", 0.35)
 	end
 
-	function Effects.ExplosiveSpeedCancel(char)
+	-- (round 83 review) data.KO: it ended in a knockout - his cutscene makes
+	-- way for the KO's kill cam, and his KO pose and the line are left be
+	function Effects.ExplosiveSpeedCancel(char, data)
+		local ko = type(data) == "table" and data.KO == true
 		local st = BK.blitz[char]
 		if st then
 			st.dead = true
+			st.blitz = nil
 			if st.stopTrail then
 				st.stopTrail(0)
 			end
@@ -8484,9 +12631,32 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 			if st.endFlare then
 				st.endFlare()
 			end
+			if st.stopVictim then
+				st.stopVictim(0)
+				st.stopVictim = nil
+			end
+			-- (round 83) his line stops with it (it used to talk on after a cancel)
+			local voice = st.voice
+			if not ko and typeof(voice) == "Instance" and voice:IsA("Sound") and voice.Parent then
+				tween(voice, 0.12, { Volume = 0 })
+				task.delay(0.13, function()
+					pcall(function()
+						voice:Stop()
+						voice:Destroy()
+					end)
+				end)
+			end
 			BK.blitz[char] = nil
 		end
-		VFX.ReleasePose(char, 0.2)
+		-- (round 83) called off mid-blitz: his body back, his cutscene over
+		BK.shown(char, true)
+		local me = Players.LocalPlayer
+		if me and me.Character == char and VFX.InOwnCinematic() then
+			VFX.CancelCinematic()
+		end
+		if not ko then
+			VFX.ReleasePose(char, 0.2)
+		end
 	end
 
 	-- FULL-BODY CLUSTER (round 63): his last stand against Shigaraki
@@ -9311,40 +13481,42 @@ function Effects.GlacialField(char, data, isLocal, ability)
 		return
 	end
 	local g = groundPoint(root.Position)
-	-- ice floods the ground in a huge circle
-	local disk = newPart(
-		Vector3.new(0.4, 4, 4),
-		CFrame.new(g + UP * 0.15) * CFrame.Angles(0, 0, math.rad(90)),
-		ICE_MID,
-		Enum.Material.Glass,
-		Enum.PartType.Cylinder
-	)
-	disk.Transparency = 0.25
-	tween(disk, 0.45, { Size = Vector3.new(0.4, 84, 84) })
+	-- (round 81) ice floods the ground in a huge circle (the sheet: solid Ice,
+	-- with ragged frost crust past its rim - the see-through Glass floor that
+	-- fought it for the same plane is gone), clusters of crystals erupt
+	-- across it in a wave out from him, cold mist rolls out over it and the
+	-- air goes cold
 	local model = spikeLayout("GlacialField", data, root, flatten(data.Dir, root))
+	IceKit.particles(g + UP * 0.5, "puff", 16, 2.4)
 	for r = 10, 40, 10 do
 		task.delay(r / 90, function()
-			for _ = 1, 5 do
-				local a = rand(0, math.pi * 2)
-				frostMist(g + Vector3.new(math.cos(a) * r, 1, math.sin(a) * r), 1.4, 2)
+			local a0 = rand(0, math.pi * 2)
+			for i = 1, 3 do
+				local a = a0 + i / 3 * math.pi * 2
+				frostMist(g + Vector3.new(math.cos(a) * r, 1, math.sin(a) * r), 1.6, 3)
 			end
 		end)
 	end
 	shockDisc(g + UP * 0.5, UP, 6, 86, 0.5, ICE_TIP)
+	shockDisc(g + UP * 1.5, UP, 4, 60, 0.7, IceKit.PAL.MIST2)
 	sparks(g + UP * 2, 2.5, ICE_TIP, Color3.fromRGB(120, 200, 255), 70)
+	IceKit.light(g + UP * 8, 50, 1.6, (ability and ability.IceDuration) or 5)
+	IceKit.snow(CFrame.new(g + UP * 30), Vector3.new(70, 2, 70), (ability and ability.IceDuration) or 5, 40, 1.4)
+	if nearCamera(g, 80) then
+		IceKit.coldTint(0.9, 0.6, 2.2)
+	end
 	VFX.PlaySound("Ice", g, 1.2)
+	VFX.PlaySound("IceRumble", g, 1)
 	VFX.ShakeAt(g, 2.8, 160, 0.5)
 	task.wait((ability and ability.IceDuration) or 5)
-	shatter(model, 120)
-	tween(disk, 0.6, { Transparency = 1 })
-	cleanup(disk, 0.65)
+	shatter(model, 120, { from = g })
 end
 
 function Effects.HeatwaveMax(char, data, isLocal, ability)
 	cinematicFor(char, "HeatwaveMax", isLocal, ability and ability.Name or "FLASHFREEZE HEATWAVE", Color3.fromRGB(255, 150, 90))
 	heatwaveCore(char, data, isLocal, {
 		Layout = "HeatwaveMax", IceWait = 0.45, StreamTime = 0.45, StreamLength = 42,
-		BlastOffset = 30, BlastScale = 5.2, Scale = 1.6, DimTime = 1.4,
+		BlastOffset = 30, BlastScale = 5.2, Scale = 1.6, DimTime = 1.4, SteamScale = 2.3,
 	})
 end
 
@@ -9600,32 +13772,46 @@ function Effects.Dash(char, data)
 		end
 		legTrails(char, 0.25, GOLD)
 	elseif quirk == "HalfCold" then
+		-- (round 81) the fire side kicks off in a burst of flame; the ice side
+		-- skates - a slick of ice laid under the dash, crystals spraying up
+		-- and out either side of it like a blade's wake, chips flying off the
+		-- push-off, and it all breaks up behind him
 		if data.Alt then
 			for k = 1, 4 do
 				Flame.spot(g + UP * 0.2 - dir * k * 2, rand(2.5, 3.5), 0.3, 1.5)
 			end
-		else
+			if grounded then
+				Flame.burst(g + UP - dir * 1.5, 2.2, 6)
+			end
+		elseif grounded then
+			local flat = Vector3.new(dir.X, 0, dir.Z)
+			flat = flat.Magnitude > 0.05 and flat.Unit or Vector3.new(0, 0, -1)
+			local right = flat:Cross(UP)
 			local model = outlineModel(ICE_OUTLINE)
+			local slick = newPart(Vector3.new(2.2, 0.25, 0.2), CFrame.lookAt(g + UP * 0.1, g + UP * 0.1 + flat), ICE_TOP, Enum.Material.Ice, nil, model)
+			tween(slick, 0.16, { Size = Vector3.new(2.4, 0.25, 13), CFrame = CFrame.lookAt(g + UP * 0.1 + flat * 6.5, g + UP * 0.1 + flat * 7.5) })
 			local list = {}
 			for k = 1, 6 do
-				local base = g + dir * (k * 2.2) + dir:Cross(UP) * rand(-1, 1) - UP * 0.4
-				table.insert(list, { set = makeSpike(model, base, (UP + rng:NextUnitVector() * 0.3).Unit, rand(1.5, 3), 0.9, false), delay = k * 0.03 })
+				local side = k % 2 == 0 and 1 or -1
+				local base = g + flat * (k * 2) + right * side * rand(0.9, 1.4) - UP * 0.3
+				local tilt = (UP * 0.9 + right * side * rand(0.6, 0.9) - flat * 0.5).Unit
+				table.insert(list, { set = makeSpike(model, base, tilt, rand(1.7, 2.4) + k * 0.18, 1, false, { quiet = true, shards = 0, flat = true }), delay = k * 0.025 })
 			end
-			growSpikes(list, 0.1)
+			growSpikes(list, 0.08)
+			IceKit.particles(g - flat + UP * 0.4, "chips", 8, 0.6)
+			IceKit.particles(g - flat + UP * 0.4, "puff", 5, 0.7)
 			task.delay(0.8, function()
-				shatter(model, 12)
+				shatter(model, 10, { from = g, instant = true, quiet = true })
 			end)
+		else
+			IceKit.particles(root.Position - dir * 1.5, "mist", 6, 0.6)
 		end
-		legTrails(char, 0.25, data.Alt and FIRE[3] or ICE_TIP)
+		legTrails(char, 0.25, data.Alt and FIRE[3] or Color3.fromRGB(150, 212, 255))
 	elseif quirk == "Engine" then
 		exhaust(char, 0.25, 1.4)
 		afterimage(char, EXHAUST, 0.25)
 		legTrails(char, 0.25, EXHAUST)
-	elseif quirk == "Decay" then
-		afterimage(char, Color3.fromRGB(150, 140, 142), 0.3)
-		dustPuffs(root.Position - dir * 2, 0.8, 4, Color3.fromRGB(150, 140, 142), 0.9, Color3.fromRGB(70, 60, 66))
-		legTrails(char, 0.25, Color3.fromRGB(214, 62, 66))
-	elseif QUIRK_FX.Dash[quirk or ""] then
+	elseif QUIRK_FX.Dash[quirk or ""] then -- (round 83: Decay's is in the Decay block)
 		QUIRK_FX.Dash[quirk](char, root, dir, data)
 	else
 		legTrails(char, kind == "Back" and 0.85 or 0.25, WIND)
@@ -9810,16 +13996,20 @@ function Effects.UltActivate(char, data, isLocal)
 	end
 	VFX.Motion(char, data.Quirk == "Limitless" and "HandSign" or "Awaken")
 	local g = groundPoint(root.Position)
-	-- pillar of light
-	local pillar = newPart(Vector3.new(90, 3, 3), CFrame.new(root.Position + UP * 40) * CFrame.Angles(0, 0, math.rad(90)), accent, Enum.Material.Neon, Enum.PartType.Cylinder)
-	tween(pillar, 0.15, { Size = Vector3.new(90, 12, 12) })
-	tween(pillar, 0.6, { Size = Vector3.new(90, 0.2, 0.2), Transparency = 1 }, nil, nil, 0.15)
-	cleanup(pillar, 0.8)
 	shockDisc(g + UP * 0.5, UP, 6, 80, 0.55, color)
-	shockDisc(g + UP * 1.5, UP, 4, 60, 0.45, accent)
-	streaks(g, UP, 30, 6, 12, 60, accent, 0.5)
-	dustPuffs(g, 1.8, 12, Color3.fromRGB(206, 196, 186), 1.3, true)
-	rocks(g, 2, 12)
+	-- (round 83) Decay brings its own (QUIRK_FX.Ult.Decay): no pillar of
+	-- light, no outlined dust, no loose rocks
+	if data.Quirk ~= "Decay" then
+		-- pillar of light
+		local pillar = newPart(Vector3.new(90, 3, 3), CFrame.new(root.Position + UP * 40) * CFrame.Angles(0, 0, math.rad(90)), accent, Enum.Material.Neon, Enum.PartType.Cylinder)
+		tween(pillar, 0.15, { Size = Vector3.new(90, 12, 12) })
+		tween(pillar, 0.6, { Size = Vector3.new(90, 0.2, 0.2), Transparency = 1 }, nil, nil, 0.15)
+		cleanup(pillar, 0.8)
+		shockDisc(g + UP * 1.5, UP, 4, 60, 0.45, accent)
+		streaks(g, UP, 30, 6, 12, 60, accent, 0.5)
+		dustPuffs(g, 1.8, 12, Color3.fromRGB(206, 196, 186), 1.3, true)
+		rocks(g, 2, 12)
+	end
 	local q = data.Quirk
 	if q == "Explosion" then
 		toonExplosion(root.Position, 2.4, { NoDebris = true })
@@ -9846,44 +14036,68 @@ function Effects.UltActivate(char, data, isLocal)
 			end)
 		end
 	elseif q == "HalfCold" then
-		local right = root.CFrame.RightVector
+		-- (round 81) both halves at once, as in the Sports Festival: frost
+		-- creeps up his right side from the foot to the face while a glacier
+		-- fans up on his right out of a spreading crust of frost (blades
+		-- leaning out, tallest at his side), frost cracks racing off; a plume
+		-- of flame roars up off his left, his left arm alight, fire bursting
+		-- round that side. Where the two meet the air boils into steam, and
+		-- at the end his fire melts the ice away.
+		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		look = look.Magnitude > 0.05 and look.Unit or Vector3.new(0, 0, -1)
+		local right = look:Cross(UP)
+		-- (its own fade-in is left to crawl: the creep below takes over)
+		local frost = IceKit.frostBody(char, { fadeIn = 1e5, fadeOut = 0.9 })
+		do
+			-- (it creeps: the lowest crust first, up to his face)
+			local low, high = math.huge, -math.huge
+			for _, p in frost.parts do
+				low, high = math.min(low, p.CFrame.Position.Y), math.max(high, p.CFrame.Position.Y)
+			end
+			for _, p in frost.parts do
+				local goal = p:IsA("WedgePart") and 0 or 0.2
+				p.Transparency = 1
+				tween(p, 0.3, { Transparency = goal }, Enum.EasingStyle.Quad, nil, (p.CFrame.Position.Y - low) / math.max(high - low, 0.1) * 0.7)
+			end
+		end
+		task.delay(2.8, frost.off)
 		local model = outlineModel(ICE_OUTLINE)
 		local list = {}
 		for i = 1, 9 do
 			local a = (i / 9 - 0.5) * math.pi
-			local out = (right * math.cos(a) + root.CFrame.LookVector * math.sin(a)).Unit
-			table.insert(list, { set = makeSpike(model, g + out * 6 - UP, (UP * 1.2 + out).Unit, rand(7, 12), 2, false), delay = i * 0.02 })
+			local out = (right * math.cos(a) + look * math.sin(a)).Unit
+			local side = math.cos(a) -- (1 = straight out to his right)
+			local dir = (UP * (1.25 - side * 0.35) + out * (0.55 + side * 0.5)).Unit
+			table.insert(list, { set = makeSpike(model, g + out * (5 + side) - UP, dir, rand(7, 9) + side * 5, 2 + side * 0.8, false, { face = root.Position }), delay = 0.06 + (1 - side) * 0.08 })
 		end
 		growSpikes(list, 0.15)
-		task.delay(1.4, function()
-			shatter(model, 40)
+		local crust = newPart(Vector3.new(0.3, 2, 2), CFrame.new(g + UP * 0.07 + right * 5) * CFrame.Angles(0, 0, math.rad(90)), IceKit.PAL.FROST, Enum.Material.Snow, Enum.PartType.Cylinder, model)
+		tween(crust, 0.3, { Size = Vector3.new(0.3, 18, 18) }, Enum.EasingStyle.Quad)
+		for i = 1, 4 do
+			local a = (i / 4 - 0.6) * math.pi * 0.8
+			IceKit.crackLine(g + right * 2, (right * math.cos(a) + look * math.sin(a)).Unit, rand(14, 20), { speed = 160, width = 0.35, life = 1 })
+		end
+		IceKit.particles(g + right * 4 + UP, "puff", 14, 1.6)
+		IceKit.particles(root.Position + right * 4, "glint", 10, 1)
+		IceKit.breath(char, 2.4, 0.5)
+		IceKit.light(g + right * 6 + UP * 5, 30, 1.8, 2.2)
+		-- the fire: a plume off his left, his left arm alight, bursts round that side
+		Flame.column(g - right * 3.5, 30, 3.2, 1.3)
+		local arm = limb(char, "LeftUpperArm", "Left Arm")
+		if arm then
+			task.delay(2.6, Flame.attach(arm, 2.4, 1.2))
+		end
+		for i = 1, 5 do
+			local a = (i / 5 - 0.5) * math.pi
+			local out = (-right * math.cos(a) + look * math.sin(a)).Unit
+			task.delay(0.05 + i * 0.03, Flame.burst, g + out * rand(5, 8) + UP * rand(2, 4), rand(5, 7), 10)
+		end
+		-- steam boiling up where they meet, in front of him and behind
+		IceKit.steam(g + look * 3 + UP * 2, 1, 4, { delay = 0.15 })
+		IceKit.steam(g - look * 3 + UP * 2, 1, 3, { delay = 0.25 })
+		task.delay(1.6, function()
+			IceKit.melt(model, { from = g - right * 4, time = 0.7 })
 		end)
-		for i = 1, 7 do
-			local a = (i / 7 - 0.5) * math.pi
-			local out = (-right * math.cos(a) + root.CFrame.LookVector * math.sin(a)).Unit
-			Flame.burst(g + out * rand(5, 9) + UP * rand(2, 4), rand(5, 7), 10)
-		end
-		dustPuffs(root.Position, 1.4, 8, STEAM, 1.4, true)
-	elseif q == "Decay" then
-		-- ash rushing up a red column; the ground under him starts to crumble
-		for i = 1, 14 do
-			local a = i / 14 * math.pi * 2
-			local out = Vector3.new(math.cos(a), 0, math.sin(a))
-			celPuff(folder, g + out * 3, g + out * rand(8, 14) + UP * rand(4, 16), rand(4, 7), Color3.fromRGB(70, 60, 66), Color3.fromRGB(150, 140, 142), 0.3, 1.4, i * 0.02)
-		end
-		for i = 1, 12 do
-			local a = i / 12 * math.pi * 2
-			local dir = Vector3.new(math.cos(a), 0, math.sin(a))
-			task.delay(i * 0.02, function()
-				local from, to = g + dir * 2, g + dir * rand(12, 22)
-				local seg = newPart(Vector3.new(0.6, 0.12, (to - from).Magnitude), CFrame.lookAt((from + to) / 2 + UP * 0.07, to + UP * 0.07), Color3.fromRGB(36, 26, 30))
-				tween(seg, 1, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, 4)
-				cleanup(seg, 5.2)
-			end)
-		end
-		for _ = 1, 4 do
-			bolt(root.Position, 6, Color3.fromRGB(214, 62, 66))
-		end
 	elseif q == "Engine" then
 		exhaust(char, 1, 3)
 		for i = 1, 6 do
@@ -9897,7 +14111,7 @@ function Effects.UltActivate(char, data, isLocal)
 	elseif QUIRK_FX.Ult[q or ""] then
 		QUIRK_FX.Ult[q](char, root, g)
 	end
-	if nearCamera(root.Position, 80) then
+	if data.Quirk ~= "Decay" and nearCamera(root.Position, 80) then -- (round 83: his is the sketch frame)
 		VFX.Hooks.Flash(accent, 0.35)
 	end
 	local cue = "Ult" .. tostring(data.Quirk or "")
@@ -9952,12 +14166,23 @@ local function twister(pos, duration, topR, height)
 	local model = Instance.new("Model")
 	model.Name = "Twister"
 	model.Parent = folder
-	VFX.PlaySound("Twister", pos, 1)
-	task.delay(duration * 0.5, function()
-		if model.Parent then
-			VFX.PlaySound("Twister", pos, 0.8)
+	-- (round 81) its wind, for as long as it lasts: the burst, then loops
+	-- spaced evenly (under 1.9s apart: each rises as the one before starts
+	-- to fade) so the last one dies away with the funnel - it used to dip
+	-- to nothing, then restart at full roar
+	do
+		local LEN = 3.6 -- (the cues' Length)
+		local span = math.max(duration + FADE - LEN, 0)
+		local loops = math.ceil(span / 1.9 - 1e-6)
+		VFX.PlaySound("USSTwister", pos, 1)
+		for i = 1, loops do
+			task.delay(span * i / loops, function()
+				if model.Parent then
+					VFX.PlaySound("USSTwisterLoop", pos, 1)
+				end
+			end)
 		end
-	end)
+	end
 	local function radiusAt(h)
 		return baseR + (topR - baseR) * math.clamp(h / height, 0, 1) ^ 1.7
 	end
@@ -10122,6 +14347,8 @@ local function twister(pos, duration, topR, height)
 		task.delay(0.1, function()
 			a.part.Color = Color3.new(a.shade, a.shade, a.shade + 0.04)
 		end)
+		-- (round 81) and its thunder (a low roll: no more than one a second)
+		VFX.PlaySound("USSThunder", from:Lerp(to, 0.5), 1)
 	end
 
 	local parts, cfs = {}, {}
@@ -10451,89 +14678,1363 @@ end
 ---------------------------------------------------------------------------
 
 do -- DECAY: its helpers stay local to this block (Luau allows 200 locals per scope)
-	local DECAY_DUST = Color3.fromRGB(150, 140, 142)
-	local DECAY_DARK = Color3.fromRGB(70, 60, 66)
-	local DECAY_CRACK = Color3.fromRGB(36, 26, 30)
-	local DECAY_RED = Color3.fromRGB(214, 62, 66)
+	-- (round 83) Shigaraki's look, rebuilt on one kit - DY, VFX.DecayKit (VFX.DK
+	-- is Denki's) - in the anime's language. Decay is dry, not hot: dark
+	-- cracks run on unbroken over the street with one hot point at the front;
+	-- what they reach goes grey, lifts and crumbles; a low beige-grey surge of
+	-- dust rolls along the front with broken shapes in it; bodies crust over
+	-- in stone and flake, and a KO is a heap of ash. Red is only the front of
+	-- a crack, Rivet Stab's lines and his own arm. All of it is anchored and
+	-- tweened (no physics), at most one Highlight a cast, and the big moves
+	-- halve on a low-end machine (IceKit.lowEnd).
+	local DY = {
+		CAP = 140, -- (live slabs and chunks: past it the oldest goes)
+		slots = {},
+		n = 0,
+		bodies = setmetatable({}, { __mode = "k" }), -- [character] = its crust
+		fading = setmetatable({}, { __mode = "k" }), -- [character] = a crust still flaking away
+		ashed = setmetatable({}, { __mode = "k" }), -- [character] = when it went to ash
+		filterAt = -10,
+		tintToken = 0,
+	}
+	VFX.DecayKit = DY
+	local PAL = {
+		DUST_LIGHT = Color3.fromRGB(196, 184, 164), -- Deika's beige dust (ep 112)
+		DUST_HI = Color3.fromRGB(222, 212, 194), -- the lit tops of the billows
+		DUST_MID = Color3.fromRGB(176, 165, 152), -- the surge's billows
+		DUST = Color3.fromRGB(150, 140, 142),
+		DUST_MAP = Color3.fromRGB(116, 106, 110), -- (the server's greyed rim, Destruction)
+		ASH = Color3.fromRGB(70, 60, 66),
+		CHAR = Color3.fromRGB(38, 32, 36), -- decayed bodies (ep 109)
+		CRACK = Color3.fromRGB(36, 26, 30),
+		RED = Color3.fromRGB(214, 62, 66),
+		HOT = Color3.fromRGB(255, 118, 104), -- the front of a crack
+		LILAC = Color3.fromRGB(176, 164, 196), -- X-Less's mosaic, the Jaku light (ep 118)
+		MAUVE = Color3.fromRGB(132, 118, 142), -- the dust swirling up in All For One's light
+		STONE = Color3.fromRGB(168, 158, 146), -- a decaying body's crust
+		TINT = Color3.fromRGB(226, 214, 238), -- the ult's purple air
+		VIOLET = Color3.fromRGB(170, 80, 255), -- the edge of All For One's black lightning
+		BLACK = Color3.fromRGB(16, 8, 24),
+		TENDRIL = Color3.fromRGB(14, 10, 14),
+		AMBER = Color3.fromRGB(255, 186, 90), -- Air Cannon's orb (ep 119)
+		OLIVE = Color3.fromRGB(190, 196, 96), -- Radio Waves' blast over the street
+		-- (round 84) Radio Waves as ep 119 draws it
+		GOLD = Color3.fromRGB(255, 214, 110), -- Air Cannon's bubble and its bright rim
+		CORE = Color3.fromRGB(255, 250, 222), -- its white-hot middle
+		VIOLET_DEEP = Color3.fromRGB(140, 96, 230), -- the bubble's inside when it flickers violet
+		HAZE = Color3.fromRGB(184, 196, 98), -- the yellow-green air the blast leaves
+		YELLOW = Color3.fromRGB(240, 252, 128), -- the bright yellow streaks tearing out in it
+		STATIC = Color3.fromRGB(150, 196, 255), -- a jammed body's static (ep 120)
+		TOOTH = Color3.fromRGB(92, 84, 102), -- things breaking up inside the surge
+	}
+	DY.PAL = PAL
+	local NS, NK = NumberSequence.new, NumberSequenceKeypoint.new
+	local SMOKE = (Config.Assets and Config.Assets.SmokeTexture) or "rbxasset://textures/particles/smoke_main.dds"
+	-- a quirk's hits can carry a tint of their own (Effects.Hit): Decay's are dust, not red
+	VFX.HitTints = VFX.HitTints or {}
+	VFX.HitTints.Decay = PAL.DUST_LIGHT
 
-	-- a jagged crack burnt into the ground, with a red glow that dies quickly
-	local function crackLine(from, to, width, life)
-		local len = (to - from).Magnitude
-		if len < 0.2 then
+	-- half as much on a low-end machine
+	function DY.k()
+		return IceKit.lowEnd() and 0.5 or 1
+	end
+
+	-- a ray past the fighters (the filter refreshed twice a second); the hit or nil
+	DY.params = RaycastParams.new()
+	DY.params.FilterType = Enum.RaycastFilterType.Exclude
+	function DY.cast(from, v)
+		if os.clock() - DY.filterAt > 0.5 then
+			DY.filterAt = os.clock()
+			DY.params.FilterDescendantsInstances = characterList()
+		end
+		return workspace:Raycast(from, v, DY.params)
+	end
+	-- the street under pos (no street: height y, or pos's own), and the hit
+	function DY.ground(pos, y)
+		local hit = DY.cast(pos + UP * 3, Vector3.new(0, -16, 0))
+		return Vector3.new(pos.X, hit and hit.Position.Y or (y or pos.Y), pos.Z), hit
+	end
+	-- what the street's made of: a plate lifts in its own colour
+	function DY.colorOf(hit)
+		local inst = hit and hit.Instance
+		if typeof(inst) == "Instance" and inst:IsA("BasePart") and not inst:IsA("Terrain") then
+			return inst.Color
+		end
+		return Color3.fromRGB(120, 112, 108)
+	end
+	-- every lifting plate / chunk takes a slot; past CAP the oldest goes
+	function DY.track(p)
+		local i = DY.n % DY.CAP + 1
+		local old = DY.slots[i]
+		if old and old ~= p and old.Parent then
+			old:Destroy()
+		end
+		DY.slots[i] = p
+		DY.n += 1
+		return p
+	end
+	-- welded on to a limb (IceKit.frostBody's way): it moves with the body
+	function DY.stick(limbPart, p)
+		local w = Instance.new("Weld")
+		w.Part0 = limbPart
+		w.Part1 = p
+		w.C0 = limbPart.CFrame:ToObjectSpace(p.CFrame)
+		w.Parent = p
+		p.Massless = true
+		p.Anchored = false
+	end
+
+	-- A shell over a head: (size, cframe, shape). An R6 head is a 2x1x1 box
+	-- round a ~1.25-stud rounded-cylinder mesh (IceKit.frostBody's note), so
+	-- a ball pokes through it and sinks in by turns: a stood-up cylinder just
+	-- over the mesh instead. R15 heads (MeshParts) get a ball, k x their
+	-- smallest side.
+	function DY.headFit(char, head, k)
+		local s = head.Size
+		if char:FindFirstChild("Torso") then
+			return Vector3.one * s.Y * (k + 0.1), head.CFrame * CFrame.Angles(0, 0, math.pi / 2), Enum.PartType.Cylinder
+		end
+		return Vector3.one * math.min(s.X, s.Y, s.Z) * k, head.CFrame, Enum.PartType.Ball
+	end
+
+	-- how hidden a body part is on this screen (hideCharacter, first person):
+	-- its LocalTransparencyModifier, 0 when there's none to read
+	function DY.ltmOf(p)
+		return p.LocalTransparencyModifier
+	end
+	function DY.hiddenBy(p)
+		local ok, v = pcall(DY.ltmOf, p)
+		return ok and type(v) == "number" and v or 0
+	end
+
+	-- whose body this is (the player, or nil for a dummy / NPC)
+	function DY.ownerOf(char)
+		return Players:GetPlayerFromCharacter(char)
+	end
+
+	-- an attachment at pos to hang a burst of particles on (in the Terrain: no
+	-- part; IceKit's way), gone after `life`
+	function DY.anchor(pos, life)
+		local att = Instance.new("Attachment")
+		att.Name = "DecayFX"
+		local ok, terrain = pcall(function()
+			return workspace.Terrain
+		end)
+		if ok and terrain then
+			att.Parent = terrain
+			att.WorldPosition = pos
+			cleanup(att, life)
+		else
+			local holder = newPart(Vector3.one * 0.2, CFrame.new(pos), PAL.ASH)
+			holder.Transparency = 1
+			att.Parent = holder
+			cleanup(holder, life)
+		end
+		return att
+	end
+
+	-- flat flakes peeling off and fluttering down (ep 11: the sleeve)
+	function DY.flakes(pos, n, k, c0, c1)
+		if typeof(pos) ~= "Vector3" then
 			return
 		end
-		local right = (to - from):Cross(UP)
-		right = right.Magnitude > 0.01 and right.Unit or Vector3.new(1, 0, 0)
-		local a = from
-		for i = 1, 3 do
-			local b = from:Lerp(to, i / 3) + right * (i < 3 and rand(-1, 1) * width * 1.5 or 0)
-			local mid = (a + b) / 2 + UP * 0.07
-			local seg = newPart(Vector3.new(width, 0.12, (b - a).Magnitude + 0.2), CFrame.lookAt(mid, b + UP * 0.07), DECAY_CRACK)
-			tween(seg, 1.2, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, life or 4)
-			cleanup(seg, (life or 4) + 1.3)
-			local glow = newPart(Vector3.new(width * 0.35, 0.14, (b - a).Magnitude), CFrame.lookAt(mid + UP * 0.02, b + UP * 0.09), DECAY_RED, Enum.Material.Neon)
-			tween(glow, 0.6, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.15)
-			cleanup(glow, 0.8)
-			a = b
+		k = k or 1
+		local holder = DY.anchor(pos, 1.4)
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/triangle.png"
+		pe.Color = ColorSequence.new(c0 or PAL.DUST, c1 or PAL.ASH)
+		pe.LightInfluence = 1
+		pe.Size = NS({ NK(0, 0.38 * k), NK(1, 0.16 * k) })
+		pe.Squash = NS({ NK(0, -0.5), NK(0.5, 0.5), NK(1, -0.5) })
+		pe.Transparency = NS({ NK(0, 0), NK(0.8, 0.1), NK(1, 1) })
+		pe.Lifetime = NumberRange.new(0.6, 1.2)
+		pe.Speed = NumberRange.new(5 * k, 12 * k)
+		pe.SpreadAngle = Vector2.new(70, 70)
+		pe.Drag = 2
+		pe.Acceleration = Vector3.new(0, -14, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.RotSpeed = NumberRange.new(-400, 400)
+		pe.Enabled = false
+		pe.Parent = holder
+		pe:Emit(math.max(math.floor((n or 6) * DY.k()), 1))
+	end
+
+	-- A CRACK that runs on unbroken over the street: a chain of dark slabs on
+	-- the ground (a ray at every joint), each growing out of the last at
+	-- `speed` studs/s, wandering a little either side and narrowing to the
+	-- tip, one hot point riding the front. Now and then a branch splits off.
+	-- o: { speed (math.huge: all at once), w0, w1 (width at the root, the
+	-- tip), step (studs a joint), wander, branch (chance at every third
+	-- joint), hot (false: no hot point), life, delay, color }. Returns its
+	-- joints (the last is the tip) and when it gets there.
+	function DY.crack(from, dir, len, o)
+		o = o or {}
+		local flat = typeof(dir) == "Vector3" and Vector3.new(dir.X, 0, dir.Z) or Vector3.zero
+		if typeof(from) ~= "Vector3" or flat.Magnitude < 0.05 or not len or len < 0.4 then
+			return { from }, 0
+		end
+		flat = flat.Unit
+		local right = flat:Cross(UP)
+		local speed = math.max(o.speed or 120, 1)
+		local step = o.step or 4
+		local n = math.clamp(math.floor(len / step + 0.5), 1, 24)
+		local wander = o.wander or 1.2
+		local w0, w1 = o.w0 or 0.7, o.w1 or 0.2
+		local life = o.life or 4
+		local pts, lat, y = { from }, 0, from.Y
+		for i = 1, n do
+			-- (jagged: every joint pulls toward a fresh offset, so it never runs along the edge)
+			lat = math.clamp(lat * 0.5 + rand(-0.8, 0.8) * wander, -wander, wander)
+			local g = DY.ground(from + flat * (len * i / n) + right * lat, y)
+			y = g.Y
+			pts[i + 1] = g
+		end
+		local due, total = { 0 }, 0
+		for i = 2, #pts do
+			total += (pts[i] - pts[i - 1]).Magnitude
+			due[i] = total / speed
+		end
+		task.spawn(function()
+			local t0 = os.clock() + (o.delay or 0)
+			local tip
+			if o.hot ~= false then
+				tip = newPart(Vector3.new(w0 * 1.3, 0.14, 1.1), CFrame.lookAt(from + UP * 0.1, from + UP * 0.1 + flat), PAL.HOT, Enum.Material.Neon)
+				tip.Transparency = 1
+			end
+			for i = 2, #pts do
+				local wait = t0 + due[i - 1] - os.clock()
+				if wait > 0 then
+					task.wait(wait)
+				end
+				local a, b = pts[i - 1] + UP * 0.07, pts[i] + UP * 0.07
+				local seg = (b - a).Magnitude
+				if seg > 0.05 then
+					local w = w0 + (w1 - w0) * (due[i - 1] / math.max(due[#pts], 1e-6))
+					local t = seg / speed
+					local p = newPart(Vector3.new(w, 0.1, 0.05), CFrame.lookAt(a, b), o.color or PAL.CRACK)
+					local goal = { Size = Vector3.new(w, 0.1, seg + w * 0.6), CFrame = CFrame.lookAt((a + b) / 2, b) }
+					if t > 0.02 then
+						tween(p, t, goal, Enum.EasingStyle.Linear)
+					else
+						p.Size, p.CFrame = goal.Size, goal.CFrame
+					end
+					tween(p, 1.2, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, t + life)
+					cleanup(p, t + life + 1.3)
+					if tip then
+						tip.Transparency = 0
+						tween(tip, math.max(t, 0.01), { CFrame = CFrame.lookAt(b + UP * 0.03, b + UP * 0.03 + (b - a).Unit) }, Enum.EasingStyle.Linear)
+					end
+					if o.branch and i % 3 == 0 and i < #pts and rng:NextNumber() < o.branch then
+						local turn = math.rad(rand(30, 50)) * (rng:NextNumber() < 0.5 and -1 or 1)
+						DY.crack(pts[i - 1], flat * math.cos(turn) + right * math.sin(turn), math.min(rand(0.25, 0.4) * len, 12), {
+							speed = speed, w0 = w * 0.6, w1 = 0.1, step = math.max(3, step * 0.6), wander = 0.6, hot = false, life = life, color = o.color,
+						})
+					end
+				end
+			end
+			if tip then
+				tween(tip, 0.25, { Transparency = 1, Size = Vector3.new(0.1, 0.1, 0.3) })
+				cleanup(tip, 0.3)
+			end
+		end)
+		return pts, due[#pts] + (o.delay or 0)
+	end
+
+	-- FIVE FINGERS: where his hand meets the street, the print of a palm and
+	-- five cracks fanning out of the fingertips (their hot points together
+	-- read as a red hand for a blink), a red rim round the print. Returns the
+	-- fingers' tips.
+	function DY.fingers(palm, dir, len, o)
+		o = o or {}
+		local flat = Vector3.new(dir.X, 0, dir.Z)
+		flat = flat.Magnitude > 0.05 and flat.Unit or Vector3.new(0, 0, -1)
+		local right = flat:Cross(UP)
+		local g = DY.ground(palm)
+		local lay = CFrame.new(g + UP * 0.06) * CFrame.lookAt(Vector3.zero, flat) * CFrame.Angles(0, 0, math.rad(90))
+		local mark = newPart(Vector3.new(0.1, 1.7, 2), lay, PAL.CRACK, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		tween(mark, 1.2, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, o.life or 4)
+		cleanup(mark, (o.life or 4) + 1.3)
+		local rim = newPart(Vector3.new(0.08, 2.1, 2.4), lay - UP * 0.01, PAL.RED, Enum.Material.Neon, Enum.PartType.Cylinder)
+		tween(rim, 0.2, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.12)
+		cleanup(rim, 0.35)
+		local tips = {}
+		for i, a in { -38, -19, 0, 19, 38 } do
+			local fd = flat * math.cos(math.rad(a)) + right * math.sin(math.rad(a))
+			local pts = DY.crack(g + fd * 0.9, fd, len * (i == 3 and 1 or rand(0.7, 0.92)), {
+				speed = o.speed or 70, w0 = 0.42, w1 = 0.12, step = 1.6, wander = 0.45, life = o.life or 4,
+			})
+			tips[i] = pts[#pts]
+		end
+		return tips
+	end
+
+	-- THE PALM ON THE STREET: the five fingers, a low ring of dust hugging the
+	-- ground, a dusty shock ring, a shake. o.frame: the big moves' impact
+	-- frame (black and white, tinted lilac) for that long. o: { len, k, frame, radius }
+	function DY.palm(pos, dir, o)
+		o = o or {}
+		local k = o.k or 1
+		local g = DY.ground(pos)
+		local tips = DY.fingers(g, dir, (o.len or 5) * k, o)
+		for i = 1, 6 do
+			local a = i / 6 * math.pi * 2 + rand(-0.3, 0.3)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			celPuff(folder, g + out * 0.8, g + out * rand(2.5, 4) * k + UP * rand(0.6, 1.4) * k, rand(1.6, 2.6) * k, PAL.DUST, PAL.DUST_HI, 0.18, rand(0.6, 1), i * 0.01)
+		end
+		shockDisc(g + UP * 0.3, UP, 2, 14 * k, 0.3, PAL.DUST_LIGHT)
+		VFX.ShakeAt(g, 0.8 * k, 60, 0.15)
+		if o.frame and VFX.MANGA then
+			VFX.MANGA.impact(g, o.frame, { Tint = PAL.TINT, Radius = o.radius or 90, Contrast = 1.25, Brightness = 0.08 })
+		end
+		return tips, g
+	end
+
+	-- A PLATE of the street lifting where the decay reaches it, in the
+	-- street's own colour: it rises and tips, greys over, then crumbles away.
+	-- o: { delay, rise, hold, tilt, yaw (CFrames), size3 (a Vector3), float
+	-- (it floats up in the dust with dust pouring off it, ep 112), lift (how
+	-- high it floats), flakes (chance) }
+	function DY.slab(pos, size, o)
+		o = o or {}
+		local g, hit = DY.ground(pos)
+		local d0 = o.delay or 0
+		local dims = o.size3 or Vector3.new(size * rand(0.8, 1.15), math.clamp(size * 0.22, 0.4, 1.4), size * rand(0.6, 1))
+		local yaw = o.yaw or CFrame.Angles(0, rand(0, math.pi * 2), 0)
+		local p = newPart(dims, CFrame.new(g + UP * dims.Y * 0.25) * yaw, DY.colorOf(hit):Lerp(PAL.DUST_MAP, 0.35), Enum.Material.Slate)
+		DY.track(p)
+		local tilt = o.tilt or CFrame.Angles(math.rad(rand(8, 25) * (rng:NextNumber() < 0.5 and -1 or 1)), 0, math.rad(rand(-12, 12)))
+		local rise = o.rise or (o.float and rand((o.lift or 6) * 1, (o.lift or 6) * 2.3) or rand(0.6, 2))
+		local up = CFrame.new(g + UP * (dims.Y * 0.25 + rise)) * tilt * yaw
+		local riseT = o.float and 0.9 or rand(0.12, 0.18)
+		tween(p, riseT, { CFrame = up }, o.float and Enum.EasingStyle.Sine or Enum.EasingStyle.Quad, Enum.EasingDirection.Out, d0)
+		tween(p, 0.45, { Color = PAL.DUST }, Enum.EasingStyle.Linear, nil, d0 + 0.08)
+		local gone = d0 + riseT + (o.hold or rand(0.2, 0.45))
+		tween(p, 0.35, { Size = dims * 0.25, Transparency = 1, CFrame = up - UP * 0.5 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, gone)
+		cleanup(p, gone + 0.4)
+		if rng:NextNumber() < (o.flakes or 0.3) then
+			task.delay(gone, DY.flakes, up.Position, 4, math.clamp(size * 0.35, 0.5, 1.5))
+		end
+		if o.float then
+			-- the dust pouring off its underside, in streaks
+			local drop = rand(3, 6)
+			local drip = newPart(Vector3.new(dims.X * 0.5, 0.2, dims.Z * 0.3), CFrame.new(up.Position - UP * dims.Y), PAL.DUST_MAP)
+			drip.Transparency = 1
+			tween(drip, riseT, { Size = Vector3.new(dims.X * 0.4, drop, dims.Z * 0.25), CFrame = CFrame.new(up.Position - UP * (dims.Y + drop / 2)), Transparency = 0.3 }, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, d0 + riseT * 0.4)
+			tween(drip, 0.4, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, gone)
+			cleanup(drip, gone + 0.45)
+		end
+		return p
+	end
+
+	-- a jagged dark shape breaking up in the dust (the buildings in ep 118's surge)
+	function DY.tooth(pos, h, w, delayTime)
+		local g = DY.ground(pos)
+		local d0 = delayTime or 0
+		local t = IceKit.wedge(folder, PAL.TOOTH, Enum.Material.Slate)
+		t.Reflectance = 0
+		local yaw = CFrame.Angles(0, rand(0, math.pi * 2), 0)
+		local full = Vector3.new(w * rand(0.25, 0.45), h, w)
+		t.Size = Vector3.new(full.X, 0.2, full.Z)
+		t.CFrame = CFrame.new(g) * yaw
+		tween(t, 0.12, { Size = full, CFrame = CFrame.new(g + UP * h / 2) * yaw * CFrame.Angles(rand(-0.25, 0.25), 0, rand(-0.25, 0.25)) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, d0)
+		local gone = d0 + 0.12 + rand(0.15, 0.3)
+		tween(t, 0.4, { Size = Vector3.new(full.X * 0.5, h * 0.2, full.Z * 0.6), CFrame = CFrame.new(g + UP * h * 0.1) * yaw, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, gone)
+		cleanup(t, gone + 0.45)
+	end
+
+	-- a two-tone billow of dust that swells, holds, then drifts up and thins
+	-- o: { from, delay, grow, hold, fade, rise, dark, light }
+	function DY.billow(pos, size, o)
+		o = o or {}
+		local d0 = o.delay or 0
+		local from = o.from or pos
+		local body = newPart(Vector3.one * size * 0.2, CFrame.new(from), o.dark or PAL.DUST, nil, Enum.PartType.Ball)
+		local hi = newPart(Vector3.one * size * 0.15, CFrame.new(from), o.light or PAL.DUST_HI, nil, Enum.PartType.Ball)
+		local off = Vector3.new(-0.1, 0.2, 0.05) * size
+		local grow, hold, fade = o.grow or 0.5, o.hold or 0.6, o.fade or 1.2
+		tween(body, grow, { Size = Vector3.one * size, CFrame = CFrame.new(pos) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, d0)
+		tween(hi, grow, { Size = Vector3.one * size * 0.74, CFrame = CFrame.new(pos + off) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, d0)
+		local rise = pos + UP * (o.rise or size * 0.4) + Vector3.new(rand(-1, 1), 0, rand(-1, 1)) * size * 0.15
+		tween(body, fade, { Size = Vector3.one * size * 1.15, CFrame = CFrame.new(rise), Transparency = 1 }, Enum.EasingStyle.Sine, Enum.EasingDirection.In, d0 + grow + hold)
+		tween(hi, fade, { Size = Vector3.one * size * 0.8, CFrame = CFrame.new(rise + off), Transparency = 1 }, Enum.EasingStyle.Sine, Enum.EasingDirection.In, d0 + grow + hold)
+		cleanup(body, d0 + grow + hold + fade + 0.05)
+		cleanup(hi, d0 + grow + hold + fade + 0.05)
+	end
+
+	-- THE SURGE (ep 118): a low wall of beige-grey dust rolling along the
+	-- front at `speed` - real smoke riding it, billows thrown up at the front
+	-- with jagged dark shapes breaking up inside, haze left behind it
+	-- o: { delay, teeth (false: none) }
+	function DY.surge(from, dir, len, width, speed, h, o)
+		o = o or {}
+		local flat = Vector3.new(dir.X, 0, dir.Z)
+		if flat.Magnitude < 0.05 or len <= 0 then
+			return
+		end
+		flat = flat.Unit
+		local right = flat:Cross(UP)
+		local k = DY.k()
+		local t = len / math.max(speed, 1)
+		local d0 = o.delay or 0
+		local cf0 = CFrame.lookAt(from + UP * h * 0.35, from + UP * h * 0.35 + flat)
+		local holder = newPart(Vector3.new(width, h * 0.3, 2), cf0, PAL.DUST)
+		holder.Transparency = 1
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = SMOKE
+		pe.Color = ColorSequence.new(PAL.DUST_LIGHT, PAL.DUST)
+		pe.LightInfluence = 0.6
+		pe.Size = NS({ NK(0, h * 0.4), NK(0.4, h * 0.8), NK(1, h * 1.2) })
+		pe.Transparency = NS({ NK(0, 0.25), NK(0.6, 0.55), NK(1, 1) })
+		pe.Lifetime = NumberRange.new(0.8, 1.5)
+		pe.Speed = NumberRange.new(2, 6)
+		pe.EmissionDirection = Enum.NormalId.Front
+		pe.SpreadAngle = Vector2.new(60, 25)
+		pe.Drag = 1.5
+		pe.Acceleration = Vector3.new(0, -1.5, 0)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.RotSpeed = NumberRange.new(-30, 30)
+		pe.Shape = Enum.ParticleEmitterShape.Box
+		pe.Rate = 60 * k
+		pe.Enabled = d0 <= 0
+		pe.Parent = holder
+		tween(holder, t, { CFrame = cf0 + flat * len }, Enum.EasingStyle.Linear, nil, d0)
+		task.delay(d0, function()
+			pe.Enabled = true
+			task.wait(t)
+			pe.Enabled = false
+		end)
+		cleanup(holder, d0 + t + 1.6)
+		task.spawn(function()
+			if d0 > 0 then
+				task.wait(d0)
+			end
+			local t0 = os.clock()
+			while os.clock() - t0 <= t do
+				local at = from + flat * ((os.clock() - t0) * speed)
+				for _ = 1, k < 1 and 2 or 3 do
+					local p = DY.ground(at + right * rand(-width / 2, width / 2), at.Y)
+					celPuff(folder, p, p + UP * h * rand(0.5, 0.9) + flat * rand(1, 3), h * rand(0.65, 1), PAL.DUST_MID, PAL.DUST_HI, 0.2, rand(1.2, 1.8))
+				end
+				if o.teeth ~= false then
+					DY.tooth(at + right * rand(-width * 0.4, width * 0.4) + flat * rand(-1, 2), h * rand(0.8, 1.3), rand(2, 3.5))
+				end
+				task.wait(0.1)
+			end
+		end)
+	end
+
+	-- THE SPREAD (Collapse, the awakening, Total Decay): the same layers going
+	-- out in a ring in step with the server's own steps - cracks on fixed
+	-- bearings racing out unbroken (each with its hot front), a band of
+	-- plates lifting at the front, the surge rolling on it, a dusty ring.
+	-- o: { cracks, slabs, puffs, teeth (each a step), h (the surge's
+	-- height), w0, step, branch, slabScale, start, life, sound }
+	function DY.ring(center, R, dur, o)
+		o = o or {}
+		local k = DY.k()
+		local steps = math.max(3, math.floor(dur / 0.15 + 0.5))
+		local n = math.max(math.floor((o.cracks or 10) * (k < 1 and 0.6 or 1)), 3)
+		local speed = R / math.max(dur, 0.05)
+		local start = o.start or 2
+		local base = rand(0, math.pi * 2)
+		for i = 1, n do
+			local a = base + i / n * math.pi * 2 + rand(-0.12, 0.12)
+			local dir = Vector3.new(math.cos(a), 0, math.sin(a))
+			DY.crack(center + dir * start, dir, R - start, {
+				speed = speed, w0 = o.w0 or 0.9, w1 = 0.25, step = o.step or math.clamp(R / 12, 3.5, 8),
+				wander = math.clamp(R * 0.05, 1, 4), branch = k < 1 and 0 or (o.branch or 0.4), life = o.life or 5,
+			})
+		end
+		local h = o.h or 7
+		task.spawn(function()
+			for i = 1, steps do
+				local r0, r = R * (i - 1) / steps, R * i / steps
+				local inner = math.min(math.max(r0, start), r)
+				for _ = 1, math.floor((o.slabs or 8) * k) do
+					local a = rand(0, math.pi * 2)
+					DY.slab(center + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(inner, r), rand(2.5, 4.5) * (o.slabScale or 1))
+				end
+				for _ = 1, math.floor((o.puffs or 6) * k) do
+					local a = rand(0, math.pi * 2)
+					local out = Vector3.new(math.cos(a), 0, math.sin(a))
+					local p = DY.ground(center + out * r, center.Y)
+					celPuff(folder, p, p + out * rand(1, 3) + UP * h * rand(0.5, 0.9), h * rand(0.65, 1), PAL.DUST_MID, PAL.DUST_HI, 0.2, rand(1.2, 1.8))
+				end
+				for _ = 1, math.floor((o.teeth or 2) * k) do
+					local a = rand(0, math.pi * 2)
+					DY.tooth(center + Vector3.new(math.cos(a), 0, math.sin(a)) * r, h * rand(0.8, 1.3), rand(2, 4))
+				end
+				shockDisc(center + UP * 0.6, UP, math.max(r0 * 2, 2), r * 2, 0.35, PAL.DUST_LIGHT)
+				if o.sound ~= false and i % 2 == 1 then
+					VFX.PlaySound("Crumble", center + Vector3.new(r, 0, 0), 0.6)
+				end
+				task.wait(dur / steps)
+			end
+		end)
+	end
+
+	-- Where the spread meets a wall that's left standing (the rim the server
+	-- greys - what's inside it the server carves away): a crack up its face
+	-- and a curtain of dust pouring down it as the front gets there. Six at
+	-- most; no walls, nothing. (Only past R: a wall inside it is carved away
+	-- the moment the front gets there, and a curtain would hang in the air.)
+	function DY.curtains(center, R, dur)
+		local made, base = 0, rand(0, math.pi * 2)
+		for i = 1, 10 do
+			if made >= 6 then
+				break
+			end
+			local a = base + i / 10 * math.pi * 2
+			local from = center + UP * 5
+			local hit = DY.cast(from, Vector3.new(math.cos(a), 0, math.sin(a)) * (R + 20))
+			local dist = hit and (hit.Position - from).Magnitude or 0
+			if hit and dist > R + 1 and math.abs(hit.Normal.Y) < 0.5 then
+				made += 1
+				task.delay(dur, DY.curtain, hit.Position, hit.Normal)
+			end
+		end
+	end
+	function DY.curtain(at, normal)
+		local side = normal:Cross(UP)
+		side = side.Magnitude > 0.05 and side.Unit or Vector3.new(1, 0, 0)
+		local foot = DY.ground(at, at.Y - 5)
+		local base = Vector3.new(at.X, foot.Y, at.Z) + normal * 0.08
+		local prev, lat = base, 0
+		for j = 1, 5 do
+			lat = math.clamp(lat + rand(-1, 1), -1.5, 1.5)
+			local nxt = base + UP * (j * 2.6) + side * lat
+			local seg = newPart(Vector3.new(0.55 - j * 0.07, 0.08, (nxt - prev).Magnitude + 0.3), CFrame.lookAt((prev + nxt) / 2, nxt, normal), PAL.CRACK)
+			seg.Transparency = 1
+			tween(seg, 0.04, { Transparency = 0 }, nil, nil, j * 0.04)
+			tween(seg, 1, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, 3)
+			cleanup(seg, 4.1)
+			prev = nxt
+		end
+		local holder = newPart(Vector3.new(5, 0.5, 1), CFrame.lookAt(base + normal + UP * 9, base + normal * 2 + UP * 9), PAL.DUST)
+		holder.Transparency = 1
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = SMOKE
+		pe.Color = ColorSequence.new(PAL.DUST_LIGHT, PAL.DUST)
+		pe.LightInfluence = 0.7
+		pe.Size = NS({ NK(0, 1.5), NK(1, 4) })
+		pe.Transparency = NS({ NK(0, 0.3), NK(0.7, 0.6), NK(1, 1) })
+		pe.Lifetime = NumberRange.new(1, 1.6)
+		pe.Speed = NumberRange.new(1, 3)
+		pe.EmissionDirection = Enum.NormalId.Bottom
+		pe.SpreadAngle = Vector2.new(15, 15)
+		pe.Acceleration = Vector3.new(0, -22, 0)
+		pe.Drag = 1
+		pe.Shape = Enum.ParticleEmitterShape.Box
+		pe.Rate = 30 * DY.k()
+		pe.Parent = holder
+		task.delay(1.2, function()
+			pe.Enabled = false
+		end)
+		cleanup(holder, 3)
+	end
+
+	-- THE DOME (ep 112, Deika from the hillside): a mound of beige dust
+	-- swelling up round the spot (a shell: the middle stays clear, so a
+	-- camera inside it still sees), darker underneath, plates floating in
+	-- it with dust pouring off them; it drifts up and thins away.
+	-- o: { puffs, slabs, lift }
+	function DY.dome(center, R, rise, life, o)
+		o = o or {}
+		local k = DY.k()
+		for i = 1, math.floor((o.puffs or 20) * k) do
+			local a = rand(0, math.pi * 2)
+			local up = rand(0, 0.85) -- (0: at the foot, 1: the top)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			local pos = center + out * R * rand(0.75, 1) * math.sqrt(1 - up * up) + UP * R * 0.6 * up
+			local low = up < 0.3
+			DY.billow(pos, R * rand(0.35, 0.55), {
+				from = center + out * R * 0.4 + UP, delay = i * 0.015, grow = 0.6, hold = life * 0.35, fade = life * 0.65, rise = rise,
+				dark = low and PAL.DUST or PAL.DUST_MID, light = low and PAL.DUST_MID or PAL.DUST_HI,
+			})
+		end
+		smokeBurst(center + UP * R * 0.4, PAL.DUST_LIGHT, R * 0.5, R, life, math.floor(16 * k))
+		for _ = 1, math.floor((o.slabs or 5) * k) do
+			local a = rand(0, math.pi * 2)
+			DY.slab(center + Vector3.new(math.cos(a), 0, math.sin(a)) * R * rand(0.4, 0.8), rand(3, 5), { float = true, lift = o.lift or 6, delay = rand(0.1, 0.4), hold = life * 0.5 })
 		end
 	end
 
-	-- dust shed by crumbling matter: grey puffs + chunks sifting down
-	local function crumbleAt(pos, scale)
-		dustPuffs(pos, scale, 3, DECAY_DUST, 1.4, DECAY_DARK)
-		smokeBurst(pos, DECAY_DUST, 3 * scale, 3 * scale, 1.6, math.floor(10 * scale))
-	end
-
-	-- the decay ring racing outward (Collapse / Total Decay)
-	local function decayRing(center, maxRadius, duration, puffScale)
-		local steps = math.max(3, math.floor(duration / 0.15 + 0.5))
-		local cracks = 10
-		task.spawn(function()
-			for i = 1, steps do
-				local r0 = maxRadius * (i - 1) / steps
-				local r = maxRadius * i / steps
-				for k = 1, cracks do
-					local ang = k / cracks * math.pi * 2 + i * 0.37
-					local dir = Vector3.new(math.cos(ang), 0, math.sin(ang))
-					crackLine(center + dir * r0, center + dir * r, 0.5 + puffScale * 0.2, 5)
-				end
-				local puffs = math.clamp(math.floor(r / 6), 4, 20)
-				for k = 1, puffs do
-					local ang = k / puffs * math.pi * 2 + rand(-0.1, 0.1)
-					local p = center + Vector3.new(math.cos(ang), 0, math.sin(ang)) * r
-					celPuff(folder, p, p + UP * rand(3, 8) * puffScale, rand(4, 7) * puffScale, DECAY_DARK, DECAY_DUST, 0.3, 1.6, rand(0, 0.08))
-				end
-				shockDisc(center + UP * 0.6, UP, math.max(r0 * 2, 2), r * 2, 0.35, DECAY_DUST)
-				VFX.PlaySound("Crumble", center + Vector3.new(r, 0, 0), 0.6)
-				task.wait(duration / steps)
+	-- the ult's purple air (IceKit.coldTint's way): a lilac ColorCorrection
+	function DY.tint(strength, hold, fade)
+		local Lighting = game:GetService("Lighting")
+		local cc = Lighting:FindFirstChild("DecayTint")
+		if not cc then
+			cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "DecayTint"
+			cc.Parent = Lighting
+		end
+		DY.tintToken += 1
+		local token = DY.tintToken
+		local s = math.clamp(tonumber(strength) or 1, 0, 1.5)
+		cc.Enabled = true
+		tween(cc, 0.1, { TintColor = Color3.new(1, 1, 1):Lerp(PAL.TINT, math.min(s, 1)), Saturation = -0.25 * s, Contrast = 0.08 * s, Brightness = 0.02 * s })
+		task.delay(0.1 + (hold or 0.6), function()
+			if token == DY.tintToken then
+				tween(cc, fade or 1.2, { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0, Brightness = 0 }, Enum.EasingStyle.Sine)
 			end
 		end)
 	end
 
-	-- straight finger lances; `delay` staggers them
-	local LANCE = Color3.fromRGB(64, 50, 56)
-	local function lance(origin, v, length, thick, delayTime)
-		task.delay(delayTime or 0, function()
-			local model = outlineModel(DECAY_RED)
-			local p = newPart(Vector3.new(thick, thick, 0.5), CFrame.lookAt(origin, origin + v), LANCE, Enum.Material.SmoothPlastic, nil, model)
-			local tip = origin + v * length
-			tween(p, 0.12, { Size = Vector3.new(thick, thick, length), CFrame = CFrame.lookAt(origin + v * length / 2, tip) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-			local hit = firstHit(origin, v, length)
-			if hit then
-				task.delay(0.1, function()
-					sparks(hit, 0.6, DECAY_DUST, DECAY_RED, 12)
-					crumbleAt(hit, 0.6)
+	-- THE SKETCH FRAME (ep 112, Deika): for a blink the screen is a sheet of
+	-- lilac-white paper with dry-brush strokes in purple-black ink swept in
+	-- from the top left and fanned in from the right edge, and blots of ink
+	-- spattered off their tips, boiling as it's redrawn; then the colour's back
+	DY.SKETCH = {
+		-- the two brushes: where the strokes start (screen fractions), the way
+		-- they sweep (degrees, clockwise from the right), how wide they fan
+		{ from = Vector2.new(-0.02, 0.06), spread = Vector2.new(0.02, 0.2), ang = 24, fan = 14, len = { 0.2, 0.42 } },
+		{ from = Vector2.new(0.76, 0.5), spread = Vector2.new(0.01, 0.04), ang = 0, fan = 115, len = { 0.14, 0.24 } },
+	}
+	function DY.sketch(t)
+		local MG = VFX.MANGA
+		local gui = MG and MG.gui()
+		if not gui then
+			return
+		end
+		t = t or 0.12
+		local v = MG.view()
+		local sheet = Instance.new("Frame")
+		sheet.Name = "DecaySketch"
+		sheet.BackgroundColor3 = Color3.fromRGB(246, 242, 250)
+		sheet.BackgroundTransparency = 0.03
+		sheet.BorderSizePixel = 0
+		sheet.Size = UDim2.fromScale(1, 1)
+		sheet.ZIndex = 6
+		sheet.Parent = gui
+		local marks = {}
+		for i = 1, 36 do
+			local f = Instance.new("Frame")
+			f.BorderSizePixel = 0
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.BackgroundColor3 = Color3.fromRGB(46, 30, 62)
+			f.ZIndex = 7
+			f.Parent = sheet
+			if i > 26 then
+				local corner = Instance.new("UICorner")
+				corner.CornerRadius = UDim.new(0.5, 0)
+				corner.Parent = f
+			end
+			marks[i] = f
+		end
+		local px = v.Y / 720
+		local function draw()
+			-- 13 bristles a brush, each a stroke of its own length and weight
+			-- fanned across the sweep; the last ten marks are blots of ink
+			-- spattered near the brushes' ends
+			local diag = v.Magnitude
+			local i = 0
+			local tips = {}
+			for _, b in DY.SKETCH do
+				for j = 1, 13 do
+					i += 1
+					local u = (j - 1) / 12
+					local start = Vector2.new((b.from.X + (u - 0.5) * b.spread.X) * v.X, (b.from.Y + (u - 0.5) * b.spread.Y) * v.Y)
+					local a = math.rad(b.ang + (u - 0.5) * b.fan + rand(-2, 2))
+					local dir = Vector2.new(math.cos(a), math.sin(a))
+					local len = diag * rand(b.len[1], b.len[2]) * (1 - math.abs(u - 0.5) * 0.6)
+					local c = start + dir * len / 2
+					local f = marks[i]
+					f.Position = UDim2.fromOffset(c.X, c.Y)
+					f.Size = UDim2.fromOffset(len, rand(2, 16) * px * (1 - math.abs(u - 0.5)))
+					f.Rotation = math.deg(a)
+					f.BackgroundTransparency = rand(0, 0.4)
+					table.insert(tips, start + dir * len)
+				end
+			end
+			for j = i + 1, #marks do
+				local p = tips[((j * 7) % #tips) + 1] + Vector2.new(rand(-60, 60), rand(-40, 40)) * px
+				local s = rand(4, 18) * px
+				local f = marks[j]
+				f.Position = UDim2.fromOffset(p.X, p.Y)
+				f.Size = UDim2.fromOffset(s, s * rand(0.6, 1))
+				f.Rotation = rand(0, 90)
+				f.BackgroundTransparency = rand(0, 0.35)
+			end
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			while os.clock() - t0 < t and sheet.Parent do
+				draw()
+				task.wait(1 / 12)
+			end
+			tween(sheet, 0.08, { BackgroundTransparency = 1 })
+			for _, f in marks do
+				tween(f, 0.08, { BackgroundTransparency = 1 })
+			end
+			task.wait(0.09)
+			sheet:Destroy()
+		end)
+	end
+
+	-- dust pouring off his hands as they come down (the server's hand dust,
+	-- thickened for a moment)
+	function DY.pour(char, dur, rightOnly)
+		for _, right in rightOnly and { true } or { true, false } do
+			local hand = limb(char, right and "RightHand" or "LeftHand", right and "Right Arm" or "Left Arm")
+			if hand then
+				local att = Instance.new("Attachment")
+				att.Name = "DecayPour"
+				att.Position = Vector3.new(0, -hand.Size.Y / 2, 0)
+				att.Parent = hand
+				local pe = Instance.new("ParticleEmitter")
+				pe.Texture = SMOKE
+				pe.Color = ColorSequence.new(PAL.DUST, PAL.ASH)
+				pe.LightInfluence = 0.7
+				pe.Size = NS({ NK(0, 0.5), NK(1, 1.6) })
+				pe.Transparency = NS({ NK(0, 0.2), NK(0.7, 0.5), NK(1, 1) })
+				pe.Lifetime = NumberRange.new(0.5, 0.9)
+				pe.Speed = NumberRange.new(0.5, 2)
+				pe.EmissionDirection = Enum.NormalId.Bottom
+				pe.SpreadAngle = Vector2.new(40, 40)
+				pe.Acceleration = Vector3.new(0, -8, 0)
+				pe.Rate = 28
+				pe.Parent = att
+				task.delay(dur, function()
+					pe.Enabled = false
+				end)
+				cleanup(att, dur + 1)
+			end
+		end
+	end
+
+	-- a ghost of his body left behind that crumbles (the dash, Decay Grasp):
+	-- dull ash, not glowing, sagging and flaking as it goes
+	function DY.ghost(char, life)
+		local torso
+		for _, part in char:GetChildren() do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
+				local ghost = part:Clone()
+				if ghost then
+					ghost:ClearAllChildren()
+					if ghost:IsA("MeshPart") then
+						ghost.TextureID = ""
+					end
+					ghost.Anchored = true
+					ghost.CanCollide = false
+					ghost.CanQuery = false
+					ghost.CanTouch = false
+					ghost.CastShadow = false
+					ghost.Massless = true
+					ghost.Material = Enum.Material.SmoothPlastic
+					ghost.Color = PAL.ASH
+					ghost.Transparency = 0.4
+					ghost.CFrame = part.CFrame
+					ghost.Parent = folder
+					tween(ghost, life, { Transparency = 1, Size = part.Size * 0.85, CFrame = part.CFrame - UP * 0.4 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+					cleanup(ghost, life + 0.05)
+				end
+				if part.Name == "Torso" or part.Name == "UpperTorso" then
+					torso = part.Position
+				end
+			end
+		end
+		if torso then
+			DY.flakes(torso, 3, 0.8, PAL.DUST, PAL.ASH)
+		end
+	end
+
+	-- a dark trail (addTrail's are additive: dark colours vanish in them)
+	function DY.darkTrail(part, life, width)
+		local a0 = Instance.new("Attachment")
+		a0.Position = Vector3.new(0, width / 2, 0)
+		a0.Parent = part
+		local a1 = Instance.new("Attachment")
+		a1.Position = Vector3.new(0, -width / 2, 0)
+		a1.Parent = part
+		local trail = Instance.new("Trail")
+		trail.Attachment0 = a0
+		trail.Attachment1 = a1
+		trail.Color = ColorSequence.new(PAL.ASH, PAL.DUST)
+		trail.Transparency = NS(0.15, 1)
+		trail.LightEmission = 0
+		trail.LightInfluence = 0.6
+		trail.Lifetime = life
+		trail.FaceCamera = true
+		trail.Parent = part
+		return function(after)
+			task.delay(after or 0, function()
+				pcall(function()
+					trail.Enabled = false
+				end)
+				task.wait(life)
+				for _, obj in { trail, a0, a1 } do
+					pcall(obj.Destroy, obj)
+				end
+			end)
+		end
+	end
+
+	-- red hairlines splitting a limb (the crust's front, his backlash): thin
+	-- Neon strips welded across its face for `life`
+	function DY.hairlines(limbPart, n, life)
+		if not limbPart or not limbPart.Parent then
+			return {}
+		end
+		local s = limbPart.Size
+		local made = {}
+		for _ = 1, n or 2 do
+			local front = rng:NextNumber() < 0.6
+			local off = front and CFrame.new(rand(-0.3, 0.3) * s.X, rand(-0.25, 0.25) * s.Y, -s.Z / 2 - 0.03)
+				or CFrame.new((rng:NextNumber() < 0.5 and -1 or 1) * (s.X / 2 + 0.03), rand(-0.25, 0.25) * s.Y, rand(-0.3, 0.3) * s.Z)
+			local p = newPart(Vector3.new(0.06, s.Y * rand(0.45, 0.75), 0.06), limbPart.CFrame * off * CFrame.Angles(0, 0, rand(-0.7, 0.7)), PAL.RED, Enum.Material.Neon)
+			DY.stick(limbPart, p)
+			tween(p, 0.2, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, math.max((life or 0.3) - 0.2, 0))
+			cleanup(p, (life or 0.3) + 0.05)
+			table.insert(made, p)
+		end
+		return made
+	end
+
+	-- the backlash (ep 112, ep 118): his right arm red and cracked
+	function DY.armCracks(char, life)
+		for _, name in { "Right Arm", "RightUpperArm", "RightLowerArm", "RightHand" } do
+			local part = char:FindFirstChild(name)
+			if part and part:IsA("BasePart") then
+				DY.hairlines(part, name == "RightHand" and 1 or 2, life)
+			end
+		end
+	end
+
+	-- five red hairlines splayed from a point, facing `normal` (a hand
+	-- print: the grab, the finisher, the 4th claw)
+	function DY.print(pos, normal, size, life)
+		normal = (typeof(normal) == "Vector3" and normal.Magnitude > 0.05) and normal.Unit or UP
+		local side = math.abs(normal.Y) < 0.9 and normal:Cross(UP).Unit or Vector3.new(1, 0, 0)
+		local upv = side:Cross(normal)
+		size = size or 1
+		for _, a in { -50, -24, 0, 24, 58 } do
+			local d = upv * math.cos(math.rad(a)) + side * math.sin(math.rad(a))
+			local len = size * (a == 58 and 0.6 or rand(0.8, 1))
+			local p0 = pos + d * size * 0.25
+			local p = newPart(Vector3.new(0.07, 0.07, len), CFrame.lookAt(p0 + d * len / 2, p0 + d * len), PAL.RED, Enum.Material.Neon)
+			tween(p, 0.15, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, math.max((life or 0.25) - 0.15, 0))
+			cleanup(p, (life or 0.25) + 0.05)
+		end
+	end
+
+	-- the Decay player nearest pos (a Decaying broadcast doesn't say whose)
+	function DY.casterNear(pos)
+		local best, bestD = nil, 250
+		for _, plr in Players:GetPlayers() do
+			local c = plr.Character
+			local r = c and c:FindFirstChild("HumanoidRootPart")
+			if r and (c:GetAttribute("Quirk") == "Decay" or plr:GetAttribute("Quirk") == "Decay") then
+				local d = (r.Position - pos).Magnitude
+				if d < bestD then
+					best, bestD = c, d
+				end
+			end
+		end
+		return best, bestD
+	end
+
+	-- A CRUST OF STONE over a decaying body (ep 118's X-Less; the frost
+	-- crust's way, IceKit.frostBody): tessellated stone over each limb in
+	-- turn, spreading out from where it got them (red hairlines splitting
+	-- each as it forms), flakes peeling off and dust sifting down. One a body
+	-- (a second dose stretches it). It ends with the Decaying attribute
+	-- (o.watch: Overhaul can put them back together early) or after `dur`;
+	-- a KO while it runs is ash. o: { stone (a colour), spread (s), watch, alpha }
+	function DY.body(char, from, dur, o)
+		o = o or {}
+		local now = os.clock()
+		local h = DY.bodies[char]
+		if h and not h.gone then
+			h.untilT = math.max(h.untilT, now + dur)
+			h.watch = h.watch or o.watch
+			return h
+		end
+		h = { parts = {}, limbs = {}, emitters = {}, untilT = now + dur, watch = o.watch, gone = false }
+		function h.off() end
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root or DY.ashed[char] then
+			h.gone = true
+			return h
+		end
+		DY.bodies[char] = h
+		from = typeof(from) == "Vector3" and from or root.Position
+		local limbs = {}
+		for _, p in char:GetChildren() do
+			if p:IsA("BasePart") and p ~= root and p.Transparency < 0.9 then
+				table.insert(limbs, p)
+			end
+		end
+		table.sort(limbs, function(a, b)
+			return (a.Position - from).Magnitude < (b.Position - from).Magnitude
+		end)
+		local spread = o.spread or math.min(dur * 0.6, 1.6)
+		for i, part in limbs do
+			local s = part.Size
+			local size, cf, shape = Vector3.new(s.X * 1.07 + 0.06, s.Y * 1.04 + 0.04, s.Z * 1.07 + 0.06), part.CFrame, nil
+			if part.Name == "Head" then
+				size, cf, shape = DY.headFit(char, part, 1.25)
+			end
+			local p = newPart(size, cf, o.stone or part.Color:Lerp(PAL.STONE, 0.8), Enum.Material.Cobblestone, shape)
+			p.Name = "DecayCrust"
+			p.Transparency = 1
+			-- (hidden with the body: Compress's marble, first person)
+			p.LocalTransparencyModifier = DY.hiddenBy(part)
+			DY.stick(part, p)
+			h.limbs[p] = part
+			h.parts[i] = p
+			-- (the limbs nearest the touch go to stone at once; the rest are
+			-- half-crusted, and go over a little later)
+			local f = (i - 1) / math.max(#limbs - 1, 1)
+			local at = spread * f
+			local alpha = o.alpha or 0.06
+			tween(p, 0.25, { Transparency = f < 0.4 and alpha or 0.5 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, at)
+			if f >= 0.4 then
+				tween(p, 0.6, { Transparency = alpha }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, at + math.max(dur * 0.45, 0.4))
+			end
+			if i <= 6 then
+				task.delay(at, function()
+					if DY.hiddenBy(part) < 0.99 then
+						DY.hairlines(part, 2, 0.3)
+					end
 				end)
 			end
-			task.delay(0.55, function()
-				tween(p, 0.15, { Size = Vector3.new(thick * 0.3, thick * 0.3, 0.3), CFrame = CFrame.lookAt(origin, origin + v) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			end)
-			cleanup(model, 0.8)
+		end
+		local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or root
+		local att = Instance.new("Attachment")
+		att.Name = "DecayDust"
+		att.Parent = torso
+		local flake = Instance.new("ParticleEmitter")
+		flake.Texture = "rbxasset://textures/triangle.png"
+		flake.Color = ColorSequence.new(o.stone or PAL.DUST, PAL.ASH)
+		flake.LightInfluence = 1
+		flake.Size = NS({ NK(0, 0.3), NK(1, 0.12) })
+		flake.Squash = NS({ NK(0, -0.5), NK(0.5, 0.5), NK(1, -0.5) })
+		flake.Lifetime = NumberRange.new(0.6, 1.1)
+		flake.Speed = NumberRange.new(1, 4)
+		flake.SpreadAngle = Vector2.new(180, 180)
+		flake.Drag = 2
+		flake.Acceleration = Vector3.new(0, -10, 0)
+		flake.Rotation = NumberRange.new(0, 360)
+		flake.RotSpeed = NumberRange.new(-300, 300)
+		flake.Rate = 5
+		flake.Parent = att
+		local trickle = Instance.new("ParticleEmitter")
+		trickle.Texture = SMOKE
+		trickle.Color = ColorSequence.new(PAL.DUST, PAL.ASH)
+		trickle.LightInfluence = 0.7
+		trickle.Size = NS({ NK(0, 0.6), NK(1, 1.6) })
+		trickle.Transparency = NS(0.2, 1)
+		trickle.Lifetime = NumberRange.new(0.6, 1.1)
+		trickle.Speed = NumberRange.new(0.5, 2)
+		trickle.Acceleration = Vector3.new(0, -6, 0)
+		trickle.SpreadAngle = Vector2.new(180, 180)
+		trickle.Rate = 18
+		trickle.Parent = att
+		h.emitters = { flake, trickle }
+		VFX.PlaySound("DecayCrust", root.Position, 0.8)
+		-- the end: the crust flakes away (instant: just gone - the body's ash)
+		function h.off(t, instant)
+			t = t or 0.5
+			if h.gone then
+				-- (still flaking away when they go to ash: what's left goes at once)
+				if instant then
+					for _, p in h.parts do
+						if p.Parent then
+							p:Destroy()
+						end
+					end
+				end
+				return
+			end
+			h.gone = true
+			if DY.bodies[char] == h then
+				DY.bodies[char] = nil
+			end
+			-- (the ash still finds a crust that's flaking away, to clear it)
+			if not instant and t > 0 then
+				DY.fading[char] = h
+				task.delay(t + 0.05, function()
+					if DY.fading[char] == h then
+						DY.fading[char] = nil
+					end
+				end)
+			end
+			for _, pe in h.emitters do
+				if pe.Parent then -- (the body may have gone already, its emitters with it)
+					pe.Enabled = false
+				end
+			end
+			cleanup(att, 1.2)
+			for _, p in h.parts do
+				if p.Parent then
+					if instant or t <= 0 then
+						p:Destroy()
+					else
+						tween(p, t, { Transparency = 1, Size = p.Size * 1.08 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+						cleanup(p, t + 0.05)
+					end
+				end
+			end
+			if not instant and torso.Parent then
+				DY.flakes(torso.Position, 8, 0.9, o.stone or PAL.DUST, PAL.ASH)
+			end
+		end
+		task.spawn(function()
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local sawTrue = false
+			while not h.gone do
+				if not char.Parent or not root.Parent then
+					h.off(0, true)
+					break
+				elseif hum and hum.Health <= 0 then
+					if not DY.ash(char, { from = from }) then
+						h.off(0.4)
+					end
+					break
+				end
+				if h.watch then
+					local on = char:GetAttribute("Decaying")
+					if on == true then
+						sawTrue = true
+					elseif sawTrue then
+						h.off()
+						break
+					end
+				end
+				if os.clock() >= h.untilT then
+					h.off()
+					break
+				end
+				-- (hidden with the body: Compress's marble, first person - the
+				-- crust lives in the effects folder, so hideCharacter misses it)
+				for p, limb in h.limbs do
+					p.LocalTransparencyModifier = DY.hiddenBy(limb)
+				end
+				local shown = DY.hiddenBy(torso) < 0.99
+				for _, pe in h.emitters do
+					pe.Enabled = shown
+				end
+				task.wait(0.1)
+			end
 		end)
+		return h
+	end
+
+	-- TURNED TO ASH (ep 109; HB's Vanquish finisher): the body goes charcoal -
+	-- a black silhouette for a blink, then lumps of grit that slump into a
+	-- heap of dust where it stood, the far side last. The body itself is
+	-- hidden on this screen (every screen plays this). Once a body; not the
+	-- raid boss or Twice's doubles (they have ends of their own).
+	function DY.ash(char, o)
+		o = o or {}
+		if not char or not char.Parent or DY.ashed[char] or char:GetAttribute("Boss") or char:GetAttribute("TwiceClone") then
+			return false
+		end
+		DY.ashed[char] = os.clock()
+		local h, fading = DY.bodies[char], DY.fading[char]
+		if h then
+			h.off(0, true)
+		end
+		if fading then
+			fading.off(0, true)
+			DY.fading[char] = nil
+		end
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local parts = {}
+		for _, p in char:GetChildren() do
+			if p:IsA("BasePart") and p ~= root and p.Transparency < 0.9 then
+				table.insert(parts, p)
+			end
+		end
+		local center = root and root.Position or (parts[1] and parts[1].Position)
+		if not center then
+			return false
+		end
+		local g = DY.ground(center, center.Y - 3)
+		local from = typeof(o.from) == "Vector3" and o.from or center + UP * 2
+		hideCharacter(char, o.hold or 6)
+		-- (and nobody here walks into the invisible body lying there - only
+		-- another player's body, which their own screen simulates. Not mine,
+		-- and not a dummy or NPC: this screen may be the one simulating it,
+		-- and it'd fall through the street)
+		local owner = DY.ownerOf(char)
+		if owner and owner ~= Players.LocalPlayer then
+			for _, p in char:GetDescendants() do
+				if p:IsA("BasePart") then
+					pcall(function()
+						p.CanCollide = false
+					end)
+				end
+			end
+		end
+		local lumps = math.clamp(math.floor(40 / math.max(#parts, 1)), 2, 6)
+		if DY.k() < 1 then
+			lumps = math.max(math.floor(lumps / 2), 1)
+		end
+		for _, part in parts do
+			local s, cf = part.Size, part.CFrame
+			local d0 = (part.Position - from).Magnitude * 0.05
+			-- the black silhouette (a blink)
+			local shellSize, shellAt, shellShape = s * 1.03, cf, nil
+			if part.Name == "Head" then
+				shellSize, shellAt, shellShape = DY.headFit(char, part, 1.2)
+			end
+			local shell = newPart(shellSize, shellAt, PAL.CHAR, Enum.Material.Slate, shellShape)
+			tween(shell, 0.12, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, d0 + 0.08)
+			cleanup(shell, d0 + 0.25)
+			for _ = 1, lumps do
+				local size = math.clamp(math.sqrt(s.X * s.Y) * rand(0.42, 0.62), 0.35, 1.4)
+				local at = cf * Vector3.new(rand(-0.35, 0.35) * s.X, rand(-0.4, 0.4) * s.Y, rand(-0.3, 0.3) * s.Z)
+				local col = rng:NextNumber() < 0.2 and PAL.ASH:Lerp(PAL.DUST, 0.5) or part.Color:Lerp(PAL.CHAR, 0.82)
+				local spin = CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6))
+				local c = newPart(Vector3.one * size, CFrame.new(at) * spin, col, Enum.Material.Slate)
+				local jitter = (at - center)
+				jitter = jitter.Magnitude > 0.05 and jitter.Unit * 0.3 or Vector3.zero
+				tween(c, 0.1, { CFrame = CFrame.new(at + jitter) * spin }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, d0)
+				local fall = rand(0.5, 0.8)
+				local land = g + Vector3.new(rand(-1.6, 1.6), size * 0.2, rand(-1.6, 1.6))
+				tween(c, fall, { CFrame = CFrame.new(land) * spin * CFrame.Angles(1.2, 0.6, 0), Size = Vector3.one * size * 0.5 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, d0 + 0.12)
+				local fade = d0 + 0.12 + fall + rand(1.2, 2)
+				tween(c, 0.8, { Transparency = 1, Size = Vector3.one * size * 0.2 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, fade)
+				cleanup(c, fade + 0.85)
+			end
+		end
+		-- the heap: low billows of dust, a smudge, flakes of ash, fine dust
+		for i = 1, 6 do
+			local a = i / 6 * math.pi * 2
+			DY.billow(g + Vector3.new(math.cos(a), 0.4, math.sin(a)) * rand(0.8, 1.8), rand(1.8, 2.8), {
+				from = g + UP, delay = 0.25 + i * 0.03, grow = 0.35, hold = 0.6, fade = 1.2, rise = 1.5, dark = PAL.DUST, light = PAL.DUST_LIGHT,
+			})
+		end
+		groundMark(g, 3, PAL.ASH, 5)
+		DY.flakes(center, 30, 1, PAL.CHAR, PAL.ASH)
+		smokeBurst(center, PAL.ASH, 2.5, 3, 1.6, 10)
+		VFX.PlaySound("DecayAsh", center, 1)
+		return true
+	end
+
+	-- a KO by Decay (Effects.KOFinisher's burst): they're ash where they stood
+	-- (the body's launch is hidden). Radio Waves' isn't decay: a dust burst.
+	function DY.koBurst(pos, _dir, target, data)
+		local g = DY.ground(pos, pos.Y - 3)
+		local radio = type(data) == "table" and data.Move == "RadioWaves"
+		if radio or not (typeof(target) == "Instance" and DY.ash(target, { from = pos })) then
+			groundMark(g, 8, PAL.ASH, 6)
+			for i = 1, 6 do
+				local a = i / 6 * math.pi * 2
+				celPuff(folder, g, g + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(2, 4) + UP * rand(1, 2.5), rand(2.5, 3.5), PAL.DUST, PAL.DUST_HI, 0.2, 1.1, i * 0.02)
+			end
+			if radio then
+				sparks(pos, 1, PAL.VIOLET, Color3.new(1, 1, 1), 14)
+			end
+		end
+		shockDisc(g + UP * 0.3, UP, 2, 18, 0.3, PAL.DUST_LIGHT)
+	end
+
+	-- THE FINISHER "DECAY" (FX.Decay; the server stands them 4.5 studs apart
+	-- and, for this one, doesn't launch the body): his hand out at their
+	-- face, five red fingers splayed over it, the crust spreading charcoal
+	-- from the head down, black lightning crackling off his hand; on the
+	-- blow they're ash where they stand. Only on the server's KO, though: it
+	-- kills them only if both are still up at the end of the hold, so if he
+	-- leaves or goes down first (or the KO never comes) the crust just
+	-- flakes away and they live.
+	function DY.finisher(char, target, troot, _d, time)
+		VFX.Pose(char, "Grasp", time)
+		VFX.PlaySound("DecayGrasp", troot.Position, 1)
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local head = target:FindFirstChild("Head") or troot
+		local toward = root and flatten(root.Position - troot.Position, troot) or troot.CFrame.LookVector
+		DY.print(head.Position + toward * (head.Size.Z / 2 + 0.08), toward, 1.1, math.min(time, 0.6))
+		local had = DY.bodies[target]
+		local fresh = not (had and not had.gone)
+		local crust = DY.body(target, head.Position + UP, math.max(time - 0.05, 0.3), { stone = PAL.CHAR, spread = time * 0.8, alpha = 0.05 })
+		-- (it stays on until the ash or the abort below: timing out on its own
+		-- just before the blow would leave a charcoal statue over the ash)
+		crust.untilT = math.max(crust.untilT, os.clock() + time + 0.8)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local function holding()
+			return char.Parent ~= nil and not (hum and hum.Health <= 0)
+		end
+		local t0 = os.clock()
+		while os.clock() - t0 < time and holding() and troot.Parent do
+			bolt(handPos(char, true), 1.4, PAL.BLACK)
+			if rng:NextNumber() < 0.35 then
+				DY.flakes(troot.Position + rng:NextUnitVector(), 3, 0.7, PAL.DUST, PAL.CHAR)
+			end
+			task.wait(0.08)
+		end
+		local thum = target:FindFirstChildOfClass("Humanoid")
+		if holding() and thum then
+			-- (the KO replicates a moment after the hold ends here)
+			local t1 = os.clock()
+			while os.clock() - t1 < 0.5 and troot.Parent and thum.Health > 0 do
+				task.wait(0.05)
+			end
+			if troot.Parent and thum.Health <= 0 then
+				DY.ash(target, { from = head.Position })
+				return
+			end
+		end
+		if fresh then
+			crust.off()
+		end
+	end
+
+	-- RIVET STAB as drawn (ep 122): black tendrils, jagged and branching like
+	-- lightning, red circuit lines running inside them. Every part goes in the
+	-- cast's one outline model (a red edge, one Highlight a cast). It shoots
+	-- out at `speed`, then crumbles back from the tip. The wobble stays within
+	-- 1.2 studs of the straight line (the server's beam is 3.5 wide). Where it
+	-- first meets a wall it crumbles a star in it (o.hits caps those a cast).
+	-- o: { speed, segments, forks, sparse (lines on every other segment),
+	-- delay, life, hits = { n }, retract (round 84: pulled back in, not crumbled) }
+	function DY.tendril(origin, dir, len, thick, model, o)
+		o = o or {}
+		if typeof(dir) ~= "Vector3" or dir.Magnitude < 0.05 or len < 1 then
+			return
+		end
+		dir = dir.Unit
+		local speed = o.speed or 900
+		local n = o.segments or math.clamp(math.floor(len / 14), 4, 8)
+		local basis = CFrame.lookAt(origin, origin + dir)
+		local pts = { origin }
+		for i = 1, n do
+			local wob = Vector3.zero
+			if i < n then
+				wob = basis.RightVector * rand(-1.2, 1.2) + basis.UpVector * rand(-1, 1)
+				if wob.Magnitude > 1.2 then
+					wob = wob.Unit * 1.2
+				end
+			end
+			pts[i + 1] = origin + dir * (len * i / n) + wob
+		end
+		local d0 = o.delay or 0
+		local life = o.life or 0.55
+		local at, made = {}, {}
+		local acc = 0
+		for i = 1, n do
+			local a, b = pts[i], pts[i + 1]
+			local L = (b - a).Magnitude
+			local t = d0 + acc / speed
+			at[i] = t
+			acc += L
+			local w = thick * (1 - 0.55 * (i - 1) / math.max(n - 1, 1))
+			local cf = CFrame.lookAt((a + b) / 2, b)
+			local p = newPart(Vector3.new(w, w, 0.05), CFrame.lookAt(a, b), PAL.TENDRIL, Enum.Material.SmoothPlastic, nil, model)
+			p.Transparency = 1
+			tween(p, 0.01, { Transparency = 0 }, nil, nil, t)
+			tween(p, math.max(L / speed, 0.01), { Size = Vector3.new(w, w, L + w * 0.6), CFrame = cf }, Enum.EasingStyle.Linear, nil, t)
+			local list = { p }
+			-- the red circuit line along one face, with a jog at its end on every other one
+			if not o.sparse or i % 2 == 1 then
+				local sl = L * rand(0.4, 0.8)
+				local z = rand(-0.5, 0.5) * (L - sl)
+				local onTop = i % 2 == 0
+				local scf = cf * CFrame.new(onTop and 0 or w / 2 + 0.02, onTop and w / 2 + 0.02 or 0, z)
+				local st = newPart(onTop and Vector3.new(0.07, 0.05, sl) or Vector3.new(0.05, 0.07, sl), scf, PAL.RED, Enum.Material.Neon, nil, model)
+				st.Transparency = 1
+				tween(st, 0.01, { Transparency = 0 }, nil, nil, t + L / speed)
+				table.insert(list, st)
+				if i % 2 == 0 then
+					local jog = newPart(Vector3.new(w * 0.6, 0.05, 0.07), scf * CFrame.new(w * 0.3 * (rng:NextNumber() < 0.5 and -1 or 1), 0, -sl / 2), PAL.RED, Enum.Material.Neon, nil, model)
+					jog.Transparency = 1
+					tween(jog, 0.01, { Transparency = 0 }, nil, nil, t + L / speed)
+					table.insert(list, jog)
+				end
+			end
+			made[i] = { list = list, w = w, L = L }
+		end
+		-- a fork or two off the middle joints, like lightning
+		for _ = 1, o.forks or 0 do
+			local j = math.clamp(math.floor(rand(2, n)), 2, n)
+			local q = rand(0, math.pi * 2)
+			local turn = CFrame.fromAxisAngle(basis.RightVector * math.cos(q) + basis.UpVector * math.sin(q), math.rad(rand(25, 40)))
+			local fd = (turn * dir).Unit
+			local a = pts[j]
+			local fl = rand(3, 6)
+			local mid = a + fd * fl * 0.5 + basis.UpVector * rand(-0.5, 0.5)
+			local b = mid + (fd + basis.RightVector * rand(-0.4, 0.4)).Unit * fl * 0.5
+			for _, ab in { { a, mid }, { mid, b } } do
+				local L = (ab[2] - ab[1]).Magnitude
+				local w = made[j - 1].w * 0.55
+				local p = newPart(Vector3.new(w, w, L + w * 0.5), CFrame.lookAt((ab[1] + ab[2]) / 2, ab[2]), PAL.TENDRIL, Enum.Material.SmoothPlastic, nil, model)
+				p.Transparency = 1
+				tween(p, 0.01, { Transparency = 0 }, nil, nil, at[j - 1] + 0.02)
+				table.insert(made[j - 1].list, p)
+			end
+		end
+		-- the first wall it meets crumbles
+		if o.hits and o.hits.n < 6 then
+			local hit = DY.cast(origin, dir * len)
+			if hit then
+				o.hits.n += 1
+				task.delay(d0 + (hit.Position - origin).Magnitude / speed + 0.02, DY.rivetHit, hit.Position, hit.Normal)
+			end
+		end
+		-- (round 84, o.retract) pulled back into his fingers, the tip first
+		if o.retract then
+			for i = n, 1, -1 do
+				local when = d0 + life + (n - i) * 0.03
+				local a, b = pts[i], pts[i + 1]
+				local w = made[i].w
+				for j, p in made[i].list do
+					if j == 1 then
+						tween(p, 0.05, { Size = Vector3.new(w, w, 0.05), CFrame = CFrame.lookAt(a, b) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, when)
+						tween(p, 0.01, { Transparency = 1 }, nil, nil, when + 0.05)
+					else
+						tween(p, 0.03, { Transparency = 1 }, nil, nil, when)
+					end
+				end
+			end
+			return pts
+		end
+		-- it crumbles back from the tip
+		for i = n, 1, -1 do
+			local when = d0 + life + (n - i) * 0.025
+			for _, p in made[i].list do
+				tween(p, 0.15, { Transparency = 1, Size = p.Size * Vector3.new(0.3, 0.3, 0.5) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, when)
+			end
+			if i == n or i == math.ceil(n / 2) then
+				task.delay(when, DY.flakes, pts[i + 1], 3, 0.6, PAL.CHAR, PAL.ASH)
+			end
+		end
+		return pts
+	end
+
+	-- where a rivet meets a wall: a star of dry cracks in its face, a couple
+	-- of chips knocked off it, flakes
+	function DY.rivetHit(pos, normal)
+		normal = (typeof(normal) == "Vector3" and normal.Magnitude > 0.1) and normal.Unit or UP
+		local t1 = math.abs(normal.Y) < 0.9 and normal:Cross(UP).Unit or normal:Cross(Vector3.new(1, 0, 0)).Unit
+		local t2 = normal:Cross(t1)
+		local base = pos + normal * 0.06
+		for i = 1, 4 do
+			local a = i / 4 * math.pi * 2 + rand(-0.4, 0.4)
+			local d = t1 * math.cos(a) + t2 * math.sin(a)
+			local across = t1 * -math.sin(a) + t2 * math.cos(a)
+			local len, prev = rand(2, 3.2), base
+			for j = 1, 2 do
+				local nxt = base + d * len * j / 2 + across * rand(-0.35, 0.35)
+				local seg = newPart(Vector3.new(0.24 - j * 0.07, 0.08, (nxt - prev).Magnitude + 0.1), CFrame.lookAt((prev + nxt) / 2, nxt, normal), PAL.CRACK)
+				tween(seg, 0.8, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, 2.2)
+				cleanup(seg, 3.1)
+				prev = nxt
+			end
+		end
+		for _ = 1, 2 do
+			local s = rand(0.4, 0.8)
+			local c = newPart(Vector3.one * s, CFrame.new(base) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), PAL.DUST, Enum.Material.Slate)
+			local land = DY.ground(base + normal * rand(1.5, 3) + t1 * rand(-1, 1), base.Y - 6)
+			tween(c, 0.45, { CFrame = CFrame.new(land + UP * s * 0.3) * CFrame.Angles(rand(0, 6), rand(0, 6), 0) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			tween(c, 0.4, { Transparency = 1, Size = Vector3.one * s * 0.3 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 1)
+			cleanup(c, 1.45)
+		end
+		DY.flakes(base + normal * 0.3, 8, 0.8, PAL.DUST, PAL.ASH)
 	end
 
 	-- must match QuirkServer's Rivet Storm directions
-	local function stormDirs()
+	function DY.stormDirs()
 		local dirs = {}
 		for i = 1, 14 do
 			local a = i / 14 * math.pi * 2
@@ -10542,6 +16043,141 @@ do -- DECAY: its helpers stay local to this block (Luau allows 200 locals per sc
 		return dirs
 	end
 
+	-- THE VORTEX (ep 118, the release): blocks of the street, lit lilac on
+	-- top, swirling up round him in the dust while he rises; flung out on
+	-- the slam. Returns the fling.
+	function DY.vortex(g, dur)
+		local blocks = {}
+		for i = 1, math.floor(12 * DY.k()) do
+			local s = rand(0.9, 1.8)
+			local body = newPart(Vector3.new(s, s * 0.8, s), CFrame.new(g), PAL.ASH:Lerp(PAL.LILAC, 0.25), Enum.Material.Slate)
+			local top = newPart(Vector3.new(s * 1.01, 0.08, s * 1.01), CFrame.new(g), PAL.LILAC, Enum.Material.SmoothPlastic)
+			cleanup(body, dur + 1) -- (if the fling never comes: he was cut off mid-cast)
+			cleanup(top, dur + 1)
+			table.insert(blocks, { body = body, top = top, s = s, r = rand(4, 9), a = i / 12 * math.pi * 2, w = rand(2, 3.2), y0 = rand(0.5, 1.5), y1 = rand(2, 8), spin = rand(-2, 2) })
+		end
+		local t0 = os.clock()
+		task.spawn(function()
+			while os.clock() - t0 < dur do
+				local e = os.clock() - t0
+				local k = math.min(e / dur, 1)
+				for _, b in blocks do
+					if b.body.Parent then
+						local a = b.a + e * b.w
+						local cf = CFrame.new(g + Vector3.new(math.cos(a) * b.r, b.y0 + (b.y1 - b.y0) * k, math.sin(a) * b.r)) * CFrame.Angles(e * b.spin, a, e * b.spin * 0.5)
+						b.body.CFrame = cf
+						b.top.CFrame = cf * CFrame.new(0, b.s * 0.4 + 0.04, 0)
+					end
+				end
+				task.wait()
+			end
+		end)
+		return function()
+			for _, b in blocks do
+				local out = b.body.CFrame.Position - g
+				out = Vector3.new(out.X, 0, out.Z)
+				out = out.Magnitude > 0.1 and out.Unit or Vector3.new(1, 0, 0)
+				for _, p in { b.body, b.top } do
+					tween(p, 0.45, { CFrame = p.CFrame + out * rand(18, 28) + UP * rand(2, 6), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					cleanup(p, 0.5)
+				end
+			end
+		end
+	end
+
+	-- (round 83) his awakening's camera, 1.4 s like the generic sweep (the
+	-- armour lasts 1.3): low at his feet as the street splits under him, his
+	-- face, then wide and low as the dust goes up
+	SHOTS.AwakeningDecay = {
+		{ T = 0.45, From = { V(1.6, 0.2, -4.2), V(0, -1.2, 0) }, To = { V(1.3, 0.5, -3.6), V(0, 0.4, 0) }, Fov = { 55, 48 } },
+		{ T = 0.4, Cut = true, From = { V(0.5, 1.7, -3.2), V(0, 1.6, 0) }, To = { V(0.35, 1.65, -2.7), V(0, 1.6, 0) }, Fov = { 45, 40 } },
+		{ T = 0.55, Cut = true, From = { V(10, 1.2, -18), V(0, 3, 0) }, To = { V(14, 4, -26), V(0, 6, 0) }, Fov = { 65, 72 } },
+	}
+
+	-- (round 83) his M1s (the hook in Effects.Punch): three thin red rake marks
+	-- left in the air along the claw (his fingers), dust flaking off them; the
+	-- 4th - five fingers, full lunge - a five-finger print; in the ult black
+	-- lightning edged in violet off every one
+	function VFX.DecayPunch(char, count, finisher, fist, look)
+		local right = look:Cross(UP)
+		if finisher then
+			DY.print(fist + look * 0.6, -look, 1.3, 0.3)
+			DY.flakes(fist + look * 0.6, 8, 0.8, PAL.DUST, PAL.ASH)
+			celPuff(folder, fist, fist + look * 2 + UP * 0.6, 1.8, PAL.DUST, PAL.DUST_HI, 0.12, 0.5)
+		else
+			local along = count == 3 and UP or (right * (count == 2 and -0.7 or 0.7) - UP * 0.7).Unit
+			local across = along:Cross(look).Unit
+			for j = -1, 1 do
+				local c = fist + across * j * 0.35 + along * j * 0.15
+				local p = newPart(Vector3.new(0.06, 0.06, 2.4), CFrame.lookAt(c, c + along), PAL.RED, Enum.Material.Neon)
+				tween(p, 0.15, { Transparency = 1, Size = Vector3.new(0.02, 0.02, 2.8) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.05)
+				cleanup(p, 0.22)
+			end
+			DY.flakes(fist, 4, 0.6, PAL.DUST, PAL.ASH)
+		end
+		if char:GetAttribute("UltActive") then
+			bolt(fist, finisher and 2.2 or 1.6, PAL.BLACK)
+			bolt(fist, finisher and 2 or 1.4, PAL.VIOLET)
+		end
+	end
+
+	-- (round 83) the dash (QUIRK_FX.Dash): a ghost of him crumbling where he
+	-- pushed off, a scuff of crack, dust and flakes, a dusty streak
+	QUIRK_FX.Dash.Decay = function(char, root, dir)
+		DY.ghost(char, 0.3)
+		local g = groundPoint(root.Position)
+		if (root.Position - g).Magnitude < 5 then
+			for i = 1, 2 do
+				celPuff(folder, g - dir * i, g - dir * (1.5 + i) + UP * rand(0.8, 1.6), rand(1.4, 2), PAL.DUST, PAL.DUST_HI, 0.15, 0.6, i * 0.04)
+			end
+			DY.crack(g - dir * 0.5, -dir, rand(4, 6), { speed = 80, w0 = 0.4, w1 = 0.1, step = 1.5, wander = 0.4, hot = false, life = 1.2 })
+		end
+		DY.flakes(root.Position - dir * 1.5, 6, 0.8, PAL.DUST, PAL.ASH)
+		legTrails(char, 0.25, PAL.DUST_LIGHT)
+	end
+
+	-- (round 83) THE AWAKENING (QUIRK_FX.Ult; the server carves 18 studs round
+	-- him at once): black lightning edged in violet round both arms and his
+	-- arm splitting red, ash rushing up round him, the five fingers under
+	-- him, the white sketch frame (ep 112) and the lilac air, the spread out
+	-- to 18 studs and the beige dome over it with plates floating in the dust
+	QUIRK_FX.Ult.Decay = function(char, root, g)
+		DY.armCracks(char, 2.4)
+		task.spawn(function()
+			local t0 = os.clock()
+			while os.clock() - t0 < 0.6 and root.Parent do
+				for _, right in { true, false } do
+					local hand = handPos(char, right)
+					bolt(hand, 2.4, PAL.BLACK)
+					bolt(hand, 2, PAL.VIOLET)
+				end
+				task.wait(0.08)
+			end
+		end)
+		for i = 1, 10 do
+			local a = i / 10 * math.pi * 2
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			celPuff(folder, g + out * 2.5, g + out * rand(5, 9) + UP * rand(5, 14), rand(3.5, 5.5), PAL.MAUVE, PAL.LILAC, 0.3, 1.3, i * 0.02)
+		end
+		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		DY.palm(g + (look.Magnitude > 0.05 and look.Unit or Vector3.zero) * 1.5, look, { len = 6, k = 1.2 })
+		if nearCamera(root.Position, 90) then
+			DY.sketch(0.12)
+			DY.tint(1, 0.8, 1.2)
+		end
+		DY.ring(g, 18, 0.5, { cracks = 9, h = 6, slabs = 4, puffs = 4, teeth = 2 })
+		DY.dome(g, 18, 14, 2.2, { puffs = 12, slabs = 4 })
+		for _ = 1, 4 do
+			bolt(root.Position, 6, PAL.RED)
+		end
+	end
+
+	-- DECAY (1): down on one knee, his right palm slapped flat on the street
+	-- (the clip's Hit, 0.22 s) and five cracks fan out of his fingers; on the
+	-- server's beat (0.25 s) it races off down the street at the server's
+	-- speed - the middle finger's crack runs on as one unbroken crack, a
+	-- side crack either side of it, plates lifting and crumbling just behind
+	-- the front, the surge rolling over them
 	function Effects.DecayWave(char, data, isLocal, ability)
 		local root = charParts(char)
 		if not root then
@@ -10552,25 +16188,33 @@ do -- DECAY: its helpers stay local to this block (Luau allows 200 locals per sc
 			face(root, d)
 		end
 		VFX.Motion(char, "DecayWave")
-		task.wait(0.25)
+		DY.pour(char, 0.22, true)
+		task.wait(0.22)
 		if not root.Parent then
 			return
 		end
-		local start = groundPoint(root.Position)
 		local range = (ability and ability.Range) or 64
+		local start = groundPoint(root.Position)
 		VFX.PlaySound("DecayWave", start, 1)
-		sparks(handPos(char, true), 0.5, DECAY_DUST, DECAY_RED, 10)
+		DY.palm(DY.ground(handPos(char, true), start.Y), d, { len = 5, k = 0.9 })
+		task.wait(0.03)
+		if not root.Parent then
+			return
+		end
+		local speed = range / 0.6 -- (the server's 8 steps of 0.075 s)
 		local right = d:Cross(UP)
+		DY.crack(start + d * 2, d, range - 2, { speed = speed, w0 = 1, w1 = 0.35, step = 4, wander = 1.4, branch = 0.45, life = 4 })
+		for _, side in { -1, 1 } do
+			DY.crack(start + d * 2.5 + right * side * 1.2, (d + right * side * 0.07).Unit, range * rand(0.8, 0.95), { speed = speed, w0 = 0.5, w1 = 0.15, step = 5, wander = 1, life = 3.5 })
+		end
+		DY.surge(start + d * 2, d, range, 12, speed, 6)
 		for i = 1, 8 do
-			local a = start + d * (range * (i - 1) / 8)
 			local b = start + d * (range * i / 8)
-			crackLine(a, b + right * rand(-1.5, 1.5), 0.8, 4)
-			for _ = 1, 2 do
-				crackLine(b, b + (d + right * rand(-1, 1)).Unit * rand(3, 7), 0.35, 3)
+			for _ = 1, math.max(math.floor(2 * DY.k()), 1) do
+				-- (just behind the front)
+				DY.slab(start + d * math.max(range * (i - 1) / 8 - rand(0, range / 8), 3) + right * rand(-5, 5), rand(2, 4), { delay = 0.04 })
 			end
-			crumbleAt(b + UP * 2, 1)
 			if i % 2 == 0 then
-				rocks(b, 1.2, 3)
 				VFX.PlaySound("Crumble", b, 0.8)
 			end
 			VFX.ShakeAt(b, 0.6, 50, 0.12)
@@ -10578,8 +16222,13 @@ do -- DECAY: its helpers stay local to this block (Luau allows 200 locals per sc
 		end
 	end
 
-	-- SINKHOLE (V): both hands to the street; it cracks and crumbles away
-	-- in front of him, and the ground drops out from under them
+	-- SINKHOLE (V): his palm to the street, five cracks racing into the
+	-- ground in front of him, and on the server's beat (0.35 s) it gives way:
+	-- the patch breaks into plates over a dark pit - the ones round the edge
+	-- tip up and in (a lip round the hole: the street under it can't really
+	-- drop), the inner ones settle and crumble one by one through the hold -
+	-- dust spouting up round the rim, haze hanging in the hole, a puff where
+	-- they're let out
 	function Effects.Sinkhole(char, data, isLocal, ability)
 		local root = charParts(char)
 		if not root then
@@ -10591,27 +16240,86 @@ do -- DECAY: its helpers stay local to this block (Luau allows 200 locals per sc
 			face(root, d)
 		end
 		VFX.Motion(char, "DecayWave")
-		task.wait(0.35)
+		DY.pour(char, 0.3)
+		task.wait(0.22)
 		if not root.Parent then
 			return
 		end
 		local range, width = ability.Range or 30, ability.Width or 24
+		local hold = ability.HoldTime or 1.5
 		local start = groundPoint(root.Position)
 		local right = d:Cross(UP)
-		VFX.PlaySound("Collapse", start + d * range / 2, 1)
-		for _ = 1, 10 do
-			local p = start + d * rand(3, range) + right * rand(-width / 2, width / 2)
-			crackLine(start + d * 2, p, 0.6, 4)
-			crumbleAt(p + UP, 1.2)
+		DY.palm(DY.ground(handPos(char, true), start.Y), d, { len = 4, k = 0.8 })
+		for i = -2, 2 do
+			local v = d * (range * rand(0.75, 1)) + right * (i / 2) * width * 0.42
+			DY.crack(start + d * 2, v, v.Magnitude, { speed = v.Magnitude / 0.13, w0 = 0.7, w1 = 0.2, step = 4, wander = 1.2, branch = 0.3, life = hold + 1.5 })
 		end
-		local hole = newPart(Vector3.new(0.2, width, range), CFrame.new(start + d * (range / 2 + 2) + UP * 0.1) * CFrame.lookAt(Vector3.zero, d) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(28, 22, 24), Enum.Material.Slate)
-		tween(hole, (ability.HoldTime or 1.5) + 1, { Transparency = 1 }, nil, nil, 0.5)
-		cleanup(hole, (ability.HoldTime or 1.5) + 1.6)
-		rocks(start + d * range / 2, 2, 20)
-		dustPuffs(start + d * range / 2, 2.2, 12, DECAY_DUST, 1.4, true)
+		task.wait(0.13)
+		if not root.Parent then
+			return
+		end
+		local mid = start + d * (range / 2 + 2)
+		VFX.PlaySound("Collapse", mid, 1)
+		local hole = newPart(Vector3.new(0.2, width, range), CFrame.new(mid + UP * 0.08) * CFrame.lookAt(Vector3.zero, d) * CFrame.Angles(0, 0, math.rad(90)), PAL.CRACK, Enum.Material.Slate)
+		tween(hole, 1, { Transparency = 1 }, nil, nil, hold + 0.5)
+		cleanup(hole, hold + 1.6)
+		-- the plates: 4 across, 5 along
+		local rows, cols = 5, 4
+		local yaw = CFrame.lookAt(Vector3.zero, d)
+		for r = 1, rows do
+			for c = 1, cols do
+				local u, v = (c - 0.5) / cols - 0.5, (r - 0.5) / rows - 0.5
+				local at = mid + d * v * range + right * u * width
+				local dims = Vector3.new(width / cols * rand(0.78, 0.9), 0.55, range / rows * rand(0.78, 0.9))
+				local spin = yaw * CFrame.Angles(0, rand(-0.12, 0.12), 0)
+				if r == 1 or r == rows or c == 1 or c == cols then
+					local out = d * v + right * u
+					out = out.Magnitude > 0.01 and out.Unit or d
+					DY.slab(at, 0, { size3 = dims, yaw = spin, rise = rand(0.4, 0.9), tilt = CFrame.fromAxisAngle(UP:Cross(-out).Unit, math.rad(rand(18, 30))), hold = hold * rand(0.6, 1), flakes = 0.4 })
+				else
+					DY.slab(at, 0, { size3 = dims, yaw = spin, rise = -0.2, tilt = CFrame.Angles(rand(-0.08, 0.08), 0, rand(-0.08, 0.08)), hold = rand(0.3, hold), flakes = 0.5 })
+				end
+			end
+		end
+		-- dust spouting up round the rim
+		for i = 1, math.floor(8 * DY.k()) do
+			local a = i / 8 * math.pi * 2
+			local edge = mid + d * math.clamp(math.cos(a) * 0.75, -0.5, 0.5) * range + right * math.clamp(math.sin(a) * 0.75, -0.5, 0.5) * width
+			local g = DY.ground(edge, start.Y)
+			celPuff(folder, g, g + UP * rand(6, 10), rand(4, 6), PAL.DUST_MID, PAL.DUST_HI, 0.25, rand(1, 1.4), i * 0.02)
+		end
+		-- haze hanging in the hole
+		local holder = newPart(Vector3.new(width * 0.8, 1, range * 0.8), CFrame.new(mid + UP * 0.5) * yaw, PAL.DUST)
+		holder.Transparency = 1
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = SMOKE
+		pe.Color = ColorSequence.new(PAL.DUST_LIGHT, PAL.DUST)
+		pe.LightInfluence = 0.7
+		pe.Size = NS({ NK(0, 2), NK(1, 5) })
+		pe.Transparency = NS({ NK(0, 0.5), NK(0.6, 0.7), NK(1, 1) })
+		pe.Lifetime = NumberRange.new(1, 1.6)
+		pe.Speed = NumberRange.new(1, 3)
+		pe.SpreadAngle = Vector2.new(40, 40)
+		pe.Shape = Enum.ParticleEmitterShape.Box
+		pe.Rate = 18 * DY.k()
+		pe.Parent = holder
+		task.delay(hold, function()
+			pe.Enabled = false
+			-- they're let out
+			smokeBurst(mid + UP * 2, PAL.DUST_LIGHT, 4, 6, 1.2, 10)
+			for i = 1, 3 do
+				local p = mid + right * (i - 2) * width * 0.25
+				celPuff(folder, p, p + UP * rand(3, 5), rand(3, 4), PAL.DUST, PAL.DUST_HI, 0.18, 0.8, i * 0.03)
+			end
+		end)
+		cleanup(holder, hold + 1.8)
 		VFX.ShakeAt(start, 2, 100, 0.4)
 	end
 
+	-- DECAY GRASP (2): the gliding lunge, five fingers first - a dark trail
+	-- off his hand with a thin red core, dust streaking off the fingertips,
+	-- ghosts of him crumbling behind, a crack chasing along under him (the
+	-- server tunnels with the Decay profile)
 	function Effects.DecayGrasp(char, data, isLocal)
 		local root = charParts(char)
 		if not root then
@@ -10624,127 +16332,381 @@ do -- DECAY: its helpers stay local to this block (Luau allows 200 locals per sc
 		end
 		VFX.Motion(char, "Grasp")
 		local hand = limb(char, "RightHand", "Right Arm")
-		local stopTrail = hand and addTrail(hand, DECAY_RED, 0.25, 1.2)
-		afterimage(char, DECAY_DUST, 0.3)
+		local stopDark = hand and DY.darkTrail(hand, 0.25, 1.2)
+		local stopCore = hand and addTrail(hand, PAL.RED, 0.15, 0.25)
+		streaks(handPos(char, true), d, 5, 0.4, 2.5, 6, PAL.DUST_LIGHT, 0.25)
 		VFX.PlaySound("Dash", root.Position, 0.8)
+		DY.crack(groundPoint(root.Position), d, 44, { speed = 110, w0 = 0.45, w1 = 0.2, step = 4, wander = 0.8, life = 3 })
 		local t0 = os.clock()
 		while os.clock() - t0 < 0.4 and root.Parent do
-			crumbleAt(root.Position + d * 3, 0.5)
-			task.wait(0.08)
+			DY.ghost(char, 0.3)
+			task.wait(0.13)
 		end
-		if stopTrail then
-			stopTrail(0)
+		if stopDark then
+			stopDark(0)
+		end
+		if stopCore then
+			stopCore(0)
 		end
 	end
 
-	-- Server: Decay Grasp caught someone
+	-- Server: Decay Grasp caught someone - five red fingers splayed over
+	-- them where his hand landed, the crust spreading out from there, the
+	-- impact frame tinted lilac; ash bursts off them when they're shoved
 	function Effects.Grasped(char, data)
 		local target = data.Target
 		local root = target and target:FindFirstChild("HumanoidRootPart")
 		if not root then
 			return
 		end
-		billboardRing(root.Position, 2, 14, DECAY_RED, 6, 0.3)
-		sparks(root.Position, 1, DECAY_DUST, DECAY_RED, 30)
-		crumbleAt(root.Position, 1.2)
-		if char and nearCamera(root.Position, 40) then
-			VFX.ImpactFrame(0.08)
+		local aroot = char and char:FindFirstChild("HumanoidRootPart")
+		local toward = aroot and flatten(aroot.Position - root.Position, root) or root.CFrame.LookVector
+		local torso = target:FindFirstChild("UpperTorso") or target:FindFirstChild("Torso") or root
+		local contact = torso.Position + toward * (torso.Size.Z / 2 + 0.06)
+		DY.print(contact, toward, 1.1, 0.3)
+		billboardRing(contact, 2, 10, PAL.DUST_LIGHT, 5, 0.3)
+		DY.flakes(contact, 10, 1, PAL.DUST, PAL.ASH)
+		if char and VFX.MANGA then
+			VFX.MANGA.impact(contact, 0.08, { Tint = PAL.TINT, Radius = 45 })
 		end
-		VFX.PlaySound("DecayGrasp", root.Position, 1)
+		DY.body(target, contact, 3, { watch = true })
+		VFX.PlaySound("DecayGrasp", contact, 1)
+		task.delay(0.6, function()
+			if root.Parent then
+				DY.flakes(root.Position, 12, 1.1, PAL.DUST, PAL.ASH)
+				celPuff(folder, root.Position, root.Position - toward * 2 + UP, 2.5, PAL.DUST, PAL.DUST_HI, 0.15, 0.7)
+			end
+		end)
 	end
 
-	-- Server: someone is crumbling (Decay damage over time)
+	-- Server: someone is crumbling (Decay's damage over time; Duration is the
+	-- ticks'). The crust spreads from where it got them: his hand if he's on
+	-- them, else up from their feet; the stone goes lilac while he's ulting.
 	function Effects.Decaying(_, data)
 		local target = data.Target
 		local root = target and target:FindFirstChild("HumanoidRootPart")
 		if not root then
 			return
 		end
-		local duration = data.Duration or 2
-		local h = Instance.new("Highlight")
-		h.FillColor = DECAY_DARK
-		h.FillTransparency = 0.55
-		h.OutlineColor = DECAY_RED
-		h.OutlineTransparency = 0.2
-		h.DepthMode = Enum.HighlightDepthMode.Occluded
-		h.Parent = target
-		local holder = newPart(Vector3.new(2, 4, 1), root.CFrame, DECAY_DUST)
-		holder.Transparency = 1
-		local pe = Instance.new("ParticleEmitter")
-		pe.Texture = (Config.Assets and Config.Assets.SmokeTexture) or "rbxasset://textures/particles/smoke_main.dds"
-		pe.Color = ColorSequence.new(DECAY_DUST, DECAY_DARK)
-		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 1.6) })
-		pe.Transparency = NumberSequence.new(0.2, 1)
-		pe.Lifetime = NumberRange.new(0.6, 1.1)
-		pe.Speed = NumberRange.new(0.5, 2)
-		pe.Acceleration = Vector3.new(0, -6, 0)
-		pe.SpreadAngle = Vector2.new(180, 180)
-		pe.Rate = 26
-		pe.Shape = Enum.ParticleEmitterShape.Box
-		pe.Parent = holder
-		task.spawn(function()
-			local t0 = os.clock()
-			while os.clock() - t0 < duration and root.Parent do
-				holder.CFrame = root.CFrame
-				h.FillTransparency = 0.45 + math.sin((os.clock() - t0) * 18) * 0.15
-				task.wait()
-			end
-			pe.Enabled = false
-			tween(h, 0.3, { FillTransparency = 1, OutlineTransparency = 1 })
-			cleanup(h, 0.35)
-			cleanup(holder, 1.3)
-		end)
+		local caster, dist = DY.casterNear(root.Position)
+		local from = root.Position - UP * 3
+		local croot = caster and caster:FindFirstChild("HumanoidRootPart")
+		if croot and dist < 9 then
+			from = root.Position + flatten(croot.Position - root.Position, root) * 0.6
+		end
+		local ult = caster and (caster:GetAttribute("UltActive") or (Players:GetPlayerFromCharacter(caster) and Players:GetPlayerFromCharacter(caster):GetAttribute("UltActive")))
+		DY.body(target, from, tonumber(data.Duration) or 2, { stone = ult and PAL.LILAC or nil, watch = true })
 	end
 
+	-- COLLAPSE (3): arms open with dust pouring off his hands, plates popping
+	-- round his feet; both palms down on the clip's Hit (0.5 s) - ten
+	-- fingers' worth of cracks and the lilac impact frame - and on the
+	-- server's beat (0.55 s) the spread to its radius in its 0.9 s, cracks
+	-- climbing the walls left standing at the edge; a low dome of dust over
+	-- the block after
 	function Effects.Collapse(char, _data, _isLocal, ability)
 		local root = charParts(char)
 		if not root then
 			return
 		end
 		VFX.Motion(char, "Collapse") -- (no cutscene: the camera stays with the fight)
-		crumbleAt(root.Position, 1)
-		task.wait(0.55)
+		DY.pour(char, 0.5)
+		local feet = groundPoint(root.Position)
+		for i = 1, 3 do
+			local a = rand(0, math.pi * 2)
+			DY.slab(feet + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(3, 6), rand(1.5, 2.5), { delay = 0.1 + i * 0.1, rise = rand(0.3, 0.7), hold = 0.3 })
+		end
+		task.wait(0.5)
 		if not root.Parent then
 			return
 		end
 		local center = groundPoint(root.Position)
-		if nearCamera(center, 90) then
-			VFX.ImpactFrame(0.1)
+		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		for _, right in { true, false } do
+			DY.palm(DY.ground(handPos(char, right), center.Y), look, { len = 5, frame = right and 0.1 or nil })
 		end
-		billboardRing(center + UP, 3, 40, DECAY_RED, 10, 0.35)
 		VFX.PlaySound("Collapse", center, 1)
-		decayRing(center, (ability and ability.Radius) or 46, 0.9, 1.2)
-		groundMark(center, 14, DECAY_CRACK, 8)
-		rocks(center, 2.5, 18)
+		task.wait(0.05)
+		if not root.Parent then
+			return
+		end
+		local R = (ability and ability.Radius) or 46
+		DY.ring(center, R, 0.9, { cracks = 10, h = 7, slabs = 8, puffs = 6, teeth = 2 })
+		DY.curtains(center, R, 0.9)
+		groundMark(center, 14, PAL.CRACK, 8)
 		VFX.ShakeAt(center, 3, 180, 1)
+		task.wait(0.9)
+		DY.dome(center, 14, 10, 2, { puffs = 14, slabs = 3 })
 	end
 
+	-- (round 84) a crack of black lightning from a to b - All For One's, with
+	-- its violet edge coming from the outline model it's put in (ep 126's
+	-- EMP): a few angular kinks, thinning to the end; shows at `delay` for
+	-- `life` seconds
+	function DY.jag(a, b, w, model, life, delay, color)
+		local v = b - a
+		local L = v.Magnitude
+		if L < 0.1 then
+			return
+		end
+		delay = delay or 0
+		local basis = CFrame.lookAt(a, b)
+		local n = math.clamp(math.floor(L / 1.6) + 2, 3, 6)
+		local prev = a
+		for i = 1, n do
+			local nxt = b
+			if i < n then
+				nxt = a + v * (i / n) + basis.RightVector * rand(-0.55, 0.55) * L / n + basis.UpVector * rand(-0.3, 0.3) * L / n
+			end
+			local len = (nxt - prev).Magnitude
+			if len > 0.02 then
+				local k = 1 - 0.45 * (i - 1) / math.max(n - 1, 1)
+				local seg = newPart(Vector3.new(w * k, w * k * 0.6, len + w * 0.4), CFrame.lookAt((prev + nxt) / 2, nxt), color or PAL.BLACK, Enum.Material.SmoothPlastic, nil, model)
+				if delay > 0 then
+					seg.Transparency = 1
+					tween(seg, 0.01, { Transparency = 0 }, nil, nil, delay)
+				end
+				tween(seg, 0.06, { Transparency = 1 }, nil, nil, delay + life)
+				cleanup(seg, delay + life + 0.1)
+			end
+			prev = nxt
+		end
+	end
+
+	-- (round 84) a rivet held between two moving points - Rivet Stab's pin
+	-- and reel, Rivet Storm's lift - its kinks staying put along it, redrawn
+	-- every frame for `dur` seconds, then pulled back into `getFrom` over
+	-- `retract`. getFrom / getTo return where its ends are now (nil: it's
+	-- over). In `model` (a red outline).
+	function DY.liveTendril(getFrom, getTo, thick, model, dur, retract, seed)
+		local n = 5
+		local r = Random.new(seed or 1)
+		local kinks = {}
+		for i = 1, n - 1 do
+			kinks[i] = Vector2.new(r:NextNumber(-0.8, 0.8), r:NextNumber(-0.5, 0.5))
+		end
+		local segs, lines = {}, {}
+		for i = 1, n do
+			local w = thick * (1 - 0.45 * (i - 1) / (n - 1))
+			segs[i] = newPart(Vector3.new(w, w, 0.1), CFrame.new(), PAL.TENDRIL, Enum.Material.SmoothPlastic, nil, model)
+			segs[i].Transparency = 1
+			lines[i] = newPart(Vector3.new(0.07, 0.05, 0.1), CFrame.new(), PAL.RED, Enum.Material.Neon, nil, model)
+			lines[i].Transparency = 1
+		end
+		local function draw(k)
+			local a, b = getFrom(), getTo()
+			if typeof(a) ~= "Vector3" or typeof(b) ~= "Vector3" then
+				return false
+			end
+			local v = b - a
+			local L = v.Magnitude
+			if L < 0.2 then
+				return true
+			end
+			local basis = CFrame.lookAt(a, b)
+			local bend = math.min(L / 9, 1.3)
+			local prev = a
+			for i = 1, n do
+				local nxt = a + v * (i / n * k)
+				if i < n then
+					nxt += (basis.RightVector * kinks[i].X + basis.UpVector * kinks[i].Y) * bend * k
+				end
+				local len = (nxt - prev).Magnitude
+				local seg, line = segs[i], lines[i]
+				if len > 0.05 then
+					local w = seg.Size.X
+					seg.Size = Vector3.new(w, w, len + w * 0.5)
+					seg.CFrame = CFrame.lookAt((prev + nxt) / 2, nxt)
+					seg.Transparency = 0
+					line.Size = Vector3.new(0.07, 0.05, len * 0.65)
+					line.CFrame = seg.CFrame * CFrame.new(0, w / 2 + 0.02, 0)
+					line.Transparency = 0
+				else
+					seg.Transparency, line.Transparency = 1, 1
+				end
+				prev = nxt
+			end
+			return true
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			while os.clock() - t0 < dur do
+				if not draw(1) then
+					break
+				end
+				task.wait()
+			end
+			local t1 = os.clock()
+			while os.clock() - t1 < retract do
+				if not draw(1 - (os.clock() - t1) / retract) then
+					break
+				end
+				task.wait()
+			end
+			for i = 1, n do
+				segs[i]:Destroy()
+				lines[i]:Destroy()
+			end
+		end)
+	end
+
+	-- RIVET STAB (R), as All For One used it on All Might (ep 48) and
+	-- Shigaraki through Endeavor (ep 122). (round 84) The fingertips go black
+	-- and split red - five little rivets grow out of them while the backlash
+	-- crackles on his arm - then (the server's Windup) they shoot out along
+	-- the server's five lines, red circuits running in them, a red-black burst
+	-- at his palm, and pull back into his fingers. The one the server pins
+	-- stays skewered on three of them (Effects.RivetPin).
 	function Effects.RivetStab(char, data, isLocal, ability)
 		local root = charParts(char)
 		if not root then
 			return
 		end
+		ability = ability or {}
 		local dir = typeof(data.Dir) == "Vector3" and data.Dir.Magnitude > 0.1 and data.Dir.Unit or root.CFrame.LookVector
 		if isLocal then
 			face(root, dir)
 		end
 		VFX.Motion(char, "RivetStab")
-		task.wait(0.2)
+		local windup = ability.Windup or 0.2
+		local ANGLES = { -14, -7, 0, 7, 14 }
+		local claws = outlineModel(PAL.RED)
+		local hand0 = handPos(char, true)
+		local side0 = root.CFrame.RightVector
+		for i, a in ANGLES do
+			local from = hand0 + side0 * (a / 14) * 0.35
+			DY.tendril(from, CFrame.Angles(0, math.rad(a), 0) * dir, 1.2, 0.26, claws,
+				{ speed = 1.2 / math.max(windup * 0.6, 0.05), segments = 2, life = windup * 0.7, delay = i * 0.01, retract = true })
+		end
+		cleanup(claws, windup + 0.4)
+		local t0 = os.clock()
+		while os.clock() - t0 < windup * 0.75 and root.Parent do
+			local hand = handPos(char, true)
+			bolt(hand, 1.4, PAL.RED)
+			bolt(hand, 1.2, PAL.BLACK)
+			task.wait(0.05)
+		end
+		task.wait(math.max(windup - (os.clock() - t0), 0))
 		if not root.Parent then
 			return
 		end
 		local origin = root.Position + UP
-		local length = (ability and ability.Range) or 110
-		for i, a in { -14, -7, 0, 7, 14 } do
-			lance(origin + root.CFrame.RightVector * (a / 14), CFrame.Angles(0, math.rad(a), 0) * dir, length, 0.9, i * 0.02)
+		local length = ability.Range or 110
+		local hand = handPos(char, true)
+		local side = root.CFrame.RightVector
+		local model = outlineModel(PAL.RED)
+		local hits = { n = 0 }
+		for i, a in ANGLES do
+			-- (from his fingertips to the end of the server's line)
+			local from = hand + side * (a / 14) * 0.35
+			local to = origin + CFrame.Angles(0, math.rad(a), 0) * dir * length
+			DY.tendril(from, to - from, (to - from).Magnitude, 0.85, model, { delay = i * 0.012, forks = i % 2, hits = hits, life = 0.32, retract = true })
 		end
+		cleanup(model, 0.95)
+		-- the burst at his palm: red and black
+		sparks(hand, 1, PAL.RED, PAL.BLACK, 12)
+		billboardRing(hand, 0.6, 5, PAL.RED, 3, 0.16)
+		shockDisc(hand, dir, 0.6, 5, 0.15, PAL.RED, 1.5)
 		VFX.PlaySound("Rivet", origin, 1)
 		VFX.ShakeAt(origin, 0.8, 60, 0.15)
 	end
 
-	-- RADIO WAVES: black lightning edged in purple crackles round his arms,
-	-- then an electromagnetic pulse ripples out in a wide fan - rings of it,
-	-- black at the core and glowing violet, rolling out across the street
+	-- (round 84) the server's pin: skewered on three rivets out of his hand,
+	-- held there (Pin), then reeled in as they pull back into his fingers
+	-- (Reel); he holds his hand out on them the whole time
+	function Effects.RivetPin(char, data)
+		local root = charParts(char)
+		local target = data.Target
+		local troot = typeof(target) == "Instance" and target:FindFirstChild("HumanoidRootPart")
+		if not root or not troot then
+			return
+		end
+		local pin, reel = tonumber(data.Pin) or 0.45, tonumber(data.Reel) or 0.3
+		VFX.Pose(char, "APShot", pin + reel)
+		local torso = target:FindFirstChild("Torso") or target:FindFirstChild("UpperTorso") or troot
+		local model = outlineModel(PAL.RED)
+		for i = 1, 3 do
+			local off = CFrame.new((i - 2) * 0.45, 0.45 - (i % 2) * 0.7, 0)
+			DY.liveTendril(function()
+				return root.Parent and handPos(char, true) or nil
+			end, function()
+				return torso.Parent and (torso.CFrame * off).Position or nil
+			end, 0.62 - math.abs(i - 2) * 0.14, model, pin + reel, 0.12, i * 7 + 3)
+		end
+		cleanup(model, pin + reel + 0.6)
+		-- where it goes in: red and black bursting out of them
+		sparks(torso.Position, 0.9, PAL.RED, PAL.BLACK, 10)
+		VFX.PlaySound("Rivet", torso.Position, 0.8)
+		task.delay(pin, function()
+			if troot.Parent then
+				VFX.PlaySound("RivetReel", troot.Position, 1)
+				-- (the rush of air as they're yanked in)
+				local toward = root.Parent and flatten(root.Position - troot.Position, troot) or troot.CFrame.LookVector
+				streaks(troot.Position, toward, 6, 1.2, 4, 10, PAL.DUST_LIGHT, 0.2)
+			end
+		end)
+	end
+
+	-- (round 84) violet lightning striking down a building's face where the
+	-- pulse meets it (ep 120): a violet bolt with a white core, black cracks
+	-- left in the wall
+	function DY.strike(pos, normal)
+		normal = (typeof(normal) == "Vector3" and normal.Magnitude > 0.1) and normal.Unit or UP
+		local top = pos + UP * rand(9, 15) + normal * 0.8
+		local pts = { top }
+		local n = 6
+		for j = 1, n do
+			pts[j + 1] = j == n and pos or top:Lerp(pos, j / n) + Vector3.new(rand(-1, 1), 0, rand(-1, 1)) * 1.1
+		end
+		for pass = 1, 2 do
+			local w = pass == 1 and 0.4 or 0.14
+			for j = 1, n do
+				local a, b = pts[j], pts[j + 1]
+				local seg = newPart(Vector3.new(w, w, (b - a).Magnitude + w), CFrame.lookAt((a + b) / 2, b), pass == 1 and PAL.VIOLET or Color3.new(1, 1, 1), Enum.Material.Neon)
+				tween(seg, 0.18, { Transparency = 1 }, nil, nil, 0.09)
+				cleanup(seg, 0.3)
+			end
+		end
+		sparks(pos, 0.8, PAL.VIOLET, Color3.new(1, 1, 1), 8)
+		DY.rivetHit(pos, normal)
+	end
+
+	-- (round 84) the air washed yellow-green for a moment round the blast
+	function DY.radioTint(strength)
+		local Lighting = game:GetService("Lighting")
+		local cc = Lighting:FindFirstChild("RadioTint")
+		if not cc then
+			cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "RadioTint"
+			cc.Parent = Lighting
+		end
+		DY.radioToken = (DY.radioToken or 0) + 1
+		local token = DY.radioToken
+		local s = math.clamp(tonumber(strength) or 1, 0, 1)
+		cc.Enabled = true
+		tween(cc, 0.08, { TintColor = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(226, 236, 170), s), Saturation = 0.1 * s, Contrast = 0.06 * s })
+		task.delay(0.5, function()
+			if token == DY.radioToken then
+				tween(cc, 0.9, { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0 }, Enum.EasingStyle.Sine)
+			end
+		end)
+	end
+
+	-- RADIO WAVES (ep 119, with Air Cannon), rebuilt in round 84 from the
+	-- episode frame by frame:
+	--  * his palm out, black lightning edged violet crackling round both arms;
+	--  * AIR CANNON'S GOLD ORB swelling round the palm - a bubble with a
+	--    bright rim and amber light inside - twice flickering violet with
+	--    black lightning cracked across it (the Radio Waves under it), its
+	--    middle going white-hot;
+	--  * the pop: a white-hot star and the screen white for a beat;
+	--  * the blast rolling out across the fan at the server's speed: a wall
+	--    of yellow-green air with a bright yellow crest along its foot and a
+	--    violet edge; the YELLOW STREAKS - bright flecks of it tearing out
+	--    ahead, smeared long; the street left in a yellow-green haze, black
+	--    lightning hanging in it, purple lightning skittering through it,
+	--    dry black cracks; violet lightning striking down the buildings it
+	--    meets; the air round it washed yellow-green for a moment.
 	function Effects.RadioWaves(char, data, isLocal, ability)
 		local root = charParts(char)
 		if not root then
@@ -10755,68 +16717,226 @@ do -- DECAY: its helpers stay local to this block (Luau allows 200 locals per sc
 		if isLocal then
 			face(root, d)
 		end
-		local VIOLET, BLACK = Color3.fromRGB(170, 80, 255), Color3.fromRGB(16, 8, 24)
 		VFX.Motion(char, "RadioWaves")
 		VFX.PlaySound("RadioCharge", root.Position, 1)
+		local windup = ability.Windup or 0.4
+		local at0 = handPos(char, true)
+		local bubble = newPart(Vector3.one * 0.4, CFrame.new(at0), PAL.GOLD, Enum.Material.ForceField, Enum.PartType.Ball)
+		bubble.Name = "RadioOrb"
+		local glow = newPart(Vector3.one * 0.3, CFrame.new(at0), PAL.AMBER, Enum.Material.Neon, Enum.PartType.Ball)
+		glow.Transparency = 0.45
+		local core = newPart(Vector3.one * 0.2, CFrame.new(at0), PAL.CORE, Enum.Material.Neon, Enum.PartType.Ball)
+		local light = Instance.new("PointLight")
+		light.Color, light.Range, light.Brightness, light.Shadows = PAL.GOLD, 12, 2.5, false
+		light.Parent = core
+		cleanup(bubble, windup + 1)
+		cleanup(glow, windup + 1)
+		cleanup(core, windup + 1)
+		local cracks = outlineModel(PAL.VIOLET)
+		cleanup(cracks, windup + 0.5)
 		local t0 = os.clock()
-		while os.clock() - t0 < 0.4 and root.Parent do
-			for _, right in { true, false } do
-				local hand = handPos(char, right)
-				bolt(hand, 2.2, VIOLET)
-				bolt(hand, 1.6, BLACK)
+		local nextBolt, flick, lastK = 0, 0, 0
+		local burst = at0
+		-- (what the orb did, for a look afterwards: the tests)
+		local orbInfo = { flickers = 0, size = 0 }
+		DY.lastOrb = orbInfo
+		while os.clock() - t0 < windup and root.Parent do
+			local e = os.clock() - t0
+			local k = math.min(e / windup, 1)
+			local s = 0.5 + 3.3 * k
+			orbInfo.size = s
+			burst = handPos(char, true) + d * (0.3 + s * 0.45)
+			bubble.CFrame, bubble.Size = CFrame.new(burst), Vector3.one * s
+			glow.CFrame, glow.Size = CFrame.new(burst), Vector3.one * s * 0.82
+			core.CFrame, core.Size = CFrame.new(burst), Vector3.one * s * (0.12 + 0.3 * k * k)
+			-- (the two violet flickers)
+			local window = (k > 0.32 and k < 0.44 and 1) or (k > 0.68 and k < 0.8 and 2) or 0
+			-- (a slow frame that jumps right over one still shows it)
+			if window == 0 and lastK <= 0.32 and k >= 0.44 and flick < 1 then
+				window = 1
+			elseif window == 0 and lastK <= 0.68 and k >= 0.8 and flick < 2 then
+				window = 2
 			end
-			task.wait(0.05)
+			lastK = k
+			bubble.Color = window > 0 and PAL.VIOLET or PAL.GOLD
+			glow.Color = window > 0 and PAL.VIOLET_DEEP or PAL.AMBER
+			light.Color = window > 0 and PAL.VIOLET or PAL.GOLD
+			if window > 0 and flick ~= window then
+				flick = window
+				orbInfo.flickers += 1
+				for _ = 1, 3 do
+					DY.jag(burst + rng:NextUnitVector() * s * 0.45, burst + rng:NextUnitVector() * s * 0.45, 0.22, cracks, windup * 0.12, 0)
+				end
+			end
+			if e >= nextBolt then
+				nextBolt = e + 0.09
+				for _, right in { true, false } do
+					local hand = handPos(char, right)
+					bolt(hand, 2.2, PAL.VIOLET)
+					bolt(hand, 1.6, PAL.BLACK)
+				end
+			end
+			task.wait()
 		end
+		bubble:Destroy()
+		glow:Destroy()
+		core:Destroy()
 		if not root.Parent then
 			return
 		end
+		-- the pop
+		if VFX.MANGA then
+			VFX.MANGA.flare(burst, PAL.CORE, 6, 0.35)
+			if nearCamera(burst, 70) then
+				VFX.MANGA.lines(0.25, { Kind = "focus" })
+			end
+		end
+		billboardRing(burst, 2, 22, Color3.new(1, 1, 1), 6, 0.25)
+		billboardRing(burst, 1, 14, PAL.GOLD, 4, 0.3)
 		local range = ability.Range or 85
 		local half = math.rad(ability.Angle or 60)
 		local speed = math.max(ability.Speed or 220, 1)
 		local origin = root.Position + d * 2 + UP * 1.5
+		local g = DY.ground(origin, origin.Y - 4.5)
 		local travel = range / speed
-		-- the rings: arcs of segments that spread as they roll outward
-		local SEGS = 16
 		local base = math.atan2(d.X, d.Z)
-		for ring = 0, 4 do
-			task.delay(ring * 0.07, function()
-				for k = 0, SEGS - 1 do
-					local a = base - half + (k + 0.5) / SEGS * half * 2
+		local k = DY.k()
+		-- the front, rolling out across the fan: the yellow-green wall (a rim
+		-- of light over a hazy body), its bright yellow crest along the
+		-- street, a violet edge behind
+		local SEGS = 12
+		local FRONTS = {
+			-- colour, material, transparency, height, height off the street, delay
+			{ PAL.HAZE, Enum.Material.ForceField, 0, 7, 3.5, 0 },
+			{ PAL.HAZE, Enum.Material.Neon, 0.72, 5, 2.5, 0 },
+			{ PAL.YELLOW, Enum.Material.Neon, 0.12, 0.9, 0.5, 0.02 },
+			{ PAL.VIOLET, Enum.Material.Neon, 0.35, 2.4, 1.6, 0.08 },
+		}
+		for _, spec in FRONTS do
+			task.delay(spec[6], function()
+				for kk = 0, SEGS - 1 do
+					local a = base - half + (kk + 0.5) / SEGS * half * 2
 					local out = Vector3.new(math.sin(a), 0, math.cos(a))
 					local tangent = Vector3.new(out.Z, 0, -out.X)
 					local r0, r1 = 3, range
 					local chord = 2 * math.sin(half / SEGS)
-					local y = UP * (ring % 2 == 0 and 0 or 1.2)
-					for layer = 1, 2 do
-						local glow = layer == 1
-						local seg = newPart(Vector3.new(r0 * chord * 1.05, glow and 2.2 or 1, glow and 0.9 or 0.45),
-							CFrame.lookAt(origin + out * r0 + y, origin + out * r0 + y + tangent), glow and VIOLET or BLACK, glow and Enum.Material.Neon or Enum.Material.SmoothPlastic)
-						seg.Transparency = glow and 0.35 or 0.1
-						local cf = CFrame.lookAt(origin + out * r1 + y, origin + out * r1 + y + tangent)
-						tween(seg, travel, { CFrame = cf, Size = Vector3.new(r1 * chord * 1.05, glow and 4 or 1.8, glow and 1.4 or 0.6), Transparency = 1 }, Enum.EasingStyle.Linear)
-						cleanup(seg, travel + 0.1)
-					end
+					local y = Vector3.new(0, g.Y + spec[5], 0)
+					local p0 = Vector3.new(origin.X, 0, origin.Z) + out * r0 + y
+					local p1 = Vector3.new(origin.X, 0, origin.Z) + out * r1 + y
+					-- (looking along the arc: its length goes on Z, so it's a wall
+					-- across the fan, not a spoke out of it)
+					local seg = newPart(Vector3.new(0.8, spec[4], r0 * chord * 1.05), CFrame.lookAt(p0, p0 + tangent), spec[1], spec[2])
+					seg.Transparency = spec[3]
+					tween(seg, travel, { CFrame = CFrame.lookAt(p1, p1 + tangent), Size = Vector3.new(1.2, spec[4] * 1.7, r1 * chord * 1.05), Transparency = 1 }, Enum.EasingStyle.Linear)
+					cleanup(seg, travel + 0.1)
 				end
 			end)
 		end
-		-- the street shivers under it, static sparks all through it
-		for s2 = 10, range, 12 do
+		-- THE YELLOW STREAKS: bright flecks of the blast tearing out across the
+		-- fan ahead of the front, smeared long
+		for _ = 1, math.max(math.floor(34 * k), 8) do
+			local a = base + rand(-half, half)
+			local out = Vector3.new(math.sin(a), rand(-0.02, 0.12), math.cos(a)).Unit
+			local start = Vector3.new(origin.X, g.Y, origin.Z) + Vector3.new(out.X, 0, out.Z) * rand(2, 10) + UP * rand(0.4, 6)
+			local len = rand(2.5, 6)
+			local dist = range * rand(0.55, 1.05)
+			local t = dist / (speed * rand(1.05, 1.5))
+			local delay = rand(0, 0.12)
+			local fleck = newPart(Vector3.new(rand(0.25, 0.45), rand(0.2, 0.35), len), CFrame.lookAt(start, start + out), PAL.YELLOW, Enum.Material.Neon)
+			fleck.Name = "RadioStreak"
+			fleck.Transparency = 1
+			tween(fleck, 0.01, { Transparency = 0.05 }, nil, nil, delay)
+			tween(fleck, t, { CFrame = CFrame.lookAt(start + out * dist, start + out * (dist + 1)), Size = Vector3.new(0.12, 0.1, len * 1.8) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, delay)
+			tween(fleck, t * 0.4, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, delay + t * 0.6)
+			cleanup(fleck, delay + t + 0.05)
+		end
+		-- the street left in yellow-green haze: low banks of it drifting on,
+		-- yellow smears over the ground, purple lightning skittering through
+		for s2 = 6, range, 9 do
 			task.delay(s2 / speed, function()
-				for _ = 1, 2 do
-					local a = base + rand(-half, half)
-					local p = groundPoint(origin + Vector3.new(math.sin(a), 0, math.cos(a)) * s2)
-					dustPuffs(p, 1.1, 2, Color3.fromRGB(120, 100, 140), 0.8, false)
-					sparks(p + UP * 2, 0.8, VIOLET, Color3.new(1, 1, 1), 6)
+				for _ = 1, math.max(math.floor(3 * k), 1) do
+					local a = base + rand(-half, half) * 0.9
+					local out = Vector3.new(math.sin(a), 0, math.cos(a))
+					local p = DY.ground(origin + out * s2, origin.Y - 4.5)
+					local w = rand(6, 10) * (0.6 + s2 / range)
+					local h = rand(2.5, 4)
+					local slab = newPart(Vector3.new(w, h, rand(7, 11)), CFrame.lookAt(p + UP * h * 0.5, p + UP * h * 0.5 + out), PAL.HAZE, Enum.Material.SmoothPlastic)
+					slab.Name = "RadioHaze"
+					slab.Transparency = 0.6
+					tween(slab, rand(0.9, 1.3), { CFrame = slab.CFrame + out * rand(4, 8) + UP * rand(1, 2.5), Size = slab.Size * Vector3.new(1.4, 1.6, 1.3), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					cleanup(slab, 1.4)
 				end
+				for _ = 1, math.max(math.floor(3 * k), 1) do
+					local a = base + rand(-half, half) * 0.9
+					local out = Vector3.new(math.sin(a), 0, math.cos(a))
+					local p = DY.ground(origin + out * s2, origin.Y - 4.5) + UP * 0.4
+					local smear = newPart(Vector3.new(rand(1.5, 3), 0.2, rand(5, 9)), CFrame.lookAt(p, p + out), PAL.YELLOW:Lerp(PAL.HAZE, 0.4), Enum.Material.Neon)
+					smear.Transparency = 0.35
+					tween(smear, 0.3, { CFrame = CFrame.lookAt(p + out * 9 + UP * 0.5, p + out * 10 + UP * 0.5), Transparency = 1, Size = Vector3.new(0.3, 0.1, 12) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					cleanup(smear, 0.35)
+				end
+				local a = base + rand(-half, half) * 0.8
+				local p = DY.ground(origin + Vector3.new(math.sin(a), 0, math.cos(a)) * (s2 - 4), origin.Y - 4.5)
+				bolt(p + UP * 1.2, 2.5, PAL.VIOLET)
+				bolt(p + UP * 1.2, 2, PAL.BLACK)
 			end)
 		end
-		shockDisc(origin, d, 4, 22, 0.3, VIOLET, 12)
-		billboardRing(origin, 3, 24, VIOLET, 8, 0.3)
+		-- black lightning hanging in the haze (violet-edged)
+		local shards = outlineModel(PAL.VIOLET)
+		for _ = 1, math.max(math.floor(9 * k), 3) do
+			local a = base + rand(-half, half) * 0.9
+			local out = Vector3.new(math.sin(a), 0, math.cos(a))
+			local r = rand(8, range * 0.9)
+			local p = DY.ground(origin + out * r, origin.Y - 4.5) + UP * rand(1.5, 7)
+			local q = p + Vector3.new(rand(-1, 1), rand(-0.5, 0.5), rand(-1, 1)).Unit * rand(2.5, 5)
+			DY.jag(p, q, 0.35, shards, 0.22, r / speed + rand(0, 0.08))
+		end
+		cleanup(shards, travel + 0.6)
+		for i = -1, 1 do
+			local a = base + i * half * 0.6 + rand(-0.1, 0.1)
+			local out = Vector3.new(math.sin(a), 0, math.cos(a))
+			DY.crack(DY.ground(origin + out * 4, origin.Y - 4.5), out, range * rand(0.6, 0.85), { speed = speed, w0 = 0.5, w1 = 0.15, step = 6, wander = 1.5, life = 2.5, hot = false })
+		end
+		-- where it meets a building: violet lightning down its face
+		for i = -2, 2 do
+			local a = base + i / 2 * half * 0.85
+			local out = Vector3.new(math.sin(a), 0, math.cos(a))
+			local hit = DY.cast(origin + UP * 1.5, out * range)
+			if hit then
+				task.delay((hit.Position - origin).Magnitude / speed, DY.strike, hit.Position, hit.Normal)
+			end
+		end
+		shockDisc(origin, d, 4, 22, 0.3, PAL.VIOLET, 12)
+		shockDisc(origin, d, 3, 18, 0.25, PAL.GOLD, 9)
 		if nearCamera(origin, 90) then
-			VFX.Hooks.Flash(Color3.fromRGB(200, 160, 255), 0.18)
+			VFX.Hooks.Flash(Color3.fromRGB(255, 252, 236), 0.12)
+		end
+		if nearCamera(origin + d * range * 0.5, range * 0.8) then
+			DY.radioTint(1)
 		end
 		VFX.PlaySound("RadioWaves", origin, 1)
 		VFX.ShakeAt(origin, 2.4, 160, 0.5)
+	end
+
+	-- (round 84) the jam on someone, for everyone to see: static crackling
+	-- pale blue round their head (the jammed comms in ep 120), a black bolt
+	-- now and then, for as long as it lasts
+	function Effects.RadioJam(_, data)
+		local target = data.Target
+		local head = typeof(target) == "Instance" and (target:FindFirstChild("Head") or target:FindFirstChild("HumanoidRootPart"))
+		if not head then
+			return
+		end
+		local dur = math.clamp(tonumber(data.Duration) or 2.5, 0, 6)
+		VFX.PlaySound("RadioJam", head.Position, 1)
+		local t0 = os.clock()
+		while os.clock() - t0 < dur and head.Parent do
+			bolt(head.Position + rng:NextUnitVector() * 0.4, 1.3, PAL.STATIC)
+			if rng:NextNumber() < 0.3 then
+				bolt(head.Position, 1.6, PAL.BLACK)
+			end
+			task.wait(0.09)
+		end
 	end
 
 	-- server: the pulse jammed you - static over your screen
@@ -10826,63 +16946,186 @@ do -- DECAY: its helpers stay local to this block (Luau allows 200 locals per sc
 		end
 	end
 
-	function Effects.RivetStorm(char, _data, _isLocal, ability)
+	-- RIVET STORM (ult 2): he folds in with black lightning tightening round
+	-- him, then (the server's Windup) the rivets burst out of his hands and
+	-- his back along the server's fourteen lines - (round 84) with a crown of
+	-- them rising out of his spine behind him, held while the ones that
+	-- caught someone lift them (Effects.RivetLift), all pulled back in after
+	function Effects.RivetStorm(char, _data, isLocal, ability)
 		local root = charParts(char)
 		if not root then
 			return
 		end
+		ability = ability or {}
 		VFX.Motion(char, "RivetStorm")
-		crumbleAt(root.Position, 1)
-		task.wait(0.3)
+		local windup = ability.Windup or 0.3
+		local t0 = os.clock()
+		while os.clock() - t0 < windup * 0.9 and root.Parent do
+			local kk = (os.clock() - t0) / (windup * 0.9)
+			bolt(root.Position + UP * 0.5, 3.4 - kk * 2, PAL.BLACK)
+			bolt(root.Position + UP * 0.5, 3 - kk * 1.6, PAL.VIOLET)
+			task.wait(0.06)
+		end
+		task.wait(math.max(windup - (os.clock() - t0), 0))
 		if not root.Parent then
 			return
 		end
 		local origin = root.Position + UP
-		for i, v in stormDirs() do
-			lance(origin, v, (ability and ability.Range) or 90, 1.2, (i % 3) * 0.03)
+		local length = ability.Range or 90
+		local look = root.CFrame.LookVector
+		local spine = origin + UP * 0.6 - look * 0.6
+		local starts = { handPos(char, true), handPos(char, false), spine }
+		local model = outlineModel(PAL.RED)
+		local hits = { n = 0 }
+		for i, v in DY.stormDirs() do
+			local from = starts[i % 3 + 1]
+			if (from - origin).Magnitude > 1.2 then
+				from = origin + (from - origin).Unit * 1.2
+			end
+			local to = origin + v * length
+			DY.tendril(from, to - from, (to - from).Magnitude, 1.05, model, { delay = (i % 3) * 0.03, segments = 5, sparse = true, forks = i % 2 + 1, hits = hits, life = 0.4, retract = true })
 		end
-		billboardRing(origin, 3, 30, DECAY_RED, 8, 0.3)
+		-- the crown out of his spine (Shigaraki in the sky, ep 122)
+		local hold = (ability.Hold or 0.7) + (ability.SlamTime or 0.16)
+		local right = root.CFrame.RightVector
+		for i = 1, 6 do
+			local side = (i - 3.5) / 2.5
+			local v = (-look * 0.7 + UP * (1.1 - math.abs(side) * 0.5) + right * side * 1.3).Unit
+			local len = rand(12, 20)
+			DY.tendril(spine, v, len, 0.7, model, { delay = 0.02 * i, segments = 4, forks = 1, life = hold, retract = true, speed = 300 })
+		end
+		cleanup(model, hold + 0.8)
+		shockDisc(DY.ground(root.Position, root.Position.Y - 3) + UP * 0.3, UP, 3, 26, 0.35, PAL.DUST_LIGHT)
+		sparks(spine, 1.2, PAL.RED, PAL.BLACK, 14)
+		if isLocal and VFX.MANGA then
+			VFX.MANGA.mono(0.06, { Tint = Color3.fromRGB(255, 220, 220), Contrast = 1.2 })
+		end
 		VFX.PlaySound("Rivet", origin, 1.2)
 		VFX.ShakeAt(origin, 2, 120, 0.4)
 	end
 
+	-- (round 84) the server's lift: everyone the storm caught, skewered on two
+	-- rivets out of his back and held up on them (Lift, Hold), then slammed
+	-- (RivetSlam)
+	function Effects.RivetLift(char, data)
+		local root = charParts(char)
+		if not root or type(data.Targets) ~= "table" then
+			return
+		end
+		local dur = (tonumber(data.Hold) or 0.7) + (tonumber(data.Slam) or 0.16)
+		local model = outlineModel(PAL.RED)
+		for n, target in data.Targets do
+			local troot = typeof(target) == "Instance" and target:FindFirstChild("HumanoidRootPart")
+			local torso = troot and (target:FindFirstChild("Torso") or target:FindFirstChild("UpperTorso") or troot)
+			if torso then
+				for j = 1, 2 do
+					local off = CFrame.new((j - 1.5) * 0.6, 0.3, 0)
+					DY.liveTendril(function()
+						if not root.Parent then
+							return nil
+						end
+						return root.Position + UP * 1.6 - root.CFrame.LookVector * 0.6 + root.CFrame.RightVector * (j - 1.5) * 0.8
+					end, function()
+						return torso.Parent and (torso.CFrame * off).Position or nil
+					end, 0.75, model, dur, 0.12, n * 11 + j)
+				end
+				sparks(torso.Position, 0.9, PAL.RED, PAL.BLACK, 10)
+			end
+		end
+		cleanup(model, dur + 0.6)
+		VFX.PlaySound("RivetReel", root.Position, 0.9)
+	end
+
+	-- (round 84) ...and slammed into the street: a dent, dust, flakes
+	function Effects.RivetSlam(_, data)
+		if type(data.Points) ~= "table" then
+			return
+		end
+		for _, p in data.Points do
+			if typeof(p) == "Vector3" then
+				groundMark(p, 4, PAL.CRACK, 4)
+				shockDisc(p + UP * 0.3, UP, 2, 14, 0.3, PAL.DUST_LIGHT)
+				for i = 1, 5 do
+					local a = i / 5 * math.pi * 2
+					celPuff(folder, p, p + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(2, 3.5) + UP * rand(0.8, 2), rand(2, 3), PAL.DUST, PAL.DUST_HI, 0.2, 0.9, i * 0.02)
+				end
+				DY.flakes(p + UP, 8, 1, PAL.DUST, PAL.ASH)
+				VFX.PlaySound("TentacleSlam", p, 1)
+				VFX.ShakeAt(p, 1.5, 80, 0.3)
+			end
+		end
+	end
+
+	-- TOTAL DECAY (ult 3, the cinematic): he rises in a column of ash, blocks
+	-- of the street lit lilac swirling up round him (ep 118), black lightning
+	-- on his arms and his right arm splitting red; both palms down on the
+	-- clip's Hit (1.2 s), and on the server's beat (1.3 s) the white sketch
+	-- frame (ep 112), the air going lilac, and the spread to 120 studs in
+	-- 2.4 s - the cracks, the plates, the low surge of dust - with the dome
+	-- of dust rising over it for the crane shot. No fire.
 	function Effects.TotalDecay(char, _data, isLocal, ability)
 		local root = charParts(char)
 		if not root then
 			return
 		end
-		cinematicFor(char, "TotalDecay", isLocal, ability and ability.Name or "TOTAL DECAY", DECAY_RED)
+		cinematicFor(char, "TotalDecay", isLocal, ability and ability.Name or "TOTAL DECAY", PAL.RED)
 		if isLocal then
 			VFX.Hooks.Dim(0.55, 3.2)
 		end
 		VFX.Motion(char, "TotalDecay")
 		VFX.PlaySound("TotalDecay", root.Position, 1)
-		-- he rises in a column of ash while the air turns red
 		local g = groundPoint(root.Position)
+		DY.armCracks(char, 3.6)
+		local fling = DY.vortex(g, 1.3)
 		local t0 = os.clock()
+		local palms = false
+		local function palmsDown()
+			palms = true
+			local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+			for _, right in { true, false } do
+				DY.palm(DY.ground(handPos(char, right), g.Y), look, { len = 7, k = 1.2 })
+			end
+		end
 		while os.clock() - t0 < 1.3 and root.Parent do
-			local k = (os.clock() - t0) / 1.3
-			celPuff(folder, g + Vector3.new(rand(-3, 3), 0, rand(-3, 3)), root.Position + UP * rand(4, 12), rand(3, 5) * (0.6 + k), DECAY_DARK, DECAY_DUST, 0.2, 0.9)
-			bolt(root.Position, 3 + k * 3, DECAY_RED)
-			task.wait(0.06)
+			local e = os.clock() - t0
+			local k = e / 1.3
+			-- the dust swirling up round him, lit lilac
+			local a = e * 7 + rand(-0.3, 0.3)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			local p = g + out * rand(3, 5)
+			celPuff(folder, p, p + out * rand(1, 2.5) + UP * rand(3, 9) * (0.6 + k), rand(2.5, 4) * (0.6 + k), PAL.MAUVE, PAL.LILAC, 0.25, 0.9)
+			bolt(handPos(char, true), 2 + k * 2, PAL.BLACK)
+			bolt(handPos(char, false), 2 + k * 2, PAL.VIOLET)
+			if not palms and k >= 1.2 / 1.3 then
+				palmsDown()
+			end
+			-- (never past the server's 1.3 s: the slam lands with its spread)
+			task.wait(math.min(0.12, math.max(1.3 - (os.clock() - t0), 0)))
 		end
 		if not root.Parent then
 			return
 		end
-		-- both hands hit the ground
+		if not palms then
+			palmsDown()
+		end
+		fling()
 		local center = groundPoint(root.Position)
 		if nearCamera(center, 300) then
-			VFX.ImpactFrame(0.18)
-			VFX.Hooks.Flash(Color3.fromRGB(255, 220, 220), 0.4)
+			DY.sketch(0.2)
+			DY.tint(1.2, 2.4, 1.5)
 		end
-		billboardRing(center + UP, 5, 120, DECAY_RED, 14, 0.6)
 		billboardRing(center + UP, 3, 80, Color3.new(1, 1, 1), 0, 0.25, true)
 		VFX.PlaySound("Collapse", center, 1.3)
-		decayRing(center, (ability and ability.Radius) or 120, 2.4, 2.2)
-		groundMark(center, 30, DECAY_CRACK, 14)
-		rocks(center, 3.5, 30)
-		emberCloud(center + UP * 20, 50, 3, 120)
+		local R = (ability and ability.Radius) or 120
+		DY.ring(center, R, 2.4, { cracks = 12, h = 13, slabs = 8, puffs = 5, teeth = 2, w0 = 1.4, step = 9, slabScale = 1.4 })
+		DY.curtains(center, R, 2.4)
+		DY.dome(center, 40, 30, 3, { puffs = 22, slabs = 5, lift = 10 })
+		groundMark(center, 30, PAL.CRACK, 14)
 		VFX.ShakeAt(center, 5, 400, 2.6)
+		task.delay(2.4, function()
+			-- the haze left hanging over the dust plain
+			smokeBurst(center + UP * 4, PAL.DUST_LIGHT, 14, R * 0.8, 2.3, math.floor(24 * DY.k()))
+		end)
 	end
 end
 
@@ -15111,27 +21354,46 @@ end
 ---------------------------------------------------------------------------
 -- OVERHAUL: FUSION - KATSUKAME. The end of the Deku fight (ch. 157 / ep. 76):
 -- he takes Katsukame and the street apart and puts them back together as a
--- towering construct of salmon stone-flesh cracked dark red. The whole front
--- of it is a gaping maw - Katsukame's black plague mask capping the upper jaw,
--- jagged rock teeth along the lower one, and Kai himself fused into the
--- throat from the waist down, arms spread. It walks on huge clawed hands, and
--- ghoulishly long arms with grasping hands writhe out of its back.
+-- towering "stone dragon" of crimson flesh, layered in slabs with dark
+-- creases between them. Katsukame's black plague mask is its hooded head
+-- (red-lined white eyes, a hooked beak, a gold band), and under it the maw
+-- gapes - red ribs raying out of a dark throat, Kai fused into it from the
+-- waist down, arms spread, framed in red flesh lips with gold rings over a
+-- black hem that closes to a point at the chest. It walks on two huge
+-- clawed arms with sawtooth ridges, a pale ribcage and a dark spine hanging
+-- under its chest, a sawtooth ridge down its back to a short tail, and six
+-- long arms with black-clawed hands branch out of its shoulders (eight in
+-- all, like the anime's).
 -- Every client builds and animates it around him; his real body is hidden
 -- for as long as it lasts (the server makes it invisible for everyone).
 -- (Set up inside its own function: Luau gives each function 200 local
 -- registers, and this module's top level has nearly used its share.)
+-- (round 83: the model rebuilt to look like the anime's. The rig - every
+-- field of k, the bulk move, the slam's point and timing - is as it was.)
 ---------------------------------------------------------------------------
 do
 	local function setupKaiju()
-		-- the anime's colours: salmon stone-flesh plates over deep red cracks
-		local PLATE = { Color3.fromRGB(228, 122, 124), Color3.fromRGB(214, 106, 112), Color3.fromRGB(236, 136, 134) }
-		local FLESH = Color3.fromRGB(126, 38, 50) -- (the dark between and under the plates)
-		local THROAT = Color3.fromRGB(30, 6, 10)
-		local RIB, RIB_DARK = Color3.fromRGB(206, 58, 70), Color3.fromRGB(98, 18, 28)
-		local TOOTH = Color3.fromRGB(232, 128, 128)
-		local CLAW = Color3.fromRGB(34, 10, 16)
+		-- (round 83) the anime's palette (ep. 76): rose-crimson flesh in cel
+		-- tones over near-black creases. The single Highlight only inks the
+		-- silhouette, so the creases inside it have to be geometry: the dark
+		-- flesh showing between the slabs and strands. (Set a little redder
+		-- and darker than the frames' lit ~(194,113,124) / shadow ~(79,32,37):
+		-- in Studio the sky light adds blue and lifts it - the old salmon
+		-- (228,122,124) showed as ~(236,151,163).)
+		local LIT = Color3.fromRGB(196, 88, 98)
+		local LIT2 = Color3.fromRGB(182, 76, 88)
+		local MID = Color3.fromRGB(156, 54, 68)
+		local DEEP = Color3.fromRGB(104, 28, 40) -- (the limbs' cores: the creases between the strands)
+		local CORE = Color3.fromRGB(110, 30, 42) -- (the body under its slabs: the dark step under each)
+		local FLESH = MID -- (joints, knuckles, the flesh walls)
+		local THROAT = Color3.fromRGB(22, 4, 9)
+		local RIB, RIB_DARK = Color3.fromRGB(178, 40, 56), Color3.fromRGB(78, 12, 22)
+		local TOOTH = Color3.fromRGB(200, 116, 120) -- (the same flesh, paler)
+		local CLAW = Color3.fromRGB(22, 8, 12)
+		local BONE, BONE_DARK = Color3.fromRGB(232, 220, 196), Color3.fromRGB(186, 170, 148)
+		local SPINE = Color3.fromRGB(50, 30, 38)
 		local RED_EYE = Color3.fromRGB(255, 40, 52)
-		local MASK = Color3.fromRGB(26, 24, 30)
+		local MASK = Color3.fromRGB(40, 40, 50) -- (a blue-grey black: ~(47..66,48..67,60..76))
 		local MASK_LINE = Color3.fromRGB(200, 36, 50)
 		local GOLD = Color3.fromRGB(214, 172, 74)
 		local RED = Overhaul.RED
@@ -15140,6 +21402,8 @@ do
 		local RISE = 1.6 -- seconds to put itself together (the server's timeline)
 		local FORM_AT = 0.45 -- when his body comes apart
 		local SLAM = 0.62 -- one arm slam; the hand lands at 0.55 of it
+		local ARM = 19.5 -- (round 83) each bone of the two walking arms
+		local SHADOW_SIZE = 8 -- (round 83) only parts bigger than this cast a shadow
 		local kaijus = setmetatable({}, { __mode = "k" }) -- [character] = the live kaiju
 
 		local function ball(model, size, color, material)
@@ -15150,17 +21414,18 @@ do
 			return p
 		end
 		local function block(model, size, color, material)
-			return newPart(size, CFrame.new(), color, material or Enum.Material.Slate, nil, model)
+			return newPart(size, CFrame.new(), color, material or Enum.Material.SmoothPlastic, nil, model)
 		end
-		local function wedge(model, size, color)
+		local function wedge(model, size, color, material)
 			local p = Instance.new("WedgePart")
 			p.Anchored = true
 			p.CanCollide = false
 			p.CanQuery = false
 			p.CanTouch = false
+			p.CastShadow = false
 			p.Size = size
 			p.Color = color
-			p.Material = Enum.Material.Slate
+			p.Material = material or Enum.Material.SmoothPlastic
 			p.Parent = model
 			return p
 		end
@@ -15196,13 +21461,19 @@ do
 		end
 
 		-- a clawed hand: palm, long fingers and a thumb, dark claws. Its frame's
-		-- -Z runs along the fingers and -Y out of the palm; side = which hand
+		-- -Z runs along the fingers and -Y out of the palm; side = which hand.
+		-- [3] is a foot: three stubby toes, no thumb.
 		local FINGERS = {
 			[5] = { { -1.25, -2.9, 0.2 }, { -0.42, -3.2, 0.07 }, { 0.42, -3.2, -0.07 }, { 1.25, -2.9, -0.2 }, { -1.8, -0.9, 1, true } },
 			[4] = { { -1, -2.9, 0.18 }, { 0, -3.2, 0 }, { 1, -2.9, -0.18 }, { -1.6, -0.9, 1, true } },
+			[3] = { { -1.1, -2.4, 0.3 }, { 0, -2.6, 0 }, { 1.1, -2.4, -0.3 } },
 		}
-		local function newHand(model, s, count, side, jointed)
-			local h = { s = s, palm = ball(model, Vector3.new(3.8, 1.6, 3.8) * s, PLATE[2]), fingers = {} }
+		-- (the tests count the hands by their palm: a sphere 3.8 x 1.6 x 3.8 -
+		-- eight of them. A foot's pad is shorter, so it isn't one)
+		local PALM = Vector3.new(3.8, 1.6, 3.8)
+		local PAD = Vector3.new(3.8, 1.6, 3)
+		local function newHand(model, s, count, side, jointed, pad)
+			local h = { s = s, palm = ball(model, (pad or PALM) * s, MID), fingers = {} }
 			for _, f in FINGERS[count] do
 				local x, yaw, thumb = f[1], f[3], f[4] == true
 				if thumb then
@@ -15213,10 +21484,13 @@ do
 					x = x,
 					z = f[2],
 					yaw = yaw,
-					l1 = thumb and 2.2 or 2.8,
+					-- (round 83) the thumb starts tipped up off the palm, so on a hand
+					-- planted on the street it grips the edge instead of burying itself
+					rise = thumb and 0.3 or 0,
+					l1 = thumb and 2.2 or (count == 3 and 1.8 or 2.8),
 					l2 = jointed and (thumb and 1.6 or 2.3) or nil,
-					seg1 = ball(model, Vector3.new(w, w * 0.85, 3.1) * s, PLATE[1]),
-					seg2 = jointed and ball(model, Vector3.new(w * 0.85, w * 0.72, 2.6) * s, PLATE[3]) or nil,
+					seg1 = ball(model, Vector3.new(w, w * 0.85, 3.1) * s, LIT),
+					seg2 = jointed and ball(model, Vector3.new(w * 0.85, w * 0.72, 2.6) * s, MID) or nil,
 					claw = ball(model, Vector3.new(w * 0.62, w * 0.5, 2) * s, CLAW),
 				})
 			end
@@ -15247,101 +21521,274 @@ do
 				from = {},
 				t0 = os.clock(),
 				phase = 0,
+				-- (where the jaw swings and what it rears back around: update reads these)
+				hinge = CFrame.new(0, 21.5, -9),
+				hips = CFrame.new(0, 20, 24),
 			}
 			-- same seed on every client: everyone sees the same monster
 			local rs = Random.new(157)
 			local function fixed(part, cf, list)
-				part.CastShadow = true
 				table.insert(list or k.fixed, { part = part, cf = cf })
 			end
-			-- stone-flesh slabs laid over an ellipsoid (centre c, radii r), the
-			-- dark cracks showing between them; keep(p) can skip spots
-			local function coat(c, r, count, size, keep, list)
-				local golden = math.pi * (3 - math.sqrt(5))
-				for i = 0, count - 1 do
-					local y = 1 - (i + 0.5) / count * 2
-					local ring = math.sqrt(1 - y * y)
-					local unit = Vector3.new(math.cos(golden * i) * ring, y, math.sin(golden * i) * ring)
-					local p = c + unit * r
-					if not keep or keep(p) then
-						local n = Vector3.new(unit.X / r.X, unit.Y / r.Y, unit.Z / r.Z).Unit
-						local t = n:Cross(math.abs(n.Y) < 0.9 and UP or Vector3.new(1, 0, 0)).Unit
-						local w, d = size * rs:NextNumber(0.85, 1.2), size * rs:NextNumber(0.7, 1.05)
-						local cf = CFrame.fromMatrix(p - n * 0.05, t, n)
-							* CFrame.Angles(rs:NextNumber(-0.1, 0.1), rs:NextNumber(0, math.pi), rs:NextNumber(-0.1, 0.1))
-						fixed(block(model, Vector3.new(w, rs:NextNumber(1, 1.6), d), PLATE[rs:NextInteger(1, 3)]), cf, list)
+			local function shape(c, size, color, list)
+				fixed(ball(model, size, color or CORE), CFrame.new(c), list)
+			end
+			-- a slab's tone by which way it faces: lit on top, darker down the
+			-- sides, darkest underneath (the anime's cel shading)
+			local function tone(n)
+				if n.Y > 0.5 then
+					return rs:NextNumber() < 0.65 and LIT or LIT2
+				elseif n.Y > 0 then
+					return rs:NextNumber() < 0.5 and LIT2 or MID
+				end
+				return n.Y > -0.45 and MID or DEEP
+			end
+			-- (round 83) the stone-flesh slabs, in overlapping rows over an
+			-- ellipsoid (centre c - or a CFrame, for a turned one - radii r) like
+			-- roof tiles. A row { a, count, spread } is a ring at angle a from the
+			-- pole `top`, its slabs spread over `spread` radians round it, centred
+			-- on `face` (both in the ellipsoid's own axes); da is the step between
+			-- rows. Each slab is a wedge lying on the flesh, its thin edge uphill
+			-- and its thick lip downhill over the next row: a dark step shows
+			-- under every lip, the anime's layered slabs and crease lines.
+			-- (They rest on the surface, not half sunk in it, or the core's
+			-- curve pokes up through them and only their edges show.)
+			local function shingles(c, r, top, face, rows, da, list)
+				local frame = typeof(c) == "CFrame" and c or CFrame.new(c)
+				local across = top:Cross(face).Unit
+				local function at(a, phi)
+					local u = top * math.cos(a) + (face * math.cos(phi) + across * math.sin(phi)) * math.sin(a)
+					return frame * (u * r), frame:VectorToWorldSpace(Vector3.new(u.X / r.X, u.Y / r.Y, u.Z / r.Z).Unit)
+				end
+				for _, row in rows do
+					local count, spread = row[2], row[3]
+					local step = count > 1 and spread / (count - 1) or spread
+					for j = 1, count do
+						local a = row[1] + rs:NextNumber(-0.06, 0.06) * da
+						local phi = (count > 1 and (j - 1) * step - spread / 2 or 0) + rs:NextNumber(-0.1, 0.1) * step
+						local p, n = at(a, phi)
+						local down = at(a + da / 2, phi) - at(a - da / 2, phi)
+						local wide = at(a, phi + step / 2) - at(a, phi - step / 2)
+						local t = down - n * down:Dot(n)
+						t = t.Magnitude > 0.05 and t.Unit or n:Cross(across).Unit
+						local h = rs:NextNumber(1, 1.5)
+						local size = Vector3.new(math.max(wide.Magnitude * 1.22, 2.4), h, math.max(down.Magnitude * 1.5, 2.4))
+						-- (its underside on the surface's tangent, its thin edge tucked
+						-- under the row above, tipped a little so the lip stands off)
+						local cf = CFrame.fromMatrix(p + n * (h * 0.5 + 0.05), n:Cross(t), n, t)
+							* CFrame.Angles(-0.05, rs:NextNumber(-0.08, 0.08), 0)
+						fixed(wedge(model, size, tone(n)), cf, list)
 					end
 				end
 			end
 			-- a jagged rock spike: two wedges back to back make a blade with a sharp
 			-- ridge, its base sunk into the flesh at pos, pointing along tilt's +Y
-			local function spike(pos, height, thick, tilt, color, list)
-				local base = CFrame.new(pos) * tilt * CFrame.Angles(0, rs:NextNumber(-0.4, 0.4), 0)
+			-- (blade: how thick the blade is, if not thick * 0.9)
+			local function spike(pos, height, thick, tilt, color, list, blade)
+				local base = CFrame.new(pos) * tilt * CFrame.Angles(0, rs:NextNumber(-0.3, 0.3), 0)
 				local w = thick * 2.2
-				color = color or PLATE[1]
-				fixed(wedge(model, Vector3.new(thick * 0.9, height, w / 2), color), base * CFrame.new(0, height * 0.4, -w / 4), list)
+				local bx = blade or thick * 0.9
+				color = color or LIT
+				fixed(wedge(model, Vector3.new(bx, height, w / 2), color), base * CFrame.new(0, height * 0.4, -w / 4), list)
 				fixed(
-					wedge(model, Vector3.new(thick * 0.9, height, w / 2), color),
+					wedge(model, Vector3.new(bx, height, w / 2), color),
 					base * CFrame.new(0, height * 0.4, w / 4) * CFrame.Angles(0, math.pi, 0),
 					list
 				)
 			end
-			local function shape(c, size, color, list)
-				fixed(ball(model, size, color or FLESH), CFrame.new(c), list)
-			end
-			-- a limb bone: a dark core with salmon rock plates over its top and
-			-- sides - the underside stays in shadow, like the anime's cel shading
-			local function bone(len, thick)
-				local b = { core = ball(model, Vector3.new(len + thick * 0.5, thick, thick), FLESH), plates = {} }
-				local n = math.max(2, math.floor(len / (thick * 0.85) + 0.5))
+			-- a limb bone: a dark core wrapped in long sinew strands (the anime's
+			-- root-like muscle) - lit along the top, the core showing dark in the
+			-- grooves between them; saw = sawtooth spikes raking back along its top.
+			-- (round 83: the strands ride 0.43 x thick out from the bone's axis, so
+			-- they stand ~0.16 x thick proud of the core - ropes, not painted stripes)
+			local function bone(len, thick, strands, saw, sawSide)
+				local b = { core = ball(model, Vector3.new(len + thick * 0.5, thick, thick), DEEP), plates = {} }
+				local n = strands or 3
 				for i = 1, n do
-					for j = -1, 1, 2 do
-						local rel = CFrame.new(((i - 0.5) / n - 0.5) * len * 0.95, 0, 0)
-							* CFrame.Angles(j * rs:NextNumber(0.2, 1), 0, 0)
-							* CFrame.new(0, thick * 0.36, 0)
-							* CFrame.Angles(rs:NextNumber(-0.2, 0.2), rs:NextNumber(-0.25, 0.25), rs:NextNumber(-0.12, 0.12))
-						local size = Vector3.new(len / n * rs:NextNumber(0.95, 1.3), thick * rs:NextNumber(0.28, 0.4), thick * rs:NextNumber(0.42, 0.62))
-						table.insert(b.plates, { part = block(model, size, PLATE[rs:NextInteger(1, 3)]), rel = rel })
-					end
+					local a = (i - (n + 1) / 2) * (3.6 / n) + rs:NextNumber(-0.12, 0.12)
+					local rel = CFrame.new(rs:NextNumber(-0.06, 0.06) * len, 0, 0) * CFrame.Angles(a, 0, 0) * CFrame.new(0, thick * 0.43, 0)
+					local size = Vector3.new(len * rs:NextNumber(0.88, 1.02), thick * 0.46, thick * rs:NextNumber(0.42, 0.52))
+					table.insert(b.plates, { part = ball(model, size, math.abs(a) < 0.7 and LIT or MID), rel = rel })
+				end
+				for i = 1, saw or 0 do
+					-- (a wedge's thick edge at +Z: turned so its tall face looks down the
+					-- bone and it slopes back toward the bone's start. The first, by the
+					-- joint, is a horn)
+					local h = thick * (i == 1 and 0.85 or rs:NextNumber(0.62, 0.72) - i * 0.05)
+					-- (a bone's +Z is world-sideways: turned 45 degrees about the bone, the
+					-- teeth stand up and out along sawSide's edge)
+					local rel = CFrame.Angles((sawSide or 0) * math.rad(45), 0, 0)
+						* CFrame.new(((i - 0.5) / saw - 0.5) * len * 0.82, thick * 0.5 + h / 2 - 0.4, 0)
+						* CFrame.Angles(0, math.pi / 2, 0)
+					table.insert(b.plates, { part = wedge(model, Vector3.new(thick * 0.32, h, len / saw * 0.95), TOOTH), rel = rel })
 				end
 				return b
 			end
 			k.bone = bone
 
 			-- (local space: -Z forward, +Y up, the origin on the ground under him)
-			-- the hunched mass behind the maw, rock spines down its back
-			shape(Vector3.new(0, 29, 9), Vector3.new(32, 26, 26))
-			shape(Vector3.new(0, 23, 21), Vector3.new(24, 18, 18))
-			coat(Vector3.new(0, 29, 9), Vector3.new(16, 13, 13), 46, 7, function(p)
-				return p.Y > 25 and p.Z > -2
-			end)
-			coat(Vector3.new(0, 23, 21), Vector3.new(12, 9, 9), 16, 6, function(p)
-				return p.Y > 21 and p.Z > 19
-			end)
-			for i = 0, 7 do
-				local z = 0 + i * 3.6
-				local y = 43 - ((z - 12) / 11) ^ 2 * 5
-				spike(Vector3.new(0, y, z), rs:NextNumber(7, 11), 2.6, CFrame.Angles(math.rad(28 + i * 5), 0, rs:NextNumber(-0.2, 0.2)))
-				if i % 2 == 0 and i < 7 then
-					for _, side in { 1, -1 } do
-						spike(Vector3.new(side * 7.5, y - 3, z + 1), rs:NextNumber(4.5, 7), 2.1, CFrame.Angles(math.rad(35), 0, math.rad(-side * 40)))
-					end
+			-- THE BODY: a hunched chest and shoulders, the back sloping down to the
+			-- hips and a short tail - dark flesh, rows of slabs stepping down the
+			-- back toward the tail (the back is what his own camera sees most)
+			shape(Vector3.new(0, 27, -3), Vector3.new(26, 22, 22))
+			shape(Vector3.new(0, 29, 11), Vector3.new(24, 18, 22))
+			shape(Vector3.new(0, 22, 24), Vector3.new(20, 15, 16))
+			local CREST, AFT = Vector3.new(0, 0.6, -0.8), Vector3.new(0, 0.8, 0.6)
+			shingles(Vector3.new(0, 29, 11), Vector3.new(12, 9, 11), CREST, AFT, {
+				{ 0.75, 4, 2.4 },
+				{ 1.1, 6, 2.9 },
+				{ 1.45, 6, 3 },
+				{ 1.8, 6, 3 },
+				{ 2.15, 5, 2.8 },
+				{ 2.5, 3, 2.2 },
+			}, 0.35)
+			shingles(Vector3.new(0, 22, 24), Vector3.new(10, 7.5, 8), CREST, AFT, { { 1.45, 5, 2.8 }, { 1.8, 5, 2.8 }, { 2.15, 4, 2.4 } }, 0.35)
+			-- the tail, short and thick, dropping toward the street
+			local TAIL = { Vector3.new(0, 24, 25), Vector3.new(0, 18.5, 31), Vector3.new(0, 13, 35.5), Vector3.new(0, 9, 39) }
+			local TAIL_T = { 11, 8.5, 6 }
+			local TAIL_ROWS = { { { 1.05, 3, 2.2 }, { 1.65, 3, 2.2 } }, { { 1.3, 3, 2 } } }
+			for i = 1, #TAIL - 1 do
+				local a, b = TAIL[i], TAIL[i + 1]
+				local size = Vector3.new((b - a).Magnitude + TAIL_T[i] * 0.9, TAIL_T[i], TAIL_T[i] * 1.1)
+				-- (round 83: its bare top is lit flesh, not the darkest thing in
+				-- his own camera's view)
+				fixed(ball(model, size, i == 1 and CORE or MID), between(a, b))
+				-- (slabs down its top too: it fills the bottom of his own camera)
+				if TAIL_ROWS[i] then
+					shingles(between(a, b), size / 2, Vector3.new(-1, 0, 0), UP, TAIL_ROWS[i], 0.6)
 				end
 			end
+			-- a sawtooth ridge of thin rock blades down the spine, from behind the
+			-- hood (lower than it) to the tail's tip, shorter as it goes
+			local RIDGE = {
+				{ 38.4, 1 }, { 38.8, 6.5 }, { 38.4, 12 }, { 36.2, 17.5 }, { 32.6, 22.5 },
+				{ 28, 27 }, { 23.2, 31 }, { 18.6, 34.5 }, { 13.6, 37.6 },
+			}
+			for i, r in RIDGE do
+				spike(Vector3.new(0, r[1], r[2]), 8.8 - i * 0.6, 3.2 - i * 0.15, CFrame.Angles(math.rad(38 + i * 4), 0, 0), TOOTH, nil, 1.1)
+			end
 
-			-- the maw: the whole front of it. A dark throat with red ribs raying
-			-- out of it (and a red glow down in it), framed by thick cheeks
-			local MOUTH = Vector3.new(0, 27, -4.5)
-			shape(MOUTH + Vector3.new(0, 0, 2), Vector3.new(24, 22, 3), THROAT)
-			for i = 1, 22 do
-				local a = i / 22 * math.pi * 2
+			-- THE SHOULDERS: two enormous masses either side of the hood, the
+			-- widest thing about it, slabs stacked down them in rows like split
+			-- stone (the anime's front view)
+			for _, side in { 1, -1 } do
+				shape(Vector3.new(side * 14, 32, -1), Vector3.new(15, 17, 19))
+				shingles(Vector3.new(side * 14, 32, -1), Vector3.new(7.5, 8.5, 9.5), UP, Vector3.new(side, 0, 0), {
+					{ 0.45, 3, 4 },
+					{ 0.9, 6, 4 },
+					{ 1.35, 6, 3.4 },
+					{ 1.8, 4, 2.6 },
+				}, 0.45)
+				-- the cheeks: flesh walls either side of the maw
+				shape(Vector3.new(side * 9, 28.5, -13.5), Vector3.new(6.5, 21, 10))
+				shingles(Vector3.new(side * 9, 28.5, -13.5), Vector3.new(3.25, 10.5, 5), UP, Vector3.new(side * 0.6, 0, -0.8), {
+					{ 0.7, 2, 1.6 },
+					{ 1.4, 1, 1.2 },
+				}, 0.7)
+			end
+
+			-- THE HOOD: Katsukame's plague mask grown into its head - black, a
+			-- rounded point on top, a hooked beak, white eyes ringed in red lines,
+			-- red lines swirling over it, a gold band where it meets the flesh.
+			-- The top of the whole silhouette from the street and from behind.
+			shape(Vector3.new(0, 37.5, -10), Vector3.new(13, 9, 15)) -- the neck it grows out of
+			shingles(Vector3.new(0, 37.5, -10), Vector3.new(6.5, 4.5, 7.5), UP, Vector3.new(0, 0, 1), { { 0.6, 2, 1.8 }, { 1.15, 2, 2.2 } }, 0.55)
+			-- (round 83: sunk into the back of the dome, just wider than it there, so
+			-- from behind it's a ring round the hood, not a gold disc on its back)
+			fixed(
+				newPart(Vector3.new(1.2, 9.6, 9.6), CFrame.new(), GOLD, Enum.Material.Metal, Enum.PartType.Cylinder, model),
+				CFrame.new(0, 41.2, -16) * CFrame.Angles(0, math.rad(90), 0)
+			)
+			local dome, domeR = Vector3.new(0, 41.2, -19), Vector3.new(5.2, 6.2, 5.4)
+			local tip, tipR = CFrame.new(0, 45.2, -18) * CFrame.Angles(0.25, 0, 0), Vector3.new(3.5, 3.7, 3.6)
+			fixed(ball(model, domeR * 2, MASK), CFrame.new(dome))
+			fixed(ball(model, tipR * 2, MASK), tip)
+			-- the beak, hooking down in front of the top of the maw
+			fixed(ball(model, Vector3.new(4.4, 3.8, 6.6), MASK), CFrame.new(0, 40, -24) * CFrame.Angles(math.rad(-34), 0, 0))
+			fixed(ball(model, Vector3.new(2.9, 2.5, 4.6), MASK), CFrame.new(0, 37.6, -26.7) * CFrame.Angles(math.rad(-68), 0, 0))
+			fixed(ball(model, Vector3.new(1.7, 1.5, 2.8), MASK), CFrame.new(0, 35.6, -27) * CFrame.Angles(math.rad(-104), 0, 0))
+			-- a point on the mask's surface, in the direction d from the dome's middle:
+			-- on the dome, or (round 83) on the rounded point where that stands out
+			-- past it, so the lines over the top aren't buried inside the point
+			local function onMask(d, lift)
+				local u = d.Unit
+				local t = d.Magnitude / math.sqrt((d.X / domeR.X) ^ 2 + (d.Y / domeR.Y) ^ 2 + (d.Z / domeR.Z) ^ 2)
+				-- (where the ray leaves the point's ellipsoid, in its own unit-sphere space)
+				local o, v = tip:PointToObjectSpace(dome) / tipR, tip:VectorToObjectSpace(u) / tipR
+				local a, b, c = v:Dot(v), o:Dot(v), o:Dot(o) - 1
+				if b * b - a * c > 0 then
+					t = math.max(t, (-b + math.sqrt(b * b - a * c)) / a)
+				end
+				return dome + u * (t + (lift or 0))
+			end
+			-- (lift: how far off the surface the joints sit, so the straight
+			-- segments don't sink under its curve between them)
+			local function maskLine(dirs, thick, color, lift, material)
+				for i = 1, #dirs - 1 do
+					local a, b = onMask(dirs[i], lift or 0.05), onMask(dirs[i + 1], lift or 0.05)
+					fixed(ball(model, Vector3.new((b - a).Magnitude + thick, thick, thick), color or MASK_LINE, material), between(a, b))
+				end
+			end
+			for _, side in { 1, -1 } do
+				local look = Vector3.new(side * 0.85, 0.2, -0.75)
+				local eye = onMask(look, 0)
+				fixed(ball(model, Vector3.new(3.1, 3.8, 0.7), MASK_LINE), aim(eye, look))
+				fixed(ball(model, Vector3.new(2.3, 3, 0.8), Color3.fromRGB(242, 240, 232)), aim(eye + look.Unit * 0.12, look))
+				-- (a pinprick of red for a pupil: it glows)
+				fixed(ball(model, Vector3.new(0.8, 0.8, 0.5), RED_EYE, Enum.Material.Neon), aim(eye + look.Unit * 0.44, look))
+				maskLine({
+					Vector3.new(side, 0.45, 0.2),
+					Vector3.new(side, -0.25, 0.1),
+					Vector3.new(side * 0.9, -0.6, -0.4),
+					Vector3.new(side * 0.5, -0.4, -0.9),
+				}, 0.5)
+			end
+			-- (round 83: the lines over the top ride over the rounded point, spaced
+			-- closer where it curves hardest)
+			maskLine({
+				Vector3.new(0, 0.6, 1),
+				Vector3.new(0, 1, 0.6),
+				Vector3.new(0, 1, 0.16),
+				Vector3.new(0, 1, -0.23),
+				Vector3.new(0, 0.5, -1),
+			}, 0.5, nil, 0.2)
+			-- (the thin gold line over the top of it, like the anime's)
+			maskLine({
+				Vector3.new(0.35, 0.6, 1),
+				Vector3.new(0.46, 1, 0.46),
+				Vector3.new(0.45, 1, -0.03),
+				Vector3.new(0.5, 0.7, -1),
+			}, 0.35, GOLD, 0.25, Enum.Material.Metal)
+
+			-- THE MAW: a tall keyhole under the hood. A dark throat, red ribs
+			-- raying out of it, a red glow down in it. Framed like the anime's
+			-- front view: the mask's black hem round the opening, red flesh lips
+			-- over it ringed in gold near the bottom, closing to a black point.
+			local MOUTH, MR = Vector3.new(0, 28.5, -18.2), Vector2.new(7.2, 10)
+			shape(MOUTH + Vector3.new(0, 0, 1.6), Vector3.new(MR.X * 2 + 1, MR.Y * 2 + 1, 2.4), THROAT)
+			for i = 1, 14 do
+				local a = i / 14 * math.pi * 2
 				local dir = Vector3.new(math.cos(a), math.sin(a), 0)
-				local len = 5.8 + (i % 2) * 2.2
-				fixed(
-					block(model, Vector3.new(0.9, len, 0.35), i % 2 == 0 and RIB or RIB_DARK, Enum.Material.SmoothPlastic),
-					CFrame.fromMatrix(MOUTH + Vector3.new(0, 0, 0.45) + dir * (2.4 + len / 2), Vector3.new(-dir.Y, dir.X, 0), dir)
-						* CFrame.Angles(math.rad(-10), 0, 0)
-				)
+				local edge = 1 / math.sqrt((dir.X / MR.X) ^ 2 + (dir.Y / MR.Y) ^ 2)
+				local p0, p1 = MOUTH + dir * 1.6 + Vector3.new(0, 0, 0.6), MOUTH + dir * (edge - 0.4) + Vector3.new(0, 0, -0.2)
+				fixed(ball(model, Vector3.new((p1 - p0).Magnitude, 1.3, 0.7), i % 2 == 0 and RIB or RIB_DARK), between(p0, p1))
+			end
+			-- a point on the maw's rim, `deg` round from the side (90 = the top)
+			local function rim(side, deg, out, dz)
+				local a = math.rad(deg)
+				local e = 1 / math.sqrt((math.cos(a) / MR.X) ^ 2 + (math.sin(a) / MR.Y) ^ 2) + out
+				return MOUTH + Vector3.new(side * math.cos(a) * e, math.sin(a) * e, dz)
+			end
+			local function strap(a, b, thick, depth, color, material)
+				fixed(ball(model, Vector3.new((b - a).Magnitude + thick * 0.8, thick, depth), color, material), between(a, b))
+			end
+			for _, side in { 1, -1 } do
+				strap(rim(side, 78, 0.4, -0.9), rim(side, 10, 0.4, -0.9), 1.3, 1.6, MASK)
+				strap(rim(side, 10, 0.4, -0.9), rim(side, -78, 0.4, -0.9), 1.3, 1.6, MASK)
+				strap(rim(side, 84, 2, -1.5), rim(side, 32, 2, -1.5), 3, 2.6, LIT2)
+				strap(rim(side, 32, 2, -1.5), rim(side, -24, 2, -1.5), 3, 2.6, MID)
+				strap(rim(side, -24, 2, -1.5), rim(side, -74, 2, -1.5), 2.8, 2.6, MID)
+				fixed(ball(model, Vector3.new(1.2, 3.5, 3.1), GOLD, Enum.Material.Metal), between(rim(side, -50, 2, -1.5), rim(side, -58, 2, -1.5)))
 			end
 			local glow = newPart(Vector3.one * 0.4, CFrame.new(), RED, Enum.Material.Neon, nil, model)
 			glow.Transparency = 1
@@ -15351,116 +21798,61 @@ do
 			light.Range = 26
 			light.Brightness = 3
 			light.Parent = glow
-			for _, side in { 1, -1 } do
-				shape(Vector3.new(side * 12.5, 27, -6), Vector3.new(8, 24, 13))
-				coat(Vector3.new(side * 12.5, 27, -6), Vector3.new(4, 12, 6.5), 12, 4.6, function(p)
-					return p.X * side > 12.8 or p.Z < -11
-				end)
-			end
-			-- the upper jaw: a thick overhang over the mouth, jutting forward to
-			-- Katsukame's mask, jagged teeth hanging off its underside
-			shape(Vector3.new(0, 39, -6), Vector3.new(28, 9, 15))
-			shape(Vector3.new(0, 38, -14.5), Vector3.new(17, 7.5, 12))
-			shape(Vector3.new(0, 37, -21), Vector3.new(11, 6.5, 8))
-			coat(Vector3.new(0, 39, -6), Vector3.new(14, 4.5, 7.5), 18, 5.2, function(p)
-				return p.Y > 38.5
-			end)
-			coat(Vector3.new(0, 38, -14.5), Vector3.new(8.5, 3.75, 6), 11, 4.2, function(p)
-				return p.Y > 37.5
-			end)
-			coat(Vector3.new(0, 37, -21), Vector3.new(5.5, 3.25, 4), 7, 3.4, function(p)
-				return p.Y > 36.6
-			end)
-			for _, t in { { 9.5, -6 }, { 8, -10.5 }, { 6.4, -15 }, { 4.4, -19.5 } } do
-				for _, side in { 1, -1 } do
-					spike(
-						Vector3.new(side * t[1], 34.6, t[2]),
-						rs:NextNumber(4.5, 6.2),
-						1.5,
-						CFrame.Angles(math.rad(180 + rs:NextNumber(-12, 12)), 0, math.rad(side * rs:NextNumber(0, 12))),
-						TOOTH
-					)
-				end
-			end
-			-- Katsukame's plague mask: black, a hooked beak, white eyes ringed red,
-			-- red lines swirling over it, a gold band where it meets the flesh
-			fixed(
-				newPart(Vector3.new(1.4, 8.4, 8.4), CFrame.new(), GOLD, Enum.Material.Metal, Enum.PartType.Cylinder, model),
-				CFrame.new(0, 37.1, -24.2) * CFrame.Angles(0, math.rad(90), 0)
-			)
-			local dome, domeR = Vector3.new(0, 37.3, -27.4), Vector3.new(4.2, 4, 4.3)
-			fixed(ball(model, domeR * 2, MASK), CFrame.new(dome))
-			fixed(ball(model, Vector3.new(4.4, 4, 8.2), MASK), CFrame.new(0, 34.6, -31.3) * CFrame.Angles(math.rad(-52), 0, 0))
-			fixed(ball(model, Vector3.new(2.8, 2.6, 5.2), MASK), CFrame.new(0, 30.8, -33.6) * CFrame.Angles(math.rad(-80), 0, 0))
-			fixed(ball(model, Vector3.new(1.6, 1.5, 3), MASK), CFrame.new(0, 28.4, -33.4) * CFrame.Angles(math.rad(-110), 0, 0))
-			-- a point on the mask's dome, in the direction d from its middle
-			local function onMask(d, lift)
-				local s = 1 / math.sqrt((d.X / domeR.X) ^ 2 + (d.Y / domeR.Y) ^ 2 + (d.Z / domeR.Z) ^ 2)
-				return dome + d * s + d.Unit * (lift or 0)
-			end
-			local function maskLine(dirs, thick)
-				for i = 1, #dirs - 1 do
-					local a, b = onMask(dirs[i], 0.05), onMask(dirs[i + 1], 0.05)
-					fixed(ball(model, Vector3.new((b - a).Magnitude + thick, thick, thick), MASK_LINE), between(a, b))
-				end
-			end
-			for _, side in { 1, -1 } do
-				local look = Vector3.new(side, 0.3, -0.7)
-				local eye = onMask(look, 0)
-				fixed(ball(model, Vector3.new(2.9, 3.4, 0.7), MASK_LINE), aim(eye, look))
-				fixed(ball(model, Vector3.new(2.2, 2.8, 0.8), Color3.fromRGB(242, 240, 232)), aim(eye + look.Unit * 0.12, look))
-				-- (a pinprick of red for a pupil: it glows)
-				fixed(ball(model, Vector3.new(0.8, 0.8, 0.5), RED_EYE, Enum.Material.Neon), aim(eye + look.Unit * 0.44, look))
-				maskLine({
-					Vector3.new(side, -0.3, 0.45),
-					Vector3.new(side, -0.6, 0),
-					Vector3.new(side, -0.45, -0.5),
-					Vector3.new(side * 0.8, 0, -0.9),
-				}, 0.45)
-			end
-			maskLine({ Vector3.new(0, 1, 0.7), Vector3.new(0, 1, 0), Vector3.new(0, 1, -0.7), Vector3.new(0, 0.5, -1) }, 0.45)
 
-			-- the lower jaw (hinged: see update), a row of tall rock teeth along it
-			local function jawShape(c, size)
-				fixed(ball(model, size, FLESH), CFrame.new(c), k.jaw)
-			end
-			jawShape(Vector3.new(0, 16, -9), Vector3.new(21, 7, 16))
-			jawShape(Vector3.new(0, 16.4, -18), Vector3.new(14, 6, 11))
-			jawShape(Vector3.new(0, 16.6, -24), Vector3.new(9, 5, 7))
-			coat(Vector3.new(0, 16, -9), Vector3.new(10.5, 3.5, 8), 14, 5, function(p)
-				return p.Y < 17 or p.Z < -14
-			end, k.jaw)
-			coat(Vector3.new(0, 16.4, -18), Vector3.new(7, 3, 5.5), 9, 4.2, function(p)
-				return p.Y < 17 or p.Z < -21
-			end, k.jaw)
-			for _, t in { { 9, -4.5 }, { 8.6, -8.5 }, { 7.8, -12.5 }, { 6.6, -16.5 }, { 5, -20.5 }, { 2.8, -24 } } do
+			-- THE LOWER JAW (hinged: see update): under the maw, rock teeth up its rim
+			shape(Vector3.new(0, 19, -13), Vector3.new(17, 6, 13), CORE, k.jaw)
+			shape(Vector3.new(0, 19.4, -19.5), Vector3.new(12, 5, 8), MID, k.jaw)
+			shingles(Vector3.new(0, 19, -13), Vector3.new(8.5, 3, 6.5), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), { { 0.55, 3, 2.4 }, { 1.1, 3, 2.6 }, { 1.65, 2, 2 } }, 0.55, k.jaw)
+			-- the black point the mask's hem closes to, at the chest
+			spike(Vector3.new(0, 20.4, -23.6), 5, 1.8, CFrame.Angles(0, math.pi / 2, 0) * CFrame.Angles(math.pi, 0, 0), MASK, k.jaw)
+			for _, t in { { 7, -14 }, { 5.8, -18 }, { 4, -21.5 }, { 1.8, -23.4 } } do
 				for _, side in { 1, -1 } do
+					-- (round 83: each blade turned along the rim, so from the front the
+					-- row reads as jagged triangles, not planks)
+					local round = math.atan2(t[1], -(t[2] + 13))
 					spike(
-						Vector3.new(side * t[1], 18.4, t[2]),
-						rs:NextNumber(7, 10.5),
-						2.1,
-						CFrame.Angles(math.rad(rs:NextNumber(-26, -6)), 0, math.rad(-side * rs:NextNumber(8, 24))),
+						Vector3.new(side * t[1], 21, t[2]),
+						rs:NextNumber(3.6, 5),
+						1.6,
+						CFrame.Angles(0, side * (math.pi / 2 - round), 0) * CFrame.Angles(0, 0, math.rad(side * rs:NextNumber(4, 14))),
 						TOOTH,
 						k.jaw
 					)
 				end
 			end
 
-			-- Kai, fused into the throat from the waist down, arms spread
+			-- THE UNDERBELLY: a pale ribcage across it between the arms, and a
+			-- dark segmented spine hanging down the middle to the street
+			for i = 1, 4 do
+				local y, z = 9.2 + i * 2.6, -8.6 + i * 0.6
+				local c = Vector3.new(0, y, z)
+				for _, side in { 1, -1 } do
+					local tip = Vector3.new(side * 9, y + 1.3, z + 5.5)
+					fixed(ball(model, Vector3.new((tip - c).Magnitude + 1, 2, 1.7), i % 2 == 0 and BONE_DARK or BONE), between(c, tip))
+				end
+			end
+			fixed(ball(model, Vector3.new(1.8, 12, 1.8), BONE), CFrame.new(0, 16, -7.4) * CFrame.Angles(math.rad(-8), 0, 0))
+			for i = 1, 5 do
+				local p = Vector3.new(0, 13 - i * 2.05, -6.8 - i * 0.6)
+				fixed(block(model, Vector3.new(2.8 - i * 0.14, 1.5, 2.6 - i * 0.12), SPINE), CFrame.new(p) * CFrame.Angles(math.rad(-15), 0, 0))
+				fixed(wedge(model, Vector3.new(0.7, 1.7, 1.4), SPINE), CFrame.new(p + Vector3.new(0, 0.35, -1.5)) * CFrame.Angles(0, math.pi, 0))
+			end
+
+			-- KAI, fused into the throat from the waist down, arms spread
 			local skin = Color3.fromRGB(236, 198, 162)
 			local coatGreen = Color3.fromRGB(74, 102, 64)
 			local lean = CFrame.Angles(math.rad(10), 0, 0)
-			local KAI = Vector3.new(0, 4.6, 0.6) -- (from where he was drawn at first)
+			local KAI = Vector3.new(0, 7.6, -12.4) -- (from where he was drawn at first)
 			local function kai(size, cf, color, material)
 				fixed(ball(model, size, color, material), CFrame.new(KAI) * cf)
 			end
 			kai(Vector3.new(3.6, 2.2, 2.8), CFrame.new(0, 19.2, -6.4), FLESH)
 			fixed(block(model, Vector3.new(2.6, 2.6, 1.3), coatGreen, Enum.Material.Fabric), CFrame.new(KAI) * CFrame.new(0, 20.9, -7.1) * lean)
 			fixed(block(model, Vector3.new(1.1, 2.4, 0.2), Color3.fromRGB(30, 30, 36), Enum.Material.Fabric), CFrame.new(KAI) * CFrame.new(0, 20.9, -7.85) * lean)
-			for i = 0, 6 do
-				local a = math.rad(-90 + i * 30)
+			for i = 0, 4 do
+				local a = math.rad(-90 + i * 45)
 				kai(
-					Vector3.new(1.3, 0.95, 1.3),
+					Vector3.new(1.5, 1, 1.4),
 					CFrame.new(math.sin(a) * 1.45, 22.3 + (i % 2) * 0.12, -7.1 - math.cos(a) * 0.65),
 					Color3.fromRGB(124 + (i % 2) * 10, 70, 170),
 					Enum.Material.Fabric
@@ -15478,54 +21870,60 @@ do
 				fixed(ball(model, Vector3.new((wr - el).Magnitude + 0.6, 0.72, 0.72), skin), CFrame.new(KAI) * between(el, wr))
 				kai(Vector3.new(1, 0.5, 1.1), CFrame.new(wr + Vector3.new(side * 0.45, -0.1, -0.2)), skin)
 				-- flesh running out of his wrists into the walls of the maw
-				local into = Vector3.new(side * 9.4, 20.8, -7.4)
+				local into = Vector3.new(side * 8, 20.8, -6.4)
 				fixed(ball(model, Vector3.new((into - wr).Magnitude + 1, 0.9, 0.9), FLESH), CFrame.new(KAI) * between(wr, into))
 			end
 
-			-- the two huge arms it walks on (and slams with), gorilla-like
+			-- the two huge arms it walks on (and slams with), gorilla-like, a
+			-- sawtooth ridge raking back down each forearm
+			-- (round 83: 19.5-stud bones, so a palm planted flat on the street at
+			-- the far end of a stride is still in reach)
 			for _, side in { 1, -1 } do
 				table.insert(k.arms, {
 					side = side,
-					upper = bone(18.5, 7.2),
-					fore = bone(18.5, 6.2),
-					elbow = ball(model, Vector3.one * 7, FLESH),
+					upper = bone(ARM, 7.6, 4),
+					fore = bone(ARM, 6.8, 4, 6, side),
+					elbow = ball(model, Vector3.one * 7.4, FLESH),
 					hand = newHand(model, 2.1, 5, side, true),
 				})
-				shape(Vector3.new(side * 15, 31, -1), Vector3.new(11, 11, 11))
-				coat(Vector3.new(side * 15, 31, -1), Vector3.new(5.5, 5.5, 5.5), 9, 4.4, function(p)
-					return p.Y > 30 or p.X * side > 16.5
-				end)
 			end
-			-- two thick hind legs bearing its back end
+			-- two thick hind legs bearing its back end, on clawed feet
 			for _, side in { 1, -1 } do
 				table.insert(k.legs, {
 					side = side,
-					thigh = bone(11.5, 6.6),
-					shin = bone(11.5, 5.6),
-					knee = ball(model, Vector3.one * 6.2, FLESH),
-					hand = newHand(model, 1.7, 4, side, true),
+					thigh = bone(11.5, 6.8, 3),
+					shin = bone(11.5, 5.8, 3),
+					knee = ball(model, Vector3.one * 6.4, FLESH),
+					hand = newHand(model, 1.9, 3, side, false, PAD),
 					planted = true,
 				})
 			end
-			-- four long arms out of its back: three bones and a grasping hand each
+			-- six long arms branching out of its shoulders: three bones and a
+			-- grasping hand each, thick at the root like the anime's
 			for _, side in { 1, -1 } do
-				for n = 1, 2 do
+				shape(Vector3.new(side * 10.5, 37.5, 7), Vector3.new(9.5, 8, 10), DEEP)
+				for n = 1, 3 do
 					table.insert(k.limbs, {
 						side = side,
-						root = Vector3.new(side * (5 + n * 2.5), 42 - n * 3, 7 + n * 7),
-						spread = (n - 1.5) * 0.9,
-						speed = 0.75 + n * 0.3,
+						root = Vector3.new(side * (7.5 + n * 2.2), 39.5 - n * 1.2, 2 + n * 3.4),
+						spread = (n - 2) * 0.75,
+						speed = 0.7 + n * 0.22,
 						seed = n * 1.7 + (side == 1 and 0 or 2.3),
-						l = { 14, 13, 11 },
-						segs = { bone(14, 3.6), bone(13, 3), bone(11, 2.4) },
-						joints = { ball(model, Vector3.one * 3.6, FLESH), ball(model, Vector3.one * 3, FLESH) },
-						hand = newHand(model, 1.25, 4, side, true),
+						l = { 13, 12, 10.5 },
+						segs = { bone(13, 5.6, 3), bone(12, 4.1, 2), bone(10.5, 3, 2) },
+						joints = { ball(model, Vector3.one * 5, DEEP), ball(model, Vector3.one * 3.9, DEEP) },
+						hand = newHand(model, 1.3, 4, side, true),
 					})
 				end
 			end
+			-- (round 83) shadows from the big shapes only - the cores, the
+			-- shoulders' and the back's slabs, the limbs: hundreds of small
+			-- casters moving every frame are what a shadow map pays for. None at
+			-- all on a low-end device (graphics 1-3, or under 40 fps on Automatic)
+			local shadows = not IceKit.lowEnd()
 			for _, d in model:GetChildren() do
 				if d:IsA("BasePart") then
-					d.CastShadow = true
+					d.CastShadow = shadows and d.Size.Magnitude > SHADOW_SIZE
 				end
 			end
 			return k
@@ -15568,7 +21966,7 @@ do
 			local s = h.s
 			push(k, h.palm, cf * CFrame.new(0, 0, -1.6 * s))
 			for _, f in h.fingers do
-				local c = cf * CFrame.new(f.x * s, 0, f.z * s) * CFrame.Angles(0, f.yaw, 0) * CFrame.Angles(-(0.12 + curl * 0.7), 0, 0)
+				local c = cf * CFrame.new(f.x * s, 0, f.z * s) * CFrame.Angles(0, f.yaw, 0) * CFrame.Angles(f.rise - (0.12 + curl * 0.7), 0, 0)
 				push(k, f.seg1, c * CFrame.new(0, 0, -f.l1 * s / 2))
 				c *= CFrame.new(0, 0, -f.l1 * s)
 				if f.seg2 then
@@ -15613,12 +22011,14 @@ do
 				end
 			end
 			local bob = math.abs(math.sin(k.phase)) * 0.9 * stride + math.sin(now * 1.3) * 0.35
-			local hips = CFrame.new(0, 16, 20)
+			local lean = math.rad(4) * slamK + 0.03 * stride -- (forward, about the hips)
+			local roll = math.sin(k.phase) * 0.035 * stride
+			local hips = k.hips
 			local body = CFrame.new(groundPoint(root.Position))
 				* CFrame.Angles(0, k.yaw, 0)
 				* CFrame.new(0, -6 * (1 - ease) + bob, 0)
 				* hips
-				* CFrame.Angles(math.rad(12) * roarK - math.rad(4) * slamK - 0.03 * stride, 0, math.sin(k.phase) * 0.035 * stride)
+				* CFrame.Angles(math.rad(12) * roarK - lean, 0, roll)
 				* hips:Inverse()
 			k.body = body
 			table.clear(parts)
@@ -15628,7 +22028,7 @@ do
 			end
 			-- the jaw hangs open, breathing; wide for the roar and the slams
 			local open = 0.14 + math.sin(now * 1.7) * 0.05 + roarK * 0.42 + slamK * 0.2 + graspK * 0.18
-			local hinge = CFrame.new(0, 17.5, -1)
+			local hinge = k.hinge
 			local jaw = body * hinge * CFrame.Angles(-open, 0, 0) * hinge:Inverse()
 			for _, f in k.jaw do
 				push(k, f.part, jaw * f.cf)
@@ -15637,13 +22037,14 @@ do
 			for _, leg in k.legs do
 				local off = leg.side == 1 and 0 or math.pi
 				local lift = math.max(0, math.cos(k.phase + off)) * 2.6 * stride
-				local foot = Vector3.new(leg.side * 12, 2.2 + lift, 24 - math.sin(k.phase + off) * 4.5 * stride)
-				local hip = Vector3.new(leg.side * 10, 17, 21)
+				-- (round 83: less the bob and the stride's roll, so a planted foot stays on the street)
+				local foot = Vector3.new(leg.side * 12, 1.5 + lift - bob - leg.side * 12 * roll, 27 - math.sin(k.phase + off) * 4.5 * stride)
+				local hip = Vector3.new(leg.side * 9.5, 20, 25)
 				local knee, ft = ik(hip, foot, 11.5, 11.5, Vector3.new(0, 0.3, 1))
 				pushBone(k, leg.thigh, body * between(hip, knee))
 				pushBone(k, leg.shin, body * between(knee, ft))
 				push(k, leg.knee, body * CFrame.new(knee))
-				poseHand(k, leg.hand, body * aim(ft, Vector3.new(leg.side * 0.5, -0.35, -1)), 0.35 + lift * 0.1)
+				poseHand(k, leg.hand, body * aim(ft, Vector3.new(leg.side * 0.4, 0.06, -1)), 0.1 + lift * 0.12)
 				-- a footfall shakes the street
 				local planted = lift < 0.05
 				if planted and not leg.planted and rise >= 1 and stride > 0.3 then
@@ -15658,34 +22059,46 @@ do
 			for i, arm in k.arms do
 				local off = arm.side == 1 and math.pi or 0 -- opposite the hind arm on that side
 				local lift = math.max(0, math.cos(k.phase + off)) * 3.2 * stride
-				local hand = Vector3.new(arm.side * 19, 3.4 + lift, -19 - math.sin(k.phase + off) * 5.5 * stride)
-				local handDir = Vector3.new(arm.side * 0.35, -0.4, -1)
-				local curl = 0.3 + lift * 0.08
+				-- (round 83) the palm flat on the street, the fingers arching to claws
+				-- that grip it. Less the bob and the roll, and plus the dip that leaning
+				-- into a stride or a slam gives the front, so a planted hand stays planted
+				local z = -18 - math.sin(k.phase + off) * 5.5 * stride
+				local hand = Vector3.new(arm.side * 21, 1.3 + lift - bob + (hips.Position.Z - z) * lean - arm.side * 21 * roll, z)
+				local handDir = Vector3.new(arm.side * 0.3, 0.21 + lean * 1.1 + lift * 0.05, -1)
+				local curl = 0.08 + lift * 0.04
 				local started = k.slam[i]
 				if started then
 					local a = (now - started) / SLAM
 					local up = Vector3.new(arm.side * 11, 52, -8)
-					local down = slamPoint(arm.side) + Vector3.new(0, 1.6, 0)
+					-- (round 83: the palm comes down flat on the street, fingers
+					-- clawing into it, not buried in it. Like the walking hand: less
+					-- the bob and the roll, plus the dip that the lean gives the front
+					-- (~3 studs at the slam's peak, more in a stride), so it stays
+					-- planted as the lean eases off and when it slams on the move)
+					local sp = slamPoint(arm.side)
+					local down = sp + Vector3.new(0, -0.3 - bob + (hips.Position.Z - sp.Z) * lean - sp.X * roll, 0)
+					local hit = Vector3.new(arm.side * 0.2, 0.26, -1)
 					if a >= 1 then
 						k.slam[i] = nil
 					elseif a < 0.45 then
 						local t = 1 - (1 - a / 0.45) ^ 2
 						hand = hand:Lerp(up, t)
 						handDir = handDir:Lerp(Vector3.new(0, 1, -0.4), t)
-						curl = 0.3 + t * 0.55
+						curl = curl + (0.85 - curl) * t -- (from the walking curl: no snap)
 					elseif a < 0.55 then
 						local t = (a - 0.45) / 0.1
 						hand = up:Lerp(down, t)
-						handDir = Vector3.new(0, 1, -0.4):Lerp(Vector3.new(arm.side * 0.2, -0.5, -1), t)
-						curl = 0.85 - t * 0.7
+						handDir = Vector3.new(0, 1, -0.4):Lerp(hit, t)
+						curl = 0.85 - t * 0.77
 					elseif a < 0.8 then
 						hand = down
-						handDir = Vector3.new(arm.side * 0.2, -0.5, -1)
-						curl = 0.15
+						handDir = hit
+						curl = 0.08
 					else
 						local t = (a - 0.8) / 0.2
 						hand = down:Lerp(hand, t)
-						handDir = Vector3.new(arm.side * 0.2, -0.5, -1):Lerp(handDir, t)
+						handDir = hit:Lerp(handDir, t)
+						curl = 0.08 + (curl - 0.08) * t
 					end
 					if a >= 0.55 and not k.slamHit[i] then
 						k.slamHit[i] = true
@@ -15700,7 +22113,7 @@ do
 					end
 				end
 				local shoulder = Vector3.new(arm.side * 15, 31, -1)
-				local elbow, h = ik(shoulder, hand, 18.5, 18.5, Vector3.new(arm.side * 1, 0.25, 0.3))
+				local elbow, h = ik(shoulder, hand, ARM, ARM, Vector3.new(arm.side * 1, 0.25, 0.3))
 				pushBone(k, arm.upper, body * between(shoulder, elbow))
 				pushBone(k, arm.fore, body * between(elbow, h))
 				push(k, arm.elbow, body * CFrame.new(elbow))
@@ -15711,9 +22124,9 @@ do
 				local t = now * limb.speed + limb.seed
 				local out = Vector3.new(limb.side * math.cos(limb.spread), 0, math.sin(limb.spread))
 				local reach = math.max(math.max(0, math.sin(t * 0.6)) * (0.5 + roarK * 0.5), graspK)
-				local d1 = (out * 0.5 + UP * (0.85 + math.sin(t) * 0.15) + Vector3.new(0, 0, 0.2 - reach * 0.5)).Unit
-				local d2 = (out * 0.8 + UP * (0.2 + math.sin(t * 1.3) * 0.25) + Vector3.new(0, 0, -0.3 - reach * 0.6)).Unit
-				local d3 = (out * 0.3 + UP * (-0.7 + math.cos(t * 0.9) * 0.3) + Vector3.new(0, 0, -0.5 - reach * 0.5)).Unit
+				local d1 = (out * 0.55 + UP * (0.8 + math.sin(t) * 0.12) + Vector3.new(0, 0, 0.05 - reach * 0.5)).Unit
+				local d2 = (out * 0.75 + UP * (0.35 + math.sin(t * 1.3) * 0.2) + Vector3.new(0, 0, -0.45 - reach * 0.6)).Unit
+				local d3 = (out * 0.35 + UP * (-0.35 + math.cos(t * 0.9) * 0.25) + Vector3.new(0, 0, -0.75 - reach * 0.4)).Unit
 				local p0 = limb.root
 				local p1 = p0 + d1 * limb.l[1]
 				local p2 = p1 + d2 * limb.l[2]
@@ -16018,8 +22431,6 @@ end
 do
 	local STYLES = (Config.Finishers and Config.Finishers.Styles) or {}
 	local FINISH_RED = Color3.fromRGB(255, 90, 70)
-	local DECAY_RED = Color3.fromRGB(214, 62, 66)
-	local ASH = Color3.fromRGB(150, 140, 142)
 
 	POSES.FinishUppercut = { RightArm = { 165, 0, 10 }, RightElbow = 20, LeftArm = { 20, 0, 15 }, LeftElbow = 60, Waist = { 14, 25, 0 }, Neck = { 20, 0, 0 } }
 	POSES.FinishAxe = { RightLeg = { 150, 0, 0 }, LeftLeg = -20, Waist = { 20, 0, 0 }, RightArm = { -40, 0, 30 }, LeftArm = { 60, 0, 30 } }
@@ -16092,20 +22503,60 @@ do
 		VFX.PlaySound("Smash", g, 1)
 	end
 
-	-- right side freezes them solid, left side flash-fires the ice apart
+	-- right side freezes them solid, left side flash-fires the ice apart.
+	-- (round 81) The right palm: ice climbs over them and a fan of blades
+	-- bursts up behind them, a frost crack racing to them from his foot, his
+	-- right side crusting over. Then the left: flames pour into the ice, it
+	-- melts away, and the superheated air goes off in white steam (a small
+	-- Flashfreeze Heatwave) - no more grey smoke balls.
 	function FX.HalfCold(char, root, target, troot, d, time)
 		VFX.Pose(char, "PunchR", 0.5)
-		task.spawn(Effects.Freeze, nil, { Target = target, Duration = time - 0.3 })
+		task.spawn(Effects.Freeze, nil, { Target = target, Duration = time + 1 })
+		local frost = IceKit.frostBody(char, { fadeIn = 0.25, fadeOut = 0.4, steam = false })
+		local flat = Vector3.new(d.X, 0, d.Z)
+		flat = flat.Magnitude > 0.05 and flat.Unit or Vector3.new(0, 0, -1)
+		local side = flat:Cross(UP)
+		local g = groundPoint(troot.Position)
+		local fan = outlineModel(ICE_OUTLINE)
+		local list = {}
+		for i = 1, 5 do
+			local a = (i - 3) / 2 * math.rad(55)
+			local dir = (UP * math.cos(a) + side * math.sin(a) + flat * 0.35).Unit
+			table.insert(list, {
+				set = makeSpike(fan, g + flat * 2.2 + side * math.sin(a) * 1.2 - UP * 0.5, dir, (11 - math.abs(i - 3) * 2.2) * rand(0.9, 1.1), 2.4, false, { face = root.Position, shards = 0 }),
+				delay = 0.05 + math.abs(i - 3) * 0.02,
+			})
+		end
+		growSpikes(list, 0.12)
+		IceKit.crackLine(groundPoint(root.Position) + flat, flat, (troot.Position - root.Position).Magnitude + 3, { speed = 120, width = 0.3, life = time })
 		VFX.PlaySound("Ice", troot.Position, 0.9)
 		task.wait(time - 0.45)
 		if not char.Parent then
+			frost.off(0.3)
+			shatter(fan, 12)
 			return
 		end
 		VFX.Pose(char, "PunchL", 0.7)
 		VFX.PlaySound("Fire", root.Position, 1)
+		VFX.PlaySound("SteamHiss", troot.Position, 0.8)
+		frost.off(0.4)
+		-- (their block of ice and the fan glow with the flames, then the
+		-- blast flings what's left of them apart)
+		local entry = iceBlocks[target]
+		local block = entry and not entry.gone and entry.model
+		if block then
+			entry.gone = true
+			iceBlocks[target] = nil
+			IceKit.fireLit(block, root.Position, flat, 40, 0.3)
+		end
+		IceKit.fireLit(fan, root.Position, flat, 40, 0.3)
 		Flame.stream(char, root, d, 0.4, 14)
-		Flame.burst(troot.Position, 8, 26)
-		dustPuffs(troot.Position, 1.6, 8, STEAM, 1.4, true)
+		IceKit.steamBlast(troot.Position + UP * 1.5, d, 0.5)
+		Flame.burst(troot.Position, 5, 14)
+		if block then
+			shatter(block, 10, { from = troot.Position, instant = true, force = 1.8, quiet = true })
+		end
+		shatter(fan, 14, { from = troot.Position, instant = true, force = 1.8, quiet = true })
 	end
 
 	-- the engines scream, then a spinning kick
@@ -16121,20 +22572,10 @@ do
 		VFX.PlaySound("ReciproBoom", troot.Position, 1)
 	end
 
-	-- five fingers on them: red cracks spread, and they crumble to ash
-	function FX.Decay(char, _, _, troot, _, time)
-		VFX.Pose(char, "PunchR", time)
-		VFX.PlaySound("DecayGrasp", troot.Position, 1)
-		local t0 = os.clock()
-		while os.clock() - t0 < time and char.Parent do
-			bolt(troot.Position + rng:NextUnitVector() * 1.2, 2, DECAY_RED)
-			if rng:NextNumber() < 0.4 then
-				dustPuffs(troot.Position - UP * 2, 0.6, 1, ASH, 1, false)
-			end
-			task.wait(0.06)
-		end
-		dustPuffs(troot.Position, 2, 10, ASH, 1.8, false)
-		VFX.PlaySound("Crumble", troot.Position, 1)
+	-- five fingers on them: the crust spreads, and they're ash where they
+	-- stand (round 83: VFX.DecayKit.finisher; the server doesn't launch them)
+	function FX.Decay(char, _, target, troot, d, time)
+		VFX.DecayKit.finisher(char, target, troot, d, time)
 	end
 
 	-- a finger to their chest: Red, point blank
@@ -20608,6 +27049,10 @@ do
 			end
 			return
 		end
+		if kind == "SlamHop" then
+			VFX.M1Kit.slamHop(char, false) -- (round 83) the downslam's hop: its pose
+			return
+		end
 		local t = tonumber(data.Time) or 0.35
 		local d = typeof(data.Dir) == "Vector3" and data.Dir or root.CFrame.LookVector
 		VFX.MuteGait(char, t + 0.15)
@@ -22981,10 +29426,33 @@ do
 			billboardRing(pos, 2, 22, green, 6, 0.3)
 		end,
 		HalfCold = function(pos, dir)
-			frostMist(pos, 1.4, 10)
-			shockDisc(pos, dir, 2, 26, 0.35, Color3.fromRGB(160, 220, 255), 4)
-			toonExplosion(pos + dir * 2, 1.6, { NoDebris = true, SmokeLife = 1.2 })
+			-- (round 81) ice and fire at once: a crown of crystals bursts up
+			-- round the body on one side, flame on the other, and the
+			-- superheated air between them goes off in white steam (not
+			-- Bakugo's fireball)
+			local g = groundPoint(pos)
+			local flat = V3(dir.X, 0, dir.Z)
+			flat = flat.Magnitude > 0.05 and flat.Unit or V3(0, 0, -1)
+			local side = flat:Cross(UP)
+			local model = outlineModel(ICE_OUTLINE)
+			local list = {}
+			for i = 1, 6 do
+				local a = (i / 6 - 0.5) * math.pi * 0.9
+				local out = (side * math.cos(a) + flat * math.sin(a)).Unit
+				table.insert(list, {
+					set = makeSpike(model, g + out * 2.4 - UP * 0.5, (UP * 1.1 + out * 0.8).Unit, rand(4, 6.5), 1.7, false, { quiet = true, shards = 0, face = pos - flat * 10 }),
+					delay = i * 0.012,
+				})
+			end
+			growSpikes(list, 0.08)
+			for _ = 1, 3 do
+				Flame.burst(g - side * rand(2.5, 4) + flat * rand(-2, 2) + UP * 2, rand(4, 5.5), 10)
+			end
+			IceKit.steamBlast(pos, dir, 0.45, { quiet = true })
 			billboardRing(pos, 2, 24, Color3.fromRGB(205, 240, 255), 6, 0.3)
+			task.delay(0.35, function()
+				shatter(model, 14, { from = pos, instant = true, force = 1.6 })
+			end)
 		end,
 		Engine = function(pos, dir)
 			local blue = Color3.fromRGB(110, 170, 255)
@@ -23017,11 +29485,8 @@ do
 			end
 			shockDisc(pos, UP, 2, 24, 0.35, Color3.fromRGB(236, 128, 36))
 		end,
-		Decay = function(pos)
-			local g = groundPoint(pos)
-			groundMark(g, 8, Color3.fromRGB(70, 66, 70), 6)
-			dustPuffs(g, 1.8, 10, Color3.fromRGB(150, 146, 150), 1.4, true)
-			rocks(g, 1.2, 12)
+		Decay = function(pos, dir, target, data)
+			VFX.DecayKit.koBurst(pos, dir, target, data) -- (round 83: they're ash)
 		end,
 		Overhaul = function(pos, dir)
 			rocks(groundPoint(pos), 1.2, 10)
@@ -23036,10 +29501,10 @@ do
 			end
 		end,
 	}
-	local function burst(quirk, pos, dir)
+	local function burst(quirk, pos, dir, target, data)
 		local fn = BURST[quirk or ""]
 		if fn then
-			fn(pos, dir)
+			fn(pos, dir, target, data)
 			return
 		end
 		local c, a = colorOf(quirk)
@@ -23104,7 +29569,7 @@ do
 		flash.Parent = target
 		tween(flash, 0.5, { FillTransparency = 1, OutlineTransparency = 1 })
 		cleanup(flash, 0.55)
-		burst(quirk, pos, dir)
+		burst(quirk, pos, dir, target, data)
 		koText(pos, color)
 		armTrails(char, 0.45, color) -- (the swing that did it, streaking)
 		VFX.PlaySound("KO", pos, 1)
@@ -28350,6 +34815,2061 @@ do
 			Light = opts.Light or 0, Grow = opts.Grow or 0.2, Soft = opts.Soft, Wind = opts.Wind,
 		})
 		return f
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 81) ORIGIN: HALF-COLD HALF-HOT - Todoroki's ult R: the climax of
+-- Deku vs Todoroki at the Sports Festival (anime ep. 23, "Shoto Todoroki:
+-- Origin"; the owner's clip, 2:08-2:29). Its beats come from the server:
+--   ShotoOrigin       the press: the stamp, the glacier wave down the street
+--   ShotoOriginWhiff  nobody caught: the ridge dies, he straightens up
+--   ShotoOriginCatch  caught: the cage, then (each beat a share of Build,
+--                     Config Beats) his right side frosted and shivering;
+--                     IGNITION ((round 82) the two hands - the left one
+--                     burning, the frost wall surging off the right - then
+--                     black-and-white frames, his silhouette on a disc of
+--                     light, the white starburst; then the plume off his
+--                     left side, the frost flashing to steam); the ice field
+--                     erupting round them with a ring of fire racing through
+--                     it; the left arm swung back, the flame swelling in the
+--                     palm - "Thanks." - the palm thrust, white-hot, and the
+--                     impact frames (Freeze: white, black cut-outs on white,
+--                     a yellow sun with black cubes, black and white)
+--   ShotoOriginBlast  the expansion: a sun, a red dome, a blue shockwave, ice
+--                     and concrete cubes flung out and raining down, the
+--                     steam over everything clearing from the edges in; him
+--                     standing in it, his left sleeve smouldering
+--   ShotoOriginCancel he went down mid-build: it all goes, the one held let go
+-- R6 bodies play the clips in tools/anim/moves_origin.py (MoveOriginStomp /
+-- Whiff / Shiver / Ignite / Windup / Release / Stand, and the caught one's
+-- MoveOriginFrozen); anything else the motions here. Everything hangs off one
+-- table, Origin (the chunk's local budget).
+---------------------------------------------------------------------------
+do
+	local Origin = {
+		live = setmetatable({}, { __mode = "k" }), -- [caster] = the move going (its run)
+		PALM = Color3.fromRGB(255, 186, 84),
+		HOT = Color3.fromRGB(255, 250, 222),
+		SUN = Color3.fromRGB(255, 214, 70),
+		DOME = Color3.fromRGB(255, 96, 36),
+		SHOCK = Color3.fromRGB(200, 230, 255),
+		CONCRETE = Color3.fromRGB(176, 172, 166),
+		SOOT = Color3.fromRGB(38, 30, 28),
+		WARM = Color3.fromRGB(255, 160, 90),
+		-- (stills: > 1 plays the quick beats - the ring of fire, the impact
+		-- frames, the sun and the dome - that many times slower)
+		pace = 1,
+	}
+	VFX.Origin = Origin
+	local BLAZE = VFX.BLAZE -- (the fire: the anime's own cel-shaded flames, its "hell" palette)
+
+	MOTIONS.OriginStomp = {
+		{ pose = { RightLeg = 70, RightKnee = 65, Waist = { 8, 4, -4 }, RightArm = { 35, 0, 35 }, LeftArm = { 25, 0, 35 } }, t = 0.12, hold = 0.06, style = Enum.EasingStyle.Sine },
+		{ pose = { RightLeg = -10, LeftLeg = 30, LeftKnee = 40, Waist = { -24, 8, 0 }, RightArm = { 55, -15, 10 }, LeftArm = { -35, 0, 25 }, Crouch = 0.5 }, t = 0.05, hold = 0.35, style = Enum.EasingStyle.Back },
+		recover = 0.3,
+	}
+	MOTIONS.OriginWhiff = {
+		{ pose = { Waist = { 6, 0, 0 }, Neck = { -14, 0, 0 }, RightArm = { 10, 0, 12 }, LeftArm = { 10, 0, 12 } }, t = 0.25, hold = 0.35, style = Enum.EasingStyle.Sine },
+		recover = 0.35,
+	}
+	MOTIONS.OriginShiver = {
+		{ pose = { Waist = { -14, 0, 0 }, Neck = { -12, 0, 0 }, RightArm = { 8, 0, 16 }, LeftArm = { 30, 30, 0 }, LeftElbow = 90, Crouch = 0.25 }, t = 0.15, hold = 0.6 },
+		recover = 0.2,
+	}
+	-- (round 82) the two hands: a step forward, the left hand out low in
+	-- front, the right drawn back and up
+	MOTIONS.OriginIgnite = {
+		{ pose = { Waist = { 6, -16, 0 }, Neck = { -4, 14, 0 }, LeftArm = { 72, -6, 8 }, RightArm = { -95, 0, 30 }, LeftLeg = 30, RightLeg = -18, LeftKnee = 20, Crouch = 0.3 }, t = 0.08, hold = 0.6, style = Enum.EasingStyle.Back },
+		recover = 0.2,
+	}
+	MOTIONS.OriginWindup = {
+		{ pose = { Waist = { -12, 40, 0 }, LeftArm = { -60, 0, 30 }, RightArm = { 45, -20, 0 }, RightLeg = -30, LeftLeg = 35, LeftKnee = 40, Crouch = 0.5 }, t = 0.12, hold = 0.5 },
+		recover = 0.2,
+	}
+	MOTIONS.OriginRelease = {
+		{ pose = { Waist = { -8, -30, 0 }, LeftArm = { 92, -5, 0 }, RightArm = { -30, 0, 25 }, RightLeg = -30, LeftLeg = 35, LeftKnee = 30, Crouch = 0.35 }, t = 0.06, hold = 0.6, style = Enum.EasingStyle.Back },
+		recover = 0.35,
+	}
+	MOTIONS.OriginStand = {
+		{ pose = { Waist = { 4, 0, 0 }, Neck = { -6, 0, 0 }, LeftArm = { 6, 0, 16 }, RightArm = { 4, 0, 8 } }, t = 0.35, hold = 1.4, style = Enum.EasingStyle.Sine },
+		recover = 0.4,
+	}
+	MOTIONS.OriginFrozen = {
+		{ pose = { LeftArm = { 100, 40, 0 }, RightArm = { 100, 40, 0 }, LeftElbow = 100, RightElbow = 100, Waist = { -10, 0, 0 }, Neck = { -8, 0, 0 }, Crouch = 0.4 }, t = 0.1, hold = 2.5 },
+		recover = 0.2,
+	}
+
+	-- a clip's "Hit" time (how far ahead of its beat it starts) and the clip
+	function Origin.hit(name, default)
+		local clip = Anim.MoveClips ~= false and VFX.GetClip("Move" .. name)
+		return (clip and clip.hit) or default, clip or nil
+	end
+
+	-- its clip on an R6 body, held `holdFor` seconds on its Hold key; else
+	-- the motion, its last step held about as long
+	function Origin.play(char, name, holdFor, recover)
+		holdFor = math.max(holdFor or 0, 0)
+		if Anim.MoveClips ~= false and VFX.Clip(char, "Move" .. name, { holdFor = holdFor, recover = recover or 0.3 }) then
+			return true
+		end
+		local m = MOTIONS[name]
+		if m and m[#m] then
+			m[#m].hold = math.max(holdFor, 0.2)
+		end
+		VFX.Motion(char, name)
+		return false
+	end
+
+	-- grow a list of { set = makeSpike's setter, delay } over growTime each
+	-- (out-cubic, as the other ice grows - kept here so the shared ice kit
+	-- can change round it: only makeSpike's own signature is relied on)
+	function Origin.grow(list, growTime)
+		local t0 = os.clock()
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			local t = os.clock() - t0
+			local all = true
+			for _, s in list do
+				local a = math.clamp((t - s.delay) / growTime, 0, 1)
+				if pcall(s.set, 1 - (1 - a) ^ 3) and a < 1 then
+					all = false
+				end
+			end
+			if all then
+				conn:Disconnect()
+			end
+		end)
+	end
+
+	-- a part riding on a body part (it goes where the body goes)
+	function Origin.weld(p, to, offset)
+		p.CFrame = to.CFrame * offset
+		p.Anchored = false
+		p.Massless = true
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = to
+		w.Part1 = p
+		w.Parent = p
+		return p
+	end
+
+	-- a puff of steam: it swells out of `from`, drifts to `to` and thins away
+	function Origin.puff(from, to, size, life, delayTime, color)
+		local p = newPart(Vector3.one * size * 0.25, CFrame.new(from), color or STEAM, nil, Enum.PartType.Ball)
+		p.Name = "OriginSteam"
+		p.Transparency = 0.12
+		delayTime = delayTime or 0
+		tween(p, 0.3, { Size = Vector3.one * size }, Enum.EasingStyle.Quad, nil, delayTime)
+		tween(p, life, { Size = Vector3.one * size * 1.6, CFrame = CFrame.new(to), Transparency = 1 }, Enum.EasingStyle.Sine, Enum.EasingDirection.In, delayTime + 0.15)
+		cleanup(p, delayTime + life + 0.2)
+		return p
+	end
+
+	-- his breath fogging white in the cold: n puffs out of his mouth
+	function Origin.breath(char, n, gap)
+		local head = char and char:FindFirstChild("Head")
+		if not head then
+			return
+		end
+		for i = 1, n do
+			task.delay((i - 1) * (gap or 0.35), function()
+				if not head.Parent then
+					return
+				end
+				local at = (head.CFrame * CFrame.new(0, -0.2, -0.6)).Position
+				local fwd = head.CFrame.LookVector
+				for j = 1, 3 do
+					local p = at + rng:NextUnitVector() * 0.1
+					Origin.puff(p, p + fwd * rand(0.9, 1.6) + UP * rand(0.6, 1.2), rand(0.45, 0.8), 0.9, j * 0.05, Color3.fromRGB(246, 249, 252))
+				end
+			end)
+		end
+	end
+
+	-- frost over his right side: a crust of ice over the arm, the right half
+	-- of the chest, the hair and cheek, the leg, and crystals standing off the
+	-- arm and the shoulder - creeping in over `time`
+	function Origin.frost(char, run, time)
+		if run.frost then
+			Origin.refrost(run, time)
+			return
+		end
+		local torso = limb(char, "UpperTorso", "Torso")
+		local s = torso and math.clamp(torso.Size.Y / 2, 0.5, 3) or 1
+		local frost = { crust = {}, crystals = {} }
+		run.frost = frost
+		local function crust(r15, r6, size, offset, alpha, color)
+			local part = limb(char, r15, r6)
+			if not part then
+				return
+			end
+			local p = newPart(size * s, part.CFrame, color or ICE_TOP, Enum.Material.Ice)
+			p.Name = "OriginFrost"
+			p.Transparency = 1
+			p.Reflectance = 0.1
+			Origin.weld(p, part, CFrame.new(offset * s))
+			table.insert(frost.crust, { p, alpha })
+			tween(p, time, { Transparency = alpha }, Enum.EasingStyle.Sine)
+		end
+		crust("RightUpperArm", "Right Arm", Vector3.new(1.1, 2.06, 1.1), Vector3.zero, 0.3)
+		crust("UpperTorso", "Torso", Vector3.new(1.06, 2.06, 1.1), Vector3.new(0.5, 0, 0), 0.5)
+		crust("Head", "Head", Vector3.new(0.62, 0.22, 1.24), Vector3.new(0.3, 0.58, 0), 0.1, Color3.fromRGB(250, 253, 255))
+		crust("Head", "Head", Vector3.new(0.12, 0.62, 0.9), Vector3.new(0.58, 0.05, -0.08), 0.5)
+		crust("RightUpperLeg", "Right Leg", Vector3.new(1.08, 2.04, 1.08), Vector3.zero, 0.5)
+		local arm = limb(char, "RightUpperArm", "Right Arm")
+		for i = 1, 10 do
+			local on = (i <= 6 and arm) or torso
+			if on then
+				local len = rand(0.45, 1.05) * s
+				local size = Vector3.new(0.2 * s, len, 0.2 * s)
+				local c = newPart(Vector3.one * 0.05, on.CFrame, ICE_TIP, Enum.Material.Ice)
+				c.Name = "OriginFrost"
+				c.Transparency = 0.08
+				local off
+				if on == arm then
+					off = CFrame.new(0.5 * s, rand(-0.8, 0.9) * s, rand(-0.45, 0.45) * s) * CFrame.Angles(rand(-0.4, 0.4), 0, math.rad(-60) + rand(-0.3, 0.3))
+				else
+					off = CFrame.new(rand(0.4, 0.95) * s, rand(0.55, 1) * s, rand(-0.4, 0.4) * s) * CFrame.Angles(rand(-0.4, 0.4), 0, math.rad(-25) + rand(-0.3, 0.3))
+				end
+				Origin.weld(c, on, off * CFrame.new(0, len * 0.4, 0))
+				table.insert(frost.crystals, { c, size })
+				tween(c, time * rand(0.6, 1), { Size = size }, Enum.EasingStyle.Back, nil, rand(0, time * 0.3))
+			end
+		end
+	end
+
+	-- the heat burns it off: the crust thins to `left` of itself (0: gone)
+	-- and steam pours off it (`steam` puffs)
+	function Origin.melt(run, left, steam, time)
+		local frost = run and run.frost
+		if not frost then
+			return
+		end
+		time = time or 0.5
+		for _, c in frost.crust do
+			if c[1].Parent then
+				tween(c[1], time, { Transparency = 1 - (1 - c[2]) * left })
+			end
+		end
+		for _, c in frost.crystals do
+			if c[1].Parent then
+				tween(c[1], time, { Size = c[2] * math.max(left, 0.05), Transparency = left > 0.2 and 0.1 or 1 })
+			end
+		end
+		for i = 1, steam or 0 do
+			local src = frost.crust[(i - 1) % math.max(#frost.crust, 1) + 1]
+			if src and src[1].Parent then
+				local p = src[1].Position + rng:NextUnitVector() * 0.6
+				Origin.puff(p, p + UP * rand(2.5, 5) + rng:NextUnitVector() * 1.2, rand(1.1, 2), rand(0.7, 1.2), i * 0.03)
+			end
+		end
+	end
+
+	-- ...and back over him (he's using the ice too)
+	function Origin.refrost(run, time)
+		local frost = run and run.frost
+		if not frost then
+			return
+		end
+		for _, c in frost.crust do
+			if c[1].Parent then
+				tween(c[1], time or 0.5, { Transparency = c[2] })
+			end
+		end
+		for _, c in frost.crystals do
+			if c[1].Parent then
+				tween(c[1], time or 0.5, { Size = c[2], Transparency = 0.08 })
+			end
+		end
+	end
+
+	-- gone for good: it melts off in steam and is taken away
+	function Origin.unfrost(run, time)
+		local frost = run and run.frost
+		if not frost then
+			return
+		end
+		run.frost = nil
+		run.frostGone = frost
+		time = time or 0.8
+		Origin.melt({ frost = frost }, 0, 6, time)
+		for _, list in { frost.crust, frost.crystals } do
+			for _, c in list do
+				cleanup(c[1], time + 0.1)
+			end
+		end
+	end
+
+	-- a flame standing straight up off a body part as it moves (one riding
+	-- on the part itself leans with it: an arm flung out would burn sideways)
+	function Origin.follow(f, part, offset)
+		if not (f and part) then
+			return f
+		end
+		task.spawn(function()
+			while not f.dead and part.Parent and f.holder.Parent do
+				f.cf = CFrame.new((part.CFrame * offset).Position)
+				f.holder.CFrame = f.cf
+				task.wait()
+			end
+		end)
+		return f
+	end
+
+	-- (round 82) THE HANDS. R6 has none - the arm's just a block - and the
+	-- beat is his two hands: so an open hand, clawed, on the end of each arm
+	-- (the Kaiju's newHand / poseHand, at his size): a palm, four fingers and
+	-- a thumb, two joints each, welded on (Welds: Origin.handPose re-bends
+	-- them on the beats) and kept UNDER his body, so the black-and-white
+	-- frames' silhouette covers them too. Hand space: the wrist at the arm's
+	-- end, -Y along the fingers, +X out of the palm (the clips' 90 spin turns
+	-- that to the street at IGNITION and the fingers up on the thrust), the
+	-- thumb on -Z for the left hand. (tools/anim: a Python copy of the shape
+	-- renders the shots - keep the numbers in step)
+	--   { across the palm (the thumb's side +), spread, the two joints' lengths, thickness }
+	Origin.FINGERS = {
+		{ 0.27, 0.17, 0.34, 0.28, 0.17 }, -- (the index, by the thumb)
+		{ 0.09, 0.05, 0.38, 0.3, 0.17 },
+		{ -0.09, -0.07, 0.35, 0.28, 0.165 },
+		{ -0.26, -0.2, 0.28, 0.24, 0.15 },
+	}
+	function Origin.hand(char, side)
+		local arm = limb(char, side < 0 and "LeftHand" or "RightHand", side < 0 and "Left Arm" or "Right Arm")
+		if not arm then
+			return nil
+		end
+		local s = math.clamp(arm.Size.X, 0.3, 3)
+		local model = Instance.new("Model")
+		model.Name = side < 0 and "OriginHandL" or "OriginHandR"
+		local h = { arm = arm, model = model, s = s, thumb = side < 0 and -1 or 1, parts = {} }
+		local function piece(name, size)
+			local p = newPart(size * s, arm.CFrame, arm.Color, Enum.Material.SmoothPlastic, nil, model)
+			p.Name = name
+			p.Anchored = false
+			p.Massless = true
+			local w = Instance.new("Weld")
+			w.Name = "OriginHandWeld"
+			table.insert(h.parts, { p = p, w = w })
+			return p
+		end
+		h.palm = piece("OriginHandPalm", Vector3.new(0.3, 0.62, 0.8))
+		for _, f in Origin.FINGERS do
+			piece("OriginFinger", Vector3.new(f[5], f[3], f[5]))
+			piece("OriginFinger", Vector3.new(f[5] * 0.88, f[4], f[5] * 0.88))
+		end
+		piece("OriginFinger", Vector3.new(0.19, 0.3, 0.19)) -- (the thumb)
+		piece("OriginFinger", Vector3.new(0.17, 0.26, 0.17))
+		Origin.handPose(h, 0.3, 0.55, 1, true)
+		for _, x in h.parts do
+			x.w.Part0 = arm
+			x.w.Part1 = x.p
+			x.w.Parent = x.p
+		end
+		model.Parent = char
+		return h
+	end
+
+	-- bend: the wrist back (radians: 0 straight on, ~1.4 the palm pushed out
+	-- flat); curl 0..1 (a claw); spread the fingers fanned. `place`: set the
+	-- parts there too (only before they're welded on - moving a welded part
+	-- would move the body)
+	function Origin.handPose(h, bend, curl, spread, place)
+		if not (h and h.arm.Parent) then
+			return
+		end
+		local s, th = h.s, h.thumb
+		spread = spread or 1
+		local wrist = CFrame.new(0, -h.arm.Size.Y / 2 + 0.06 * s, 0) * CFrame.Angles(0, 0, -bend)
+		local cfs = { wrist * CFrame.new(0, -0.3 * s, 0) }
+		local function finger(root, l1, l2, k1, k2)
+			table.insert(cfs, root * CFrame.new(0, -l1 * s / 2, 0))
+			local j2 = root * CFrame.new(0, -l1 * s, 0) * CFrame.Angles(0, 0, k1 + curl * k2)
+			table.insert(cfs, j2 * CFrame.new(0, -l2 * s / 2, 0))
+		end
+		for _, f in Origin.FINGERS do
+			local root = wrist * CFrame.new(0, -0.6 * s, f[1] * th * s) * CFrame.Angles(-th * f[2] * spread, 0, 0) * CFrame.Angles(0, 0, 0.12 + curl * 0.75)
+			finger(root, f[3], f[4], 0.15, 0.95)
+		end
+		local thumb = wrist * CFrame.new(0.06 * s, -0.18 * s, 0.36 * th * s) * CFrame.Angles(-th * (0.55 + 0.35 * spread), 0, 0) * CFrame.Angles(0, 0, 0.3 + curl * 0.45)
+		table.insert(cfs, thumb * CFrame.new(0, -0.15 * s, 0))
+		local j2 = thumb * CFrame.new(0, -0.3 * s, 0) * CFrame.Angles(0, 0, 0.2 + curl * 0.6)
+		table.insert(cfs, j2 * CFrame.new(0, -0.13 * s, 0))
+		for i, x in h.parts do
+			x.w.C0 = cfs[i]
+			if place then
+				x.p.CFrame = h.arm.CFrame * cfs[i]
+			end
+		end
+	end
+
+	-- the palm's middle, out over the palm (where the fire's centred, the
+	-- frames' bursts and the disc of light): the hand if he has one
+	function Origin.handAt(char, run)
+		local h = run and run.hands and run.hands.L
+		if h and h.palm.Parent then
+			return (h.palm.CFrame * CFrame.new(0.12 * h.s, -0.1 * h.s, 0)).Position
+		end
+		return handPos(char, false)
+	end
+
+	-- the hands go: off the body, and the fire on the left one out
+	function Origin.dropHands(run)
+		local fire = run.handFire
+		run.handFire = nil
+		for _, f in fire and fire.flames or {} do
+			f.kill(0.2)
+		end
+		for _, p in fire and fire.parts or {} do
+			cleanup(p, 0)
+		end
+		for _, h in run.hands or {} do
+			h.model:Destroy()
+		end
+		run.hands = nil
+	end
+
+	-- (round 82) THE TWO HANDS (the clip at 2:08.2-2:08.5), on every screen:
+	-- his hands out, the left one going up in flames - a ball of fire round
+	-- it burning out of the palm, licking up the forearm - and the left of
+	-- his hair; the right side's frost wall surging up behind him off his
+	-- right shoulder, mist and ice; steam where the two meet. The pieces that
+	-- aren't his body are listed (run.s1) so the frames can hide them.
+	function Origin.twoHands(char, run, pace)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		pace = pace or 1
+		local head = char:FindFirstChild("Head")
+		if not run.hands then
+			run.hands = { L = Origin.hand(char, -1), R = Origin.hand(char, 1) }
+		end
+		run.s1 = {}
+		local d = run.d or flatten(nil, root)
+		local right, back = d:Cross(UP), -d
+		local g = groundPoint(root.Position)
+		-- the left hand: a ball of fire
+		local hL = run.hands.L
+		if hL then
+			local s = hL.s
+			local fire = { flames = {}, parts = {} }
+			run.handFire = fire
+			-- (a locked flame burns along its CFrame's up: out of the palm, +X;
+			-- out of the back of the hand, -X - that one rises while the palm's
+			-- turned down; and back up the forearm, the arm's +Y)
+			table.insert(fire.flames, BLAZE.flame({ Part = hL.palm, Offset = CFrame.new(0.16 * s, -0.05 * s, 0) * CFrame.Angles(0, 0, -math.pi / 2), Pal = "hell", Height = 1.2 * s, Width = 1.5 * s, Tongues = 5, Volume = 0.6, Light = 12, Grow = 0.1 * pace }))
+			table.insert(fire.flames, BLAZE.flame({ Part = hL.palm, Offset = CFrame.new(-0.1 * s, -0.1 * s, 0) * CFrame.Angles(0, 0, math.pi / 2), Pal = "hell", Height = 2.1 * s, Width = 1.3 * s, Tongues = 4, Volume = 0.4, Light = 0, Grow = 0.1 * pace }))
+			table.insert(fire.flames, BLAZE.flame({ Part = hL.arm, Offset = CFrame.new(0, -hL.arm.Size.Y / 2 + 0.35 * s, 0), Pal = "hell", Height = 2.2 * s, Width = 1.1 * s, Tongues = 3, Volume = 0.35, Light = 0, Grow = 0.12 * pace }))
+			for _, spec in { { 1.6, Origin.PALM, 0.55 }, { 0.75, Origin.HOT, 0.3 } } do
+				local ball = newPart(Vector3.one * spec[1] * s * 0.3, hL.palm.CFrame, spec[2], Enum.Material.Neon, Enum.PartType.Ball)
+				ball.Name = "OriginHandFire"
+				ball.Transparency = spec[3]
+				Origin.weld(ball, hL.palm, CFrame.new(0.22 * s, -0.12 * s, 0))
+				tween(ball, 0.12 * pace, { Size = Vector3.one * spec[1] * s }, Enum.EasingStyle.Back)
+				table.insert(fire.parts, ball)
+			end
+			BLAZE.burst(Origin.handAt(char, run), 1.4 * s, { Pal = "hell", NoScorch = true, Smoke = false, Tongues = 5 })
+		end
+		-- the right hand: crusted over, ice standing off its back
+		local hR = run.hands.R
+		if hR then
+			local s = hR.s
+			local crust = newPart(Vector3.new(0.36, 0.7, 0.88) * s, hR.palm.CFrame, ICE_TOP, Enum.Material.Ice, nil, hR.model)
+			crust.Name = "OriginHandFrost"
+			crust.Transparency = 0.3
+			Origin.weld(crust, hR.palm, CFrame.new())
+			for i = 1, 4 do
+				local len = rand(0.35, 0.7) * s
+				local c = newPart(Vector3.new(0.14 * s, len, 0.14 * s), hR.palm.CFrame, ICE_TIP, Enum.Material.Ice, nil, hR.model)
+				c.Name = "OriginHandFrost"
+				c.Transparency = 0.06
+				Origin.weld(c, hR.palm, CFrame.new(-0.2 * s, rand(-0.25, 0.3) * s, (i - 2.5) * 0.2 * s) * CFrame.Angles(0, 0, math.rad(55) + rand(-0.3, 0.3)) * CFrame.new(0, len * 0.45, 0))
+			end
+		end
+		-- the left of his hair
+		if head and not run.hair then
+			run.hair = Origin.follow(BLAZE.flame({ CF = CFrame.new(head.Position), Pal = "hell", Height = 3, Width = 1.15, Tongues = 3, Volume = 0.35, Light = 0, Grow = 0.1 * pace }), head, CFrame.new(-0.4, 0.35, 0))
+			run.body = run.body or {}
+			table.insert(run.body, run.hair)
+		end
+		-- the frost wall: up off his right side behind him, leaning back
+		local model = outlineModel(ICE_OUTLINE)
+		model.Name = "OriginFrostWall"
+		run.frostWall = model
+		local grow = {}
+		for i = 1, 9 do
+			local base = g + right * (1.3 + i * 0.32 + rand(-0.2, 0.2)) + back * (0.5 + rand(0, 1.6))
+			local dir = (UP + back * rand(0.35, 0.7) + right * rand(0.15, 0.45)).Unit
+			table.insert(grow, { set = makeSpike(model, base, dir, rand(3, 6.5), rand(0.8, 1.5), false, { quiet = i % 3 ~= 0 }), delay = i * 0.02 * pace })
+		end
+		Origin.grow(grow, 0.22 * pace)
+		for i = 1, 11 do
+			local from = g + right * rand(1.6, 3.2) + back * rand(1, 2.2) + UP * rand(0.8, 3)
+			local to = from + UP * rand(5, 9) + back * rand(2, 4.5) + right * rand(1, 3)
+			table.insert(run.s1, Origin.puff(from, to, rand(3.2, 5.6), rand(0.9, 1.3) * pace, i * 0.015 * pace, Color3.fromRGB(246, 250, 255)))
+		end
+		frostMist(g + right * 1.8 + back * 1.2 + UP * 1.5, 1.2, 6)
+		-- steam where they meet, in front of his chest
+		for i = 1, 4 do
+			local p = root.Position + d * 0.9 + UP * rand(0, 0.8) + right * rand(-0.4, 0.4)
+			table.insert(run.s1, Origin.puff(p, p + UP * rand(2, 4) + back * rand(0.5, 1.5), rand(1, 1.8), 0.8 * pace, 0.1 * pace + i * 0.03))
+		end
+		VFX.PlaySound("OriginHands", root.Position, 1)
+		VFX.ShakeAt(root.Position, 1.2, 90, 0.25)
+	end
+
+	-- (round 82) his own fire and frost (and the frost wall) stay bright under
+	-- the black-and-white frames - a Highlight covers only his body - so
+	-- they're hidden through them (on = hidden) and given back after. The
+	-- flames stop throwing blobs too (BLAZE's fragments fly loose in the
+	-- world), and any already thrown within 6 studs of `near` go
+	function Origin.veil(run, on, near)
+		local parts, flames = {}, {}
+		for _, list in { run.frost and run.frost.crust or {}, run.frost and run.frost.crystals or {} } do
+			for _, c in list do
+				table.insert(parts, c[1])
+			end
+		end
+		for _, list in { run.s1 or {}, run.handFire and run.handFire.parts or {} } do
+			for _, p in list do
+				table.insert(parts, p)
+			end
+		end
+		for _, p in run.frostWall and run.frostWall:GetDescendants() or {} do
+			if p:IsA("BasePart") then
+				table.insert(parts, p)
+			end
+		end
+		-- (given back to all it hid, the frost wall too if it's been taken off
+		-- the run since - broken up by the eruption, or by a cancel)
+		if on then
+			run.veiled = parts
+		else
+			for _, p in run.veiled or {} do
+				table.insert(parts, p)
+			end
+			run.veiled = nil
+		end
+		for _, p in parts do
+			if p.Parent then
+				p.LocalTransparencyModifier = on and 1 or 0
+			end
+		end
+		for _, list in { run.body or {}, run.handFire and run.handFire.flames or {} } do
+			for _, f in list do
+				table.insert(flames, f)
+			end
+		end
+		for _, f in flames do
+			if on and f.veilFrags == nil and type(f.frags) == "number" then
+				f.veilFrags, f.frags = f.frags, 0
+			elseif not on and f.veilFrags ~= nil then
+				f.frags, f.veilFrags = f.veilFrags, nil
+			end
+			if f.holder and f.holder.Parent then
+				for _, x in f.holder:GetDescendants() do
+					if x:IsA("Beam") or x:IsA("ParticleEmitter") or x:IsA("Light") then
+						if on and x.Enabled then
+							x:SetAttribute("OriginVeiled", true)
+							x.Enabled = false
+						elseif not on and x:GetAttribute("OriginVeiled") then
+							x:SetAttribute("OriginVeiled", nil)
+							x.Enabled = not (f.dying and x:IsA("ParticleEmitter"))
+						end
+					end
+				end
+			end
+			if f.heart then
+				f.heart.LocalTransparencyModifier = on and 1 or 0
+			end
+		end
+		if on and typeof(near) == "Vector3" then
+			local frags = BLAZE.frags or {}
+			for i = #frags, 1, -1 do
+				local q = frags[i]
+				if typeof(q.pos) == "Vector3" and (q.pos - near).Magnitude < 6 then
+					for _, k in { "a0", "a1", "shade", "body", "puff" } do
+						if q[k] then
+							q[k]:Destroy()
+						end
+					end
+					table.remove(frags, i)
+				end
+			end
+		end
+	end
+
+	-- an impact frame drawn over the screen (the clip at 2:09 and 2:23): black,
+	-- a white four-point starburst over `at` with shorter points between, and
+	-- radial speed hatching round it, for `life` seconds (inverted: black
+	-- lines on white)
+	function Origin.flashFrame(at, life, inverted)
+		local me = Players.LocalPlayer
+		local gui = me and me:FindFirstChildOfClass("PlayerGui")
+		if not gui then
+			return nil
+		end
+		local cam = workspace.CurrentCamera
+		local vs = cam and cam.ViewportSize or Vector2.new(1280, 720)
+		if vs.X < 10 or vs.Y < 10 then
+			vs = Vector2.new(1280, 720)
+		end
+		local aspect = vs.X / vs.Y
+		local cx, cy = 0.5, 0.42
+		if cam and typeof(at) == "Vector3" then
+			local ok, p = pcall(function()
+				return cam:WorldToViewportPoint(at)
+			end)
+			if ok and typeof(p) == "Vector3" and p.Z > 0 then
+				cx, cy = math.clamp(p.X / vs.X, 0.15, 0.85), math.clamp(p.Y / vs.Y, 0.15, 0.85)
+			end
+		end
+		local ink, paper = Color3.new(0, 0, 0), Color3.new(1, 1, 1)
+		if inverted then
+			ink, paper = paper, ink
+		end
+		local sg = Instance.new("ScreenGui")
+		sg.Name = "OriginFlashFrame"
+		sg.IgnoreGuiInset = true
+		sg.ResetOnSpawn = false
+		sg.DisplayOrder = 50
+		local bg = Instance.new("Frame")
+		bg.Name = "Ink"
+		bg.Size = UDim2.fromScale(1, 1)
+		bg.BackgroundColor3 = ink
+		bg.BorderSizePixel = 0
+		bg.Parent = sg
+		-- a bar `len` (a share of the screen's width) long and `thick` pixels,
+		-- starting `from` out from the middle, at `angle`
+		local function bar(angle, from, len, thick)
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.BackgroundColor3 = paper
+			f.BorderSizePixel = 0
+			local mid = from + len / 2
+			f.Position = UDim2.fromScale(cx + math.cos(angle) * mid, cy + math.sin(angle) * mid * aspect)
+			f.Size = UDim2.new(len, 0, 0, thick)
+			f.Rotation = math.deg(angle)
+			f.Parent = bg
+		end
+		for _ = 1, 40 do
+			bar(rand(0, math.pi * 2), rand(0.07, 0.3), rand(0.15, 0.7), rand(1, 4))
+		end
+		local tilt = rand(-0.2, 0.2)
+		for i = 0, 7 do
+			local long = i % 2 == 0
+			local a = tilt + i * math.pi / 4
+			local reach = long and rand(0.45, 0.6) or rand(0.1, 0.16)
+			for k, w in { 1, 0.55, 0.25 } do
+				bar(a, 0, reach * (k == 1 and 0.3 or k == 2 and 0.62 or 1), (long and 30 or 14) * w)
+			end
+		end
+		local heart = Instance.new("Frame")
+		heart.AnchorPoint = Vector2.new(0.5, 0.5)
+		heart.Position = UDim2.fromScale(cx, cy)
+		heart.Size = UDim2.fromOffset(52, 52)
+		heart.BackgroundColor3 = paper
+		heart.BorderSizePixel = 0
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.5, 0)
+		corner.Parent = heart
+		heart.Parent = bg
+		sg.Parent = gui
+		task.delay(life or 0.08, function()
+			sg:Destroy()
+		end)
+		return sg
+	end
+
+	-- the palm thrust's impact frames (Yutaka Nakamura's, the clip at
+	-- 2:19-2:25): blown out white; the black starburst; the bodies black
+	-- cut-outs on white; a yellow sun with black cubes of debris frozen round
+	-- it; then black and white, held till the world moves (`freeze` in all).
+	-- (round 82) pace: each step that many times as long (OriginPace; the
+	-- stills knob Origin.pace by default)
+	function Origin.impactFrame(freeze, at, bodies, pace)
+		pace = pace or Origin.pace
+		Origin.frameToken = (Origin.frameToken or 0) + 1
+		local token = Origin.frameToken
+		local cc = Lighting:FindFirstChild("OriginImpactFrame")
+		if not cc then
+			cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "OriginImpactFrame"
+			cc.Parent = Lighting
+		end
+		cc.Enabled = true
+		local marks = {}
+		for _, b in bodies do
+			if b and b.Parent then
+				local h = Instance.new("Highlight")
+				h.Name = "OriginCutout"
+				h.FillColor = Color3.new(0, 0, 0)
+				h.FillTransparency = 1
+				h.OutlineTransparency = 1
+				h.DepthMode = Enum.HighlightDepthMode.Occluded
+				h.Adornee = b
+				h.Parent = folder
+				table.insert(marks, h)
+			end
+		end
+		local function cutouts(on)
+			for _, h in marks do
+				h.FillTransparency = on and 0 or 1
+			end
+		end
+		-- the sun and the black cubes (only in these frames)
+		local frozen = Instance.new("Model")
+		frozen.Name = "OriginSunFrame"
+		local sun = newPart(Vector3.one * 22, CFrame.new(at), Color3.fromRGB(255, 252, 228), Enum.Material.Neon, Enum.PartType.Ball, frozen)
+		sun.Transparency = 1
+		local cubes = {}
+		for _ = 1, 18 do
+			local s = rand(0.8, 3.4)
+			local out = rng:NextUnitVector()
+			out = Vector3.new(out.X, math.abs(out.Y) * 0.7, out.Z)
+			local c = newPart(Vector3.new(s, s * rand(0.7, 1.1), s), CFrame.new(at + out * rand(9, 20)) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), Color3.fromRGB(10, 10, 12), Enum.Material.SmoothPlastic, nil, frozen)
+			c.Transparency = 1
+			table.insert(cubes, c)
+		end
+		frozen.Parent = folder
+		local function sunUp(on)
+			sun.Transparency = on and 0 or 1
+			for _, c in cubes do
+				c.Transparency = on and 0 or 1
+			end
+		end
+		local WHITE = Color3.new(1, 1, 1)
+		local steps = {
+			{ 0.03 * pace, function()
+				cc.Saturation, cc.Brightness, cc.Contrast, cc.TintColor = -1, 0.6, 3, WHITE
+			end },
+			{ 0.05 * pace, function()
+				Origin.flashFrame(at, 0.05 * pace)
+			end },
+			{ 0.06 * pace, function()
+				-- (stark: everything lit blown out to white, the bodies left black)
+				cc.Saturation, cc.Brightness, cc.Contrast, cc.TintColor = -1, 0.3, 3, WHITE
+				cutouts(true)
+			end },
+			{ 0.1 * pace, function()
+				-- (the yellow sun: the same, washed yellow - black cubes frozen in it)
+				cc.Saturation, cc.Brightness, cc.Contrast, cc.TintColor = -1, 0.35, 2.2, Origin.SUN
+				sunUp(true)
+			end },
+			{ math.max(freeze - 0.24 * pace, 0.03), function()
+				cc.Saturation, cc.Brightness, cc.Contrast, cc.TintColor = -1, 0.08, 2.2, WHITE
+				cutouts(false)
+				sunUp(false) -- (round 82: the sun and the cubes go with the colour)
+			end },
+		}
+		task.spawn(function()
+			for _, step in steps do
+				if Origin.frameToken ~= token then
+					break
+				end
+				step[2]()
+				task.wait(step[1])
+			end
+			if Origin.frameToken == token then
+				cc.Enabled = false
+				cc.TintColor = WHITE
+			end
+			for _, h in marks do
+				h:Destroy()
+			end
+			frozen:Destroy()
+		end)
+		VFX.Hooks.Flash(Color3.new(1, 1, 1), 0.2)
+	end
+
+	-- (round 82) THE BLACK-AND-WHITE FRAMES (the clip at 2:08.55-2:09.2), on
+	-- the screens close enough to read them (his, the one he caught's, any
+	-- camera within 90 studs - each projected from its own camera):
+	--   inverted: a grey wash, his body pale with dark lines, black spikes
+	--     bursting out of his left hand
+	--   a black flash: a grey spiky flare at the hand, radial speed lines
+	--   the silhouette: violet-grey, him black (his pose frozen - the catch
+	--     hitstops him), a pale disc of light behind the hand (in the world,
+	--     out along the camera's line through it, so his body cuts into
+	--     it), lens-flare lines crossing the frame through it, dark edges
+	--   pale: brighter, him pale with dark lines, the flare lines stronger,
+	--     washing out to white
+	--   the black frame with the white starburst (flashFrame), on the hand
+	-- Origin.BW = each one's seconds, `pace` times as long. It stops - and
+	-- takes everything of its own with it - the moment live() fails or a
+	-- newer one starts. `start` (os.clock) is when they were due: each step
+	-- ends on its own deadline off it, so a late frame here and there doesn't
+	-- add up and they end on time with the hitstop and the eruption.
+	Origin.BW = { 0.06, 0.06, 0.34, 0.12, 0.08 }
+	Origin.VIOLET = Color3.fromRGB(200, 190, 242)
+	Origin.PALE = Color3.fromRGB(236, 232, 255)
+	function Origin.frames(char, run, pace, live, start)
+		local me = Players.LocalPlayer
+		local pgui = me and me:FindFirstChildOfClass("PlayerGui")
+		local root = charParts(char)
+		if not (pgui and root) then
+			return
+		end
+		pace = pace or 1
+		Origin.bwToken = (Origin.bwToken or 0) + 1
+		local token = Origin.bwToken
+		local cam = workspace.CurrentCamera
+		local ground = groundPoint(root.Position).Y
+		local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
+		-- where his hand (or `point`) is on this screen (0..1), the screen's shape
+		local function view(point)
+			local vs = cam and cam.ViewportSize or Vector2.new(1280, 720)
+			if vs.X < 10 or vs.Y < 10 then
+				vs = Vector2.new(1280, 720)
+			end
+			local at = point or Origin.handAt(char, run)
+			local cx, cy = 0.42, 0.5
+			if cam then
+				local ok, p = pcall(function()
+					return cam:WorldToViewportPoint(at)
+				end)
+				if ok and typeof(p) == "Vector3" and p.Z > 0 then
+					cx, cy = math.clamp(p.X / vs.X, 0.1, 0.9), math.clamp(p.Y / vs.Y, 0.1, 0.9)
+				end
+			end
+			return cx, cy, vs.X / vs.Y, at
+		end
+		local cc = Lighting:FindFirstChild("OriginIgnitionFrame")
+		if not cc then
+			cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "OriginIgnitionFrame"
+			cc.Parent = Lighting
+		end
+		cc.Enabled = true
+		local hl = Instance.new("Highlight")
+		hl.Name = "OriginSilhouette"
+		hl.DepthMode = Enum.HighlightDepthMode.Occluded
+		hl.Adornee = char
+		hl.Parent = folder
+		local sg = Instance.new("ScreenGui")
+		sg.Name = "OriginIgnitionFrames"
+		sg.IgnoreGuiInset = true
+		sg.ResetOnSpawn = false
+		sg.DisplayOrder = 49 -- (over the letterbox and the HUD's flash; flashFrame's 50 over it)
+		sg.Parent = pgui
+		local layer, halo
+		local function fresh(color, alpha)
+			if layer then
+				layer:Destroy()
+			end
+			layer = Instance.new("Frame")
+			layer.Name = "Frame"
+			layer.Size = UDim2.fromScale(1, 1)
+			layer.BackgroundColor3 = color or BLACK
+			layer.BackgroundTransparency = alpha or 1
+			layer.BorderSizePixel = 0
+			layer.Parent = sg
+			return layer
+		end
+		-- a bar `len` (a share of the screen's width) long and `thick` px,
+		-- starting `from` out of (cx, cy), at `angle`
+		local function bar(parent, cx, cy, aspect, angle, from, len, thick, color, alpha)
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.BackgroundColor3 = color
+			f.BackgroundTransparency = alpha or 0
+			f.BorderSizePixel = 0
+			local mid = from + len / 2
+			f.Position = UDim2.fromScale(cx + math.cos(angle) * mid, cy + math.sin(angle) * mid * aspect)
+			f.Size = UDim2.new(len, 0, 0, thick)
+			f.Rotation = math.deg(angle)
+			f.Parent = parent
+			return f
+		end
+		-- a spike: fat at the root, thin out to its point
+		local function spike(parent, cx, cy, aspect, angle, from, len, thick, color)
+			for k, w in { 1, 0.55, 0.25 } do
+				bar(parent, cx, cy, aspect, angle, from, len * (k == 1 and 0.35 or k == 2 and 0.68 or 1), thick * w, color)
+			end
+		end
+		-- a round blot `h` of the screen's height across
+		local function blot(parent, x, y, h, aspect, color, alpha)
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Position = UDim2.fromScale(x, y)
+			f.Size = UDim2.fromScale(h / aspect, h)
+			f.BackgroundColor3 = color
+			f.BackgroundTransparency = alpha or 0
+			f.BorderSizePixel = 0
+			local c = Instance.new("UICorner")
+			c.CornerRadius = UDim.new(0.5, 0)
+			c.Parent = f
+			f.Parent = parent
+			return f
+		end
+		-- a soft line of light, brightest in the middle (on the disc)
+		local function streak(parent, x, y, px, alpha, vertical)
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Position = UDim2.fromScale(x, y)
+			f.Size = vertical and UDim2.new(0, px, 2.4, 0) or UDim2.new(2.4, 0, 0, px)
+			f.BackgroundColor3 = WHITE
+			f.BackgroundTransparency = alpha
+			f.BorderSizePixel = 0
+			local g = Instance.new("UIGradient")
+			g.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.3, 0.7),
+				NumberSequenceKeypoint.new(0.5, 0),
+				NumberSequenceKeypoint.new(0.7, 0.7),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			g.Rotation = vertical and 90 or 0
+			g.Parent = f
+			f.Parent = parent
+			return f
+		end
+		-- the dark edges: four bands, dark at the edge and clearing inward
+		local function vignette(parent, alpha)
+			local bands = {}
+			for _, spec in { { 0, 0, 1, 0.34, 90 }, { 0, 0.66, 1, 0.34, 270 }, { 0, 0, 0.28, 1, 0 }, { 0.72, 0, 0.28, 1, 180 } } do
+				local f = Instance.new("Frame")
+				f.Position = UDim2.fromScale(spec[1], spec[2])
+				f.Size = UDim2.fromScale(spec[3], spec[4])
+				f.BackgroundColor3 = Color3.fromRGB(14, 10, 26)
+				f.BackgroundTransparency = alpha
+				f.BorderSizePixel = 0
+				local g = Instance.new("UIGradient")
+				g.Transparency = NumberSequence.new(0, 1)
+				g.Rotation = spec[5]
+				g.Parent = f
+				f.Parent = parent
+				table.insert(bands, f)
+			end
+			return bands
+		end
+		-- the disc of light: a pale disc facing the camera out along its line
+		-- through the hand, sized to the screen and kept up off the street,
+		-- its middle a little ahead of him (the hand on its edge, as at
+		-- 2:08.85). Returns its middle (the flare lines cross there)
+		local function placeHalo(at)
+			if not (halo and cam) then
+				return nil
+			end
+			local camPos = cam.CFrame.Position
+			local ray = at - camPos
+			if ray.Magnitude < 0.5 then
+				return nil
+			end
+			local c = at + ray.Unit * 4.5
+			local dist = (c - camPos).Magnitude
+			local R = 0.62 * dist * math.tan(math.rad(cam.FieldOfView or 70) / 2)
+			R = math.clamp(math.min(R, c.Y - ground - 0.15), 1.2, 9)
+			local ahead = (run.d or Vector3.zero) - ray.Unit * ray.Unit:Dot(run.d or Vector3.zero)
+			c += ahead * R * 0.5
+			halo.disc.Size = Vector3.new(0.1, R * 2, R * 2)
+			halo.disc.CFrame = CFrame.lookAt(c, camPos) * CFrame.Angles(0, math.pi / 2, 0)
+			halo.glow.CFrame = CFrame.new(c + ray.Unit * 0.3)
+			halo.bb.Size = UDim2.fromScale(R * 3.2, R * 3.2)
+			return c
+		end
+		-- (each step held to its deadline off `start`, not for its own length)
+		local due = math.min(tonumber(start) or os.clock(), os.clock())
+		local function hold(t, update)
+			due += t
+			while os.clock() < due do
+				if not (Origin.bwToken == token and live()) then
+					return false
+				end
+				if update then
+					update()
+				end
+				task.wait()
+			end
+			return Origin.bwToken == token and live()
+		end
+		Origin.veil(run, true, root.Position)
+		task.spawn(function()
+			local ok, err = pcall(function()
+				local T = Origin.BW
+				-- inverted: grey, him pale, black spikes out of the hand
+				local cx, cy, aspect = view()
+				cc.Saturation, cc.Brightness, cc.Contrast, cc.TintColor = -1, 0.1, -0.45, WHITE
+				hl.FillColor, hl.FillTransparency, hl.OutlineColor, hl.OutlineTransparency = WHITE, 0.08, BLACK, 0
+				local L = fresh(Color3.fromRGB(110, 110, 112), 0.35)
+				for _ = 1, 34 do
+					spike(L, cx, cy, aspect, rand(0, math.pi * 2), rand(0.02, 0.07), rand(0.25, 0.85), rand(12, 44), BLACK)
+				end
+				for _ = 1, 30 do
+					bar(L, cx, cy, aspect, rand(0, math.pi * 2), rand(0.12, 0.4), rand(0.15, 0.6), rand(1, 3), BLACK, 0.15)
+				end
+				blot(L, cx, cy, 0.3, aspect, WHITE, 0.6)
+				blot(L, cx, cy, 0.13, aspect, WHITE, 0)
+				if not hold(T[1] * pace) then
+					return
+				end
+				-- a black flash: the fire's flare, grey and spiky, speed lines
+				cx, cy, aspect = view()
+				hl.FillTransparency, hl.OutlineTransparency = 1, 1
+				L = fresh(BLACK, 0)
+				for _ = 1, 36 do
+					bar(L, cx, cy, aspect, rand(0, math.pi * 2), rand(0.22, 0.45), rand(0.35, 0.8), rand(1, 3), Color3.fromRGB(70, 70, 74), 0.2)
+				end
+				local grey = Color3.fromRGB(128, 128, 130)
+				for i = 1, 24 do
+					spike(L, cx, cy, aspect, i / 24 * math.pi * 2 + rand(-0.12, 0.12), 0, rand(0.1, 0.26), rand(30, 70), grey)
+				end
+				blot(L, cx, cy, 0.3, aspect, grey, 0)
+				if not hold(T[2] * pace) then
+					return
+				end
+				-- the silhouette: violet-grey, him black, the disc behind his
+				-- hand, flare lines crossing through it, dark edges
+				cx, cy, aspect = view()
+				cc.Saturation, cc.Brightness, cc.Contrast, cc.TintColor = -1, -0.06, 0.6, Origin.VIOLET
+				hl.FillColor, hl.FillTransparency, hl.OutlineTransparency = BLACK, 0, 1
+				L = fresh(nil, 1)
+				local bands = vignette(L, 0.08)
+				local flare = Instance.new("Frame")
+				flare.Name = "Flare"
+				flare.AnchorPoint = Vector2.new(0.5, 0.5)
+				flare.Size = UDim2.fromScale(1, 1)
+				flare.Position = UDim2.fromScale(cx, cy)
+				flare.BackgroundTransparency = 1
+				flare.Parent = L
+				local lines = {
+					{ streak(flare, 0.5, 0.5, 3, 0.12), 0.12 },
+					{ streak(flare, 0.5, 0.5, 18, 0.8), 0.8 },
+					{ streak(flare, 0.5, 0.5, 3, 0.2, true), 0.2 },
+					{ streak(flare, 0.5, 0.5, 14, 0.82, true), 0.82 },
+					{ streak(flare, 0.5, 0.27, 2, 0.5), 0.5 },
+					{ streak(flare, 0.5, 0.78, 2, 0.55), 0.55 },
+					{ streak(flare, 0.68, 0.5, 2, 0.55, true), 0.55 },
+					{ streak(flare, 1.02, 0.5, 2, 0.6, true), 0.6 },
+				}
+				blot(flare, 0.5, 0.5, 0.045, aspect, WHITE, 0.05)
+				halo = { model = Instance.new("Model") }
+				halo.model.Name = "OriginHalo"
+				halo.disc = newPart(Vector3.new(0.1, 2, 2), root.CFrame, Color3.fromRGB(244, 242, 255), Enum.Material.Neon, Enum.PartType.Cylinder, halo.model)
+				halo.disc.Name = "OriginHaloDisc"
+				halo.disc.Transparency = 0.05
+				halo.glow = newPart(Vector3.one * 0.1, root.CFrame, WHITE, nil, nil, halo.model)
+				halo.glow.Transparency = 1
+				halo.bb = Instance.new("BillboardGui")
+				halo.bb.AlwaysOnTop = false
+				halo.bb.LightInfluence = 0
+				halo.bb.Brightness = 2
+				halo.bb.MaxDistance = 2000
+				halo.bb.Adornee = halo.glow
+				for i, k in { 1, 0.82, 0.66, 0.52, 0.4 } do
+					local ring = Instance.new("Frame")
+					ring.AnchorPoint = Vector2.new(0.5, 0.5)
+					ring.Position = UDim2.fromScale(0.5, 0.5)
+					ring.Size = UDim2.fromScale(k, k)
+					ring.BackgroundColor3 = Origin.PALE
+					ring.BackgroundTransparency = 0.9 - i * 0.01
+					ring.BorderSizePixel = 0
+					local c = Instance.new("UICorner")
+					c.CornerRadius = UDim.new(0.5, 0)
+					c.Parent = ring
+					ring.Parent = halo.bb
+				end
+				halo.bb.Parent = halo.glow
+				halo.model.Parent = folder
+				local function follow()
+					local _, _, _, at = view()
+					local x, y = view(placeHalo(at) or at)
+					flare.Position = UDim2.fromScale(x, y)
+				end
+				follow()
+				if not hold(T[3] * pace, follow) then
+					return
+				end
+				-- paler: him pale with dark lines, the light stronger, washing
+				-- out to white at the end
+				cc.Saturation, cc.Brightness, cc.Contrast, cc.TintColor = -1, 0.12, 0.2, Origin.PALE
+				hl.FillColor, hl.FillTransparency, hl.OutlineColor, hl.OutlineTransparency = Color3.fromRGB(220, 216, 240), 0.25, Color3.fromRGB(40, 36, 60), 0
+				for _, ln in lines do
+					ln[1].BackgroundTransparency = math.max(ln[2] - 0.3, 0)
+				end
+				for _, b in bands do
+					tween(b, T[4] * pace, { BackgroundTransparency = 0.45 })
+				end
+				local wash = Instance.new("Frame")
+				wash.Size = UDim2.fromScale(1, 1)
+				wash.BackgroundColor3 = WHITE
+				wash.BackgroundTransparency = 0.95
+				wash.BorderSizePixel = 0
+				wash.Parent = L
+				tween(wash, T[4] * pace, { BackgroundTransparency = 0.3 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				if not hold(T[4] * pace, follow) then
+					return
+				end
+				-- the black frame, the white starburst, on the hand
+				local _, _, _, at = view()
+				Origin.flashFrame(at, math.max(due + T[5] * pace - os.clock(), 1 / 60))
+				hold(T[5] * pace)
+			end)
+			if not ok then
+				warn("ORIGIN frames: " .. tostring(err))
+			end
+			sg:Destroy()
+			hl:Destroy()
+			if halo then
+				halo.model:Destroy()
+			end
+			if Origin.bwToken == token then
+				cc.Enabled = false
+				cc.Saturation, cc.Brightness, cc.Contrast, cc.TintColor = 0, 0, 0, WHITE
+			end
+			Origin.veil(run, false)
+		end)
+	end
+
+	-- the shots, cut on the beats (From / To = { camera, look at } off his
+	-- root at the catch, -Z the way he faces; D = how far off they're held):
+	--   the catch: low over his right shoulder, down the street at the cage
+	--   the cold: close on his face and his frosted right side, front right
+	--   (round 82) THE TWO HANDS: side on from his left at his waist, him
+	--     facing screen left - the burning left hand nearest, the frost wall
+	--     behind him on the right - pushing in (2:08.2); it holds through the
+	--     inverted frame and the black flash
+	--   (round 82) THE SILHOUETTE: the same side, lower and wider - the hand
+	--     out at the left over the disc of light - through the pale frame and
+	--     the starburst (2:08.75-2:09.2)
+	--   colour again: low off his front right, craning up the plume
+	--   the field: high and wide off his left, the ring of fire racing out
+	--     through the pillars (2:11)
+	--   the wind-up, "Thanks.", the thrust: side on off his left - the palm
+	--     drawn back burning, then thrust out at them (2:15-2:21); (round 82)
+	--     looking at the palm's height, not over his head
+	--   the impact frames: high, side-on, the two of them in it
+	--   the expansion: up and back as the steam rolls over everything
+	-- (round 82) pace: OriginPace (build and freeze come paced already; the
+	-- set lengths here are paced to match)
+	-- (round 82) "Thanks."'s bubble, this high over his head: in the thrust
+	-- shot (looking at the palm) it sits between his head and the top bar
+	Origin.BUBBLE_Y = 1.7
+	function Origin.shots(dist, build, freeze, beats, pace)
+		beats = beats or {}
+		pace = pace or 1
+		local D = math.max(dist or 20, 6)
+		local ig = build * (beats.Ignite or 0.24)
+		local fi = build * (beats.Field or 0.63)
+		local th = build * (beats.Thanks or 0.77)
+		local cage = math.min(0.35 * pace, ig * 0.4)
+		local hands = ig - 0.08 * pace -- (the two hands)
+		local dark = ig + 0.46 * pace -- (the silhouette)
+		local again = ig + 1.0 * pace -- (colour again: the eruption)
+		return {
+			{ T = cage, From = { V(4.6, 0.6, 8), V(0, -0.5, -D) }, To = { V(4.0, 0.4, 6.8), V(0, 0, -D) }, Fov = { 44, 38 } },
+			{ T = hands - cage, From = { V(3.2, 1.4, -6.2), V(0.3, 1.1, 0) }, To = { V(2.6, 1.4, -5.0), V(0.3, 1.2, 0) }, Fov = { 44, 38 } },
+			{ T = dark - hands, Cut = true, From = { V(-9.0, -0.3, -0.6), V(0, 0.2, -2.6) }, To = { V(-8.2, -0.3, -0.8), V(0, 0.2, -2.7) }, Fov = { 46, 42 } },
+			{ T = again - dark, From = { V(-7.6, -1.4, -1.0), V(0, 0.3, -2.6) }, To = { V(-7.0, -1.45, -1.1), V(0, 0.3, -2.6) }, Fov = { 50, 47 } },
+			{ T = fi - again, Cut = true, From = { V(7.5, -1.4, -9.5), V(-1.2, 2.2, 0.6) }, To = { V(9.0, 0.2, -13.5), V(-2.2, 14, 1.2) }, Fov = { 56, 70 }, Style = Enum.EasingStyle.Quad },
+			{ T = th - fi, From = { V(-D * 0.7 - 14, D * 0.45 + 10, 4), V(0, 0, -D * 0.6) }, To = { V(-D * 0.75 - 18, D * 0.5 + 14, 8), V(0, 2, -D * 0.6) }, Fov = { 64, 70 } },
+			{ T = build - th, From = { V(-10.5, 1.3, 0.4), V(0, 0.2, -2.6) }, To = { V(-9.3, 1.1, 0.2), V(0, 0.2, -2.6) }, Fov = { 50, 44 } },
+			{ T = freeze, Cut = true, From = { V(-D * 0.55 - 14, D * 0.3 + 8, -D / 2), V(0, 1, -D / 2) }, To = { V(-D * 0.5 - 12, D * 0.28 + 7, -D / 2), V(0, 1, -D / 2) }, Fov = { 60, 56 } },
+			{ T = 1.9 * pace, From = { V(-14, 20, 30), V(0, 6, -D / 2) }, To = { V(-20, 56, 78), V(0, 10, -D / 2) }, Fov = { 70, 80 }, Style = Enum.EasingStyle.Quad },
+		}
+	end
+	SHOTS.ShotoOriginCatch = Origin.shots(20, 3.4, 0.3)
+
+	-- the wave: the seeded spikes (the same ones the server carves with), a
+	-- sheet of frost laid under them as it runs, frost cracks racing ahead
+	-- and a ribbon of freezing mist out along it. (Built here, not with
+	-- spikeLayout: its fog bank would sit in front of every shot of the
+	-- cutscene - the mist here stays low and well out down the street.)
+	function Origin.wave(data, root, d)
+		local O = SpikeLayouts.ORIGIN or { Range = 48, Speed = 170, Lane = 9 }
+		local g0 = groundPoint(typeof(data.Origin) == "Vector3" and data.Origin or root.Position)
+		local layout, growTime, anchor = SpikeLayouts.OriginWave(g0, d, typeof(data.Seed) == "number" and data.Seed or 81, function(pos)
+			local hit = groundRay(pos + UP * 3, 140)
+			return hit and hit.Position or nil
+		end)
+		local model = outlineModel(ICE_OUTLINE)
+		model.Name = "OriginWave"
+		local grow = {}
+		for i, sp in layout do
+			-- (a frost burst off every other one: they come up side by side)
+			table.insert(grow, { set = makeSpike(model, sp.Base, sp.Dir, sp.Length, sp.Thick, false, { quiet = i % 2 == 0 }), delay = sp.Delay })
+		end
+		Origin.grow(grow, growTime)
+		sparks(anchor + d * O.Range * 0.4, 1.2, ICE_TIP, Color3.fromRGB(120, 200, 255), 30)
+		local right = d:Cross(UP)
+		for s = 0, O.Range, 6 do
+			local at = groundPoint(g0 + d * (s + 3) + UP * 2)
+			local slab = newPart(Vector3.new(0.4, 0.3, 0.4), CFrame.lookAt(at + UP * 0.12, at + UP * 0.12 + d), ICE_MID, Enum.Material.Ice, nil, model)
+			slab.Name = "OriginSheet"
+			slab.Transparency = 0.15
+			tween(slab, 0.12, { Size = Vector3.new(4 + s * 0.08, 0.3, 6.6) }, Enum.EasingStyle.Quad, nil, s / O.Speed)
+		end
+		for lane = -1, 1 do
+			task.spawn(function()
+				local prev = g0 + d * 1.5 + right * lane * 0.8 + UP * 0.2
+				for k = 1, 6 do
+					local s = k / 6 * (O.Range + 8)
+					local nextP = groundPoint(g0 + d * s + right * (lane * (1.5 + s * 0.12) + rand(-1.2, 1.2)) + UP * 2) + UP * 0.2
+					local seg = newPart(Vector3.new(0.28, 0.1, (nextP - prev).Magnitude), CFrame.lookAt((prev + nextP) / 2, nextP), Color3.fromRGB(150, 225, 255), Enum.Material.Neon)
+					seg.Transparency = 0.15
+					tween(seg, 1.2, { Transparency = 1, Color = Color3.fromRGB(230, 248, 255) }, Enum.EasingStyle.Quad, nil, 0.8)
+					cleanup(seg, 2.1)
+					prev = nextP
+					task.wait((O.Range + 8) / 6 / 220)
+				end
+			end)
+		end
+		for s = 20, O.Range, 14 do
+			task.delay(s / O.Speed, frostMist, g0 + d * s + UP * 0.8, 0.8, 3)
+		end
+		return model
+	end
+
+	-- the cage: glacier spikes round their feet leaning in to their chest, the
+	-- wave's crest piled against them, and a block of ice to the waist
+	function Origin.cage(feet, d, seed)
+		local list, growTime = SpikeLayouts.OriginCage(feet, d, seed, function(pos)
+			local hit = groundRay(pos + UP * 3, 20)
+			return hit and hit.Position or nil
+		end)
+		local model = outlineModel(ICE_OUTLINE)
+		model.Name = "OriginCage"
+		local grow = {}
+		for _, sp in list do
+			-- (no frost bursts: they'd all go off on one spot, inside the cage)
+			table.insert(grow, { set = makeSpike(model, sp.Base, sp.Dir, sp.Length, sp.Thick, false, { quiet = true }), delay = sp.Delay })
+		end
+		Origin.grow(grow, growTime)
+		local block = newPart(Vector3.new(1, 0.5, 1), CFrame.new(feet + UP * 0.25), ICE_MID, Enum.Material.Ice, nil, model)
+		block.Name = "OriginBlock"
+		block.Transparency = 0.3
+		block.Reflectance = 0.08
+		tween(block, 0.16, { Size = Vector3.new(4.4, 3.4, 4.4), CFrame = CFrame.new(feet + UP * 1.6) }, Enum.EasingStyle.Back)
+		frostMist(feet + UP * 1.5, 0.9, 5)
+		sparks(feet + UP * 3, 1, ICE_TIP, Color3.fromRGB(120, 200, 255), 24)
+		return model
+	end
+
+	-- IGNITION: the plume up off his left side, his left arm, shoulder and
+	-- the left of his head ablaze, the frost on his right flashing to steam,
+	-- the air going warm. (round 82) This is colour again after the black-
+	-- and-white frames (Origin.frames ends on the starburst): the frost wall
+	-- behind him breaks up in it, and the hair's already alight (twoHands)
+	function Origin.ignite(char, run, last)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local head = char:FindFirstChild("Head")
+		local armL = limb(char, "LeftUpperArm", "Left Arm")
+		local torso = limb(char, "UpperTorso", "Torso")
+		local left = -run.d:Cross(UP)
+		local g = groundPoint(root.Position)
+		local me = Players.LocalPlayer
+		local close = (me and (me.Character == char or me.Character == run.target)) or nearCamera(root.Position, 90)
+		local p = run.pace or 1 -- (round 82: OriginPace)
+		if run.frostWall then
+			local wall = run.frostWall
+			run.frostWall = nil
+			-- (the frames' veil may not be lifted off it yet: shown again so
+			-- it's seen to break)
+			for _, x in wall:GetDescendants() do
+				if x:IsA("BasePart") then
+					x.LocalTransparencyModifier = 0
+				end
+			end
+			shatter(wall, 40)
+		end
+		if close then
+			local warm = Instance.new("ColorCorrectionEffect")
+			warm.Name = "OriginWarm"
+			warm.TintColor = Color3.fromRGB(255, 226, 200)
+			warm.Brightness = 0.06
+			warm.Parent = Lighting
+			tween(warm, 2 * p, { TintColor = Color3.new(1, 1, 1), Brightness = 0 }, Enum.EasingStyle.Sine, nil, 0.4 * p)
+			cleanup(warm, 2.5 * p)
+		end
+		-- (the tower: no skirt of long flames round its foot - just a few
+		-- short ones licking out of it)
+		local base = g + left * 2.4 - run.d * 1.2
+		run.plume = BLAZE.pillar(base, 56, 2.6, "hell", last + 0.4, { Grow = 0.14 * p, Ring = 0, Fade = 0.45 })
+		for i = 1, 4 do
+			local a = i / 4 * math.pi * 2 + rand(-0.3, 0.3)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			local at = base + out * 2
+			table.insert(run.plume, BLAZE.flame({ CF = CFrame.lookAt(at, at + out) * CFrame.Angles(math.rad(-50), 0, 0), Pal = "hell", Height = rand(3.5, 5), Width = 1.6, Tongues = 2, Volume = 0.3, Smoke = false, Heart = false, Light = 0, Grow = 0.1 * p }))
+		end
+		run.body = run.body or {}
+		if armL then
+			table.insert(run.body, Origin.follow(BLAZE.flame({ CF = CFrame.new(armL.Position), Pal = "hell", Height = 4.2, Width = 1.8, Tongues = 4, Volume = 0.7, Light = 14, Grow = 0.1 * p }), armL, CFrame.new()))
+		end
+		if torso then
+			table.insert(run.body, Origin.follow(BLAZE.flame({ CF = CFrame.new(torso.Position), Pal = "hell", Height = 5.5, Width = 2.2, Tongues = 4, Volume = 0.5, Light = 0, Grow = 0.12 * p }), torso, CFrame.new(-0.75, 0.8, 0)))
+		end
+		if head and not run.hair then
+			table.insert(run.body, Origin.follow(BLAZE.flame({ CF = CFrame.new(head.Position), Pal = "hell", Height = 3.4, Width = 1.2, Tongues = 3, Volume = 0.35, Light = 0, Grow = 0.08 * p }), head, CFrame.new(-0.4, 0.35, 0)))
+		end
+		BLAZE.burst(root.Position + left * 1.4 + UP * 1.5, 3, { Pal = "hell", NoScorch = true, Tongues = 6 })
+		shockDisc(g + UP * 0.4, UP, 4, 32, 0.35 * p, FIRE[2])
+		billboardRing(root.Position + left, 3, 28, Origin.WARM, 8, 0.35 * p)
+		sparks(root.Position + left, 1.4, FIRE[1], FIRE[4], 40)
+		Origin.melt(run, 0.35, 10, 0.4 * p)
+		if run.hair then
+			run.hair.level(1.2)
+		end
+		VFX.PlaySound("OriginIgnite", root.Position, 1)
+		VFX.ShakeAt(root.Position, 2.4, 160, 0.5)
+	end
+
+	-- the field (2:11): white pillars erupt all round them, and a ring of
+	-- fire races out across the street from his feet through them - each
+	-- pillar lit orange as it passes, steam coming off the ice
+	function Origin.field(char, run)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local d = run.d
+		local g = groundPoint(root.Position)
+		local list, growTime = SpikeLayouts.OriginField(g, d, run.seed or 81, function(pos)
+			local hit = groundRay(pos + UP * 3, 60)
+			return hit and hit.Position or nil
+		end, run.dist)
+		local model = outlineModel(ICE_OUTLINE)
+		model.Name = "OriginField"
+		run.field = model
+		local grow, pillars = {}, {}
+		local flatG = Vector3.new(g.X, 0, g.Z)
+		for i, sp in list do
+			local m = Instance.new("Model")
+			m.Name = "Pillar"
+			m.Parent = model
+			table.insert(grow, { set = makeSpike(m, sp.Base, sp.Dir, sp.Length, sp.Thick, false, { quiet = i % 2 == 0 }), delay = sp.Delay })
+			table.insert(pillars, { m = m, at = sp.Base, r = (Vector3.new(sp.Base.X, 0, sp.Base.Z) - flatG).Magnitude })
+		end
+		Origin.grow(grow, growTime)
+		VFX.PlaySound("OriginField", g + d * run.dist * 0.5, 1)
+		VFX.ShakeAt(g + d * run.dist * 0.5, 2.2, 200, 0.5)
+		-- the ring: a flat band (orange, a white-hot inner edge) and flames on it
+		local ring = Instance.new("Model")
+		ring.Name = "OriginFireRing"
+		ring.Parent = folder
+		local N = 40
+		local segs = {}
+		for i = 1, N do
+			local outer = newPart(Vector3.new(2.4, 0.16, 1), CFrame.new(g), FIRE[3], Enum.Material.Neon, nil, ring)
+			local inner = newPart(Vector3.new(0.9, 0.2, 1), CFrame.new(g), Origin.HOT, Enum.Material.Neon, nil, ring)
+			outer.Transparency = 0.1
+			inner.Transparency = 0.05
+			segs[i] = { outer, inner, i / N * math.pi * 2 }
+		end
+		local flames = {}
+		for i = 1, 20 do
+			table.insert(flames, {
+				a = (i + rand(-0.3, 0.3)) / 20 * math.pi * 2,
+				f = BLAZE.flame({ CF = CFrame.new(g), Pal = "hell", Height = rand(4, 7), Width = 3, Tongues = 3, Volume = 0.25, Light = 0, Grow = 0.06 }),
+			})
+		end
+		run.ring = { model = ring, flames = flames }
+		local R = (run.dist or 20) + 14
+		local time = 0.55 * Origin.pace * (run.pace or 1)
+		local t0 = os.clock()
+		local light = Instance.new("PointLight")
+		light.Color = FIRE[3]
+		light.Range = 40
+		light.Brightness = 3
+		light.Parent = segs[1][1]
+		task.spawn(function()
+			local faded = false
+			while ring.Parent and Origin.live[char] == run and not run.blasted do
+				local t = os.clock() - t0
+				local k = math.clamp(t / time, 0, 1)
+				local r = 2 + (R - 2) * (1 - (1 - k) ^ 2)
+				local step = math.pi * 2 * r / N
+				for _, sg in segs do
+					local out = Vector3.new(math.cos(sg[3]), 0, math.sin(sg[3]))
+					local tangent = out:Cross(UP)
+					local p1 = g + out * r + UP * 0.12
+					local p2 = g + out * math.max(r - 1.5, 0.5) + UP * 0.14
+					sg[1].Size = Vector3.new(2.4, 0.16, step * 1.08)
+					sg[1].CFrame = CFrame.lookAt(p1, p1 + tangent)
+					sg[2].Size = Vector3.new(0.9, 0.2, step * 1.08)
+					sg[2].CFrame = CFrame.lookAt(p2, p2 + tangent)
+				end
+				for _, fl in flames do
+					local out = Vector3.new(math.cos(fl.a), 0, math.sin(fl.a))
+					fl.f.cf = CFrame.new(g + out * (r + 0.4))
+					fl.f.holder.CFrame = fl.f.cf
+					fl.f.wind = -out * (k < 1 and 14 or 3)
+				end
+				-- the pillars it reaches are lit orange, and steam
+				for _, pl in pillars do
+					if not pl.lit and pl.r <= r then
+						pl.lit = true
+						for _, p in pl.m:GetChildren() do
+							if p:IsA("BasePart") then
+								local cold = p.Color
+								tween(p, 0.12, { Color = cold:Lerp(Color3.fromRGB(255, 150, 80), 0.6) })
+								tween(p, 1.2, { Color = cold:Lerp(Color3.fromRGB(255, 170, 110), 0.25) }, Enum.EasingStyle.Sine, nil, 0.2)
+							end
+						end
+						for j = 1, 2 do
+							local p = pl.at + UP * rand(1, 3)
+							Origin.puff(p, p + UP * rand(6, 12) + rng:NextUnitVector() * 2, rand(3, 5), rand(1, 1.6), j * 0.08)
+						end
+					end
+				end
+				if k >= 1 and not faded then
+					faded = true
+					for _, sg in segs do
+						tween(sg[1], 0.45, { Transparency = 1 }, nil, nil, 0.15)
+						tween(sg[2], 0.35, { Transparency = 1 }, nil, nil, 0.1)
+					end
+					tween(light, 0.6, { Brightness = 0.6 })
+					for _, fl in flames do
+						fl.f.level(0.55)
+					end
+				end
+				task.wait()
+			end
+		end)
+		-- the wave's ice in the lane steams as the fire crosses it
+		for s = 10, run.dist + 6, 7 do
+			task.delay(time * s / R, function()
+				local p = g + d * s + UP * 0.6
+				Origin.puff(p, p + UP * rand(4, 7), rand(2, 3.2), 1.1)
+			end)
+		end
+		-- (if nothing else does - the blast - it burns out on its own)
+		task.delay(4, function()
+			for _, fl in flames do
+				fl.f.kill(0.5)
+			end
+			cleanup(ring, 0.6)
+		end)
+	end
+
+	-- the wind-up: the plume collapses into the left palm and the flame
+	-- swells there, a glow with the light streaming in to it; the frost
+	-- comes back over his right side
+	function Origin.windup(char, run, until_)
+		for _, f in run.plume or {} do
+			f.kill(0.45)
+		end
+		for _, f in run.body or {} do
+			f.level(0.55)
+		end
+		-- (round 82) the hand opens, the palm's fire handing over to the flame
+		-- swelling in it
+		for _, f in run.handFire and run.handFire.flames or {} do
+			f.level(0.5)
+		end
+		Origin.handPose(run.hands and run.hands.L, 0.55, 0.3, 1.1)
+		local p = run.pace or 1 -- (round 82: OriginPace)
+		Origin.refrost(run, 0.5 * p)
+		local armL = limb(char, "LeftUpperArm", "Left Arm")
+		if not armL then
+			return
+		end
+		local palm = Origin.follow(BLAZE.flame({ CF = CFrame.new(handPos(char, false)), Pal = "hell", Height = 1.5, Width = 0.9, Tongues = 4, Volume = 0.7, Light = 14, Grow = 0.25 * p }), armL, CFrame.new(0, -armL.Size.Y / 2, 0))
+		run.palm = palm
+		local glow = newPart(Vector3.one * 0.4, CFrame.new(handPos(char, false)), Origin.PALM, Enum.Material.Neon, Enum.PartType.Ball)
+		glow.Name = "OriginPalm"
+		glow.Transparency = 0.15
+		local core = newPart(Vector3.one * 0.2, CFrame.new(handPos(char, false)), Origin.HOT, Enum.Material.Neon, Enum.PartType.Ball)
+		core.Name = "OriginPalm"
+		run.glow = { glow, core }
+		task.spawn(function()
+			local t0 = os.clock()
+			local span = math.max(until_ - t0, 0.2)
+			local nextStreak = 0
+			while glow.Parent and Origin.live[char] == run and not run.thrown do
+				local k = math.clamp((os.clock() - t0) / span, 0, 1)
+				local hand = handPos(char, false)
+				local pulse = 1 + 0.12 * math.sin(os.clock() * 40)
+				glow.Size = Vector3.one * (0.5 + 1.7 * k) * pulse
+				core.Size = Vector3.one * (0.25 + 0.9 * k)
+				glow.CFrame = CFrame.new(hand)
+				core.CFrame = CFrame.new(hand)
+				palm.level(0.6 + 1.4 * k)
+				if os.clock() > nextStreak then
+					nextStreak = os.clock() + 0.07
+					local from = hand + rng:NextUnitVector() * rand(6, 12)
+					streaks(from, (hand - from).Unit, 1, 0.2, 2.5, (hand - from).Magnitude, k > 0.6 and Origin.HOT or Origin.PALM, 0.22)
+				end
+				task.wait()
+			end
+		end)
+	end
+
+	-- "Thanks." - the palm thrust: white-hot fire swelling off it, pouring
+	-- straight at them (it rides the palm) for `life` seconds
+	function Origin.thrust(char, run, life)
+		run.thrown = true
+		local p = run.pace or 1 -- (round 82: OriginPace)
+		local hand = handPos(char, false)
+		local at = (run.at or hand) + UP * 0.6
+		local v = at - hand
+		local dir = v.Magnitude > 0.5 and v.Unit or run.d
+		local j = BLAZE.jet({ From = hand, Dir = dir, Length = v.Magnitude + 4, Width = 9, Pal = "white", Rolls = 6 })
+		run.jet = j
+		task.spawn(function()
+			local t0 = os.clock()
+			while not j.dead and os.clock() - t0 < life and char.Parent do
+				local h = handPos(char, false)
+				j.aim(h, at - h)
+				task.wait()
+			end
+			j.stop(0.3 * p)
+		end)
+		BLAZE.burst(hand + dir * 1.5, 3, { Pal = "white", NoScorch = true, Smoke = false, Tongues = 6 })
+		streaks(hand, dir, 16, 2, 10, v.Magnitude, FIRE[1], 0.3)
+		if run.palm then
+			run.palm.kill(0.2 * p)
+		end
+		for _, g in run.glow or {} do
+			tween(g, 0.2 * p, { Transparency = 1, Size = g.Size * 2 })
+			cleanup(g, 0.25 * p)
+		end
+		-- (round 82) the palm pushed out flat, the fingers up, the hand's fire
+		-- gone into the blast
+		Origin.handPose(run.hands and run.hands.L, 1.35, 0.12, 0.85)
+		for _, f in run.handFire and run.handFire.flames or {} do
+			f.kill(0.2 * p)
+		end
+		for _, g in run.handFire and run.handFire.parts or {} do
+			tween(g, 0.2 * p, { Transparency = 1, Size = g.Size * 2 })
+		end
+		VFX.PlaySound("OriginThrust", hand, 1)
+	end
+
+	-- a stadium of steam: puffs roll out from the blast to `radius`, the
+	-- middle piled highest; it clears from the edges in over `life`. Inside
+	-- it the screen's whited out a little too
+	function Origin.steam(ground, radius, life)
+		local model = Instance.new("Model")
+		model.Name = "OriginSteamCloud"
+		model.Parent = folder
+		-- (spread evenly out to the edge; the middle piled highest, the edge
+		-- rolling out to it last and clearing first)
+		local n = 54
+		for i = 1, n do
+			local a = rand(0, math.pi * 2)
+			local k = math.clamp(math.sqrt((i - 0.5) / n) * rand(0.9, 1.05), 0.05, 1)
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			local to = ground + out * radius * k + UP * rand(4, 10 + (1 - k) * 26)
+			local size = rand(20, 32) * (1.2 - 0.4 * k)
+			local body = newPart(Vector3.one * 2, CFrame.new(ground + out * 3 + UP * 3), STEAM, nil, Enum.PartType.Ball, model)
+			body.Transparency = 0.06
+			local hi = newPart(Vector3.one * 1.4, CFrame.new(ground + out * 3 + UP * 3.2), Color3.fromRGB(252, 252, 255), nil, Enum.PartType.Ball, model)
+			hi.Transparency = 0.03
+			local grow = rand(0.5, 0.8) * (0.5 + k)
+			local hiAt = to + Vector3.new(-0.12, 0.2, 0) * size
+			tween(body, grow, { Size = Vector3.one * size, CFrame = CFrame.new(to) }, Enum.EasingStyle.Quint)
+			tween(hi, grow, { Size = Vector3.one * size * 0.7, CFrame = CFrame.new(hiAt) }, Enum.EasingStyle.Quint)
+			local fadeAt = life * (0.4 + 0.55 * (1 - k)) + rand(0, 0.3)
+			local rise = UP * rand(4, 9)
+			tween(body, 1.3, { Transparency = 1, Size = Vector3.one * size * 1.25, CFrame = CFrame.new(to + rise) }, Enum.EasingStyle.Sine, Enum.EasingDirection.In, fadeAt)
+			tween(hi, 1.3, { Transparency = 1, Size = Vector3.one * size * 0.9, CFrame = CFrame.new(hiAt + rise) }, Enum.EasingStyle.Sine, Enum.EasingDirection.In, fadeAt)
+		end
+		cleanup(model, life + 2)
+		local cam = workspace.CurrentCamera
+		if cam and (cam.CFrame.Position - ground).Magnitude < radius * 1.1 then
+			local cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "OriginSteamHaze"
+			cc.Brightness = 0.14
+			cc.Contrast = -0.25
+			cc.Saturation = -0.3
+			cc.Parent = Lighting
+			tween(cc, life, { Brightness = 0, Contrast = 0, Saturation = 0 }, Enum.EasingStyle.Sine, Enum.EasingDirection.In)
+			cleanup(cc, life + 0.1)
+		end
+		return model
+	end
+
+	-- ice and concrete cubes ("Yutapon cubes") flung out of the blast,
+	-- raining back down
+	function Origin.cubes(center, n)
+		for i = 1, n do
+			local ice = i % 3 ~= 0
+			local s = rand(0.8, 3.2)
+			local p = Instance.new("Part")
+			p.Name = "OriginCube"
+			p.Size = Vector3.new(s, s * rand(0.7, 1.1), s * rand(0.8, 1.2))
+			p.Color = ice and ({ ICE_BASE, ICE_MID, ICE_TOP })[rng:NextInteger(1, 3)] or Origin.CONCRETE:Lerp(Color3.new(0, 0, 0), rand(0, 0.2))
+			p.Material = ice and Enum.Material.Ice or Enum.Material.Concrete
+			p.CanQuery = false
+			p.CanTouch = false
+			p.CastShadow = false
+			p.CollisionGroup = "Debris"
+			local out = rng:NextUnitVector()
+			out = Vector3.new(out.X, math.abs(out.Y) * 0.6 + 0.2, out.Z).Unit
+			p.CFrame = CFrame.new(center + out * rand(1, 4)) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6))
+			p.Parent = folder
+			p.AssemblyLinearVelocity = out * rand(45, 110) + UP * rand(30, 70)
+			p.AssemblyAngularVelocity = rng:NextUnitVector() * rand(4, 14)
+			tween(p, 0.6, { Size = Vector3.one * 0.05, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, rand(2.2, 3))
+			cleanup(p, 3.8)
+		end
+	end
+
+	-- everything of the move's still standing goes (the cage, the field,
+	-- the wave, the fire on the street; (round 82) the frost wall, the hands)
+	function Origin.clear(run, blasted)
+		Origin.dropHands(run)
+		for _, key in { "cage", "field", "wave", "frostWall" } do
+			local m = run[key]
+			run[key] = nil
+			if m and m.Parent then
+				if blasted then
+					shatter(m, key == "field" and 120 or 60)
+				else
+					task.delay(0.4, shatter, m, 40)
+				end
+			end
+		end
+		if run.ring then
+			for _, fl in run.ring.flames do
+				fl.f.kill(0.3)
+			end
+			cleanup(run.ring.model, 0.4)
+			run.ring = nil
+		end
+		for _, f in run.plume or {} do
+			f.kill(0.3)
+		end
+		if run.palm then
+			run.palm.kill(0.2)
+		end
+		for _, p in run.glow or {} do
+			cleanup(p, 0)
+		end
+		if run.cold then
+			tween(run.cold, 0.4, { TintColor = Color3.new(1, 1, 1), Saturation = 0 })
+			cleanup(run.cold, 0.45)
+			run.cold = nil
+		end
+	end
+
+	-- the press: the stamp, and the wave goes (the frost already creeping
+	-- up his right side)
+	function Effects.ShotoOrigin(char, data, isLocal, ability)
+		local root, hum = charParts(char)
+		if not root then
+			return
+		end
+		ability = ability or Config.FindAbilityById("ShotoOrigin") or {}
+		local d = flatten(data.Dir, root)
+		if isLocal then
+			face(root, d)
+			if hum then
+				root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+			end
+		end
+		local run = { d = d, at0 = os.clock(), seed = tonumber(data.Seed) or 81 }
+		Origin.live[char] = run
+		Origin.play(char, "OriginStomp", 0, 0.3)
+		Origin.frost(char, run, 0.8)
+		Origin.breath(char, 1)
+		task.wait(ability.WaveStartup or 0.2)
+		if Origin.live[char] ~= run or not root.Parent then
+			return
+		end
+		run.wave = Origin.wave(data, root, d)
+		VFX.PlaySound("OriginWave", root.Position + d * 8, 1)
+		VFX.ShakeAt(root.Position, 1.4, 90, 0.3)
+		-- (nothing came back - a whiff or a catch - and it just breaks up)
+		task.delay(3.5, function()
+			if Origin.live[char] == run and not run.caught and not run.whiffed then
+				Origin.live[char] = nil
+				Origin.clear(run)
+				Origin.unfrost(run)
+			end
+		end)
+	end
+
+	-- nobody caught: the ridge stands a moment and breaks up; he straightens
+	-- up out of the stamp and breathes out, the frost melting off him
+	function Effects.ShotoOriginWhiff(char, data)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local run = Origin.live[char]
+		if run then
+			run.whiffed = true
+		end
+		Origin.play(char, "OriginWhiff", 0, 0.35)
+		Origin.breath(char, 1)
+		VFX.PlaySound("OriginWhiff", root.Position, 1)
+		if run then
+			Origin.unfrost(run, 1)
+			task.delay(1.5, function()
+				if Origin.live[char] == run then
+					Origin.live[char] = nil
+				end
+				Origin.clear(run)
+			end)
+		end
+	end
+
+	-- caught: the whole climax, from the cage to the thrust (the expansion
+	-- comes from the server: ShotoOriginBlast)
+	function Effects.ShotoOriginCatch(char, data)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local caughtAt = os.clock() -- (round 82: the beats' clock, for the frames' deadlines)
+		local ability = Config.FindAbilityById(data.Id or "ShotoOrigin") or {}
+		local build = tonumber(data.Build) or ability.BuildTime or 3.4
+		local freeze = tonumber(data.Freeze) or ability.FreezeTime or 0.3
+		local beats = ability.Beats or {}
+		local igAt, fiAt, thAt = build * (beats.Ignite or 0.24), build * (beats.Field or 0.63), build * (beats.Thanks or 0.77)
+		local goAt = build * (beats.Thrust or 0.88) -- (the palm goes out; it meets the frozen air on Build)
+		-- (round 82) OriginPace: the server paced Build (and Freeze); the set
+		-- lengths here - the ignition's frames, the shots' - follow it
+		local pace = 1
+		if tonumber(data.Build) and tonumber(ability.BuildTime) and ability.BuildTime > 0 then
+			pace = math.clamp(tonumber(data.Build) / ability.BuildTime, 0.25, 20)
+		end
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		local d = flatten(data.Dir, root)
+		local me = Players.LocalPlayer
+		local mine = me ~= nil and me.Character == char
+		local run = Origin.live[char]
+		if not run or run.caught then
+			run = { at0 = os.clock(), seed = 81 }
+		end
+		Origin.live[char] = run
+		run.caught, run.d, run.target, run.pace = true, d, target, pace
+		run.at = typeof(data.At) == "Vector3" and data.At or (troot and troot.Position) or (root.Position + d * 12)
+		run.dist = tonumber(data.Dist) or Vector3.new(run.at.X - root.Position.X, 0, run.at.Z - root.Position.Z).Magnitude
+		local feet = groundPoint(run.at)
+		if mine then
+			face(root, d)
+			root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+		end
+		-- (no beat after the expansion, or once he's down)
+		local function live()
+			if Origin.live[char] ~= run or run.blasted or root.Parent == nil then
+				return false
+			end
+			local h = char:FindFirstChildOfClass("Humanoid")
+			return h == nil or h.Health > 0
+		end
+		-- the catch: the cage snaps shut round them
+		VFX.Hitstop(char, 0.1 * pace)
+		run.cage = Origin.cage(feet, d, run.seed)
+		VFX.PlaySound("OriginCatch", feet, 1)
+		VFX.ShakeAt(feet, 1.6, 120, 0.25)
+		if target then
+			VFX.Hitstop(target, 0.1 * pace)
+			local _, frozen = Origin.hit("OriginFrozen", 0)
+			Origin.play(target, "OriginFrozen", build + freeze - (frozen and frozen.length or 0.1), 0.2)
+			if me and me.Character == target then
+				-- (theirs: the cold closing in)
+				local cold = Instance.new("ColorCorrectionEffect")
+				cold.Name = "OriginCold"
+				cold.Parent = Lighting
+				tween(cold, 0.6 * pace, { TintColor = Color3.fromRGB(196, 226, 255), Saturation = -0.25 })
+				run.cold = cold
+				cleanup(cold, build + freeze + 1)
+			end
+		end
+		-- the camera: his cutscene; a witness cut for anyone close by
+		SHOTS.ShotoOriginCatch = Origin.shots(run.dist, build, freeze, beats, pace)
+		cinematicFor(char, "ShotoOriginCatch", mine, ability.Name or "ORIGIN: HALF-COLD HALF-HOT", Origin.WARM)
+		-- his clips, each started its "Hit" ahead of its beat and held to the next
+		local igHit = Origin.hit("OriginIgnite", 0.08)
+		local wuHit = Origin.hit("OriginWindup", 0.12)
+		local reHit = Origin.hit("OriginRelease", 0.07)
+		local function len(name, default)
+			local _, clip = Origin.hit(name, 0)
+			return clip and clip.length or default
+		end
+		-- THE COLD: frosted over, shivering, his breath fogging
+		Origin.frost(char, run, 0.5 * pace)
+		Origin.breath(char, 3, 0.3)
+		Origin.play(char, "OriginShiver", (igAt - igHit) - len("OriginShiver", 0.15), 0.2)
+		VFX.PlaySound("OriginFrost", root.Position, 1)
+		if mine then
+			VFX.Hooks.Dim(0.3, igAt) -- (how dark, not how long: igAt is paced already)
+		end
+		-- IGNITION (round 82: a cutscene beat of its own, the clip at 2:08.2-
+		-- 2:09.2): the two hands, in colour; the black-and-white frames, him
+		-- held still through them (his clip's on its Hold: the hitstop stands
+		-- its clock still) and the starburst; then colour again, the
+		-- eruption. Off igAt, every step `pace` times as long
+		local bw = 0
+		for _, t in Origin.BW do
+			bw += t
+		end
+		bw *= pace
+		local framesAt = igAt + 0.34 * pace
+		local againAt = framesAt + bw
+		task.delay(math.max(igAt - igHit, 0), function()
+			if live() then
+				-- (its HoldEnd reached as the frames end, the fling on the eruption;
+				-- the R15 motion has no fling - its pose held to the wind-up)
+				local _, clip = Origin.hit("OriginIgnite", 0)
+				local r15 = char:FindFirstChild("UpperTorso") ~= nil
+				local hold = (clip and not r15) and (igHit + (againAt - igAt) - (clip.holdEnd or 0.4) - bw) or ((fiAt - wuHit) - (igAt - igHit) - 0.06)
+				Origin.play(char, "OriginIgnite", hold, 0.2)
+			end
+		end)
+		task.delay(math.max(igAt - 0.08 * pace, 0), function()
+			if live() then
+				Origin.twoHands(char, run, pace)
+			end
+		end)
+		task.delay(framesAt, function()
+			if not live() then
+				return
+			end
+			VFX.Hitstop(char, bw)
+			Origin.handPose(run.hands and run.hands.L, 0.35, 0.85, 1.15)
+			VFX.PlaySound("OriginFlare", root.Position, 1)
+			if mine or (me and me.Character == target) or nearCamera(root.Position, 90) then
+				Origin.frames(char, run, pace, live, caughtAt + framesAt)
+			end
+		end)
+		task.delay(againAt, function()
+			if live() then
+				Origin.ignite(char, run, fiAt - againAt)
+			end
+		end)
+		-- the field, the ring of fire; the wind-up and the flame in the palm
+		task.delay(math.max(fiAt - wuHit, 0), function()
+			if live() then
+				Origin.play(char, "OriginWindup", (goAt - reHit) - (fiAt - wuHit) - len("OriginWindup", 0.12), 0.2)
+			end
+		end)
+		task.delay(fiAt, function()
+			if live() then
+				Origin.field(char, run)
+				Origin.windup(char, run, os.clock() + (goAt - fiAt))
+			end
+		end)
+		task.delay(math.max(build - 0.95, 0), function()
+			if live() then
+				VFX.PlaySound("OriginCharge", root.Position, 1)
+			end
+		end)
+		-- "Thanks."
+		task.delay(thAt, function()
+			if live() then
+				local q = target and target:GetAttribute("Quirk")
+				VFX.SpeechBubble(char, (q == "FullCowl" or q == "PrimeDeku") and "THANKS... MIDORIYA." or "THANKS.", goAt - thAt + 0.1)
+				-- (kept close over his head: the shot's on him, side on; round
+				-- 82: lower, the shot looking down at his palm now - at 2.6 it
+				-- went up under the letterbox's top bar)
+				local head = char:FindFirstChild("Head")
+				for _, bb in folder:GetChildren() do
+					if bb.Name == "SpeechBubble" and bb:IsA("BillboardGui") and bb.Adornee == head then
+						bb.StudsOffsetWorldSpace = Vector3.new(0, Origin.BUBBLE_Y, 0)
+					end
+				end
+			end
+		end)
+		-- "Thanks." - the palm thrust: the fire pours out at them (held out
+		-- there, straining, till it meets the frozen air on Build)...
+		task.delay(math.max(goAt - reHit, 0), function()
+			if live() then
+				local _, re = Origin.hit("OriginRelease", 0.07)
+				Origin.play(char, "OriginRelease", (build - goAt + reHit) - ((re and re.holdEnd) or 0.26), 0.35)
+			end
+		end)
+		task.delay(goAt, function()
+			if live() then
+				Origin.thrust(char, run, build - goAt + freeze + 0.25)
+			end
+		end)
+		-- ...and where it meets the ice: everything stops for the impact frames
+		task.delay(build, function()
+			if not live() then
+				return
+			end
+			VFX.Hitstop(char, freeze)
+			if target then
+				VFX.Hitstop(target, freeze)
+			end
+			if mine or (me and me.Character == target) or nearCamera(run.at, 260) then
+				Origin.impactFrame(freeze, run.at + UP * 1.5, { char, target }, Origin.pace * pace)
+				if VFX.Hooks.DuckMusic then
+					VFX.Hooks.DuckMusic(ability.MusicDuck or 0.15, 0.04, freeze + 0.4, 2.8)
+				end
+			end
+			VFX.ShakeAt(run.at, 3, 200, 0.4)
+		end)
+		-- (the blast never came - he was knocked out of it: the ice breaks up)
+		task.delay(build + freeze + 2.5 * pace, function()
+			if Origin.live[char] == run and not run.blasted then
+				Origin.live[char] = nil
+				Origin.clear(run)
+				Origin.unfrost(run)
+				for _, f in run.body or {} do
+					f.kill(0.4)
+				end
+			end
+		end)
+	end
+
+	-- he went down before the thrust: everything of the move goes, the one
+	-- he held is let go, and his camera's given back
+	function Effects.ShotoOriginCancel(char, data)
+		local run = Origin.live[char]
+		if not run then
+			return
+		end
+		Origin.live[char] = nil -- (every pending beat's live() is false now)
+		Origin.clear(run)
+		Origin.unfrost(run, 0.4)
+		for _, f in run.body or {} do
+			f.kill(0.3)
+		end
+		if char.Parent then
+			VFX.ReleasePose(char, 0.25)
+		end
+		local target = run.target or (typeof(data and data.Target) == "Instance" and data.Target or nil)
+		if target and target.Parent then
+			VFX.ReleasePose(target, 0.25)
+		end
+		local me = Players.LocalPlayer
+		if me and me.Character == char and VFX.InOwnCinematic() then
+			VFX.CancelCinematic()
+		end
+	end
+
+	-- the expansion: the fire meets the frozen air
+	function Effects.ShotoOriginBlast(char, data)
+		local ability = Config.FindAbilityById(data.Id or "ShotoOrigin") or {}
+		local center = typeof(data.Pos) == "Vector3" and data.Pos or nil
+		if not center then
+			return
+		end
+		local ground = groundPoint(center)
+		local root = charParts(char)
+		local d = typeof(data.Dir) == "Vector3" and flatten(data.Dir) or Vector3.new(0, 0, -1)
+		local run = char and Origin.live[char]
+		if run then
+			run.blasted = true
+			Origin.clear(run, true)
+		end
+		local close = nearCamera(center, 220)
+		-- a blinding sun
+		local sun = newPart(Vector3.one * 4, CFrame.new(center + UP * 2), Color3.fromRGB(255, 252, 226), Enum.Material.Neon, Enum.PartType.Ball)
+		sun.Name = "OriginSun"
+		local pace = Origin.pace * (run and run.pace or 1) -- (round 82: OriginPace too)
+		tween(sun, 0.22 * pace, { Size = Vector3.one * 64 }, Enum.EasingStyle.Quint)
+		tween(sun, 0.45 * pace, { Transparency = 1, Color = Origin.SUN }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.22 * pace)
+		cleanup(sun, 0.75 * pace)
+		-- the red-orange dome rising out of it
+		local dome = newPart(Vector3.one * 20, CFrame.new(ground), Origin.DOME, Enum.Material.Neon, Enum.PartType.Ball)
+		dome.Name = "OriginDome"
+		dome.Transparency = 0.25
+		tween(dome, 0.7 * pace, { Size = Vector3.one * 110, CFrame = CFrame.new(ground + UP * 6) }, Enum.EasingStyle.Quint, nil, 0.06 * pace)
+		tween(dome, 0.55 * pace, { Transparency = 1, Color = Color3.fromRGB(255, 160, 70) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.4 * pace)
+		cleanup(dome, 1.1 * pace)
+		BLAZE.burst(center + UP * 3, 14, { Pal = "hell", Tongues = 14, Spikes = 18 })
+		for i = 1, 4 do
+			local a = i / 4 * math.pi * 2 + rand(-0.4, 0.4)
+			task.delay(0.05 * i * pace, function()
+				BLAZE.burst(center + Vector3.new(math.cos(a), 0.2, math.sin(a)) * rand(8, 14), rand(5, 8), { Pal = "hell", NoScorch = true, Tongues = 6 })
+			end)
+		end
+		-- the world goes red-orange, then the blue-white shockwave sweeps it
+		if close then
+			local tint = Instance.new("ColorCorrectionEffect")
+			tint.Name = "OriginBlastTint"
+			tint.TintColor = Color3.fromRGB(255, 176, 128)
+			tint.Brightness = 0.12
+			tint.Parent = Lighting
+			tween(tint, 0.25 * pace, { TintColor = Color3.fromRGB(206, 228, 255), Brightness = 0.06 }, Enum.EasingStyle.Sine, nil, 0.3 * pace)
+			tween(tint, 1.2 * pace, { TintColor = Color3.new(1, 1, 1), Brightness = 0 }, Enum.EasingStyle.Sine, nil, 0.6 * pace)
+			cleanup(tint, 1.9 * pace)
+			VFX.Hooks.Flash(Color3.fromRGB(255, 244, 214), 0.45 * pace)
+		end
+		for i = 1, 4 do
+			task.delay((0.12 + i * 0.05) * pace, function()
+				shockDisc(ground + UP * (0.6 + i * 0.8), UP, 10, 150 + i * 20, 0.7 * pace, Origin.SHOCK)
+			end)
+		end
+		task.delay(0.15 * pace, billboardRing, center, 6, 150, Origin.SHOCK, 12, 0.6 * pace)
+		billboardRing(center, 4, 80, Origin.SUN, 10, 0.35 * pace)
+		windBlast(center + UP * 3, d, 3)
+		streaks(center, UP, 30, 10, 20, 110, FIRE[1], 0.6)
+		Origin.cubes(center, 42)
+		rocks(center, 3, 18)
+		groundMark(center, 22, Color3.fromRGB(46, 40, 38), 9)
+		VFX.PlaySound("OriginBlast", center, 1)
+		task.delay(0.25 * pace, function()
+			VFX.PlaySound("OriginSteam", center, 1)
+		end)
+		VFX.ShakeAt(center, 5, 320, 1.1)
+		-- the steam: everything under a cloud, clearing from the edges in
+		task.delay(0.15 * pace, Origin.steam, ground, ability.SteamRadius or 55, (ability.SteamTime or 4) * pace)
+		-- and him, standing in it: the left sleeve smouldering ("half his shirt
+		-- burnt off"), the frost melting off his right side in steam
+		if not (root and run) then
+			return
+		end
+		task.delay(0.55 * (run.pace or 1), function()
+			if Origin.live[char] ~= run or not root.Parent then
+				return
+			end
+			Origin.play(char, "OriginStand", 1, 0.4)
+			-- (his own body: once the cutscene's done and he walks off, he goes)
+			local me = Players.LocalPlayer
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if me and me.Character == char and hum then
+				task.spawn(function()
+					local t0 = os.clock()
+					while os.clock() - t0 < 2.8 and char.Parent do
+						if not VFX.InOwnCinematic() and hum.MoveDirection.Magnitude > 0.1 then
+							VFX.ReleasePose(char, 0.2)
+							return
+						end
+						task.wait(0.05)
+					end
+				end)
+			end
+			for _, f in run.body or {} do
+				f.kill(0.6)
+			end
+			Origin.unfrost(run, 1.4)
+			local armL = limb(char, "LeftUpperArm", "Left Arm")
+			local torso = limb(char, "UpperTorso", "Torso")
+			if armL then
+				local ember = Origin.follow(BLAZE.flame({ CF = CFrame.new(armL.Position), Pal = "hell", Height = 1.4, Width = 0.8, Tongues = 2, Volume = 0.35, Light = 0, Grow = 0.2 }), armL, CFrame.new(0, 0.3, 0))
+				task.delay(3, function()
+					ember.kill(0.8)
+				end)
+			end
+			for _, spec in { { armL, Vector3.new(1.06, 2.04, 1.06), Vector3.zero }, { torso, Vector3.new(1.04, 2.04, 1.06), Vector3.new(-0.5, 0, 0) } } do
+				if spec[1] then
+					local s = math.clamp(spec[1].Size.Y / 2, 0.5, 3)
+					local soot = newPart(spec[2] * s, spec[1].CFrame, Origin.SOOT, Enum.Material.Slate)
+					soot.Name = "OriginSoot"
+					soot.Transparency = 0.3
+					Origin.weld(soot, spec[1], CFrame.new(spec[3] * s))
+					tween(soot, 2.5, { Transparency = 1 }, Enum.EasingStyle.Sine, nil, 4)
+					cleanup(soot, 6.6)
+				end
+			end
+			task.delay(2.6, function()
+				if Origin.live[char] == run then
+					Origin.live[char] = nil
+				end
+			end)
+		end)
+	end
+
+	-- the steam whites out the screen of anyone in it (the server's told them)
+	function Effects.ShotoOriginSteamed(_, data)
+		local duration = tonumber(data.Duration) or 1.1
+		if VFX.Hooks.Blind then
+			VFX.Hooks.Blind(duration)
+		else
+			VFX.Hooks.Flash(Color3.new(1, 1, 1), duration)
+		end
 	end
 end
 
@@ -34088,13 +42608,13 @@ end
 		end
 		for _, p in wave:GetDescendants() do
 			if p:IsA("BasePart") and p.Size.Magnitude > 0.4 then
-				local away = (p.Position - from)
+				local away = (p.CFrame.Position - from) -- (round 81: the ice is WedgeParts now; CFrame.Position reads the same)
 				away = V(away.X, 0, away.Z).Magnitude > 0.1 and V(away.X, 0, away.Z).Unit or V(0, 0, 1)
 				for _ = 1, 2 do
 					local s = math.clamp(p.Size.Magnitude * rand(0.12, 0.22), 0.4, 3)
 					local chunk = newPart(V(s, s * rand(0.5, 1), s), p.CFrame * CFrame.Angles(rand(0, 3), rand(0, 3), rand(0, 3)), ICE_MID, Enum.Material.Ice, nil, f.model)
 					chunk.Transparency = 0.1
-					local fly = p.Position + away * rand(14, 34) + UP * rand(4, 16)
+					local fly = p.CFrame.Position + away * rand(14, 34) + UP * rand(4, 16)
 					tween(chunk, 0.6, { CFrame = CFrame.new(fly) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 					tween(chunk, 0.5, { Transparency = 1 }, nil, nil, 0.5)
 					cleanup(chunk, 1.1)
@@ -38227,16 +46747,23 @@ do
 		recover = 0.35,
 	}
 
-	-- the caster's cutscene, from the catch: the decoy landing, the embers
-	-- pouring into his arm from low behind him, the fist on the face (the
-	-- freeze), the street going, and the twister climbing out of it
+	-- the caster's cutscene, from the catch, cut on the poses (round 79,
+	-- tools/anim/moves_uss.py SHOTS): the decoy landing, from his left, until
+	-- the right fist is cocked (the build's Hold key); low behind his right
+	-- shoulder under the cocked fist - the embers pouring into it, the swing
+	-- going over the camera; the impact frame from high over their shoulder,
+	-- his fist on the upturned face; the street going; the twister climbing
+	-- out of it. (round 81) Only the cut to the cocked fist whooshes, softly:
+	-- the crack, the boom and the twister carry the rest (Quiet) - the old
+	-- whoosh on every cut was the loudest thing on the impact frame
 	function USS.shots(build, freeze, slam)
+		local cock = 0.44
 		return {
-			{ T = 0.55, From = { V(8, 1.5, -2.2), V(0, 1.2, -2.6) }, To = { V(7, 1.7, -2.4), V(0, 1.3, -2.6) }, Fov = { 48, 44 } },
-			{ T = math.max(build - 0.55, 0.3), Cut = true, From = { V(3.2, -2.5, 4.5), V(0, 2.5, -4) }, To = { V(2.6, -2.8, 3.4), V(0, 3, -4) }, Fov = { 62, 54 } },
-			{ T = freeze, Cut = true, From = { V(-6, 1.6, -3.2), V(0, 1.6, -4.2) }, To = { V(-5.6, 1.6, -3.3), V(0, 1.6, -4.2) }, Fov = { 34, 32 } },
-			{ T = slam + 0.3, Cut = true, From = { V(16, 14, 6), V(0, -3, -5) }, To = { V(18, 18, 9), V(0, -3, -5) }, Fov = { 70, 74 } },
-			{ T = 1.7, Cut = true, From = { V(-10, 4, 55), V(0, 15, -5) }, To = { V(-14, 40, 95), V(0, 90, -5) }, Fov = { 70, 78 }, Style = Enum.EasingStyle.Quad },
+			{ T = cock, From = { V(-10, 2.5, -4), V(0, 0.6, -2.4) }, To = { V(-9, 2.2, -4.3), V(0, 0.8, -2.6) }, Fov = { 46, 42 } },
+			{ T = math.max(build - cock, 0.3), Cut = true, CutGain = 0.35, From = { V(9.5, -1.5, 1.5), V(-0.5, 1, -3.6) }, To = { V(8.6, -1.7, 1), V(-0.5, 1.2, -3.6) }, Fov = { 50, 46 } },
+			{ T = freeze, Cut = true, Quiet = true, From = { V(4.84, 4, -10.92), V(0.2, 1.2, -4.22) }, To = { V(4.34, 3.6, -10.22), V(0.2, 1.2, -4.22) }, Fov = { 44, 40 } },
+			{ T = slam + 0.3, Cut = true, Quiet = true, From = { V(12, 8, -6), V(0, -2.8, -4.2) }, To = { V(13.5, 10, -6.5), V(0, -2.8, -4.2) }, Fov = { 54, 60 } },
+			{ T = 1.7, Cut = true, Quiet = true, From = { V(-10, 4, 55), V(0, 15, -5) }, To = { V(-14, 40, 95), V(0, 90, -5) }, Fov = { 70, 78 }, Style = Enum.EasingStyle.Quad },
 		}
 	end
 	SHOTS.USSCatch = USS.shots(2, 0.38, 0.12)
@@ -38294,6 +46821,72 @@ do
 		cleanup(model, 3)
 	end
 
+	-- (round 79) the smear: the streak the fist leaves on the frame through
+	-- the swing, traced along its real arc as it goes (thin where it started,
+	-- full width at the fist), held through the freeze, then gone
+	function USS.smear(char, swing, freeze)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local hold = newPart(Vector3.one * 0.2, CFrame.new(root.Position), Color3.new(), nil, nil, folder)
+		hold.Name = "USSSmear"
+		hold.Transparency = 1
+		local beams = {}
+		local last, lastPos
+		local t0 = os.clock()
+		local function width(t)
+			return 0.25 + 1.75 * math.clamp((t - t0) / math.max(swing, 0.02), 0, 1)
+		end
+		local lastW = width(t0)
+		local function link(a, b, w0, w1)
+			for _, layer in { { GOLD, 1, 0.4 }, { Color3.new(1, 1, 1), 0.35, 0.1 } } do
+				local beam = Instance.new("Beam")
+				beam.Attachment0, beam.Attachment1 = a, b
+				beam.Width0, beam.Width1 = w0 * layer[2], w1 * layer[2]
+				beam.FaceCamera = true
+				beam.Segments = 1
+				beam.LightEmission = 1
+				beam.LightInfluence = 0
+				beam.Color = ColorSequence.new(layer[1])
+				beam.Transparency = NumberSequence.new(layer[3])
+				beam.Parent = hold
+				table.insert(beams, { beam, layer[3] })
+			end
+		end
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			local now = os.clock()
+			if not char.Parent or not hold.Parent or now - t0 > swing + 0.03 then
+				conn:Disconnect()
+				return
+			end
+			local p = handPos(char, true)
+			if lastPos and (p - lastPos).Magnitude < 0.08 then
+				return -- (frozen on the face)
+			end
+			local att = Instance.new("Attachment")
+			att.Position = hold.CFrame:PointToObjectSpace(p)
+			att.Parent = hold
+			local w = width(now)
+			if last then
+				link(last, att, lastW, w)
+			end
+			last, lastPos, lastW = att, p, w
+		end)
+		task.delay(swing + freeze, function()
+			for i = 1, 6 do
+				for _, b in beams do
+					if b[1].Parent then
+						b[1].Transparency = NumberSequence.new(b[2] + (1 - b[2]) * i / 6)
+					end
+				end
+				task.wait(0.025)
+			end
+		end)
+		cleanup(hold, swing + freeze + 0.3)
+	end
+
 	-- the lunge's push (its own, named: a catch or a whiff stops it early)
 	local function push(root, velocity, time)
 		for _, old in root:GetChildren() do
@@ -38335,10 +46928,15 @@ do
 		local lunge = {}
 		USS.lunges[char] = lunge
 		task.wait(ability.LungeStartup or 0.16)
-		if USS.lunges[char] ~= lunge or not root.Parent then
+		if not root.Parent then
 			return
 		end
+		-- (round 81) the decoy's swing is heard on every screen - even one
+		-- the catch reached first (a point-blank catch: both in one frame)
 		VFX.PlaySound("HeavySwing", root.Position, 1)
+		if USS.lunges[char] ~= lunge then
+			return
+		end
 		afterimage(char, GOLD, 0.3)
 		streaks(root.Position + UP, -d, 6, 1.6, 8, 14, WIND, 0.3)
 		if isLocal and hum then
@@ -38365,6 +46963,18 @@ do
 		end
 	end
 
+	-- (round 81) is this catch still going? The server's USSCancel ends it
+	-- (he died, or the move was cut), and a caster who's dead doesn't swing:
+	-- nothing - the crack, the impact frame, the music dropping out - goes
+	-- off on a timer alone
+	function USS.going(char, catch)
+		if USS.caught[char] ~= catch or not char.Parent then
+			return false
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		return hum == nil or hum.Health > 0
+	end
+
 	-- nobody caught: he over-reaches and stumbles out of it
 	function Effects.USSWhiff(char, data)
 		local root = charParts(char)
@@ -38375,7 +46985,19 @@ do
 		local d = flatten(data.Dir, root)
 		VFX.Motion(char, "USSWhiff")
 		VFX.PlaySound("USSWhiff", root.Position, 1)
-		dustPuffs(groundPoint(root.Position + d * 3), 1, 4, Color3.fromRGB(206, 196, 186), 0.8, true)
+		-- (round 81) his feet: the rear one catching him (the clip's 0.4s, the
+		-- dust kicked up there) and the hop back landing (0.72s)
+		task.delay(0.4, function()
+			if root.Parent then
+				VFX.PlaySound("USSFootfall", groundPoint(root.Position), 1)
+				dustPuffs(groundPoint(root.Position + d * 1.2), 1, 4, Color3.fromRGB(206, 196, 186), 0.8, true)
+			end
+		end)
+		task.delay(0.72, function()
+			if root.Parent then
+				VFX.PlaySound("USSFootfall", groundPoint(root.Position), 0.6)
+			end
+		end)
 	end
 
 	-- caught: the decoy lands on the face, then "UNITED STATES OF..." while the
@@ -38404,33 +47026,74 @@ do
 		-- the decoy, on the face
 		local hit = (troot and troot.Position or (root.Position + d * 4.6)) + UP * 1.4
 		VFX.Hitstop(char, 0.1)
+		-- (round 79) the swing starts its "Hit" key's time ahead of the strike,
+		-- and their reaction clip lands its own "Hit" on it too
+		local clips = Anim.MoveClips ~= false
+		local swing = clips and VFX.GetClip("MoveUSSSmash")
+		local swingLead = swing and swing.hit or 0.06
+		local struck = clips and VFX.GetClip("MoveUSSStruck")
+		local struckLead = struck and struck.hit or 0
 		if target then
 			VFX.Hitstop(target, 0.1)
-			VFX.Pose(target, "Stagger", build)
+			-- (round 79) their own reaction: the decoy snaps their head back,
+			-- then they reel, held up by the face, till the strike
+			local dazed = clips and VFX.GetClip("MoveUSSDazed")
+			if not (dazed and VFX.Clip(target, "MoveUSSDazed", { holdFor = math.max(build - struckLead - dazed.length, 0), recover = 0.2 })) then
+				VFX.Pose(target, "Stagger", build)
+			end
+			if struck then
+				task.delay(math.max(build - struckLead, 0), function()
+					if USS.going(char, catch) and target.Parent then
+						VFX.Clip(target, "MoveUSSStruck", { recover = 0.3 })
+					end
+				end)
+			end
 		end
 		shockDisc(hit, -d, 1.5, 12, 0.22, WIND)
 		billboardRing(hit, 2, 14, Color3.new(1, 1, 1), 6, 0.2)
+		-- (round 81) the decoy's own sound only: the server's Hit for it is
+		-- Quiet (its generic punch played the same samples on top)
 		VFX.PlaySound("USSJab", hit, 1)
 		VFX.ShakeAt(hit, 1.5, 120, 0.25)
-		-- the camera: his cutscene; a witness cut for anyone close by
+		-- the camera: his cutscene; a witness cut for anyone close by. (round
+		-- 81) Quiet: no whoosh opening it - the decoy's hit is the cut
 		SHOTS.USSCatch = USS.shots(build, freeze, slam)
-		cinematicFor(char, "USSCatch", mine, ability.Name or "UNITED STATES OF SMASH", GOLD)
+		cinematicFor(char, "USSCatch", mine, ability.Name or "UNITED STATES OF SMASH", GOLD, { Quiet = true })
 		if mine then
 			VFX.Hooks.Dim(0.45, build + 0.05)
 		end
-		-- "UNITED STATES OF..." - "SMASH!!" lands on the punch
-		VFX.Voice("MightUSS", root, build)
-		VFX.PlaySound("USSCharge", root.Position, 0.8)
-		if build > 1.4 then
-			task.delay(build - 1.2, function()
-				if root.Parent and USS.caught[char] == catch then
-					VFX.PlaySound("USSCharge", root.Position, 0.8)
-				end
-			end)
+		-- "UNITED STATES OF..." - "SMASH!!" lands on the punch. (round 81) The
+		-- clip's SMASH is 4.3s in, so it starts part-way through the line
+		-- (Config.Voice.MightUSS): eased in, not cut in mid-word
+		local voice = VFX.Voice("MightUSS", root, build)
+		if typeof(voice) == "Instance" and voice:IsA("Sound") then
+			local full = voice.Volume
+			voice.Volume = 0
+			tween(voice, 0.2, { Volume = full }, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
 		end
-		-- he steps in under them, the right fist cocked high (held there)
+		catch.voice = voice
+		-- (round 81) the 1.5x body dropping onto both feet under them (the
+		-- build clip's landing: 0.08s in, after the decoy's 0.1s hitstop)
+		task.delay(0.18, function()
+			if USS.going(char, catch) and root.Parent then
+				VFX.PlaySound("USSFootfall", groundPoint(root.Position), 1.2)
+			end
+		end)
+		-- (round 81) the power swelling in him under "UNITED STATES OF...",
+		-- gone before the swing; then the air sucked into the fist, closing
+		-- on the strike (its close lands on the crack, which cuts it off)
+		VFX.PlaySound("USSBuildHum", root.Position, 1)
+		local suckCue = Config.Sounds and Config.Sounds.USSSuck
+		task.delay(math.max(build - ((suckCue and suckCue.Lead) or 0.9), 0), function()
+			if USS.going(char, catch) and root.Parent then
+				VFX.PlaySound("USSSuck", handPos(char, true), 1)
+			end
+		end)
+		-- he steps in under them, the right fist cocked high (held there - it
+		-- ends just as the swing takes over)
 		MOTIONS.USSBuild[1].hold = math.max(build - 0.36, 0.2)
-		if not (Anim.MoveClips ~= false and VFX.Clip(char, "MoveUSSBuild", { holdFor = math.max(build - 0.56, 0), recover = 0.3 })) then
+		local buildClip = clips and VFX.GetClip("MoveUSSBuild")
+		if not (buildClip and VFX.Clip(char, "MoveUSSBuild", { holdFor = math.max(build - swingLead - buildClip.length, 0), recover = 0.3 })) then
 			VFX.Motion(char, "USSBuild")
 		end
 		-- the embers pour into the right arm; the air's drawn in to the fist
@@ -38446,25 +47109,53 @@ do
 					local from = hand + rng:NextUnitVector() * rand(10, 18)
 					streaks(from, (hand - from).Unit, 1, 0.3, 4, (hand - from).Magnitude, WIND, 0.25)
 				end
-				if rng:NextNumber() < 0.2 then
+				-- (round 81) the crackle stops short of the strike: the last
+				-- ones would still be ringing on the impact frame
+				if rng:NextNumber() < 0.2 and os.clock() - t1 < build - 0.7 then
 					VFX.PlaySound("Spark", hand, 0.5)
 				end
 				task.wait(0.04)
 			end
 			unswell(0.4)
 		end)
-		-- the overhand right: swung just before it lands...
-		task.delay(math.max(build - 0.06, 0), function()
-			if USS.caught[char] == catch and root.Parent then
+		-- the overhand right: swung just before it lands (the fist leaves a
+		-- smear along its arc)...
+		task.delay(math.max(build - swingLead, 0), function()
+			if USS.going(char, catch) and root.Parent then
 				VFX.Motion(char, "USSSmash")
+				USS.smear(char, swingLead, freeze)
 			end
 		end)
 		-- ...and on the face: everything stops
 		task.delay(build, function()
-			if USS.caught[char] == catch and root.Parent then
+			if USS.going(char, catch) and root.Parent then
 				USS.strike(char, target, d, freeze, ability, mine)
 			end
 		end)
+	end
+
+	-- (round 81) the server let them go before the strike (he died, or the
+	-- move was cut): no swing, no crack, no impact frame, no slam to come -
+	-- and "...SMASH!!" isn't said
+	function Effects.USSCancel(char)
+		local catch = USS.caught[char]
+		endLunge(char)
+		if not catch then
+			return
+		end
+		USS.caught[char] = nil
+		if catch.voice and catch.voice.Parent then
+			tween(catch.voice, 0.15, { Volume = 0 })
+			cleanup(catch.voice, 0.2)
+		end
+		VFX.ReleasePose(char, 0.25)
+		if catch.target and catch.target.Parent then
+			VFX.ReleasePose(catch.target, 0.25)
+		end
+		local me = Players.LocalPlayer
+		if me and me.Character == char and VFX.InOwnCinematic() then
+			VFX.CancelCinematic()
+		end
 	end
 
 	-- the overhand right on the face: the impact frame, and the world stops

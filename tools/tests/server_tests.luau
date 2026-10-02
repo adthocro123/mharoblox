@@ -696,6 +696,7 @@ clearSent()
 cast(Config.SPECIAL_INDEX, 0.4)
 check(bHum.Health == Config.PlayerMaxHealth - C.Special.Damage, "RIVET STAB pierces to 30 studs (took " .. (Config.PlayerMaxHealth - bHum.Health) .. ")")
 check(profilesUsed.Rivet == true, "lances drill with the Rivet profile")
+task.wait((C.Special.Pin or 0) + (C.Special.Reel or 0) + 0.1) -- (round 84: the pin and the reel)
 
 -- 3: COLLAPSE: A can't be touched during the windup, B inside the radius is caught
 bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(0, 3, 12), Vector3.new(0, 3, 0)))
@@ -731,6 +732,7 @@ bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(-30, 3, 0), Vector3.
 task.wait(0.2)
 cast(2, 0.6)
 check(bHum.Health < Config.PlayerMaxHealth, "RIVET STORM hits someone to the side")
+task.wait((C.Ult.Abilities[2].Hold or 0) + (C.Ult.Abilities[2].SlamTime or 0) + 0.1) -- (round 84: the lift and the slam)
 bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(80, 3, 60), Vector3.new(0, 3, 0)))
 task.wait(0.2)
 clearSent()
@@ -1761,9 +1763,16 @@ do
 	-- grape balls
 	aC, aH, aR, bC, bH, bR = fresh()
 	task.wait(E.UseCooldown)
+	-- (round 84: B's punch above stuns A for longer since the owner's round
+	-- 81 M1s - an item can't be used stunned)
+	local waited = os.clock()
+	while aC:GetAttribute("Stunned") and os.clock() - waited < 3 do
+		task.wait(0.05)
+	end
 	use("GrapeBalls")
 	local drops = workspace:FindFirstChild("ItemDrops")
 	local ball = drops and drops:FindFirstChild("GrapeBall")
+	ball = ball or { CFrame = CFrame.new(0, -500, 0), Parent = nil }
 	check(ball ~= nil and A:GetAttribute("Item_GrapeBalls") == I.GrapeBalls.Gives - 1, "a grape ball is dropped (" .. tostring(A:GetAttribute("Item_GrapeBalls")) .. " left)")
 	bR.CFrame = CFrame.new(ball.CFrame.Position)
 	task.wait(0.25)
@@ -11655,8 +11664,9 @@ end)()
 
 	print("== round 75: the numbers")
 	local M1 = Config.M1
-	check(M1.DownslamHeight <= 0.3 and M1.Downslam.HopDelay and M1.Downslam.HopDelay <= 0.1 and M1.Downslam.HitboxExtra and M1.Downslam.HitboxExtra.Magnitude > 0,
-		"downslams: " .. M1.DownslamHeight .. " studs up is enough, the hop goes " .. M1.Downslam.HopDelay .. "s after the press, a hair bigger box")
+	local hopDelay84 = M1.Downslam.HopDelay or (M1.Slam and M1.Slam.PressGrace)
+	check(M1.DownslamHeight <= 0.3 and hopDelay84 and hopDelay84 <= 0.1 and M1.Downslam.HitboxExtra and M1.Downslam.HitboxExtra.Magnitude > 0,
+		"downslams: " .. M1.DownslamHeight .. " studs up is enough, the hop goes " .. tostring(hopDelay84) .. "s after the press, a hair bigger box")
 	check(Config.FindAbilityById("IceSpike").Cooldown == 8.5, "Todoroki's Ice Spike: 8.5s")
 	check(Config.FindAbilityById("BranchSwing").Cooldown == 2, "Kamui's Branch Swing: 2s")
 	local EG = Config.FindAbilityById("ElectricGrasp")
@@ -12287,6 +12297,211 @@ end)()
 	fire(TestCommand, A, "EndUlt")
 	task.wait(0.5)
 	fire(TestCommand, A, "ResetCooldowns")
+end)()
+---------------------------------------------------------------------------
+-- Round 84: the slam jump goes on the press (its tuning); Shigaraki - Rivet
+-- Stab skewers the nearest one and reels them in, Rivet Storm lifts them on
+-- the rivets and slams them down, Radio Waves jams the quirk itself
+---------------------------------------------------------------------------
+;(function()
+	local X = 84500
+	local FWD = Vector3.new(0, 0, 1)
+	print("== round 84: SLAM JUMP ON THE PRESS; SHIGARAKI'S RIVETS AND RADIO WAVES")
+	local SL = Config.M1.Slam
+	check(SL.PressGrace and SL.PressGrace <= 0.06 and SL.ArmWait <= 0.15 and SL.TapMax and SL.UpCommit,
+		"the slam jump: a press after hit 3 hops (PressGrace " .. tostring(SL.PressGrace) .. "s), a tap during hits 1-2 jumps out of the chain " .. tostring(SL.ArmWait) .. "s after the next hit was due")
+	local DC = Config.Quirks.Decay
+	local RS = DC.Special
+	check(RS.Id == "RivetStab" and (RS.Pin or 0) > 0 and (RS.Reel or 0) > 0 and RS.ReelTo and RS.Windup, "Rivet Stab pins (" .. tostring(RS.Pin) .. "s) and reels in (" .. tostring(RS.Reel) .. "s)")
+	local RST, RW, stormSlot, radioSlot
+	for i, ab in DC.Ult.Abilities do
+		if ab.Id == "RivetStorm" then
+			RST, stormSlot = ab, i
+		elseif ab.Id == "RadioWaves" then
+			RW, radioSlot = ab, i
+		end
+	end
+	check(RST and (RST.Lift or 0) > 0 and (RST.Hold or 0) > 0 and (RST.SlamDamage or 0) > 0, "Rivet Storm lifts them " .. tostring(RST and RST.Lift) .. " studs and slams them")
+	check(RW and RW.Windup and RW.Windup >= 0.4 and RW.Jam, "Radio Waves: the orb's windup, the jam")
+	check(Config.Sounds.RivetReel ~= nil and Config.Sounds.RadioJam ~= nil, "sounds for the reel and the jam's static")
+
+	fire(SelectQuirk, A, "Decay")
+	fire(SelectQuirk, B, "Explosion")
+	local C = addPlayer("Charlie", 3)
+	fire(SelectQuirk, C, "Explosion")
+	for _, old in { aChar, bChar } do
+		if old then
+			old.Parent = nil
+		end
+	end
+	local a14 = CFrame.Angles(0, math.rad(14), 0) * FWD
+	local cStart = Vector3.new(X, 3, 0) + a14 * 20
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 10)))
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 40), Vector3.new(X, 3, 0)))
+	local cChar, cHum, cRoot = spawnChar(C, CFrame.lookAt(cStart, Vector3.new(X, 3, 0)))
+	task.wait(0.2)
+	fire(TestCommand, A, "ResetCooldowns")
+	for _, h in { aHum, bHum, cHum } do
+		h.MaxHealth, h.Health = 400, 400
+	end
+
+	-- RIVET STAB: the nearest on the lines (C, 20 studs out on the 14 degree
+	-- one) is skewered and reeled in; B further along is only pierced
+	clearSent()
+	fire(UseAbility, A, Config.SPECIAL_INDEX, FWD, aRoot.Position + FWD * 40, 1, aRoot.Position)
+	task.wait(RS.Windup + 0.1)
+	local pin = sentTo(B, "RivetPin")[1]
+	check(pin ~= nil and pin.Target == cChar and pin.Pin == RS.Pin and pin.Reel == RS.Reel, "the nearest one on the rivets (C, 20 studs) is skewered - everyone's told")
+	check(cChar:GetAttribute("Grabbed") == true and cRoot.Anchored == true and cHum.Health < 400, "...pinned on them, hurt (" .. (400 - cHum.Health) .. ")")
+	check(bHum.Health < 400 and not bChar:GetAttribute("Grabbed"), "B further along the middle line is only pierced (" .. (400 - bHum.Health) .. ")")
+	local pinnedAt = cRoot.Position
+	check((pinnedAt - cStart).Magnitude < 2.5, string.format("...held where they stood (%.1f studs off)", (pinnedAt - cStart).Magnitude))
+	check((aChar:GetAttribute("CombatActionUntil") or 0) > workspace:GetServerTimeNow() + RS.Reel * 0.5, "his hand stays out on them (nothing else meanwhile)")
+	task.wait(RS.Pin - 0.2)
+	check((cRoot.Position - pinnedAt).Magnitude < 0.3, "...through the pin")
+	task.wait(0.2 + RS.Reel + 0.15)
+	local v = cRoot.Position - aRoot.Position
+	local dist = Vector3.new(v.X, 0, v.Z).Magnitude
+	check(math.abs(dist - RS.ReelTo) < 1.5, string.format("the rivets pull back in: reeled in to %.1f studs in front of him", dist))
+	check(not cChar:GetAttribute("Grabbed") and cRoot.Anchored == false, "...and let go")
+	check(cChar:GetAttribute("Stunned") == true, "...still dazed: his to follow up")
+	task.wait(1)
+
+	-- knocked out of it mid-pin: he lets go (they're not reeled in)
+	fire(TestCommand, A, "ResetCooldowns")
+	bRoot.CFrame = CFrame.new(X + 200, 3, 0)
+	while cChar:GetAttribute("Stunned") or cChar:GetAttribute("Ragdolled") do
+		task.wait(0.05)
+	end
+	cRoot.Anchored = false
+	cRoot.CFrame = CFrame.lookAt(cStart, Vector3.new(X, 3, 0))
+	task.wait(0.1)
+	clearSent()
+	fire(UseAbility, A, Config.SPECIAL_INDEX, FWD, aRoot.Position + FWD * 40, 1, aRoot.Position)
+	task.wait(RS.Windup + 0.1)
+	check(cChar:GetAttribute("Grabbed") == true, "(pinned again)")
+	aChar:SetAttribute("Stunned", true)
+	task.wait(0.15)
+	check(not cChar:GetAttribute("Grabbed") and cRoot.Anchored == false, "stunned mid-pin, he lets go")
+	task.wait(RS.Reel + 0.2)
+	local v2 = cRoot.Position - aRoot.Position
+	check(Vector3.new(v2.X, 0, v2.Z).Magnitude > RS.ReelTo + 8, "...and they're not reeled in")
+	aChar:SetAttribute("Stunned", false)
+	task.wait(0.5)
+
+	-- a boss (the raid's Nomu) can't be reeled in: only pierced
+	fire(TestCommand, A, "ResetCooldowns")
+	bRoot.CFrame = CFrame.new(X + 200, 3, 0)
+	cRoot.CFrame = CFrame.new(X - 200, 3, 0)
+	local bossM, bossHum, bossRoot = makeCharacter("Boss84", CFrame.lookAt(aRoot.Position + FWD * 15, aRoot.Position))
+	bossM:SetAttribute("Boss", true)
+	local raid84 = workspace:FindFirstChild("NomuRaid")
+	local madeRaid = raid84 == nil
+	if madeRaid then
+		raid84 = M.new("Folder", "NomuRaid")
+		raid84.Parent = workspace
+	end
+	bossM.Parent = raid84
+	bossHum.MaxHealth, bossHum.Health = 2000, 2000
+	task.wait(0.1)
+	clearSent()
+	fire(UseAbility, A, Config.SPECIAL_INDEX, FWD, aRoot.Position + FWD * 40, 1, aRoot.Position)
+	task.wait(RS.Windup + 0.15)
+	check(bossHum.Health < 2000 and not bossM:GetAttribute("Grabbed") and bossRoot.Anchored ~= true and #sentTo(B, "RivetPin") == 0,
+		"a boss is only pierced, not reeled in (" .. (2000 - bossHum.Health) .. ")")
+	bossM:Destroy()
+	if madeRaid then
+		raid84:Destroy()
+	end
+	task.wait(0.5)
+
+	-- awakened: RIVET STORM lifts C on the rivets and slams them down
+	A:SetAttribute("Ult", 100)
+	fire(UseAbility, A, Config.ULT_INDEX)
+	task.wait(1.6)
+	check(A:GetAttribute("UltActive") == true, "awakened")
+	fire(TestCommand, A, "ResetCooldowns")
+	-- (the storm's 7th line runs straight out to his left: -X)
+	local cAt = aRoot.Position + Vector3.new(-20, 0, 0)
+	for _, model in { cChar } do
+		local kb = cRoot:FindFirstChild("Knockback")
+		if kb then
+			kb:Destroy()
+		end
+		model:SetAttribute("Stunned", false)
+		model:SetAttribute("Ragdolled", nil)
+	end
+	cRoot.Anchored = false
+	cRoot.CFrame = CFrame.lookAt(cAt, aRoot.Position)
+	cHum.Health = 400
+	task.wait(0.1)
+	clearSent()
+	fire(UseAbility, A, stormSlot, FWD, aRoot.Position + FWD * 20, 1, aRoot.Position)
+	task.wait(RST.Windup + 0.1)
+	local lift = sentTo(B, "RivetLift")[1]
+	check(lift ~= nil and type(lift.Targets) == "table" and table.find(lift.Targets, cChar) ~= nil and lift.Lift == RST.Lift and lift.Hold == RST.Hold,
+		"caught on a rivet: lifted on it (everyone's told)")
+	check(cChar:GetAttribute("Grabbed") == true and cHum.Health < 400, "...skewered and held (" .. (400 - cHum.Health) .. ")")
+	task.wait(RST.Hold * 0.5)
+	check(cRoot.Position.Y - cAt.Y > RST.Lift * 0.7, string.format("up in the air on the rivets (%.1f studs)", cRoot.Position.Y - cAt.Y))
+	local hpUp = cHum.Health
+	task.wait(RST.Hold * 0.5 + RST.SlamTime + 0.15)
+	check(cHum.Health < hpUp and not cChar:GetAttribute("Grabbed") and cRoot.Anchored == false, "...then slammed into the street (" .. (hpUp - cHum.Health) .. " more)")
+	check(cChar:GetAttribute("Ragdolled") == true, "...a knockdown")
+	check(cRoot.Position.Y < cAt.Y + 2, string.format("...down on the street (%.1f)", cRoot.Position.Y - cAt.Y))
+	check(#sentTo(B, "RivetSlam") == 1, "everyone sees the slam")
+	task.wait(2)
+
+	-- RADIO WAVES: C 30 studs ahead is jammed - and everyone sees the static on them
+	fire(TestCommand, A, "ResetCooldowns")
+	while cChar:GetAttribute("Ragdolled") do
+		task.wait(0.05)
+	end
+	local kb = cRoot:FindFirstChild("Knockback")
+	if kb then
+		kb:Destroy()
+	end
+	cRoot.Anchored = false
+	cRoot.CFrame = CFrame.lookAt(aRoot.Position + FWD * 30, aRoot.Position)
+	cChar:SetAttribute("Stunned", false)
+	cHum.Health = 400
+	task.wait(0.1)
+	clearSent()
+	fire(UseAbility, A, radioSlot, FWD, aRoot.Position + FWD * 60, 1, aRoot.Position)
+	task.wait(RW.Windup - 0.1)
+	check(cHum.Health == 400, "the orb swells first (" .. RW.Windup .. "s): nothing yet")
+	task.wait(0.1 + 30 / RW.Speed + 0.15)
+	check(cHum.Health < 400 and (cChar:GetAttribute("JammedUntil") or 0) > workspace:GetServerTimeNow(), "the pulse reaches C: hurt and JAMMED")
+	local rj = sentTo(B, "RadioJam")[1]
+	check(rj ~= nil and rj.Target == cChar and rj.Duration == RW.Jam, "everyone sees the static crackling on them (RadioJam)")
+	check(#sentTo(C, "Jammed") == 1, "...and C's own screen gets it")
+	fire(TestCommand, A, "EndUlt")
+	-- jammed: the quirk doesn't answer, the fists do
+	while cChar:GetAttribute("Ragdolled") or cChar:GetAttribute("Stunned") do
+		task.wait(0.05)
+	end
+	local kb2 = cRoot:FindFirstChild("Knockback")
+	if kb2 then
+		kb2:Destroy()
+	end
+	cRoot.CFrame = CFrame.lookAt(Vector3.new(X + 60, 3, 0), Vector3.new(X + 60, 3, 10))
+	cChar:SetAttribute("JammedUntil", workspace:GetServerTimeNow() + 1.2)
+	task.wait(0.2)
+	clearSent()
+	fire(UseAbility, C, 1, FWD, Vector3.new(X + 60, 3, 30))
+	task.wait(0.3)
+	check(#sentTo(B, "APShot") == 0, "jammed: C's quirk won't answer")
+	fire(UseAbility, C, 0)
+	task.wait(0.15)
+	check(#sentTo(B, "Punch") >= 1, "...but C can still punch")
+	task.wait(1.1)
+	clearSent()
+	fire(UseAbility, C, 1, FWD, Vector3.new(X + 60, 3, 30))
+	task.wait(0.3)
+	check(#sentTo(B, "APShot") == 1, "the static clears: the quirk's back")
+	cChar.Parent = nil
+	fire(SelectQuirk, A, "Explosion")
+	task.wait(0.3)
 end)()
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")

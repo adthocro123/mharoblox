@@ -702,14 +702,45 @@ Config.BaseWalkSpeed = 18
 Config.BaseJumpPower = 50
 
 Config.M1 = {
-	Cooldown = 0.28,
-	FinisherCooldown = 0.78,
+	-- (round 81) holding M1 throws a hit every Cooldown seconds (JJS-smooth:
+	-- each swing's follow-through is the next one's coil); after the 4th
+	-- there's FinisherCooldown before a new chain
+	Cooldown = 0.3,
+	FinisherCooldown = 1.0,
 	ActionTime = 0.18,
 	FinisherActionTime = 0.42,
 	ComboReset = 1.1,
 	ComboLength = 4,
 	Damage = 4,
 	FinisherDamage = 10,
+	-- (round 81) when each swing's fist lands: seconds into its clip (the
+	-- clips' "Hit" keys - hits 1-4, the uppercut, the downslam). The server
+	-- checks its hitbox ServerLead seconds before that, so the confirmed hit
+	-- reaches everyone's screen on the contact frame.
+	Contact = { 0.12, 0.125, 0.13, 0.18, Up = 0.16, Down = 0.17 },
+	ServerLead = 0.015,
+	-- (round 81) hits 1-3 stun for this long and pin the target (no walking
+	-- out of it: JJS "momentum denied") - it outlasts the cadence, so the
+	-- victim stays in hit-stun from one hit to the next
+	Stun = 0.7,
+	-- (round 81) THE STICK (JJS): a landed hit pushes the victim about a stud
+	-- (Speed studs/s held Hold seconds, then fading to 0 over Fade) and pulls
+	-- the attacker the same way, never closer than MinGap studs root to root,
+	-- so the two of them drift forward together and the gap holds. Pull: how
+	-- far the attacker is pulled (the uppercut less: you want to be under them)
+	-- (round 83) UpGap: the uppercut's step-in comes this close instead (under
+	-- them - mid-chain the gap's held at MinGap, so its Step.Up step is all
+	-- there and the clip's planted feet stay put)
+	Stick = { Speed = 10, Hold = 0.06, Fade = 0.1, MinGap = 3, Pull = 1.1, UpPull = 0.5, UpGap = 2.2 },
+	-- (round 81) the small committed step in each swing's coil (studs)
+	-- (round 83: Up 0.8 - the uppercut keeps both feet on the street now, and
+	-- R6 legs can't bend: its deep crouch is a long step in, which the clip's
+	-- feet are planted for; never nearer than Stick.MinGap - the uppercut's
+	-- Stick.UpGap - either way)
+	Step = { Distance = 0.4, Finisher = 0.9, Up = 0.8 },
+	-- (round 81) walk speed x this while you're chaining (the swing's step and
+	-- pull do the closing; the walk keeps the legs)
+	ChainWalk = 0.5,
 	FinisherKnockback = 55, -- how hard the 4th hit sends them (studs/s)
 	FinisherLift = 15,
 	HitboxSize = Vector3.new(6.5, 6, 7.5),
@@ -732,19 +763,60 @@ Config.M1 = {
 	-- feet). UPSLAM: hold jump and throw the 4th hit - you stay on the ground
 	-- (holding jump through the chain never hops you, whenever you pressed
 	-- it, and nor does the 4th: RiseWith 0) - it launches them straight up.
-	-- DOWNSLAM: TAP jump during the chain (you hop as you let go) and throw
-	-- the 4th anywhere off the ground (DownslamHeight studs will do) - it
-	-- spikes them into the street and they bounce off it. (Jump held until
-	-- the chain runs out - ComboReset - is an ordinary jump again.)
+	-- DOWNSLAM: TAP jump during the chain (round 83: Slam below - you hop
+	-- once hit 3's swing lets you) and throw the 4th anywhere off the ground
+	-- (DownslamHeight studs will do) - it spikes them into the street. (Jump
+	-- held until the chain runs out - ComboReset - is an ordinary jump again.)
 	-- While both of you are airborne, M1s keep them floating up there with you.
 	-- (Lift for LiftTime seconds, then they coast: ~14 studs up; you rise
 	-- RiseWith after them, so the two of you meet up there for the air combo)
-	Uppercut = { Lift = 55, LiftTime = 0.12, RiseWith = 0, Forward = 8, Stun = 1.3, Hitstop = 0.1 },
+	-- (round 81: Forward 2 - a JJS uppercut goes straight up, so they come
+	-- down in front of you)
+	-- (round 83: Hitstop 0.13 - a beat longer, so the freeze covers the moment
+	-- the launch takes to reach the attacker's screen; KickDeg / KickTime: the
+	-- attacker's own camera tips up that many degrees on the hit and eases
+	-- back over KickTime)
+	Uppercut = { Lift = 55, LiftTime = 0.12, RiseWith = 0, Forward = 2, Stun = 1.3, Hitstop = 0.13, KickDeg = 2, KickTime = 0.25 },
 	-- (round 75) HitboxExtra: a hair more box (width, height, depth) for the
-	-- downslam; HopDelay: a jump tapped or held in the chain hops you that long
-	-- after the swing's lock lets go (unless the 4th goes out with it held -
-	-- that's the upslam)
-	Downslam = { Drop = 150, Forward = 10, Ragdoll = 1.5, Bounce = 26, Hitstop = 0.12, Crater = 3.2, HitboxExtra = Vector3.new(1.5, 1.5, 1.5), HopDelay = 0.07 },
+	-- downslam
+	-- (round 81) it's thrown at the top of the hop (held till you stop
+	-- rising), it can't be blocked (JJS)
+	-- (round 83) ONE SLAM: HopSpeed - the slam hop rises at this whatever the
+	-- quirk's JumpPower (55-72 put the hammer 2-6 studs over most heads); no
+	-- hang at the top - he falls through the coil drifting Drift studs/s
+	-- forward, the hammer lands on the head, his body freezes with the
+	-- hitstop, then he's driven down at Dive studs/s and the street takes it
+	-- all at once as he lands (the crater, the ring, the sound, the impact
+	-- frame, the shake). The server's crater waits max(fall / Drop, Hitstop +
+	-- CraterLag) so it lands with him; a victim more than BounceFall studs up
+	-- bounces off the street (Bounce), one already on it doesn't (Slide: a
+	-- short push along it), and the ragdoll starts at the crater. SlamFade: a
+	-- downslam with no slam hop's tuck under it (thrown off a ledge, or the
+	-- hop's relay dropped) blends in from hit 3 over this long. Gap: the
+	-- drift brings him no nearer than this to whoever's under him (root to
+	-- root: the fists, ~2 studs out in front, on their head); Recoil: a
+	-- landed one's dive carries him back off them this fast (studs/s), so he
+	-- comes down about MinGap away, not in them
+	Downslam = { Drop = 150, Forward = 10, Ragdoll = 1.5, Bounce = 26, Hitstop = 0.12, Crater = 3.2, HitboxExtra = Vector3.new(1.5, 1.5, 1.5), Dive = 45,
+		HopSpeed = 50, Drift = 6, CraterLag = 0.08, BounceFall = 1, Slide = 2, SlamFade = 0.14, Gap = 2.2, Recoil = 8 },
+	-- (round 83) THE JUMP KEY IN A GROUNDED CHAIN. Held: never a hop (the 4th
+	-- is the upslam). A tap - pressed and let go inside TapMax seconds - is the
+	-- hop for the downslam: after hit 1 or 2 it waits for hit 3's swing -
+	-- unless no M1 comes by Cooldown + ArmWait after the last one (slower
+	-- than any clicked chain), when it was a jump out of the chain: an
+	-- ordinary jump. UpCommit: a 4th thrown within this of jump going down
+	-- waits that long to see whether it's a tap. AirGrace: the feet off the
+	-- street for less than this (a curb, a slope) isn't leaving it.
+	-- (round 84) AFTER HIT 3 THE HOP GOES ON THE PRESS - it doesn't wait for
+	-- you to let go (that, and the server's late copy of hit 3's lock, was
+	-- the "takes too long to jump"): as soon as hit 3's swing lets you, or
+	-- PressGrace after the press if it already has (room for Space and the
+	-- 4th's click pressed together: that's the upslam). Held through hit 3's
+	-- swing with the 4th clicked into it, it's the upslam (JJS / TSB: hold
+	-- jump through the 3rd's recovery and M1); held from before hit 3,
+	-- still never a hop. One press is one jump: still held when you land,
+	-- it doesn't jump you again
+	Slam = { TapMax = 0.2, UpCommit = 0.1, ArmWait = 0.12, AirGrace = 0.1, PressGrace = 0.04 },
 	AirJuggle = { Up = 26, Forward = 3, Stun = 0.7 },
 	MinAirHeight = 3, -- studs between your feet and the ground that count as "in the air"
 	DownslamHeight = 0.25, -- (round 63) off the ground enough for a downslam (round 75: lower)
@@ -1032,6 +1104,21 @@ Config.Look = {
 	-- 300%); ROBLOX CAMERA in the settings hands the stick back to Roblox's
 	-- own camera and its sensitivity instead
 	Pad = { Enabled = true, Speed = 250, PitchSpeed = 190, Deadzone = 0.12, Curve = 1.25 },
+	-- (round 82) A PHONE's buttons: a finger that lands on one fires nothing
+	-- yet. Moved more than Slop GUI pixels from where it landed first, it's a
+	-- camera drag and never fires. Still for Commit seconds (FastCommit for
+	-- the parry and the dodge), it's a hold: down then, up when it lifts.
+	-- Lifted first, it's a tap: down on the lift, and for a move you can
+	-- hold, up TapHold seconds later (a BLOCK tap is a quick guard). A drag
+	-- (or a held finger that moves on) turns the camera Speed degrees per
+	-- pixel, the way Roblox's own touch camera does.
+	Touch = {
+		Slop = 10,
+		Commit = 0.1,
+		FastCommit = { QuirkBlock = 0.06, QuirkDash = 0.06 },
+		TapHold = 0.1,
+		Speed = { Yaw = 1, Pitch = 0.66 },
+	},
 	LockOnFollow = 18,
 }
 
@@ -1169,7 +1256,7 @@ Config.Finishers = {
 		FullCowl = { Name = "MANCHESTER SMASH", Time = 1.3, Forward = 25, Up = -70 },
 		HalfCold = { Name = "FLASHFREEZE: FLAME BURST", Time = 1.5, Forward = 120, Up = 55 },
 		Engine = { Name = "RECIPRO SPIN KICK", Time = 1.05, Forward = 150, Up = 35 },
-		Decay = { Name = "DECAY", Time = 1.45, Forward = 15, Up = 8 },
+		Decay = { Name = "DECAY", Time = 1.45, Forward = 15, Up = 8, Crumble = true }, -- (round 83: Crumble - turned to ash where they stand, not launched)
 		Limitless = { Name = "REVERSAL: RED - POINT BLANK", Time = 1.25, Forward = 175, Up = 45 },
 		Overhaul = { Name = "DISASSEMBLY", Time = 1.35, Forward = 20, Up = 130 },
 		Manifest = { Name = "SPIDER CRAB CRUSH", Time = 1.3, Forward = 110, Up = 60 },
@@ -1250,8 +1337,14 @@ Config.Animations = {
 		SwordM1_1 = "", SwordM1_2 = "", SwordM1_3 = "", SwordM1_4 = "", SwordUp = "", SwordDown = "", IaiRush = "",
 		StaffM1_1 = "", StaffM1_2 = "", StaffM1_3 = "", StaffM1_4 = "", StaffUp = "", StaffDown = "", StrikeAndStop = "",
 		SpearM1_1 = "", SpearM1_2 = "", SpearM1_3 = "", SpearM1_4 = "", SpearUp = "", SpearDown = "", PiercingThrust = "",
+		-- (round 81) the M1 victim's reactions and the downslam's touchdown
+		M1React1 = "", M1React2 = "", M1React3 = "", M1ReactFinisher = "", M1ReactUp = "", M1ReactDown = "", M1SlamLand = "",
+		-- (round 83) the slam hop, the kickers' uppercut and downslam, the
+		-- uppercut's victim landing
+		M1SlamHop = "", M1KickUp = "", M1KickDown = "", M1ReactUpLand = "",
 	},
 	ClipFade = 0.05, -- seconds a clip blends in from whatever the body was doing
+	M1ClipFade = 0.07, -- (round 81) ...an M1 swing blends from the last one's follow-through this long
 	ClipRecover = 0.25, -- seconds it takes to ease back to standing after one
 	-- (round 68) no fighting stance after a fight (the guard-up bounce on
 	-- the toes, swaying): the idle stays the idle. true brings it back
@@ -1447,6 +1540,22 @@ local L = {
 	GlassBreak = { take("9114590633", 0.04), take("9114590265", 0.02) }, -- Glass Break
 	GlassSmash = { take("9114614830", 0.16) }, -- Glass Smashes
 	GlassDebris = { take("9114601337", 0.12), take("9114601455", 0.17) }, -- Glass Debris
+	-- (round 81) ice freezing over (a crackle, not glass), steam letting go,
+	-- the ground splitting (ProSoundEffects, public: checked on the economy API)
+	IceFreezeCrackle = { take("9125611419", 0), take("9125611312", 0) }, -- Ice Freeze Large Piece Crackles Liquid Nitro
+	AirRelease = { take("9116495722", 0) }, -- Medium Pressure Air Release 2
+	EarthCrack = { take("9114220520", 0) }, -- Earthquake Cracking 1
+	-- (round 81) fire meeting ice: the searing hiss of it flashing to steam,
+	-- the superheated air bursting (ProSoundEffects, public: checked on the
+	-- economy API; each Start skips the file's lead-in silence)
+	SteamSear = { take("9118882814", 0.25), take("9118883047", 0.25) }, -- Searing Bursts 11 / 13 (hissing pass-bys, very airy)
+	SearBlast = { take("9126219292", 0), take("9126220199", 0.08) }, -- White Light Short Searing Bursts Rumble Hiss 2 / 4
+	-- (round 81) Origin: fire meeting the ice - steam (all Pro Sound Effects)
+	SteamBurst = { take("9114588400", 0), take("9114588408", 0), take("9114588467", 0) }, -- Giant Steam Chuff Air Burst Valve 1 / 2 / 3
+	SteamTube = { take("9125579986", 0), take("9125580012", 0) }, -- Giant Steam Chuff Air Burst Through The Tube 2 / 1 (valve)
+	Sizzle = { take("9119165436", 0), take("9119165650", 0), take("9119166199", 0) }, -- Sizzle Short And Explosive Sear 1 / 4 / 8
+	IceSizzle = { take("9114858178", 0) }, -- Ice Crack And Sizzle 1
+	FireballSizzle = { take("9114428855", 0) }, -- Fireball Sizzle 2 (huge close burn)
 	-- Iida
 	MotorRev = { take("9116990418", 0.6) }, -- Motor Wind Up
 	Accelerate = { take("9117882683", 0.8) }, -- Power Up Accelerating Motors
@@ -1576,6 +1685,11 @@ Config.UltMusic = {
 -- here are only used until it has. MaxCut: how much of the start of the
 -- speech it may skip to land the beat (0: none - it lands late instead).
 -- Trim: it stops before the phrase with the loudest word.
+-- (round 83) Fixed = { [asset number] = { First, Beat, Stop } }: a clip
+-- measured by hand. When the line plays THAT clip, these are used as they
+-- are and the machine's own measurement is ignored for it; Stop is a hard
+-- stop (seconds into the clip, a short fade either side of it). Any other
+-- clip in the folder is measured and trimmed as before.
 Config.Voice = {
 	-- All Might bulking up into his muscle form, and Prime All Might's meteor:
 	-- "...HERE!" lands on the burst out of the steam / the landing
@@ -1591,18 +1705,33 @@ Config.Voice = {
 	-- punch (it replaced the "DETROIT SMASH" line)
 	MightSmash = { Folder = "All Might", Sound = "All Might SMASH", Id = "rbxassetid://100451251229906", Gain = 2, Range = 220,
 		First = 0.05, Beat = 0.25, MaxCut = 0.15, Length = 3 },
-	-- UNITED STATES OF SMASH: "...SMASH!!" lands on the punch
+	-- UNITED STATES OF SMASH: "...SMASH!!" lands on the punch. (round 81)
+	-- Measured in Studio: the speech starts 0.7s in and "SMASH" at 4.29s -
+	-- 2.3s more than the 2s build - so it skips in (MaxCut) to "...STATES
+	-- OF... SMASH!!" with SMASH on the strike; it used to land 2s late, in
+	-- the twister. Gain 0.5: the folder's Sound is at 5.1, and x2 pinned it
+	-- at the engine's ceiling of 10, some 19dB over his other lines and the
+	-- crack it rides (its speech measures 0.2-0.28 RMS; SMASH's 0.3 x 1).
+	-- Volume: the folder Sound's own 5.1, for if the folder's ever gone.
 	MightUSS = {
-		Folder = "All Might", Sound = "united_states_of_smash_my_hero_academia_1", Id = "rbxassetid://104378200563777", Gain = 2, Range = 400,
-		First = 0.1, Beat = 2.0, MaxCut = 0.3, Length = 7,
+		Folder = "All Might", Sound = "united_states_of_smash_my_hero_academia_1", Id = "rbxassetid://104378200563777", Gain = 0.5, Range = 400,
+		First = 0.7, Beat = 4.29, MaxCut = 2.5, Length = 7, Volume = 5.1,
 	},
 	-- Bakugo: his awakening, and Explosive Speed (his R in the ult) - "I'M
 	-- THE FINAL BOSS, GOT IT?" (to All For One, in the Final Season's "The
-	-- Final Boss!!"), trimmed before "...ALL FOR ONE!!"
+	-- Final Boss!!")
 	Bakugo200 = { Folder = "Bakugo", Sound = "Bakugo 200%", Id = "rbxassetid://140687924372203", Gain = 2, Range = 260, Length = 3 },
+	-- (round 83) measured in Studio (8.09s): "I'M" at 0.45, "GOT" 1.92, "IT?"
+	-- over by 2.28, quiet 2.33-2.92, then a scream from 2.94 to the end. The
+	-- scream is the loudest thing in it, so the machine's measurement put the
+	-- cut in the wrong place (the "aahhh" after GOT IT?): for this clip it's
+	-- Fixed - out at 2.36, right after "GOT IT?", and "GOT" is the beat
+	-- (Explosive Speed lands its opener on it). Trim / First / Cut: for any
+	-- other clip put in the folder.
 	FinalBoss = {
 		Folder = "Bakugo", Sound = "I'M THE FINAL BOSS, GOT IT? BAKUGO", Id = "rbxassetid://87930671985739", Gain = 2, Range = 260,
-		Trim = true, First = 0.1, Cut = 3.2, Length = 8,
+		Fixed = { ["87930671985739"] = { First = 0.45, Beat = 1.92, Stop = 2.36 } },
+		MaxCut = 0.1, Trim = true, First = 0.1, Cut = 3.2, Length = 8,
 	},
 	-- Deku's awakening (G) - Prime Deku's too
 	DekuAwaken = { Folder = "Deku", Sound = "Deku full cowel", Id = "rbxassetid://110359127412280", Gain = 2, Range = 260, Length = 7 },
@@ -1784,13 +1913,57 @@ Config.Sounds = {
 		{ Id = L.WindBlast, Volume = 0.84, Speed = { 1, 1.1 }, Length = 1.3 },
 		{ Id = L.BoulderCrack, Volume = 0.68, Speed = { 0.85, 1 }, Length = 1.1, Delay = 0.05 },
 	},
+	-- (round 81) ice crunches and cracks as it tears up through the street
 	Ice = {
 		{ Id = L.IceHammer, Volume = 2.77, Speed = { 0.85, 1 } },
 		{ Id = L.IceCrunch, Volume = 2.46, Speed = { 0.9, 1.05 }, Length = 0.9 },
+		{ Id = L.RockCrack, Volume = 1.3, Speed = { 1.25, 1.4 }, Length = 0.5 },
 		{ Id = L.SubBoom, Volume = 1.08, Speed = 1.2, Length = 0.6 },
 	},
-	Shatter = { Gap = 0.06, { Id = L.GlassBreak, Volume = 2.74, Speed = { 1, 1.2 } }, { Id = L.GlassDebris, Volume = 2.74, Speed = { 0.9, 1.1 } } },
+	-- (round 81) ice breaking up: chunky crunching and cracking, not glass
+	Shatter = {
+		Gap = 0.06,
+		{ Id = L.IceHammer, Volume = 2.2, Speed = { 1.05, 1.2 } },
+		{ Id = L.IceCrunch, Volume = 2.4, Speed = { 1.1, 1.25 }, Length = 0.8 },
+		{ Id = L.RockCrack, Volume = 1.4, Speed = { 1.3, 1.5 }, Length = 0.5 },
+		{ Id = L.DebrisImpact, Volume = 0.9, Speed = { 1.2, 1.35 }, Length = 0.5, Delay = 0.08 },
+	},
+	-- (round 81) someone freezing solid: a crackle of ice racing over them, a hard crunch, a breath of cold
+	IceFreeze = {
+		{ Id = L.IceFreezeCrackle, Volume = 1.6, Speed = { 1.25, 1.4 }, Length = 0.8, Fade = 0.35 },
+		{ Id = L.IceCrunch, Volume = 2.2, Speed = { 1.2, 1.35 }, Length = 0.5 },
+		{ Id = L.IceHammer, Volume = 1.2, Speed = { 1.35, 1.5 }, Length = 0.4 },
+		{ Id = L.HowlingWind, Volume = 0.6, Speed = 1.5, Length = 0.6, Fade = 0.3 },
+	},
+	-- (round 81) ice melting off into steam: a long hiss and a soft creak
+	IceMelt = {
+		{ Id = L.AirRelease, Volume = 1.4, Speed = { 0.8, 0.95 }, Length = 1.3, Fade = 0.6 },
+		{ Id = L.IceFreezeCrackle, Volume = 0.9, Speed = 0.7, Length = 1, Fade = 0.5 },
+	},
+	-- (round 81) a whole field freezing: the ground cracks and rumbles under it
+	IceRumble = {
+		Range = 700,
+		{ Id = L.EarthCrack, Volume = 1.6, Speed = { 1.1, 1.2 }, Length = 1.4, Fade = 0.6 },
+		{ Id = L.IceFreezeCrackle, Volume = 1.4, Speed = 0.9, Length = 1.6, Fade = 0.7 },
+	},
 	Fire = { { Id = L.FireWhoosh, Volume = 1.83, Speed = { 0.9, 1.05 }, Length = 1.4 }, { Id = L.FlameLick, Volume = 1.83, Speed = { 0.9, 1.1 }, Length = 0.9 } },
+	-- (round 81) flame poured onto ice: a searing hiss as it flashes to steam,
+	-- with a low roar of fire under it
+	SteamHiss = {
+		{ Id = L.SteamSear, Volume = 2.4, Speed = { 0.85, 1 }, Length = 1.2, Fade = 0.5 },
+		{ Id = L.AirRelease, Volume = 1.8, Speed = { 1.05, 1.2 }, Length = 1.2, Fade = 0.6 },
+		{ Id = L.FireWhoosh, Volume = 0.9, Speed = 0.65, Length = 1, Fade = 0.4 },
+	},
+	-- (round 81) Flashfreeze Heatwave going off: the superheated air bursting -
+	-- a searing white roar on a deep boom, then a long hiss of steam rolling out
+	SteamBlast = {
+		Range = 1200,
+		{ Id = L.SearBlast, Volume = 2.6, Speed = { 0.8, 0.9 }, Length = 1.8, Fade = 0.6 },
+		{ Id = L.PowerBoom, Volume = 1.4, Speed = { 0.85, 0.95 } },
+		{ Id = L.DeepBlast, Volume = 1.2, Speed = 0.8, Length = 2.2, Fade = 0.8 },
+		{ Id = L.AirRelease, Volume = 2.2, Speed = { 0.7, 0.8 }, Length = 2.4, Fade = 1.2, Delay = 0.12 },
+		{ Id = L.SubBoom, Volume = 1.3, Speed = 0.75 },
+	},
 	-- Iida's engines: a rising rev, then the exhaust roar
 	Engine = { { Id = L.MotorRev, Volume = 1.69, Speed = { 1.1, 1.25 }, Length = 0.8 }, { Id = S.Roar, Volume = 0.74, Speed = { 1.25, 1.4 }, Length = 0.8 } },
 	-- AP Shot: a pinpoint crack-bang
@@ -1819,7 +1992,15 @@ Config.Sounds = {
 	-- THE JIGGY's confetti popper on the dab
 	Confetti = { { Id = L.ExplosionCrack, Volume = 0.6, Speed = 2.2, Length = 0.25 }, { Id = L.AirySlice, Volume = 1, Speed = 1.3 } },
 	BlitzGo = { Range = 500, { Id = L.WhooshBurst, Volume = 1.4, Speed = 1.25, Length = 0.6 }, { Id = L.ExplosionCrack, Volume = 1.2, Speed = 1.3, Length = 0.5 }, { Id = L.AirySlice, Volume = 1.2, Speed = 0.8 } },
-	BlitzSlow = { { Id = L.SuckShort, Volume = 2.4, Speed = 0.45, Length = 0.9 }, { Id = L.EnergyGrowl, Volume = 0.8, Speed = 0.5, Length = 0.8 } },
+	-- (round 83) the time-crawl is 0.5s now (it was 1.3)
+	BlitzSlow = { { Id = L.SuckShort, Volume = 2.4, Speed = 0.5, Length = 0.6, Fade = 0.15 }, { Id = L.EnergyGrowl, Volume = 0.8, Speed = 0.55, Length = 0.55, Fade = 0.15 } },
+	-- (round 83) the blitz: his palm going off in their face on "GOT" (kept
+	-- under the line), the blur of an overtake, the boom of him passing them,
+	-- the blast from in front (each a little bigger than the last)
+	BlitzOpen = { { Id = L.ExplosionCrack, Volume = 1, Speed = { 1.25, 1.35 }, Length = 0.45 }, { Id = L.SubBoom, Volume = 0.7, Speed = 1.2, Length = 0.5 } },
+	BlitzPass = { Gap = 0.05, { Id = L.WhooshBurst, Volume = 0.8, Speed = 1.6, Length = 0.3 }, { Id = L.WhooshSwishBy, Volume = 0.7, Speed = 1.4, Length = 0.3 } },
+	BlitzBoom = { Gap = 0.05, { Id = L.SonicCrack, Volume = 0.7, Speed = { 1.15, 1.3 }, Length = 0.5, Fade = 0.2, Peak = true }, { Id = L.ExplosionCrack, Volume = 0.5, Speed = 2, Length = 0.2 } },
+	BlitzHit = { Gap = 0.05, { Id = L.ExplosionCrack, Volume = 1.1, Speed = { 1.2, 1.4 }, Length = 0.45 }, { Id = L.WhooshExplosion, Volume = 0.6, Speed = 1.35, Length = 0.35 }, { Id = L.BodyImpact, Volume = 0.8, Speed = 1.3, Length = 0.3 } },
 	HowitzerSpin = {
 		{ Id = L.ExplosionCrack, Volume = 1.18, Speed = 1.4, Length = 0.3 },
 		{ Id = L.ExplosionCrack, Volume = 1.18, Speed = 1.5, Length = 0.3, Delay = 0.18 },
@@ -1933,7 +2114,65 @@ Config.Sounds = {
 		{ Id = L.RockCrack, Volume = 2.99, Speed = 1.1, Length = 1.6 },
 		{ Id = L.GlassSmash, Volume = 1.87, Speed = 0.7, Length = 1 },
 	},
-	ReciproRev = { { Id = L.MotorRev, Volume = 1.6, Speed = 1.35, Length = 0.6 }, { Id = S.Roar, Volume = 0.89, Speed = 1.6, Length = 0.5 } },
+	-- (round 81) HEAVEN-PIERCING ICE WALL, a beat at a time (IceWallRise
+	-- stays for Glacier Breaker's pillar): the cold drawn in as the knee comes
+	-- up; the stomp (a low thump under the ice); the run tearing up the
+	-- street every 40 studs; the crest erupting (the biggest: a boulder crack,
+	-- the ice hammered, a boom that rolls on, the wind it shoves); the tip
+	-- punching the clouds (thunder, high up); the ice groaning while it
+	-- stands (a wood creak pitched down); and the end - it cracks, then melts
+	-- away with a long hiss of wind
+	IceWallGather = {
+		Range = 300,
+		{ Id = L.SuckShort, Volume = 1.2, Speed = 0.8 },
+		{ Id = L.HowlingWind, Volume = 0.6, Speed = 1.2, Length = 0.8 },
+	},
+	IceWallStomp = {
+		Range = 600,
+		{ Id = L.BodySlamThump, Volume = 2, Speed = 0.8 },
+		{ Id = L.IceHammer, Volume = 3, Speed = 0.6 },
+		{ Id = L.SubBoom, Volume = 1.6, Speed = 0.7 },
+		{ Id = L.GlassSmash, Volume = 1.2, Speed = 1.1, Length = 0.5 },
+	},
+	IceWallRun = {
+		Range = 500,
+		Gap = 0.1,
+		{ Id = L.IceCrunch, Volume = 2.6, Speed = { 0.75, 0.9 }, Length = 1 },
+		{ Id = L.RockCrack, Volume = 2, Speed = { 0.9, 1.1 }, Length = 0.8 },
+		{ Id = L.Quake, Volume = 1.4, Speed = 0.8, Length = 1.2 },
+	},
+	IceWallCrest = {
+		Range = 1400,
+		{ Id = L.BoulderCrack, Volume = 2.5, Speed = 0.7 },
+		{ Id = L.IceHammer, Volume = 3.5, Speed = 0.5 },
+		{ Id = L.BigBoomTail, Volume = 2, Speed = 0.8 },
+		{ Id = L.WindRoar, Volume = 1.4, Speed = 0.9, Length = 2, Fade = 0.8 },
+		{ Id = L.GlassBreak, Volume = 1.8, Speed = 0.7, Delay = 0.08 },
+	},
+	IceWallPeak = {
+		Range = 1600,
+		{ Id = L.ThunderBlast, Volume = 1.2, Speed = 1.3 },
+		{ Id = L.WindRoar, Volume = 1, Speed = 1.1, Length = 2, Fade = 0.8 },
+		{ Id = L.GlassSmash, Volume = 1.2, Speed = 0.6 },
+	},
+	IceWallCreak = {
+		Range = 400,
+		{ Id = L.WoodCreak, Volume = 1.2, Speed = { 0.4, 0.5 } },
+		{ Id = L.IceCrunch, Volume = 0.8, Speed = 1.3, Length = 0.4 },
+	},
+	IceWallCrack = {
+		Range = 900,
+		Gap = 0.06,
+		{ Id = L.GlassBreak, Volume = 2.7, Speed = { 0.7, 0.9 } },
+		{ Id = L.BoulderCrack, Volume = 2, Speed = 0.6 },
+	},
+	IceWallMelt = {
+		Range = 900,
+		{ Id = L.FireWhoosh, Volume = 1.2, Speed = 0.5, Length = 2 },
+		{ Id = L.FlameLick, Volume = 1, Speed = 0.6 },
+		{ Id = L.HowlingWind, Volume = 0.8, Speed = 0.7, Length = 2.5, Fade = 1 },
+	},
+	ReciproRev ={ { Id = L.MotorRev, Volume = 1.6, Speed = 1.35, Length = 0.6 }, { Id = S.Roar, Volume = 0.89, Speed = 1.6, Length = 0.5 } },
 	ReciproBoom = {
 		Range = 700,
 		{ Id = L.JetPass, Volume = 1.36, Speed = 1.3, Length = 1 },
@@ -1968,12 +2207,110 @@ Config.Sounds = {
 		{ Id = L.SubBoom, Volume = 1.27, Speed = 0.6 },
 	},
 	UltHalfCold = { Range = 1200, { Id = L.IceHammer, Volume = 1.99, Speed = 0.6 }, { Id = L.FireBurst, Volume = 1.59, Speed = 0.9, Length = 2 }, { Id = L.RockCrack, Volume = 1.59, Length = 1.8 } },
+	-- (round 81) ORIGIN: HALF-COLD HALF-HOT (Todoroki's ult R), beat by beat.
+	-- The stamp, and the glacier wave racing down the street
+	OriginWave = {
+		Range = 900,
+		{ Id = L.IceHammer, Volume = 1.6, Speed = 0.9 },
+		{ Id = L.IceCrunch, Volume = 2, Speed = { 0.9, 1.05 }, Length = 0.9, Fade = 0.4 },
+		{ Id = L.RockCrack, Volume = 1.2, Speed = 1.1, Length = 0.8, Fade = 0.3, Delay = 0.08 },
+		{ Id = L.GlassDebris, Volume = 0.7, Speed = 1.2, Length = 0.6, Fade = 0.2, Delay = 0.15 },
+	},
+	-- nobody caught: the ridge dies away, and a breath out
+	OriginWhiff = { { Id = L.IceCrunch, Volume = 1.2, Speed = 0.8, Length = 0.6, Fade = 0.3 }, { Id = L.WhooshBurst, Volume = 0.3, Speed = 0.7, Length = 0.6, Fade = 0.3 } },
+	-- caught: the cage snaps shut round them
+	OriginCatch = {
+		Range = 900,
+		{ Id = L.IceHammer, Volume = 2, Speed = 0.75 },
+		{ Id = L.GlassSmash, Volume = 0.9, Speed = 0.9, Length = 0.8, Fade = 0.3 },
+		{ Id = L.IceCrunch, Volume = 1.6, Speed = 0.8, Length = 0.7, Fade = 0.3 },
+	},
+	-- the cold: the wind howling, the frost creeping, two slow heartbeats
+	OriginFrost = {
+		Range = 600,
+		{ Id = L.HowlingWind, Volume = 0.6, Speed = 0.9, Length = 1, Fade = 0.5 },
+		{ Id = L.IceCrunch, Volume = 0.9, Speed = 1.25, Length = 0.5, Fade = 0.2, Delay = 0.1 },
+		{ Id = L.BoomThump, Volume = 0.9, Speed = 0.8, Length = 0.5, Fade = 0.2, Delay = 0.05 },
+		{ Id = L.BoomThump, Volume = 0.7, Speed = 0.8, Length = 0.5, Fade = 0.2, Delay = 0.55 },
+	},
+	-- (round 82) the two hands: his left hand and the left of his hair go up
+	-- (a fwoom) as the frost wall surges up off his right side
+	OriginHands = {
+		Range = 900,
+		{ Id = L.FireWhoosh, Volume = 1.4, Speed = 1.1, Length = 0.9, Fade = 0.4 },
+		{ Id = L.FlameLick, Volume = 1.1, Length = 0.8, Fade = 0.3 },
+		{ Id = L.IceCrunch, Volume = 1.1, Speed = 0.7, Length = 0.8, Fade = 0.4, Delay = 0.04 },
+		{ Id = L.HowlingWind, Volume = 0.5, Speed = 1.2, Length = 0.8, Fade = 0.4 },
+	},
+	-- (round 82) ...and the screen goes black and white (a deep hit under it)
+	OriginFlare = {
+		Range = 600,
+		{ Id = L.SubBoom, Volume = 1.2, Speed = 0.9, Length = 1.2, Fade = 0.6 },
+		{ Id = L.WhooshBurst, Volume = 0.6, Speed = 0.6, Length = 0.6, Fade = 0.3 },
+	},
+	-- IGNITION: his left side goes up (the frost on the right flashes to steam)
+	OriginIgnite = {
+		Range = 1200,
+		{ Id = L.FireBurst, Volume = 1.8, Speed = 0.7 },
+		{ Id = L.FireWhoosh, Volume = 1.6, Speed = 0.8, Length = 2.5, Fade = 1 },
+		{ Id = L.PowerBoom, Volume = 1, Speed = 0.7, Length = 1.6, Fade = 0.8 },
+		{ Id = L.EnergyGrowl, Volume = 0.8, Speed = 0.7, Length = 1.2, Fade = 0.6 },
+		{ Id = L.Sizzle, Volume = 1, Speed = 0.9, Length = 1.2, Fade = 0.6, Delay = 0.1 },
+	},
+	-- the ice field erupts round them and the ring of fire races through it
+	OriginField = {
+		Range = 1200,
+		{ Id = L.IceHammer, Volume = 1.8, Speed = 0.7 },
+		{ Id = L.RockCrack, Volume = 1.3, Speed = 0.8, Length = 1, Fade = 0.4 },
+		{ Id = L.FireWhoosh, Volume = 1.6, Speed = 0.65, Length = 1.6, Fade = 0.8, Delay = 0.05 },
+		{ Id = L.IceSizzle, Volume = 1.2, Length = 1.4, Fade = 0.8, Delay = 0.25 },
+	},
+	-- the heat gathering in the left palm (the suck-in swells into the thrust)
+	OriginCharge = {
+		Range = 600,
+		{ Id = L.SuckIn, Volume = 0.9, Length = 1, Fade = 0.1 },
+		{ Id = L.FireballSizzle, Volume = 0.9, Length = 1, Fade = 0.4 },
+		{ Id = L.FlameLick, Volume = 1.2, Speed = 0.9, Length = 1, Fade = 0.4 },
+	},
+	-- "Thanks." - the palm thrust
+	OriginThrust = { Range = 1200, { Id = L.FireWhoosh, Volume = 1.8, Speed = 0.8, Length = 0.8, Fade = 0.3 }, { Id = L.WhooshBurst, Volume = 0.8, Speed = 0.8, Length = 0.6, Fade = 0.3 } },
+	-- the expansion: the fire meets the frozen air (heard across the district)
+	OriginBlast = {
+		Range = 4000,
+		{ Id = L.PowerBoomLong, Volume = 1.6, Speed = 0.75, Length = 4, Fade = 2.4 },
+		{ Id = L.DeepBlast, Volume = 1.2, Length = 3, Fade = 1.6 },
+		{ Id = L.SubBoom, Volume = 1.5, Speed = 0.55 },
+		{ Id = L.IceHammer, Volume = 1.6, Speed = 0.6 },
+		{ Id = L.GlassSmash, Volume = 1.2, Speed = 0.8, Length = 1.5, Fade = 0.8 },
+		{ Id = L.WindBlast, Volume = 1, Length = 2.6, Fade = 1.4, Delay = 0.05 },
+		{ Id = L.Quake, Volume = 0.8, Length = 2.6, Fade = 1.6, Delay = 0.3 },
+	},
+	-- the steam rolling over everything, then hissing away
+	OriginSteam = {
+		Range = 1200,
+		{ Id = L.SteamBurst, Volume = 1.4, Speed = 0.8, Length = 4, Fade = 2 },
+		{ Id = L.SteamTube, Volume = 0.8, Speed = 0.7, Length = 4, Fade = 2, Delay = 0.3 },
+		{ Id = L.WindRoar, Volume = 0.8, Speed = 0.7, Length = 3.4, Fade = 2 },
+	},
 	UltEngine = { Range = 1200, { Id = L.MotorRev, Volume = 1.78, Speed = 1.1, Length = 1.4 }, { Id = L.JetPass, Volume = 1.42, Speed = 0.9, Length = 2 }, { Id = S.Roar, Volume = 1.07, Speed = 1.4, Length = 1.4 } },
 	-- DECAY: everything he touches cracks, crumbles and pours away as dust
 	Crumble = {
 		Gap = 0.05,
 		{ Id = L.BoulderCrack, Volume = 1.65, Speed = { 0.85, 1.05 }, Length = 1 },
 		{ Id = L.DirtBurst, Volume = 1.92, Speed = { 0.9, 1.1 }, Length = 1 },
+	},
+	-- (round 83) a body crusting over in stone (the Decaying status): a dry
+	-- crackle and a trickle of grit
+	DecayCrust = {
+		Gap = 0.3,
+		{ Id = L.EarthCrack, Volume = 1.3, Speed = { 1.2, 1.4 }, Length = 0.8 },
+		{ Id = L.DirtBurst, Volume = 0.9, Speed = 1.3, Length = 0.6 },
+	},
+	-- (round 83) a body gone to ash: it slumps and pours into a heap
+	DecayAsh = {
+		{ Id = L.DirtBurst, Volume = 1.8, Speed = 0.8, Length = 1.4 },
+		{ Id = L.DebrisMove, Volume = 1.3, Speed = 0.9, Length = 1.2 },
+		{ Id = L.BoulderCrack, Volume = 1.1, Speed = 0.7, Length = 0.8 },
 	},
 	DecayWave = {
 		Range = 700,
@@ -2004,6 +2341,10 @@ Config.Sounds = {
 		{ Id = L.MetalSwoosh, Volume = 1.79, Speed = { 1, 1.15 }, Length = 0.6 },
 		{ Id = L.AirySlice, Volume = 2.01, Speed = 1.3 },
 	},
+	-- (round 84) the rivets yanked back into his fingers with someone on them
+	RivetReel = { Range = 400, { Id = L.WhooshSwishBy, Volume = 1.5, Speed = 0.8 }, { Id = L.MetalSwoosh, Volume = 1.1, Speed = 0.7, Length = 0.5 } },
+	-- (round 84) the static crackling on someone Radio Waves jammed
+	RadioJam = { Range = 250, { Id = L.Static, Volume = 0.9, Speed = 1.25, Length = 0.9 }, { Id = L.QuirkCrackle, Volume = 0.6, Speed = 1.1, Length = 0.4 } },
 	-- Radio Waves: a crackle of static building in his arms, then the pulse -
 	-- an electric snap, a deep thrum rolling out, and the hiss of jammed air
 	RadioCharge = { Range = 500, { Id = L.Static, Volume = 1.6, Speed = 0.8, Length = 0.6 }, { Id = L.QuirkCrackle, Volume = 1.2, Speed = 0.7, Length = 0.5 } },
@@ -2083,17 +2424,19 @@ Config.Sounds = {
 	-- UNITED STATES OF SMASH (and the I AM HERE meteor's landing). (round
 	-- 78) A bit quieter, and the long tails fade out (Fade: seconds of fade
 	-- before Length) instead of stopping - the ult music dips under the
-	-- punch and comes back up through them
+	-- punch and comes back up through them. (round 81) The tails carry
+	-- (Near: full volume out to 60 studs): the twister's crane shot watches
+	-- from 60-110 studs off, where they'd have sunk to a fifth
 	MightUSSImpact = {
 		Range = 2400,
 		{ Id = L.CrackyPunch, Volume = 0.9, Speed = 0.6, Length = 0.6, Distort = 0.25, Fade = 0.3 },
 		{ Id = L.BodySlamThump, Volume = 1, Speed = 0.7, Length = 1.1, Peak = true, Eq = { 5, 0, -5 }, Fade = 0.6 },
-		{ Id = L.DeepImpact, Volume = 0.85, Length = 4.2, Peak = true, PreRoll = 0.03, Fade = 2.4 },
-		{ Id = L.ThunderBlast, Volume = 0.8, Speed = 0.9, Length = 4, Peak = true, Delay = 0.03, Fade = 2.4 },
+		{ Id = L.DeepImpact, Volume = 0.85, Length = 4.2, Peak = true, PreRoll = 0.03, Fade = 2.4, Near = 60 },
+		{ Id = L.ThunderBlast, Volume = 0.8, Speed = 0.9, Length = 4, Peak = true, Delay = 0.03, Fade = 2.4, Near = 60 },
 		{ Id = L.AirPound, Volume = 0.95, Speed = 0.75, Length = 1.6, Peak = true, Fade = 0.8 },
-		{ Id = L.SonicPressure, Volume = 0.75, Speed = 0.9, Length = 3.2, Peak = true, Delay = 0.06, Fade = 2 },
-		{ Id = L.BigBoomTail, Volume = 0.7, Length = 4.5, Peak = true, Delay = 0.1, Fade = 3 },
-		{ Id = L.Quake, Volume = 0.45, Delay = 0.25, Length = 3.2, Fade = 2.2 },
+		{ Id = L.SonicPressure, Volume = 0.75, Speed = 0.9, Length = 3.2, Peak = true, Delay = 0.06, Fade = 2, Near = 60 },
+		{ Id = L.BigBoomTail, Volume = 0.7, Length = 4.5, Peak = true, Delay = 0.1, Fade = 3, Near = 60 },
+		{ Id = L.Quake, Volume = 0.45, Delay = 0.25, Length = 3.2, Fade = 2.2, Near = 60 },
 	},
 	-- (round 78) the decoy left landing on his face
 	USSJab = {
@@ -2110,8 +2453,51 @@ Config.Sounds = {
 		{ Id = L.BodySlamThump, Volume = 0.9, Speed = 0.8, Length = 0.6, Peak = true, Eq = { 5, 0, -3 }, Fade = 0.3 },
 		{ Id = L.SonicCrack, Volume = 0.5, Speed = 1.1, Length = 0.9, Peak = true, Fade = 0.6 },
 	},
-	-- a whiff: he over-reaches through the air
-	USSWhiff = { { Id = L.SwishLarge, Volume = 1.1, Speed = 0.8, Length = 0.6 }, { Id = L.WhooshBurst, Volume = 0.4, Speed = 0.9, Length = 0.6, Fade = 0.3 } },
+	-- a whiff: he over-reaches through the air. (round 81) Arms wheeling,
+	-- not a second punch: the decoy's swing already made the big swish
+	USSWhiff = { { Id = L.SwishLarge, Volume = 0.7, Speed = 0.8, Length = 0.6 }, { Id = L.WhooshBurst, Volume = 0.4, Speed = 0.9, Length = 0.6, Fade = 0.3 } },
+	-- (round 81) THE BUILD, timed to the strike. USSCharge was the round-76
+	-- 0.95s charge: over the 2s build it was played twice, its suck-in
+	-- "hit" twice on nothing, and its power-up ran on through the impact
+	-- frame (it stays for Deku's AB sequence). The hum swells under
+	-- "UNITED STATES OF..." and is gone before the swing...
+	USSBuildHum = {
+		Range = 1200,
+		{ Id = L.PowerUp, Volume = 1.6, Speed = 0.8, Length = 1.8, Fade = 0.6 },
+		{ Id = L.EnergyGrowl, Volume = 1.1, Speed = 0.7, Length = 1.2, Fade = 0.5 },
+		{ Id = L.Zap, Volume = 1, Speed = 0.8, Delay = 0.3, Length = 1, Fade = 0.4 },
+	},
+	-- ...and the air sucked into the fist, closing on the strike: played Lead
+	-- seconds before it (measured in Studio: the file swells to its close at
+	-- 1.68s, 0.93s past its Start), it stops just after, under the crack.
+	-- (A quiet file - 0.05 RMS at its loudest - hence the Volume.)
+	USSSuck = { Range = 1200, Lead = 0.93, { Id = L.SuckIn, Volume = 5, Length = 1, Fade = 0.06 } },
+	-- (round 81) his feet hitting the street: dropping onto both under them
+	-- on the catch; the stumble out of a whiff, and the hop back
+	USSFootfall = {
+		Range = 500,
+		Gap = 0.1,
+		{ Id = L.BodyFall, Volume = 0.5, Speed = 1.1, Length = 0.4, Fade = 0.15 },
+		{ Id = L.DirtBurst, Volume = 0.35, Length = 0.5, Fade = 0.2 },
+	},
+	-- (round 81) the twister's own wind (Twister stays for the Hurricane
+	-- Smash and the AB sequence): full volume out to 70 studs (Near), so it's
+	-- heard from the crane shot, 60-110 studs off, over the music swelling
+	-- back. The loop carries it as long as the funnel lasts: each play rises
+	-- (FadeIn) as the one before dies away, so the roar never dips or restarts
+	USSTwister = {
+		Range = 1200,
+		{ Id = L.WindRoar, Volume = 1.4, Length = 3.6, Fade = 1.6, Near = 70 },
+		{ Id = L.HowlingWind, Volume = 1.1, Speed = 0.8, Length = 3.6, Fade = 1.8, Near = 70 },
+	},
+	USSTwisterLoop = {
+		Range = 1200,
+		Gap = 0.5,
+		{ Id = L.WindRoar, Volume = 1.15, Length = 3.6, FadeIn = 1, Fade = 1.6, Near = 70 },
+		{ Id = L.HowlingWind, Volume = 0.9, Speed = 0.8, Length = 3.6, FadeIn = 1, Fade = 1.8, Near = 70 },
+	},
+	-- (round 81) thunder rolling under the lightning in its storm cloud
+	USSThunder = { Range = 1500, Gap = 1.1, { Id = L.ThunderBlast, Volume = 0.8, Speed = { 0.85, 1 }, Length = 2.4, Fade = 1.8, Peak = true, PreRoll = 0.12, Near = 160 } },
 	-- the updraft twister the punch leaves behind (round 78: quieter, rising
 	-- and dying away under the music)
 	Twister = { Range = 1200, { Id = L.WindRoar, Volume = 1.4, Length = 3.6, Fade = 1.6 }, { Id = L.HowlingWind, Volume = 1.1, Speed = 0.8, Length = 3.6, Fade = 1.8 } },
@@ -2766,9 +3152,28 @@ Config.Quirks = {
 			-- SplashDamage to anyone round them (Radius). Nobody: he skids to a
 			-- stop at the end of the lane. (round 76) He says it first: "I'M THE
 			-- FINAL BOSS, GOT IT?" - a longer crouch for it (WindUp: 0.7s before).
+			-- (round 83) THE BLITZ, a leapfrog down the lane (chapter 406: he
+			-- speeds past All For One again and again, blast after blast): his
+			-- palm goes off in their face on "GOT" (OpenAt after the press,
+			-- OpenDamage) and throws them down the lane; he overtakes them in a
+			-- blur and from in front blasts them back and higher (BlastDamage) -
+			-- Overtakes times, each leg longer (LegLength + LegGrow a leg) and
+			-- quicker (FirstLeg x Ramp, never under MinLeg), Rise higher each
+			-- time over an Arc; he hangs back for most of a leg and is past them
+			-- in the last DashShare of it, Settle in front before the blast; the
+			-- boom of him passing hits too (BoomDamage, from overtake BoomFrom
+			-- on). The last overtake ends in the flip, a short time-crawl
+			-- (SlowMo, was 1.3) and the Explosion (Damage). Every hit is
+			-- unblockable; his cutscene's last shot (BlastShot) runs on after it.
+			-- Caught with their back to a wall, the catch slides back down the
+			-- lane till the first leg has MinFirstLeg studs (and him room in
+			-- front of them).
 			Special = {
-				Id = "ExplosiveSpeed", Name = "EXPLOSIVE SPEED", Cooldown = 20, Damage = 24, SplashDamage = 6, Radius = 10,
-				Range = 75, Width = 4.5, Speed = 320, WindUp = 1.25, SlowMo = 1.3, FlipTime = 0.14, FlipRise = 3, ActionTime = 0.7, CutIn = false,
+				Id = "ExplosiveSpeed", Name = "EXPLOSIVE SPEED", Cooldown = 20, Damage = 9, SplashDamage = 6, Radius = 10,
+				Range = 75, Width = 4.5, Speed = 320, WindUp = 1.25, SlowMo = 0.5, FlipTime = 0.14, FlipRise = 3, ActionTime = 0.7, CutIn = false,
+				OpenAt = 1.5, OpenDamage = 3, Overtakes = 4, FirstLeg = 0.32, Ramp = 0.8, MinLeg = 0.14,
+				LegLength = 7, LegGrow = 3, Rise = 1.2, Arc = 0.6, DashShare = 0.4, Settle = 0.06,
+				BlastDamage = 3, BoomDamage = 2, BoomFrom = 2, BlastShot = 0.8, MinFirstLeg = 2.5,
 			},
 			-- 4: FULL-BODY CLUSTER (round 63) - his last stand against Shigaraki,
 			-- chapter 362 "Light Fades to Rain" (Episode 149 of the anime).
@@ -2951,7 +3356,7 @@ Config.Quirks = {
 	-- ledges included); his fire is up close and personal.
 	HalfCold = {
 		DisplayName = "HALF-COLD HALF-HOT",
-		Description = "Right side freezes, left side burns. Ice: Ice Spike, Frost Burst, Glacier Breaker, 4 Ice Slider. R swaps sides. Fire: Flashfire, Flame Pillar, Flashfreeze Heatwave, 4 Jet Kindling (a flame-jet rush into a white-hot punch). Ult: Phosphor - Heaven-Piercing Ice Wall.",
+		Description = "Right side freezes, left side burns. Ice: Ice Spike, Frost Burst, Glacier Breaker, 4 Ice Slider. R swaps sides. Fire: Flashfire, Flame Pillar, Flashfreeze Heatwave, 4 Jet Kindling (a flame-jet rush into a white-hot punch). Ult: Phosphor - Heaven-Piercing Ice Wall; R Origin: Half-Cold Half-Hot (a glacier wave that has to catch someone, then both sides at once).",
 		Color = Color3.fromRGB(70, 150, 230),
 		AccentColor = Color3.fromRGB(205, 240, 255),
 		ModeName = "ICE SIDE",
@@ -2971,7 +3376,8 @@ Config.Quirks = {
 		},
 		-- 4 (ice): a ramp of ice shoots out along the aim (Range) and he skates
 		-- up it (RideTime), freezing anyone it erupts under, then flies off the lip
-		Extra = { Id = "IceSlider", Name = "ICE SLIDER", Cooldown = 9, Damage = 8, FreezeTime = 1, Range = 70, RideTime = 0.75, CutIn = false },
+		-- (round 81: the ramp stands IceDuration seconds, then breaks up)
+		Extra = { Id = "IceSlider", Name = "ICE SLIDER", Cooldown = 9, Damage = 8, FreezeTime = 1, Range = 70, RideTime = 0.75, IceDuration = 3, CutIn = false },
 		-- R special: swaps between the ice moveset above and the fire moveset below
 		Special = { Id = "SideSwap", Name = "SWAP SIDE", Cooldown = 1.2, Form = true },
 		Alt = {
@@ -2998,7 +3404,8 @@ Config.Quirks = {
 				DashSpeed = 125, DashTime = 0.32, Reach = 6, BlastLength = 22, BurnTicks = 4, BurnDamage = 3, CutIn = true,
 			},
 		},
-		-- Ult uses both sides at once (R is disabled while it lasts)
+		-- Ult uses both sides at once. R doesn't swap sides while it lasts:
+		-- (round 81) it's ORIGIN, the ult's own R (Ult.Special below)
 		Ult = {
 			Name = "PHOSPHOR",
 			Shout = "PHOSPHOR!",
@@ -3018,6 +3425,38 @@ Config.Quirks = {
 				},
 			},
 			Extra = { Id = "HeatwaveMax", Name = "FLASHFREEZE HEATWAVE: MAXIMUM", Cooldown = 32, Damage = 50, CutIn = false, BurnTicks = 6, BurnDamage = 3, Cinematic = true, CinematicArmor = 1.2 },
+			-- (round 81) R in the ult: ORIGIN - Deku vs Todoroki, the Sports
+			-- Festival (anime ep. 23 / ch. 38-40), the first time he uses both
+			-- halves at once. The freezing wave he opens every fight with: low
+			-- and fast along the street (Range studs at WaveSpeed, WaveStartup
+			-- after the press, LaneWidth across) - it has to catch someone; nobody
+			-- is a whiff, WhiffCooldown seconds and not the move. Caught: caged in
+			-- ice where they stand (GlacierDamage) for BuildTime while it plays out
+			-- (Beats: shares of BuildTime) - his right side frosted over and
+			-- shivering; IGNITION, his left side goes up in a towering plume; ice
+			-- pillars erupt round them as a ring of fire races across the street
+			-- through them; the left arm swung back, the flame swelling in the
+			-- palm - "Thanks." - and the palm thrust (Thrust: the fire's out on its
+			-- way to them). Fire meets the frozen air on BuildTime: it expands
+			-- (FreezeTime: the impact frames), Damage, a burn and a
+			-- ring-out (Launch, Lift); SplashDamage round it (SplashRadius); a
+			-- steam whiteout (Blind) for everyone else in SteamRadius, the cloud
+			-- clearing over SteamTime.
+			-- (round 82) BuildTime 2.8 -> 3.4: IGNITION is a cutscene beat of
+			-- its own now (the clip at 2:08.2-2:09.2 - the two hands, the black
+			-- and white frames, the starburst), Ignite to Field about 1.3 s.
+			-- Workspace attribute OriginPace (absent = 1) plays the whole caught
+			-- cutscene that many times slower, for stills (the server scales
+			-- Build and Freeze by it; every screen follows Build).
+			Special = {
+				Id = "ShotoOrigin", Name = "ORIGIN: HALF-COLD HALF-HOT", Cooldown = 34, CutIn = false,
+				Range = 48, WaveSpeed = 170, WaveStartup = 0.2, LaneWidth = 9, WhiffCooldown = 6,
+				GlacierDamage = 8, BuildTime = 3.4, FreezeTime = 0.3,
+				Beats = { Ignite = 0.24, Field = 0.63, Thanks = 0.77, Thrust = 0.88 },
+				Damage = 46, Launch = 210, Lift = 65, BurnTicks = 4, BurnDamage = 3,
+				SplashDamage = 18, SplashRadius = 38, SteamRadius = 55, SteamTime = 4, Blind = 1.1,
+				ActionTime = 0.6, MusicDuck = 0.15, Cinematic = true, CinematicArmor = 0.75,
+			},
 		},
 	},
 
@@ -3110,8 +3549,12 @@ Config.Quirks = {
 			-- plays out in the fight)
 			{ Id = "Collapse", Name = "COLLAPSE", Cooldown = 21.5, Damage = 32, CutIn = false, Radius = 46, DecayTicks = 5, DecayDamage = 3 },
 		},
-		-- R: five finger lances that punch straight through buildings
-		Special = { Id = "RivetStab", Name = "RIVET STAB", Cooldown = 12, Damage = 16, CutIn = false, Range = 110 },
+		-- R: five finger lances that punch straight through buildings. (round
+		-- 84) The nearest one they skewer is pinned on them (Pin), then the
+		-- rivets pull back into his fingers and reel them in to ReelTo studs
+		-- in front of him, still dazed (AfterStun)
+		Special = { Id = "RivetStab", Name = "RIVET STAB", Cooldown = 12, Damage = 16, CutIn = false, Range = 110,
+			Windup = 0.2, Pin = 0.45, Reel = 0.3, ReelTo = 5, AfterStun = 0.75 },
 		-- 4: both hands to the street - it crumbles away in front of him (Range
 		-- x Width) and swallows whoever's standing on it to the waist (HoldTime),
 		-- decaying while they're stuck
@@ -3130,10 +3573,16 @@ Config.Quirks = {
 				-- pulse ripples out in a wide fan (Angle degrees either side,
 				-- Range studs, the wave travelling at Speed): whoever it reaches
 				-- is hurt and hurled back, and it jams them - static all over
-				-- their screen and their lock-on lost for Jam seconds
-				{ Id = "RadioWaves", Name = "RADIO WAVES", Cooldown = 9, Damage = 26, CutIn = true, Range = 85, Angle = 60, Speed = 220, Jam = 2.5 },
-				-- lances erupt from him in every direction
-				{ Id = "RivetStorm", Name = "RIVET STORM", Cooldown = 13.5, Damage = 22, CutIn = true, Range = 90 },
+				-- their screen and their lock-on lost for Jam seconds, and
+				-- (round 84) their quirk with it: no moves till it clears (M1s,
+				-- dashes and the guard still work). Windup: Air Cannon's gold
+				-- orb swelling in his palm (ep 119)
+				{ Id = "RadioWaves", Name = "RADIO WAVES", Cooldown = 9, Damage = 26, CutIn = true, Range = 85, Angle = 60, Speed = 220, Jam = 2.5, Windup = 0.45 },
+				-- lances erupt from his back and arms in every direction; (round
+				-- 84) whoever they skewer is lifted Lift studs on them, held
+				-- Hold seconds, then slammed into the street (SlamDamage)
+				{ Id = "RivetStorm", Name = "RIVET STORM", Cooldown = 13.5, Damage = 16, CutIn = true, Range = 90,
+					Windup = 0.3, Lift = 9, Hold = 0.7, SlamTime = 0.16, SlamDamage = 10, SlamRagdoll = 1.6 },
 				-- the full cinematic: decay spreads across a whole district
 				{ Id = "TotalDecay", Name = "TOTAL DECAY", Cooldown = 81, Damage = 55, CutIn = false, Radius = 120, DecayTicks = 8, DecayDamage = 4, Cinematic = true, CinematicArmor = 2.6 },
 			},

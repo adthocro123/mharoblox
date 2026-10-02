@@ -562,6 +562,8 @@ local function damage(attacker, model, amount, opts)
 		Attacker = attacker,
 		Hitstop = opts and opts.Hitstop or nil,
 		Heavy = opts and opts.Heavy or nil,
+		M1 = opts and opts.M1 or nil, -- (round 81) an M1: which hit (1-4, "Up", "Down", "Air"): the victim's reaction clip
+		Quiet = opts and opts.Quiet or nil, -- (round 81) the move plays its own sound for it
 	})
 	if not double then
 		addUlt(attacker, amount * ULT.GainPerDamageDealt)
@@ -585,7 +587,9 @@ local ragdoll -- (model, seconds) - defined with the ragdoll below; big knockbac
 -- limp body is pushed with a bounded force so it tumbles instead of launching.
 -- raw: an M1 or the dash punch - their push is the combo's spacing, so
 -- Config.Knockback (moves shove less far) leaves it alone
-local function knockback(model, velocity, duration, raw)
+-- (round 83) noRagdoll: however hard, it doesn't knock them off their feet
+-- itself (the downslam goes limp at the crater, when the attacker lands)
+local function knockback(model, velocity, duration, raw, noRagdoll)
 	-- (round 74) stopped in DIO's time: the push waits too
 	if Reactions.TS and Reactions.TS.push(model, velocity, duration) then
 		return
@@ -633,7 +637,7 @@ local function knockback(model, velocity, duration, raw)
 	end
 	local speed = strength
 	local minSpeed = RAGDOLL.MinSpeed or 100
-	if RAGDOLL.OnMoves ~= false and speed >= minSpeed and not held and not model:GetAttribute("Ragdolled") then
+	if RAGDOLL.OnMoves ~= false and speed >= minSpeed and not held and not noRagdoll and not model:GetAttribute("Ragdolled") then
 		local t = RAGDOLL.Time or 1.3
 		ragdoll(model, math.clamp(t + (speed - minSpeed) / 250, t, RAGDOLL.MaxTime or 2.2))
 	end
@@ -1770,6 +1774,12 @@ function HoldMoves.wait(player, char, ability)
 	local spec = ability.Hold or {}
 	local hold = { Released = false, Start = os.clock() }
 	HoldMoves.active[player] = hold
+	-- (round 82) this move let go before it started (Kit.earlyRelease): a tap
+	local early = Kit.earlyRelease[player]
+	Kit.earlyRelease[player] = nil
+	if early and os.clock() - early.At <= Kit.LOCK_GRACE + 0.1 and early.Id == ability.Id then
+		HoldMoves.release(player, early.Dir, early.Aim)
+	end
 	char:SetAttribute("Holding", ability.Id)
 	if spec.Speed then
 		char:SetAttribute("SlowedTo", spec.Speed)
@@ -3039,21 +3049,225 @@ function Handlers.FullBodyCluster(player, char, root, ability, dir)
 end
 
 
+-- (round 83) EXPLOSIVE SPEED's blitz: a leapfrog down the lane, worked out
+-- once at the catch (Kit.blitzPlan) - every screen draws it from the plan
+-- and the server runs the same clock. The legs: seconds each, FirstLeg x
+-- Ramp a leg (quicker and quicker, never under MinLeg)
+function Kit.blitzLegs(ability)
+	local out, gap = {}, ability.FirstLeg or 0.32
+	for k = 1, math.max(math.floor(ability.Overtakes or 4), 1) do
+		out[k] = gap
+		gap = math.max(gap * (ability.Ramp or 0.8), ability.MinLeg or 0.14)
+	end
+	return out
+end
+
+-- the most it can take from the catch to the Explosion
+function Kit.blitzTime(ability)
+	local total = math.max((ability.OpenAt or 1.5) - (ability.WindUp or 0.6), 0.12) + (ability.SlowMo or 0.5)
+	for _, gap in Kit.blitzLegs(ability) do
+		total += gap
+	end
+	return total
+end
+
+-- The plan. from: his root, in their face; vroot: theirs (held at his
+-- palm); d: the lane; openIn: seconds till the opener. His opener throws
+-- them down the lane; then each leg he hangs back while they fly (spinning
+-- round in the air to face him), and in the last DashShare of it he's a
+-- blur past them - curving round them, a side each time - Settle in front
+-- of them before the blast throws them back the other way, higher. A wall
+-- stops a leg short with room left for him in front of them; a ceiling
+-- (over any part of the lane) keeps the climb and his flip under it; never
+-- below the street. Returns { Legs, Hits, Flip, Blast, FlipRise } (times
+-- from now): Legs[k] = { From, To (their root), Way (the way they fly), T0,
+-- T1, Go, Arrive (his blur), Was, Via, Him (where he blasts from, and the
+-- curve's middle), Spin, Pass / PassAt (the boom as he goes by them), Boom
+-- (it hits) }.
+function Kit.blitzPlan(char, vroot, from, d, ability, openIn)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = nonMapStuff(char)
+	local gaps = Kit.blitzLegs(ability)
+	local n = #gaps
+	local start = vroot.Position
+	local flipRise = ability.FlipRise or 3
+	local rise = ability.Rise or 1.2
+	local arc = ability.Arc or 0.6
+	local top = workspace:Raycast(start, UP * (rise * n + flipRise + 3.5), params)
+	if top then
+		rise = math.max((top.Distance - flipRise - 3.5) / n, 0)
+	end
+	local stand = Kit.standHeight(vroot.Parent)
+	-- (round 83 review) the street under p, and the highest a root can be
+	-- over it there before the head (3 up) hits a ceiling - an awning, a
+	-- bridge - over that bit of the lane (it was only looked for over the
+	-- catch)
+	local function under(p)
+		local floor = groundBelow(p, char).Y + stand
+		local roof = workspace:Raycast(Vector3.new(p.X, floor, p.Z), UP * (rise * n + flipRise + 8), params)
+		return roof and floor + roof.Distance - 3 or math.huge, floor
+	end
+	local right = d:Cross(UP)
+	right = right.Magnitude > 0.1 and right.Unit or Vector3.new(1, 0, 0)
+	local plan = { Legs = {}, Hits = {} }
+	table.insert(plan.Hits, { T = openIn, Damage = ability.OpenDamage or 3, Hitstop = 0.05, From = from })
+	local at, was, t = start, from, openIn
+	for k, gap in gaps do
+		local way = k % 2 == 1 and d or -d
+		local want = (ability.LegLength or 7) + (k - 1) * (ability.LegGrow or 3)
+		local wall = workspace:Raycast(at, way * (want + 4.2), params)
+		local room = wall and wall.Distance or want + 4.2
+		local len = math.clamp(room - 4.2, 0, want)
+		-- (round 83 review) him in front of them, never in the wall: right up
+		-- against one he's as close in front of them as there's room for, and
+		-- with no room at all they come off it a little
+		local ahead = math.clamp(room - len - 1, 0.6, 2.6)
+		len = math.min(len, room - 1 - ahead)
+		local base = at + way * len
+		local roof, floor = under(base)
+		roof = math.min(roof, (under(base + way * ahead)), (under(at:Lerp(base, 0.5))) - arc)
+		local to = Vector3.new(base.X, math.max(math.min(at.Y + rise, roof), floor), base.Z)
+		local last = k == n
+		local arrive = t + gap - (last and 0 or math.min(ability.Settle or 0.06, gap * 0.25))
+		local him = to + way * ahead
+		-- (his curve swings out up to 2.5 studs to that side of them: less by a wall)
+		local swing = k % 2 == 1 and 1 or -1
+		local beside = workspace:Raycast((was + him) / 2, right * swing * 3.5, params)
+		local bulge = beside and math.max((beside.Distance - 1) * 2, 0) or 5
+		local leg = {
+			From = at, To = to, Way = way, T0 = t, T1 = t + gap, Go = arrive - gap * (ability.DashShare or 0.4), Arrive = arrive,
+			Was = was, Him = him, Via = (was + him) / 2 + right * swing * bulge + UP * 0.8, Spin = swing,
+		}
+		-- the sonic boom of him going past them (where his blur first gets
+		-- ahead of them) - from overtake BoomFrom on, it hits them too
+		leg.Pass, leg.PassAt = leg.Arrive, to
+		for i = 1, 24 do
+			local a = i / 24
+			local when = leg.Go + (leg.Arrive - leg.Go) * a
+			local p = Kit.blitzCurve(leg, a)
+			if (p - Kit.blitzVictim(leg, (when - leg.T0) / gap, ability).Position):Dot(way) >= 0 then
+				leg.Pass, leg.PassAt = when, p
+				break
+			end
+		end
+		if k >= (ability.BoomFrom or 2) then
+			leg.Boom = true
+			table.insert(plan.Hits, { T = leg.Pass, Damage = ability.BoomDamage or 2, Hitstop = 0.02, From = leg.PassAt })
+		end
+		if not last then
+			table.insert(plan.Hits, { T = t + gap, Damage = ability.BlastDamage or 3, Hitstop = 0.03, From = him })
+		end
+		plan.Legs[k] = leg
+		at, was, t = to, him, t + gap
+	end
+	table.sort(plan.Hits, function(a, b)
+		return a.T < b.T
+	end)
+	plan.Flip = t
+	plan.Blast = t + (ability.SlowMo or 0.5)
+	-- (round 83 review) the flip takes him FlipRise up over where he blasted
+	-- from, upside down - his feet 3 over his root: under a ceiling, less
+	local hang = plan.Legs[n].Him
+	plan.FlipRise = math.clamp((under(hang)) - 0.5 - hang.Y, 0, flipRise)
+	return plan
+end
+
+-- his blur round them on leg `leg`, a from 0 to 1 (a curve, not through them)
+function Kit.blitzCurve(leg, a)
+	return (1 - a) ^ 2 * leg.Was + 2 * a * (1 - a) * leg.Via + a * a * leg.Him
+end
+
+-- where they are a (0 to 1) through a leg: thrown fast and slowing, up over
+-- an arc, spinning round in the air - head snapped back at first - to face
+-- him by the time he's there
+function Kit.blitzVictim(leg, a, ability)
+	a = math.clamp(a, 0, 1)
+	local e = 1 - (1 - a) ^ 2
+	local pos = leg.From:Lerp(leg.To, e) + UP * ((ability.Arc or 0.6) * 4 * a * (1 - a))
+	local turn = a * a * (3 - 2 * a)
+	return CFrame.lookAt(pos, pos - leg.Way) * CFrame.Angles(0, leg.Spin * math.pi * turn, 0) * CFrame.Angles(math.rad(25 * (1 - a)), 0, 0)
+end
+
+-- where he is at t (seconds into the plan) on leg `leg`: hanging back where
+-- he blasted from (facing the way they fly), a blur flat out along the
+-- curve, then turned to face them in front of them
+function Kit.blitzHim(leg, t)
+	if t < leg.Go then
+		return CFrame.lookAt(leg.Was, leg.Was + leg.Way)
+	elseif t < leg.Arrive then
+		local a = (t - leg.Go) / math.max(leg.Arrive - leg.Go, 1e-3)
+		local p = Kit.blitzCurve(leg, a)
+		local ahead = Kit.blitzCurve(leg, math.min(a + 0.05, 1)) - Kit.blitzCurve(leg, math.max(a - 0.05, 0))
+		ahead = ahead.Magnitude > 0.05 and ahead.Unit or leg.Way
+		return CFrame.lookAt(p, p + ahead) * CFrame.Angles(math.rad(-80), 0, 0) -- (flat out, face down: a missile)
+	end
+	return CFrame.lookAt(leg.Him, leg.Him - leg.Way)
+end
+
+-- (round 83 review) caught with their back to a wall (the lane takes them
+-- up to 3 past its end): no room in front of them for his first overtake -
+-- so the catch slides back down the lane till there is (MinFirstLeg), never
+-- behind where he set off. traveled: how far down the lane he caught them
+function Kit.blitzRoom(from, d, traveled, params, ability)
+	local need = 2.6 + 4.2 + (ability.MinFirstLeg or 2.5)
+	local hit = workspace:Raycast(from + d * traveled, d * need, params)
+	return hit and math.max(traveled - (need - hit.Distance), 0) or traveled
+end
+
+-- (round 83 review) does this hit of the blitz knock them out? Asked BEFORE
+-- it lands, so the blitz (and his cutscene) can end first and the KO's kill
+-- cam and pose play. The multipliers damage() puts on it that matter here
+-- (the ult, Trigger, the server's DamageMult, armour, the one-hit cap)
+function Kit.blitzLethal(player, model, amount)
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then
+		return false
+	end
+	if player and player:GetAttribute("UltActive") then
+		amount *= ULT.DamageMultiplier
+	end
+	local pc = player and player.Character
+	if pc and (pc:GetAttribute("TriggeredUntil") or 0) > workspace:GetServerTimeNow() then
+		amount *= Config.Items.Trigger.DamageBoost or 1.25
+	end
+	if model:GetAttribute("Kaiju") then
+		amount *= KAIJU.DamageTaken or 0.5
+	end
+	amount *= tonumber(workspace:GetAttribute("DamageMult")) or 1
+	local armor = Reactions.armored(model)
+	if armor then
+		amount *= armor.Scale or 0.5
+	end
+	local share = Config.Balance and Config.Balance.MaxHitShare
+	if share then
+		amount = math.min(amount, hum.MaxHealth * share)
+	end
+	return hum.Health <= math.floor(amount + 0.5)
+end
+
 -- EXPLOSIVE SPEED (the ult's R - round 64, back): Explosive Speed: Cluster. He crouches like
 -- a sprinter while the sweat beads pop all over him (WindUp), then the
 -- server flies him straight down the aim at Speed - stopping short of a
--- wall - and the first one in his lane is caught face to face. Time slows
--- (SlowMo) while his palm comes up to their face, then the Explosion goes
--- off point blank. Every exit lets both bodies go.
+-- wall - and the first one in his lane is caught face to face. (round 83)
+-- Then the blitz (Kit.blitzPlan): the opener on "GOT", the overtakes, the
+-- flip, a short time-crawl (SlowMo) while his palm comes up to their face,
+-- then the Explosion goes off point blank. Every exit lets both bodies go.
 function Handlers.ExplosiveSpeed(player, char, root, ability, dir)
 	local d = flatten(dir, root)
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	local windUp, speed, slowMo = ability.WindUp or 0.6, ability.Speed or 230, ability.SlowMo or 0.75
 	local range, width = ability.Range or 75, ability.Width or 4.5
 	local anchored, autoRotate = root.Anchored, hum and hum.AutoRotate
-	local g, caught, standAt
+	local g, caught
 	local completed = false
-	char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + windUp + range / speed + slowMo + 0.5)
+	local ko, koSent = false, false -- (round 83 review: knocked out mid-blitz; its cancel already sent)
+	local pressed = os.clock()
+	char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + windUp + range / speed + Kit.blitzTime(ability) + 0.5)
+	-- (round 83) armoured through the whole crouch: the ult's move armour
+	-- (ActionTime) ran out 0.55s before he went, and a stun in that gap
+	-- called it all off
+	iFrames[char] = math.max(iFrames[char] or 0, os.clock() + windUp + 0.1)
 	root.Anchored = true -- (rooted in the crouch; the server flies him)
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + d)
 	-- (his own screen keeps its hands off his body meanwhile: the shift lock
@@ -3082,7 +3296,8 @@ function Handlers.ExplosiveSpeed(player, char, root, ability, dir)
 		local from = root.Position
 		local wall = workspace:Raycast(from, d * range, params)
 		local length = wall and math.max((wall.Position - from).Magnitude - 2.5, 0) or range
-		iFrames[char] = math.max(iFrames[char] or 0, os.clock() + length / speed + slowMo + 0.3)
+		iFrames[char] = math.max(iFrames[char] or 0, os.clock() + length / speed + 0.3)
+		local hold = Kit.blitzTime(ability) + 0.3 -- (how long whoever he catches is his)
 		local tried = {}
 		local traveled, last = 0, os.clock()
 		-- anyone in the lane right now: he's on them the instant the crouch
@@ -3101,10 +3316,10 @@ function Handlers.ExplosiveSpeed(player, char, root, ability, dir)
 		end
 		if first then
 			tried[first] = true
-			g = Grab.take(first, slowMo + 0.6)
+			g = Grab.take(first, hold)
 			if g then
 				caught = first
-				traveled = math.clamp(firstAlong - 2.6, 0, length)
+				traveled = Kit.blitzRoom(from, d, math.clamp(firstAlong - 2.6, 0, length), params, ability)
 			end
 		end
 		broadcast("ExplosiveSpeedGo", char, { From = from, Dir = d, Length = caught and traveled or length, Speed = speed, Blink = caught ~= nil })
@@ -3140,10 +3355,10 @@ function Handlers.ExplosiveSpeed(player, char, root, ability, dir)
 			end
 			if best then
 				tried[best] = true
-				g = Grab.take(best, slowMo + 0.6)
+				g = Grab.take(best, hold)
 				if g then
 					caught = best
-					traveled = math.clamp(bestAlong - 2.6, 0, length)
+					traveled = Kit.blitzRoom(from, d, math.clamp(bestAlong - 2.6, 0, length), params, ability)
 				end
 			end
 			if not caught then
@@ -3159,58 +3374,158 @@ function Handlers.ExplosiveSpeed(player, char, root, ability, dir)
 			completed = true
 			return
 		end
-		-- face to face: time slows as his palm comes up to their face - and he
-		-- flips over as he gets there, upside down in front of them, his head
-		-- level with theirs (chapter 406, his palm in All For One's face)
+		-- face to face (chapter 405: he's simply there, in his face), his palm
+		-- coming up to it. (round 83) Then THE BLITZ, a leapfrog down the lane
+		-- (Kit.blitzPlan): the opener on "GOT" (OpenAt after the press - the
+		-- line is lined up on it), the overtakes, the flip
 		local at = root.Position
-		standAt = at
 		local face = at + d * 2.6
+		root.CFrame = CFrame.lookAt(at, at + d) -- (caught in flight: up out of it)
 		Grab.place(g, CFrame.lookAt(face, face - d))
-		broadcast("ExplosiveSpeedCatch", char, { Target = caught, Pos = face, Dir = d, Time = slowMo })
-		local hang = at + UP * (ability.FlipRise or 3)
-		local flipped = CFrame.lookAt(hang, hang + d) * CFrame.Angles(0, 0, math.pi)
-		local was, t1 = root.CFrame, os.clock()
+		local openIn = math.max((ability.OpenAt or 1.5) - (os.clock() - pressed), 0.12)
+		local plan = Kit.blitzPlan(char, g.Root, at, d, ability, openIn)
+		-- armoured to the end of his own cutscene (its last shot runs on
+		-- BlastShot after the Explosion); hers to the Explosion
+		iFrames[char] = math.max(iFrames[char] or 0, os.clock() + plan.Blast + (ability.BlastShot or 0.8))
+		char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + plan.Blast + 0.5)
+		local show = {}
+		for k, leg in plan.Legs do
+			show[k] = {
+				From = leg.From, To = leg.To, Way = leg.Way, T0 = leg.T0, T1 = leg.T1, Go = leg.Go, Arrive = leg.Arrive,
+				Was = leg.Was, Via = leg.Via, Him = leg.Him, Pass = leg.Pass, PassAt = leg.PassAt, Boom = leg.Boom,
+			}
+		end
+		broadcast("ExplosiveSpeedBlitz", char, { Target = caught, Dir = d, From = at, At = face, Open = openIn, Legs = show, Flip = plan.Flip, Blast = plan.Blast, Time = slowMo, FlipRise = plan.FlipRise })
+		local t0 = os.clock()
+		local nextHit = 1
+		local legs = plan.Legs
+		local function legAt(t)
+			for _, leg in legs do
+				if t < leg.T1 then
+					return leg
+				end
+			end
+			return legs[#legs]
+		end
+		-- (the clock runs; both bodies go where the plan has them, every hit
+		-- landing on its beat)
+		while true do
+			local t = os.clock() - t0
+			while plan.Hits[nextHit] and plan.Hits[nextHit].T <= t do
+				local h = plan.Hits[nextHit]
+				nextHit += 1
+				if h.T >= legs[1].T0 then
+					local leg = legAt(h.T)
+					Grab.place(g, Kit.blitzVictim(leg, (h.T - leg.T0) / (leg.T1 - leg.T0), ability))
+				end
+				-- (round 83 review) the hit that knocks them out ends the blitz
+				-- BEFORE it lands: his cutscene's over by the time the KO's kill
+				-- cam comes (it was refused, then cut, and his KO pose dropped),
+				-- and they're let go for the KO's send-off (a push a moment later)
+				local lethal = Kit.blitzLethal(player, caught, h.Damage)
+				if lethal then
+					koSent = true
+					broadcast("ExplosiveSpeedCancel", char, { Target = caught, KO = true })
+					Grab.release(g)
+					g = nil
+				end
+				-- (Quiet: the blitz plays its own blasts and booms for these)
+				damage(player, caught, h.Damage, { Hitstop = h.Hitstop, Unblockable = true, From = h.From, Quiet = true })
+				local vh = caught:FindFirstChildOfClass("Humanoid")
+				if lethal or not vh or vh.Health <= 0 then
+					-- a knockout (seen coming or not): let go at once, the
+					-- blitz ends there (the cancel says KO: the pose stays)
+					Grab.release(g)
+					g = nil
+					ko = not vh or vh.Health <= 0
+					if lethal and not ko then
+						-- (it didn't take the hit after all: they drop free)
+						stunTokens[caught] = (stunTokens[caught] or 0) + 1
+						restoreMovement(caught)
+					end
+					return
+				end
+			end
+			if t >= plan.Flip then
+				break
+			end
+			if t >= legs[1].T0 then
+				local leg = legAt(t)
+				Grab.place(g, Kit.blitzVictim(leg, (t - leg.T0) / (leg.T1 - leg.T0), ability))
+				root.CFrame = Kit.blitzHim(leg, t)
+			end
+			task.wait()
+			if not valid() or not alive(caught) or not g.Root.Parent then
+				return
+			end
+		end
+		-- the last overtake ends in front of them: he flips over as he gets
+		-- there, upside down, his head level with theirs (chapter 406, his
+		-- palm in All For One's face) - and time crawls (SlowMo, short)
+		local last = legs[#legs]
+		local dF = -last.Way
+		face = last.To
+		Grab.place(g, CFrame.lookAt(face, face - dF))
+		broadcast("ExplosiveSpeedCatch", char, { Target = caught, Pos = face, Dir = dF, Time = slowMo })
+		local hang = last.Him + UP * plan.FlipRise -- (round 83 review: less under a ceiling)
+		local flipped = CFrame.lookAt(hang, hang + dF) * CFrame.Angles(0, 0, math.pi)
+		local was, t1 = CFrame.lookAt(last.Him, last.Him + dF), os.clock()
 		local flip = math.min(ability.FlipTime or 0.14, slowMo)
 		while os.clock() - t1 < flip do
 			root.CFrame = was:Lerp(flipped, math.clamp((os.clock() - t1) / flip, 0, 1))
 			task.wait()
-			if not valid() then
+			if not valid() or not alive(caught) then
 				return
 			end
 		end
 		root.CFrame = flipped
-		task.wait(slowMo - (os.clock() - t1))
-		if not valid() then
+		task.wait(math.max(slowMo - (os.clock() - t1), 0))
+		if not valid() or not alive(caught) or not g.Root.Parent then
 			return
 		end
-		-- the Explosion, point blank
-		Grab.release(g, d * 140 + UP * 55, 0.3)
+		-- the Explosion, point blank - from where they are now
+		face = g.Root.Position
+		Grab.release(g, dF * 140 + UP * 55, 0.3)
 		g = nil
-		if damage(player, caught, ability.Damage, { Heavy = true, Hitstop = 0.14, From = at }) then
+		-- (round 83 review) everyone sees it go off first - and if it's the
+		-- knockout (KO), his cutscene makes way for the KO's kill cam (it was
+		-- refused: his own last shot ran on under it)
+		broadcast("ExplosiveSpeedBlast", char, { Pos = face, Dir = dF, Target = caught, KO = Kit.blitzLethal(player, caught, ability.Damage) or nil })
+		if damage(player, caught, ability.Damage, { Heavy = true, Unblockable = true, Hitstop = 0.14, From = root.Position }) then
 			ragdoll(caught, 2)
 			stun(caught, 1.6)
 		end
 		for _, model in queryRadius(char, face, ability.Radius or 10) do
 			if model ~= caught and damage(player, model, ability.SplashDamage or 6, { From = face }) then
-				knockback(model, awayFrom(face, model, d) * 70 + UP * 35, 0.2)
+				knockback(model, awayFrom(face, model, dF) * 70 + UP * 35, 0.2)
 				stun(model, 0.6)
 			end
 		end
-		Destruction.Sphere(face, 12, "BigExplosion", d)
-		broadcast("ExplosiveSpeedBlast", char, { Pos = face, Dir = d, Target = caught })
+		Destruction.Sphere(face, 12, "BigExplosion", dF)
 		completed = true
 	end, debug.traceback)
 	-- every exit lets both bodies go
 	if g then
 		Grab.release(g)
+		if not completed and caught and caught.Parent and alive(caught) then
+			-- (called off mid-blitz: they drop free - not left stunned for the
+			-- rest of a blitz that isn't coming)
+			stunTokens[caught] = (stunTokens[caught] or 0) + 1
+			restoreMovement(caught)
+		end
+	end
+	if caught and not completed then
+		iFrames[char] = math.min(iFrames[char] or 0, os.clock() + 0.2) -- (no cutscene to armour him through)
 	end
 	if root.Parent then
-		if standAt then
-			root.CFrame = CFrame.lookAt(standAt, standAt + d) -- (right way up again, feet back under him)
-		end
+		-- (round 83) the right way up again, where he is - after the blitz
+		-- that's up in the air: the recoil and the fall bring him down (he
+		-- used to be put straight back on the street where he caught them)
+		local look = flatten(root.CFrame.LookVector, root)
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + look)
 		root.Anchored = anchored
 		-- (the recoil of his own blast knocks him back a step)
-		root.AssemblyLinearVelocity = caught and completed and (-d * 30 + UP * 22) or Vector3.zero
+		root.AssemblyLinearVelocity = caught and completed and (-look * 30 + UP * 22) or Vector3.zero
 		if not anchored then
 			pcall(function()
 				root:SetNetworkOwnershipAuto()
@@ -3222,8 +3537,8 @@ function Handlers.ExplosiveSpeed(player, char, root, ability, dir)
 	end
 	char:SetAttribute("BodyLocked", nil)
 	char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + 0.1)
-	if not completed then
-		broadcast("ExplosiveSpeedCancel", char, { Target = caught })
+	if not completed and not koSent then
+		broadcast("ExplosiveSpeedCancel", char, { Target = caught, KO = ko or nil })
 	end
 	if not ok then
 		warn("[ExplosiveSpeed] " .. tostring(err))
@@ -3380,6 +3695,152 @@ function Handlers.HeatwaveMax(player, char, root, ability, dir, _pos, cast)
 		end
 	end
 	Destruction.Sphere(anchor + d * 30 + UP * 10, 30, "BigExplosion")
+end
+
+-- (round 81) ORIGIN: HALF-COLD HALF-HOT (R in the ult) - Deku vs Todoroki at
+-- the Sports Festival. The freezing wave runs out along the street: the
+-- first body it reaches is caught (the one nearest him along it), and only
+-- one. Each step checks the stretch of street it ran over since the last
+-- (LaneWidth across, 8 studs high from the street), so someone well up off
+-- it - a jump - goes over the top. Returns the body and how far out.
+function Kit.originWave(player, char, root, ability, d, from)
+	local range, speed = ability.Range or 48, ability.WaveSpeed or 170
+	local width = ability.LaneWidth or 9
+	local t0 = os.clock()
+	local done = 0
+	while alive(char) do
+		local s = math.min(speed * (os.clock() - t0), range)
+		local a, b = math.max(done - 1, 0), s + 1
+		local mid = from + d * ((a + b) / 2) + UP * 0.5
+		local best, bestS
+		for _, model in Rewind.QueryBox(player, char, CFrame.lookAt(mid, mid + d), Vector3.new(width, 8, b - a), {}) do
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			local along = mr and (mr.Position - from):Dot(d)
+			if along and along > -1 and (not bestS or along < bestS) then
+				best, bestS = model, along
+			end
+		end
+		if best then
+			return best, math.max(bestS, 0)
+		end
+		done = s
+		if s >= range then
+			break
+		end
+		task.wait(0.03)
+	end
+	-- (a little forgiveness: anyone right in front of him as it dies)
+	local near = alive(char) and Grab.nearest(char, root, d, 8, 0.35)
+	if near then
+		local mr = near:FindFirstChild("HumanoidRootPart")
+		return near, mr and math.max((mr.Position - from):Dot(d), 0) or 4
+	end
+	return nil, range
+end
+
+-- Caught: caged in ice right where they stood, on their own feet, turned
+-- to face him; it all plays out (BuildTime: the frost, the ignition, the
+-- field and the fire, the wind-up - "Thanks."), the palm thrust, and the
+-- impact frames (FreezeTime) while he's armoured. Then the expansion: the
+-- one he caught is thrown out of the ring burning, everyone near is blown
+-- away, and the steam whites out everyone else's screens. Nobody caught is
+-- a whiff: WhiffCooldown seconds, not the move. A boss (the raid's Nomu)
+-- can't be held: the cage forms round its feet and it's hit where it stands.
+function Handlers.ShotoOrigin(player, char, root, ability, dir, _pos, cast)
+	local d = flatten(dir, root)
+	local from = root.Position
+	task.wait(ability.WaveStartup or 0.2)
+	if not alive(char) then
+		return
+	end
+	carveIce("OriginWave", cast, d, char, 100)
+	local target, reach = Kit.originWave(player, char, root, ability, d, from)
+	-- (round 82) Workspace attribute OriginPace (absent = 1): the whole caught
+	-- cutscene that many times slower, for stills - every screen paces itself
+	-- off the Build it's sent
+	local pace = math.clamp(tonumber(workspace:GetAttribute("OriginPace")) or 1, 0.25, 20)
+	local build, freeze = (ability.BuildTime or 3.4) * pace, (ability.FreezeTime or 0.3) * pace
+	local g = target and alive(char) and Grab.take(target, build + freeze + 0.8)
+	local boss = not g and target ~= nil and target:GetAttribute("Boss") == true and alive(target) and alive(char)
+	local troot = target and target:FindFirstChild("HumanoidRootPart")
+	if not g and not (boss and troot) then
+		-- the wave dies into a ridge: no cage, and the ult move isn't spent on it
+		broadcast("ShotoOriginWhiff", char, { Dir = d, Id = ability.Id, Reach = reach })
+		Kit.shortCooldown(player, ability, ability.WhiffCooldown or 6)
+		iFrames[char] = math.min(iFrames[char] or 0, os.clock())
+		return
+	end
+	-- caught: armoured right through to the end, and nothing else till then
+	-- (to the end of his own cutscene: Origin.shots run build + freeze + 1.9
+	-- from when the catch reaches him - the last shot paced too - and he
+	-- can't guard or move in it)
+	iFrames[char] = math.max(iFrames[char] or 0, os.clock() + build + freeze + 1.9 * pace + 0.2)
+	char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + build + freeze + 1.9 * pace + 0.3)
+	damage(player, target, ability.GlacierDamage or 8, { Hitstop = 0.1, Unblockable = true, NoKnockdown = true, From = root.Position })
+	-- held where the wave caught them, standing, facing him (he turns to them)
+	local at = troot.Position
+	local feet = groundBelow(at, char)
+	local stand = Kit.standHeight(target)
+	local hold = CFrame.lookAt(Vector3.new(at.X, feet.Y + stand, at.Z), Vector3.new(root.Position.X, feet.Y + stand, root.Position.Z))
+	local flat = Vector3.new(at.X - root.Position.X, 0, at.Z - root.Position.Z)
+	local aim = flat.Magnitude > 0.5 and flat.Unit or d
+	broadcast("ShotoOriginCatch", char, {
+		Target = target, Dir = aim, Id = ability.Id, Build = build, Freeze = freeze, Dist = flat.Magnitude, At = hold.Position, Feet = feet,
+	})
+	local tb = os.clock()
+	-- (the whole build, even if the one held is gone - a Twice double melted,
+	-- someone left: the blast still lands on the beat, where they were held)
+	while os.clock() - tb < build and alive(char) do
+		if g and g.Root.Parent then
+			Grab.place(g, hold)
+		end
+		task.wait(0.03)
+	end
+	if not alive(char) then
+		Grab.release(g)
+		-- (the one held is let go of the hold's stun too)
+		if g and target.Parent then
+			stunTokens[target] = (stunTokens[target] or 0) + 1
+			restoreMovement(target)
+		end
+		-- every screen's told: no ignition, no thrust, no impact frame
+		broadcast("ShotoOriginCancel", char, { Target = target, Id = ability.Id })
+		return
+	end
+	-- the palm thrust lands: everything stops for the impact frames...
+	task.wait(freeze)
+	-- ...then the fire meets the frozen air
+	local center = (g and g.Root.Parent and g.Root.Position) or (troot.Parent and troot.Position) or hold.Position
+	broadcast("ShotoOriginBlast", char, { Pos = center, Feet = feet, Target = target, Dir = aim, Id = ability.Id })
+	Grab.release(g)
+	local hitSet = { [target] = true }
+	if damage(player, target, ability.Damage, { Heavy = true, Unblockable = true, Hitstop = 0.06, From = root.Position }) then
+		knockback(target, aim * (ability.Launch or 210) + UP * (ability.Lift or 65), 0.3)
+		stun(target, 2.6)
+		ragdoll(target, 2.4)
+		burn(target, ability.BurnTicks, ability.BurnDamage, "hell")
+	end
+	-- the blast round it blows everyone else away
+	for _, model in queryRadius(char, center, ability.SplashRadius or 38, hitSet) do
+		hitSet[model] = true
+		if damage(player, model, ability.SplashDamage or 18, { From = center }) then
+			knockback(model, awayFrom(center, model, aim) * 150 + UP * 50, 0.3)
+			stun(model, 1.2)
+			burn(model, 2, ability.BurnDamage or 3, "hell")
+		end
+	end
+	-- and the steam whites out everyone's screen near it (not his: he's in it)
+	for _, plr in Players:GetPlayers() do
+		local pc = plr.Character
+		local pr = pc and pc:FindFirstChild("HumanoidRootPart")
+		if pc and pc ~= char and pr and (pr.Position - center).Magnitude <= (ability.SteamRadius or 55) then
+			PlayVFX:FireClient(plr, "ShotoOriginSteamed", nil, { Duration = ability.Blind or 1.1, From = center })
+			pc:SetAttribute("BlindedUntil", workspace:GetServerTimeNow() + (ability.Blind or 1.1))
+		end
+	end
+	Destruction.Sphere(center + UP * 4, 30, "BigExplosion")
+	local mid = (root.Position + center) / 2
+	Destruction.Box(CFrame.lookAt(mid, center), Vector3.new(10, 6, math.max(flat.Magnitude, 4)), "Scorch", aim)
 end
 
 -- LEMILLION: PHANTOM GRASP (V) - his arm sinks through the street and comes
@@ -3615,29 +4076,110 @@ function Handlers.Collapse(player, char, root, ability)
 	end)
 end
 
+-- (round 84) RIVET STAB the way it's drawn: All For One's on All Might
+-- (ep 48), Shigaraki's through Endeavor (ep 122) - black tendrils with red
+-- circuit lines shoot out of his fingertips along five lines. The nearest
+-- one they skewer is PINNED on them (Pin seconds), then the rivets pull
+-- back into his fingers and reel them in to ReelTo studs in front of him,
+-- still dazed (AfterStun): a grab from across the street. Anyone else on a
+-- line is only pierced. A boss (or a dodge, a body already held) is only
+-- pierced too.
+-- (he lets go if he's knocked out of it: stunned, down, grabbed himself)
+function Kit.rivetsHeld(char)
+	return alive(char) and not char:GetAttribute("Stunned") and not char:GetAttribute("Ragdolled") and not char:GetAttribute("Grabbed")
+end
+
+function Kit.rivetReel(player, char, root, model, ability, v)
+	local pin, reel = ability.Pin or 0.45, ability.Reel or 0.3
+	local g = Grab.take(model, pin + reel + 0.3)
+	if not g then
+		knockback(model, v * 30 + UP * 8, 0.15)
+		stun(model, ability.AfterStun or 0.7)
+		return false
+	end
+	broadcast("RivetPin", char, { Target = model, Pin = pin, Reel = reel, ReelTo = ability.ReelTo or 5 })
+	-- (he holds his hand out on them till they're in)
+	char:SetAttribute("CombatActionUntil", math.max(char:GetAttribute("CombatActionUntil") or 0, workspace:GetServerTimeNow() + pin + reel))
+	-- skewered where they stood, knocked half a step back onto the rivets
+	local back = Vector3.new(v.X, 0, v.Z)
+	back = back.Magnitude > 0.01 and back.Unit or root.CFrame.LookVector
+	local held = g.Root.Position + back * 1.2
+	Grab.place(g, CFrame.lookAt(held, held - back) * CFrame.Angles(math.rad(12), 0, 0))
+	local t0 = os.clock()
+	while os.clock() - t0 < pin and Kit.rivetsHeld(char) and g.Root.Parent do
+		task.wait(0.03)
+	end
+	-- ...then yanked in (slow off the mark, fast at the end)
+	local start = g.Root.Position
+	local t1 = os.clock()
+	while Kit.rivetsHeld(char) and g.Root.Parent and os.clock() - t1 < reel do
+		local a = math.clamp((os.clock() - t1) / reel, 0, 1) ^ 2
+		local toward = Vector3.new(start.X - root.Position.X, 0, start.Z - root.Position.Z)
+		toward = toward.Magnitude > 0.5 and toward.Unit or root.CFrame.LookVector
+		local dest = root.Position + toward * (ability.ReelTo or 5)
+		local at = start:Lerp(Vector3.new(dest.X, math.max(dest.Y, start.Y - 2), dest.Z), a)
+		Grab.place(g, CFrame.lookAt(at, Vector3.new(root.Position.X, at.Y, root.Position.Z)))
+		task.wait(1 / 60)
+	end
+	if g.Root.Parent and Kit.rivetsHeld(char) then
+		local toward = Vector3.new(start.X - root.Position.X, 0, start.Z - root.Position.Z)
+		toward = toward.Magnitude > 0.5 and toward.Unit or root.CFrame.LookVector
+		local dest = root.Position + toward * (ability.ReelTo or 5)
+		Grab.place(g, CFrame.lookAt(dest, Vector3.new(root.Position.X, dest.Y, root.Position.Z)))
+	end
+	Grab.release(g)
+	if alive(model) then
+		stun(model, ability.AfterStun or 0.7)
+	end
+	return true
+end
+
 function Handlers.RivetStab(player, char, root, ability, dir)
-	task.wait(0.2)
+	task.wait(ability.Windup or 0.2)
 	if not alive(char) then
 		return
 	end
+	local d = (typeof(dir) == "Vector3" and dir == dir and dir.Magnitude > 0.01) and dir.Unit or root.CFrame.LookVector
 	local dirs = {}
 	for _, a in { -14, -7, 0, 7, 14 } do
-		table.insert(dirs, CFrame.Angles(0, math.rad(a), 0) * dir)
+		table.insert(dirs, CFrame.Angles(0, math.rad(a), 0) * d)
 	end
-	lances(char, root.Position + UP, dirs, ability.Range or 110, 1.1, {}, function(model, v)
-		if damage(player, model, ability.Damage) then
+	local origin = root.Position + UP
+	local hits = {}
+	lances(char, origin, dirs, ability.Range or 110, 1.1, {}, function(model, v)
+		local mr = model:FindFirstChild("HumanoidRootPart")
+		table.insert(hits, { Model = model, V = v, Dist = mr and (mr.Position - origin).Magnitude or math.huge })
+	end)
+	table.sort(hits, function(a, b)
+		return a.Dist < b.Dist
+	end)
+	local pinning = (ability.Pin or 0) > 0
+	for _, h in hits do
+		local model, v = h.Model, h.V
+		if pinning then
+			-- the nearest: skewered and reeled in (Kit.rivetReel)
+			if damage(player, model, ability.Damage, { NoKnockdown = true, Hitstop = 0.06, From = origin }) then
+				pinning = false
+				task.spawn(Kit.rivetReel, player, char, root, model, ability, v)
+			end
+		elseif damage(player, model, ability.Damage, { From = origin }) then
 			knockback(model, v * 45 + UP * 10, 0.15)
 			stun(model, 0.7)
 		end
-	end)
+	end
 end
 
--- RADIO WAVES (a stolen quirk): black lightning builds in his arms, then an
--- electromagnetic pulse ripples out in a wide fan. The wave travels (Speed):
--- whoever it reaches is hurt, hurled back and jammed - static over their
--- screen, their lock-on gone - for Jam seconds
+
+-- RADIO WAVES (a stolen quirk, ep 119: with Air Cannon). Black lightning
+-- edged violet crackles round his arms while Air Cannon's gold orb swells in
+-- his palm, flickering violet; then the pulse rolls out in a wide fan (the
+-- wave travels at Speed): whoever it reaches is hurt, hurled back and
+-- JAMMED for Jam seconds - static over their screen, their lock-on gone,
+-- and (round 84) their quirk's signal lost: no moves till it clears (M1s,
+-- dashes and the guard still work). Everyone sees the static crackling on
+-- them (RadioJam).
 function Handlers.RadioWaves(player, char, root, ability, dir)
-	task.wait(0.4)
+	task.wait(ability.Windup or 0.4)
 	if not alive(char) then
 		return
 	end
@@ -3646,6 +4188,7 @@ function Handlers.RadioWaves(player, char, root, ability, dir)
 	local cosHalf = math.cos(math.rad(ability.Angle or 60))
 	local speed = math.max(ability.Speed or 220, 1)
 	local center = root.Position
+	local jam = ability.Jam or 2.5
 	for _, model in queryRadius(char, center + d * range * 0.4, range * 0.75) do
 		local mr = model:FindFirstChild("HumanoidRootPart")
 		local v = mr and Vector3.new(mr.Position.X - center.X, 0, mr.Position.Z - center.Z)
@@ -3658,11 +4201,12 @@ function Handlers.RadioWaves(player, char, root, ability, dir)
 					local away = v.Magnitude > 0.5 and v.Unit or d
 					knockback(model, away * 140 + UP * 35, 0.28)
 					stun(model, 1.2)
-					model:SetAttribute("JammedUntil", workspace:GetServerTimeNow() + (ability.Jam or 2.5))
+					model:SetAttribute("JammedUntil", workspace:GetServerTimeNow() + jam)
 					local victim = Players:GetPlayerFromCharacter(model)
 					if victim then
-						PlayVFX:FireClient(victim, "Jammed", nil, { Duration = ability.Jam or 2.5 })
+						PlayVFX:FireClient(victim, "Jammed", nil, { Duration = jam })
 					end
+					broadcast("RadioJam", char, { Target = model, Duration = jam })
 				end
 			end)
 		end
@@ -3671,6 +4215,7 @@ function Handlers.RadioWaves(player, char, root, ability, dir)
 	local look = CFrame.lookAt(center, center + d)
 	Destruction.Box(look * CFrame.new(0, 6, -range * 0.45), Vector3.new(range * 0.9, 16, range * 0.8), "Wind", d)
 end
+
 
 -- 14 lances erupting in a ring (alternating slightly up / level)
 local function stormDirs()
@@ -3682,17 +4227,92 @@ local function stormDirs()
 	return dirs
 end
 
+-- (round 84) RIVET STORM: the rivets burst out of his back and both arms in
+-- every direction (ep 122's spread). Everyone they catch is skewered and
+-- LIFTED on them (Lift studs up, held Hold seconds), then slammed down into
+-- the street (SlamDamage, a knockdown). A boss - or a dodge - is only
+-- pierced and thrown.
 function Handlers.RivetStorm(player, char, root, ability)
-	task.wait(0.3)
+	task.wait(ability.Windup or 0.3)
 	if not alive(char) then
 		return
 	end
-	lances(char, root.Position + UP, stormDirs(), ability.Range or 90, 1.4, {}, function(model, v)
-		if damage(player, model, ability.Damage) then
-			knockback(model, Vector3.new(v.X, 0, v.Z) * 70 + UP * 25, 0.2)
-			stun(model, 1)
+	local origin = root.Position + UP
+	local hold, lift, slamTime = ability.Hold or 0.7, ability.Lift or 9, ability.SlamTime or 0.16
+	local caught = {}
+	lances(char, origin, stormDirs(), ability.Range or 90, 1.4, {}, function(model, v)
+		local opts = { From = origin, NoKnockdown = lift > 0 or nil, Hitstop = 0.05 }
+		if damage(player, model, ability.Damage, opts) then
+			local g = lift > 0 and Grab.take(model, hold + slamTime + 0.6)
+			if g then
+				local out = Vector3.new(v.X, 0, v.Z)
+				table.insert(caught, { G = g, From = g.Root.Position, Out = out.Magnitude > 0.01 and out.Unit or Vector3.zero })
+			else
+				knockback(model, Vector3.new(v.X, 0, v.Z) * 70 + UP * 25, 0.2)
+				stun(model, 1)
+			end
 		end
 	end)
+	if #caught == 0 then
+		return
+	end
+	local targets = {}
+	for _, c in caught do
+		table.insert(targets, c.G.Model)
+	end
+	broadcast("RivetLift", char, { Targets = targets, Lift = lift, Hold = hold, Slam = slamTime })
+	char:SetAttribute("CombatActionUntil", math.max(char:GetAttribute("CombatActionUntil") or 0, workspace:GetServerTimeNow() + hold + slamTime))
+	local function letGo()
+		for _, c in caught do
+			Grab.release(c.G)
+		end
+	end
+	-- up on the rivets (the first quarter), held there writhing
+	local t0 = os.clock()
+	while os.clock() - t0 < hold do
+		if not Kit.rivetsHeld(char) then
+			letGo() -- (knocked out of it: they drop, no slam)
+			return
+		end
+		local e = os.clock() - t0
+		local k = 1 - (1 - math.clamp(e / (hold * 0.25), 0, 1)) ^ 2
+		for i, c in caught do
+			if c.G.Root.Parent then
+				local at = c.From + UP * lift * k + c.Out * 1.5 * k + UP * 0.25 * math.sin(e * 18 + i)
+				local faceTo = Vector3.new(root.Position.X, at.Y, root.Position.Z)
+				Grab.place(c.G, CFrame.lookAt(at, (faceTo - at).Magnitude > 0.1 and faceTo or at - c.Out) * CFrame.Angles(math.rad(-20 * k), 0, 0))
+			end
+		end
+		task.wait(0.03)
+	end
+	-- ...then slammed down into the street
+	for _, c in caught do
+		c.Top = c.G.Root.Parent and c.G.Root.Position or c.From
+		c.Floor = groundBelow(c.From, char)
+	end
+	local t1 = os.clock()
+	while os.clock() - t1 < slamTime do
+		local a = math.clamp((os.clock() - t1) / slamTime, 0, 1) ^ 2
+		for _, c in caught do
+			if c.G.Root.Parent then
+				local at = c.Top:Lerp(c.Floor + UP * 1.2, a)
+				Grab.place(c.G, CFrame.new(at) * CFrame.Angles(math.rad(-75 * a), 0, 0))
+			end
+		end
+		task.wait(1 / 60)
+	end
+	local floors = {}
+	for _, c in caught do
+		local model = c.G.Model
+		Grab.release(c.G, -UP * 20, 0.1)
+		table.insert(floors, c.Floor)
+		if alive(model) and damage(player, model, ability.SlamDamage or 10, { Heavy = true, Unblockable = true, NoKnockdown = true, Hitstop = 0.06, From = c.Floor + UP * 6 }) then
+			ragdoll(model, ability.SlamRagdoll or 1.6)
+			stun(model, 1)
+		end
+		Destruction.Sphere(c.Floor, 6, "Crater")
+	end
+	broadcast("RivetSlam", char, { Points = floors })
 end
 
 function Handlers.TotalDecay(player, char, root, ability)
@@ -3731,6 +4351,34 @@ function Kit.shortCooldown(player, ability, wait)
 		end
 	end
 	return nil
+end
+
+-- (round 79) Where he holds them and where the strike and the slam move
+-- them - lined up with the clips (tools/anim/moves_uss.py, STAGING): held
+-- HoldAt in front, Lift (+ LiftGrow over the build) off their own feet,
+-- tipping HoldPitch; the strike knocks them StrikeBack further, head back
+-- StrikePitch; the slam lays them in the street ImpactAt in front, root
+-- SlamRise up, lying back SlamPitch
+Kit.ussStage = {
+	HoldAt = 4.6, Lift = 0.2, LiftGrow = 0.25, HoldPitch = -10,
+	StrikeBack = 0.6, StrikePitch = 14,
+	ImpactAt = 4.8, SlamRise = 1.1, SlamPitch = 80,
+}
+
+-- (round 79) how high a body's root stands off the street: an R6 body's leg
+-- plus half its root (a scaled one too), else its HipHeight plus half
+function Kit.standHeight(model)
+	local root = model:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return 3
+	end
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	local leg = model:FindFirstChild("Right Leg") or model:FindFirstChild("Left Leg")
+	if leg and not (hum and hum.RigType == Enum.HumanoidRigType.R15) then
+		return leg.Size.Y + root.Size.Y / 2
+	end
+	local hip = hum and hum.HipHeight or 0
+	return (hip > 0 and hip or 2) + root.Size.Y / 2
 end
 
 -- (round 78) The way it went against All For One at Kamino. The left is a
@@ -3778,39 +4426,54 @@ function Handlers.UnitedStatesSmash(player, char, root, ability, dir)
 		return
 	end
 	-- caught: armoured right through to the end, and nothing else till then
-	iFrames[char] = math.max(iFrames[char] or 0, os.clock() + build + freeze + slamTime + 0.5)
-	char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + build + freeze + slamTime + 0.6)
-	damage(player, target, ability.JabDamage or 6, { Hitstop = 0.1, Unblockable = true, NoKnockdown = true, From = root.Position })
+	-- (round 81: to the end of his own cutscene - USS.shots run build + freeze
+	-- + slam + 2.0, and he can't guard or move in it)
+	iFrames[char] = math.max(iFrames[char] or 0, os.clock() + build + freeze + slamTime + 2.1)
+	char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + build + freeze + slamTime + 2.2)
+	-- (round 81) Quiet: USSCatch plays the decoy's own sound for this hit
+	damage(player, target, ability.JabDamage or 6, { Hitstop = 0.1, Unblockable = true, NoKnockdown = true, From = root.Position, Quiet = true })
 	broadcast("USSCatch", char, { Target = target, Dir = d, Id = ability.Id, Build = build, Freeze = freeze, Slam = slamTime })
-	-- held there in front of him, dazed, reeling a little
+	-- held there in front of him, dazed, reeling a little - (round 79) just
+	-- off their own feet: a 1.5x All Might's root is half a body higher than
+	-- theirs, so at his height they'd dangle with their face over his head
+	local S = Kit.ussStage
+	local held = g and Kit.standHeight(target) or 0
 	local tb = os.clock()
 	while os.clock() - tb < build and alive(char) and (not g or g.Root.Parent) do
 		if g then
 			local a = (os.clock() - tb) / build
-			local at = root.Position + d * 4.6 + UP * (0.3 + 0.35 * a)
-			Grab.place(g, CFrame.lookAt(at, Vector3.new(root.Position.X, at.Y, root.Position.Z)) * CFrame.Angles(math.rad(-10 * a), 0, 0))
+			local feet = root.Position.Y - Kit.standHeight(char) -- (the street he's on)
+			local at = root.Position + d * S.HoldAt
+			at = Vector3.new(at.X, feet + held + S.Lift + S.LiftGrow * a, at.Z)
+			Grab.place(g, CFrame.lookAt(at, Vector3.new(root.Position.X, at.Y, root.Position.Z)) * CFrame.Angles(math.rad(S.HoldPitch * a), 0, 0))
 		end
 		task.wait(0.03)
 	end
 	if not alive(char) then
 		Grab.release(g)
+		if g and target.Parent then
+			stunTokens[target] = (stunTokens[target] or 0) + 1
+			restoreMovement(target)
+		end
+		-- (round 81) every screen's told: no strike, no crack, no impact frame
+		broadcast("USSCancel", char, { Target = target, Id = ability.Id })
 		return
 	end
 	-- the overhand right on the face: knocked back half a step - and everything stops
 	if g then
 		local face = g.Root.Position
-		Grab.place(g, CFrame.lookAt(face + d * 0.8, face + d * 0.8 - d) * CFrame.Angles(math.rad(14), 0, 0))
+		Grab.place(g, CFrame.lookAt(face + d * S.StrikeBack, face + d * S.StrikeBack - d) * CFrame.Angles(math.rad(S.StrikePitch), 0, 0))
 	end
 	task.wait(freeze)
 	-- ...then down through them into the street
-	local impact = groundBelow(g and (root.Position + d * 5.5) or troot.Position, char)
+	local impact = groundBelow(g and (root.Position + d * S.ImpactAt) or troot.Position, char)
 	if g then
 		local from = g.Root.Position
 		local ts = os.clock()
 		while os.clock() - ts < slamTime and g.Root.Parent do
 			local a = math.clamp((os.clock() - ts) / slamTime, 0, 1) ^ 2
-			local at = from:Lerp(impact + UP * 1.1, a)
-			Grab.place(g, CFrame.lookAt(at, at - d) * CFrame.Angles(math.rad(14 + 66 * a), 0, 0))
+			local at = from:Lerp(impact + UP * S.SlamRise, a)
+			Grab.place(g, CFrame.lookAt(at, at - d) * CFrame.Angles(math.rad(S.StrikePitch + (S.SlamPitch - S.StrikePitch) * a), 0, 0))
 			task.wait(1 / 60)
 		end
 		Grab.release(g, -UP * 30, 0.12)
@@ -3819,7 +4482,9 @@ function Handlers.UnitedStatesSmash(player, char, root, ability, dir)
 	end
 	broadcast("USSSlam", char, { Pos = impact, Target = target, Dir = d, Id = ability.Id })
 	local hitSet = { [target] = true }
-	if damage(player, target, ability.Damage, { Heavy = true, Unblockable = true, Hitstop = 0.06, From = impact + UP * 8 }) then
+	-- (round 81) Quiet: USSSlam's boom is this hit's sound (the generic heavy
+	-- hit on top was louder than all of it)
+	if damage(player, target, ability.Damage, { Heavy = true, Unblockable = true, Hitstop = 0.06, From = impact + UP * 8, Quiet = true }) then
 		stun(target, 2.6)
 		ragdoll(target, 2.3)
 	end
@@ -3862,7 +4527,8 @@ function Handlers.UnitedStatesSmash(player, char, root, ability, dir)
 					knockback(model, spin * 75 - out * 20 + UP * (nearTop and 20 or 70) + (nearTop and out * 90 or Vector3.zero), 0.26)
 					if not swept[model] then
 						swept[model] = true
-						if damage(player, model, ability.TwisterDamage or 10) then
+						-- (round 81) Quiet: caught by the wind isn't a punch (its roar's the sound)
+						if damage(player, model, ability.TwisterDamage or 10, { Quiet = true }) then
 							stun(model, 1.4)
 						end
 					end
@@ -6404,7 +7070,8 @@ end
 local SPIKE_STEP, SPIKE_STEP_TIME = 5, 0.03
 -- SPIKE FAN: three short lines of spikes fanning out from his palm (Lanes
 -- lines, Spread degrees apart); each target is hit once, by whichever line
--- reaches them first
+-- reaches them first. (round 80) The street itself erupts, so it gets
+-- someone lying in it too - like Decay Grasp, it HitsDowned
 function Handlers.SpikeRush(player, char, root, ability, dir, _pos, cast)
 	local d = flatten(dir, root)
 	local origin = cast and cast.Origin or root.Position
@@ -6441,7 +7108,7 @@ function Handlers.SpikeRush(player, char, root, ability, dir, _pos, cast)
 			local p = start + ld * dist
 			for _, model in queryBox(char, CFrame.lookAt(p + UP * 4, p + UP * 4 + ld), Vector3.new(7, 10, SPIKE_STEP + 2), hitSet) do
 				hitSet[model] = true
-				if damage(player, model, ability.Damage) then
+				if damage(player, model, ability.Damage, { HitsDowned = true }) then
 					knockback(model, UP * 75 + ld * 22, 0.22)
 					stun(model, 1.1)
 				end
@@ -6823,6 +7490,7 @@ do
 	local KINDS = {
 		Vault = true, Mantle = true, Climb = true, WallUp = true, Slide = true, WallRun = true, WallKick = true, Roll = true,
 		Glide = true, GlideEnd = true, -- (round 59: Suneater's wings)
+		SlamHop = true, -- (round 83: the downslam's hop - everyone sees its pose)
 	}
 	local last = setmetatable({}, { __mode = "k" })
 	relayParkour = function(player, char, kind, dir, side, time)
@@ -6912,35 +7580,63 @@ do
 	local DS = Config.M1.Downslam or {}
 	local AJ = Config.M1.AirJuggle or {}
 
+	-- (round 81) when each one's uppercut stun runs out: a grounded chain
+	-- can't stun them again before then, or holding M1 and Space (1-2-3-up,
+	-- 1-2-3-up...) would hold someone forever (the air juggle still can)
+	M1V.upUntil = setmetatable({}, { __mode = "k" })
+
 	-- straight up: stunned in the air (not limp), ready for an air combo
 	function M1V.Uppercut(model, f)
 		stun(model, UPC.Stun or 1.3)
+		M1V.upUntil[model] = os.clock() + (UPC.Stun or 1.3)
 		knockback(model, f * (UPC.Forward or 8) + UP * (UPC.Lift or 55), UPC.LiftTime or 0.12, true)
 	end
 
 	-- spiked into the street: a crater where they land, and a bounce off it
-	function M1V.Downslam(model, f)
+	-- (round 83) ONE SLAM: the crater waits for the attacker to land (his
+	-- hitstop and the dive after it: max(fall / Drop, Hitstop + CraterLag) -
+	-- it used to go 0.05s after the hit, while he still hung in the air) and
+	-- says whose it is (his own screen played it as he landed); the victim
+	-- goes limp at the crater, not at the hit, so the jack-knife plays
+	-- through the freeze and the body crumples as he lands (the spike itself
+	-- mustn't ragdoll them early: noRagdoll); someone already on the street
+	-- isn't bounced UP off it (they were popped 3 studs up) - a short slide
+	-- along it - and a body slammed down from more than BounceFall studs up
+	-- still bounces
+	function M1V.Downslam(model, f, attacker)
 		local troot = model:FindFirstChild("HumanoidRootPart")
 		local drop = DS.Drop or 150
-		stun(model, (DS.Ragdoll or 1.5) + 0.3)
-		ragdoll(model, DS.Ragdoll or 1.5)
-		knockback(model, f * (DS.Forward or 10) - UP * drop, 0.18, true)
 		local fall = troot and math.max(heightAboveGround(troot, model) - 3, 0) or 0
-		task.delay(math.clamp(fall / drop, 0.05, 0.6), function()
+		local airborne = fall > (DS.BounceFall or 1)
+		local delay = math.max(fall / drop, (DS.Hitstop or 0.12) + (DS.CraterLag or 0.08))
+		stun(model, (DS.Ragdoll or 1.5) + 0.3 + delay)
+		if airborne then
+			-- (the spike lasts only till they reach the street - fall / Drop -
+			-- not on into it till the crater: a body that isn't limp yet, driven
+			-- into the street, is what the solver spits out sideways)
+			knockback(model, f * (DS.Forward or 10) - UP * drop, math.clamp(fall / drop, 0.03, 0.18), true, true)
+		else
+			knockback(model, f * (DS.Slide or 2), 0.18, true, true)
+		end
+		task.delay(math.min(delay, 0.6), function()
 			local r = model:FindFirstChild("HumanoidRootPart")
 			if not r or not model.Parent then
 				return
 			end
 			local g = groundBelow(r.Position, model)
 			Destruction.Sphere(g, DS.Crater or 3.2, "Impact", -UP)
-			broadcast("Downslam", nil, { Pos = g, Target = model })
-			-- the street stops the spike (drop the push), and they bounce off it
+			broadcast("Downslam", nil, { Pos = g, Target = model, Attacker = attacker })
+			-- the street stops the spike (drop the push), they go limp, and a
+			-- body slammed down from up there bounces off it
 			for _, c in r:GetChildren() do
 				if c.Name == "Knockback" or c.Name == "KnockbackAttachment" then
 					c:Destroy()
 				end
 			end
-			knockback(model, UP * (DS.Bounce or 26) + f * 4, 0.1, true)
+			ragdoll(model, DS.Ragdoll or 1.5)
+			if airborne then
+				knockback(model, UP * (DS.Bounce or 26) + f * 4, 0.1, true)
+			end
 		end)
 	end
 
@@ -6948,6 +7644,42 @@ do
 	function M1V.Juggle(model, f)
 		knockback(model, f * (AJ.Forward or 3) + UP * (AJ.Up or 26), 0.1, true)
 		stun(model, AJ.Stun or 0.7)
+	end
+
+	-- (round 81) hits 1-3, JJS: the hit kills their momentum (the push sets
+	-- their velocity outright) and shoves them about a stud - held, then
+	-- fading out, the same shape as the attacker's pull on his own screen
+	-- (Config.M1.Stick), so the two drift forward together and the gap holds
+	function M1V.Stick(model, f)
+		local ST = Config.M1.Stick or {}
+		local speed, hold, fade = ST.Speed or 10, ST.Hold or 0.06, ST.Fade or 0.1
+		local troot = model:FindFirstChild("HumanoidRootPart")
+		if troot and not troot.Anchored and not Players:GetPlayerFromCharacter(model) then
+			-- (a body the server moves - a dummy - stops dead first)
+			pcall(function()
+				local v = troot.AssemblyLinearVelocity
+				troot.AssemblyLinearVelocity = Vector3.new(0, math.min(v.Y, 0), 0)
+			end)
+		end
+		knockback(model, f * speed, hold + fade, true)
+		local lv = troot and troot:FindFirstChild("Knockback")
+		if not lv then
+			return
+		end
+		local v0 = lv.VectorVelocity -- (as knockback() set it: the server's multipliers and all)
+		task.spawn(function()
+			local t0 = os.clock()
+			while lv.Parent do
+				local t = os.clock() - t0
+				if t >= hold + fade then
+					break
+				end
+				if t > hold then
+					lv.VectorVelocity = v0 * math.max(1 - (t - hold) / fade, 0)
+				end
+				task.wait()
+			end
+		end)
 	end
 end
 
@@ -7010,8 +7742,13 @@ local function handleM1(player, char, root, clientCF, variant)
 	local pressedAt = root.Position
 	local frames = math.max(1, (Config.Hitboxes and Config.Hitboxes.M1ActiveFrames) or 1)
 	local hitSet = {}
-	-- the finisher winds up longer before it lands (matches the animation)
-	task.delay(finisher and 0.14 or 0.08, function()
+	-- (round 81) the box goes live a hair before the swing's fist lands
+	-- (Config.M1.Contact: the clips' Hit keys), so the hit reaches every
+	-- screen on the contact frame
+	local count = st.Count
+	local contacts = Config.M1.Contact or {}
+	local contactAt = contacts[variant or (finisher and 4) or math.min(count, 3)] or (finisher and 0.155 or 0.095)
+	task.delay(math.max(contactAt - (Config.M1.ServerLead or 0.015), 0), function()
 		for frame = 1, frames do
 			if frame > 1 then
 				task.wait(1 / 30)
@@ -7036,15 +7773,18 @@ local function handleM1(player, char, root, clientCF, variant)
 				local dmg = (finisher and Config.M1.FinisherDamage or Config.M1.Damage) * weaponHit
 				local hitstop = (variant == "Up" and Config.M1.Uppercut.Hitstop) or (variant == "Down" and Config.M1.Downslam.Hitstop)
 					or Config.M1.FinisherHitstop
-				local opts = finisher and { GuardDamage = GUARD.FinisherGuardDamage or 30, Hitstop = hitstop, Heavy = true, Downslam = variant == "Down" or nil }
-					or { Hitstop = Config.M1.Hitstop }
+				local troot = model:FindFirstChild("HumanoidRootPart")
+				local juggle = not finisher and airborne and troot ~= nil and heightAboveGround(troot, model) > 4.5
+				-- (round 81) the downslam can't be blocked (JJS); every M1 tells
+				-- the clients which hit it was (the victim's reaction clip)
+				local opts = finisher and { GuardDamage = GUARD.FinisherGuardDamage or 30, Hitstop = hitstop, Heavy = true, Downslam = variant == "Down" or nil, Unblockable = variant == "Down" or nil, M1 = variant or 4 }
+					or { Hitstop = Config.M1.Hitstop, M1 = juggle and "Air" or count }
 				if damage(player, model, dmg, opts) then
-					local troot = model:FindFirstChild("HumanoidRootPart")
 					if variant == "Up" then
 						M1V.Uppercut(model, f)
 					elseif variant == "Down" then
-						M1V.Downslam(model, f)
-					elseif not finisher and airborne and troot and heightAboveGround(troot, model) > 4.5 then
+						M1V.Downslam(model, f, player)
+					elseif juggle then
 						M1V.Juggle(model, f)
 					elseif finisher then
 						-- go limp first, so the launch is the soft ragdoll push
@@ -7058,9 +7798,12 @@ local function handleM1(player, char, root, clientCF, variant)
 						end
 						knockback(model, f * Config.M1.FinisherKnockback + UP * (Config.M1.FinisherLift or 15), 0.2, true)
 					else
-						knockback(model, f * 10, 0.1, true)
-						if not Evasive.immune(model) then
-							stun(model, 0.45)
+						-- (round 81) JJS: pinned - momentum gone, a stud's shove that
+						-- matches the attacker's pull, and a stun that outlasts the
+						-- cadence with no walking out of it
+						M1V.Stick(model, f)
+						if not Evasive.immune(model) and (M1V.upUntil[model] or 0) <= os.clock() then
+							stun(model, Config.M1.Stun or 0.7, 0)
 						end
 					end
 				end
@@ -7219,17 +7962,94 @@ local function addSideAura(gear, char, fireSide)
 			addFlames(upper, 1.8)
 		end
 	else
+		-- (round 81) his right arm frosts over on the ice side (canon: the cold
+		-- crusts his right side): a pale crust of ice from the elbow down and a
+		-- cap on the shoulder, little spikes of frost sticking out of it (two
+		-- wedges folded into a lit and a shadow face, like the ice he throws),
+		-- glints popping on it and cold mist trickling off it
+		local PALE, SHADE = Color3.fromRGB(212, 232, 246), Color3.fromRGB(116, 150, 178)
+		local isR6 = char:FindFirstChild("Torso") ~= nil
+		local function crust(limb, scale, offset)
+			local p = gearPart(gear, limb.Size * scale, PALE, Enum.Material.Ice, nil)
+			p.Name = "Frost"
+			p.Transparency = 0.2
+			p.Reflectance = 0.05
+			weld(limb, p, offset)
+		end
+		local function spike(limb, at, dir, len, w)
+			local up = dir.Unit
+			local ref = math.abs(up.Y) < 0.95 and Vector3.new(0, 1, 0) or Vector3.new(1, 0, 0)
+			local frame = CFrame.fromMatrix(at, ref:Cross(up).Unit, up)
+			for half = 0, 1 do
+				local wp = Instance.new("WedgePart")
+				wp.Name = "Frost"
+				wp.Size = Vector3.new(w * 0.4, len, w / 2)
+				wp.Color = half == 0 and PALE or SHADE
+				wp.Material = Enum.Material.Ice
+				wp.CanCollide = false
+				wp.CanQuery = false
+				wp.CanTouch = false
+				wp.Massless = true
+				wp.CastShadow = false
+				wp.Parent = gear
+				local fold = math.rad(28)
+				weld(limb, wp, frame * CFrame.Angles(0, half == 0 and fold or math.pi - fold, 0) * CFrame.new(0, len / 2, -w / 4))
+			end
+		end
+		local upper = findLimb(char, "RightUpperArm", "Right Arm")
+		local hand = findLimb(char, "RightHand", "Right Arm")
+		if isR6 then
+			local s = arm.Size
+			crust(arm, Vector3.new(1.12, 0.58, 1.12), CFrame.new(0, -s.Y * 0.21, 0))
+			crust(arm, Vector3.new(1.14, 0.2, 1.14), CFrame.new(0, s.Y * 0.39, 0))
+			spike(arm, Vector3.new(s.X * 0.5, s.Y * 0.37, 0), Vector3.new(0.8, 1, 0.1), 1.1, 0.5)
+			spike(arm, Vector3.new(s.X * 0.5, -s.Y * 0.17, s.Z * 0.2), Vector3.new(1, -0.15, 0.5), 0.8, 0.42)
+			spike(arm, Vector3.new(s.X * 0.3, -s.Y * 0.3, s.Z * 0.5), Vector3.new(0.3, -0.3, 1), 0.7, 0.36)
+		else
+			crust(arm, Vector3.new(1.14, 1.04, 1.14), CFrame.new())
+			if hand and hand ~= arm then
+				crust(hand, Vector3.new(1.16, 1.1, 1.16), CFrame.new())
+			end
+			if upper and upper ~= arm then
+				crust(upper, Vector3.new(1.14, 0.45, 1.14), CFrame.new(0, upper.Size.Y * 0.28, 0))
+				spike(upper, Vector3.new(upper.Size.X * 0.5, upper.Size.Y * 0.35, 0), Vector3.new(0.8, 1, 0.1), 1.1, 0.5)
+			end
+			spike(arm, Vector3.new(arm.Size.X * 0.5, -arm.Size.Y * 0.1, arm.Size.Z * 0.2), Vector3.new(1, -0.15, 0.5), 0.8, 0.42)
+		end
 		local pe = Instance.new("ParticleEmitter")
 		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-		pe.Color = ColorSequence.new(Color3.fromRGB(230, 248, 255), Color3.fromRGB(140, 205, 255))
-		pe.LightEmission = 0.6
-		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
-		pe.Speed = NumberRange.new(0.5, 2)
-		pe.Lifetime = NumberRange.new(0.5, 0.9)
-		pe.Rate = 12
-		pe.Acceleration = Vector3.new(0, -3, 0)
+		pe.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 230, 255))
+		pe.LightEmission = 1
+		pe.LightInfluence = 0
+		pe.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.15, 0.6),
+			NumberSequenceKeypoint.new(0.4, 0.15),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		pe.Speed = NumberRange.new(0.2, 1)
+		pe.Lifetime = NumberRange.new(0.35, 0.6)
+		pe.Rate = 8
 		pe.SpreadAngle = Vector2.new(180, 180)
+		pe.ZOffset = 1
 		pe.Parent = holder
+		local mist = Instance.new("ParticleEmitter")
+		mist.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		mist.Color = ColorSequence.new(Color3.fromRGB(238, 247, 252))
+		mist.LightInfluence = 0.8
+		mist.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1.8) })
+		mist.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.8),
+			NumberSequenceKeypoint.new(0.3, 0.62),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		mist.Lifetime = NumberRange.new(0.9, 1.5)
+		mist.Speed = NumberRange.new(0.5, 1.5)
+		mist.SpreadAngle = Vector2.new(60, 60)
+		mist.Acceleration = Vector3.new(0, -3, 0) -- (cold air sinks off it)
+		mist.Drag = 1
+		mist.Rate = 7
+		mist.Parent = holder
 	end
 end
 
@@ -10098,6 +10918,13 @@ local function handleFinisher(player, char, root, target, aim)
 			life.Hits += 1
 		end
 		thum.Health = 0
+		-- (round 83) a Crumble style (DECAY) turns them to ash where they
+		-- stand on every screen (VFX FX.Decay hides the body): no launch
+		if style.Crumble then
+			deathRagdoll(target)
+			finishing[target] = nil
+			return
+		end
 		-- and the body goes flying: huge, far, tumbling
 		local L = FINISH.Launch or {}
 		local scale = L.Scale or 2.4
@@ -19589,6 +20416,23 @@ end)
 -- inside the last LOCK_GRACE seconds waits out the lock instead, once.
 Kit.DEFERRED = {} -- (a table no client can send: marks the waited-out retry)
 Kit.LOCK_GRACE = 0.25
+-- (round 82) a phone's tap on a held move sends the press and the let-go
+-- 0.1 s apart. If the press is waiting out the lock, the let-go gets here
+-- before the hold has started - it used to be lost, and the move ran to
+-- Max. It's kept a moment (LOCK_GRACE + 0.1) and the hold takes it when it
+-- starts (HoldMoves.wait). Only while a press of a held move of his is
+-- waiting, and only that same move takes it.
+Kit.deferredAt = setmetatable({}, { __mode = "k" }) -- [player] = { At, Id }: a held move's press held back
+Kit.earlyRelease = setmetatable({}, { __mode = "k" }) -- [player] = { At, Dir, Aim, Id }
+-- a press waiting out the lock: remembered if it's a held move's (its let-go
+-- may get here first; any other press has no let-go to keep)
+function Kit.heldBack(player, index)
+	local ok, ability = pcall(Config.GetAbility, player:GetAttribute("Quirk"), index, player:GetAttribute("QuirkAlt") == true,
+		player:GetAttribute("UltActive") == true, player:GetAttribute("QuirkPick"))
+	if ok and ability and type(ability.Hold) == "table" then
+		Kit.deferredAt[player] = { At = os.clock(), Id = ability.Id }
+	end
+end
 Kit.guardSeq = setmetatable({}, { __mode = "k" }) -- [char] = guard presses so far
 -- the emote wheel (Config.Emotes): which ones exist, and a little spam guard
 Kit.emoteIds = {}
@@ -19644,6 +20488,11 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 	if index == Config.RELEASE_INDEX then
 		-- letting go of a held move (it goes even if he's been hit meanwhile)
 		if root and alive(char) then
+			local hold = HoldMoves.active[player]
+			local held = Kit.deferredAt[player]
+			if (not hold or hold.Released) and held and os.clock() - held.At <= Kit.LOCK_GRACE + 0.1 then
+				Kit.earlyRelease[player] = { At = os.clock(), Dir = aimDir, Aim = aimPos, Id = held.Id } -- (round 82: before its press)
+			end
 			HoldMoves.release(player, aimDir, aimPos)
 		end
 		return
@@ -19696,6 +20545,7 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 		local wait = (char:GetAttribute("CombatActionUntil") or 0) - workspace:GetServerTimeNow()
 		if wait > 0.04 then
 			if not deferred and wait <= Kit.LOCK_GRACE then
+				Kit.heldBack(player, index) -- (round 82: its let-go may get here first)
 				task.delay(wait, function()
 					if player.Character == char then
 						Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, Kit.DEFERRED)
@@ -19726,6 +20576,10 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 	if index ~= 0 and index ~= Config.DASH_INDEX and index ~= Config.FINISH_INDEX
 		and (char:GetAttribute("ErasedUntil") or 0) > workspace:GetServerTimeNow() then
 		return -- Eraser Head's capture scarf: no quirk for a few seconds
+	end
+	if index ~= 0 and index ~= Config.DASH_INDEX and index ~= Config.FINISH_INDEX
+		and (char:GetAttribute("JammedUntil") or 0) > workspace:GetServerTimeNow() then
+		return -- (round 84) jammed by Radio Waves: the quirk's signal is lost for a moment
 	end
 	if guardState[char] and guardState[char].Blocking then
 		setBlocking(char, false) -- attacking or dashing lowers the guard

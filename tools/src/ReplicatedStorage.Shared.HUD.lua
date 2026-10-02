@@ -8306,37 +8306,234 @@ do
 		return -110, -150, 1.45
 	end
 
-	-- a finger on it / off it
-	-- (the finger's followed, not the button: sliding it off still lets go)
+	-- (round 82) A FINGER ON A BUTTON: a tap, a hold or a camera drag. The
+	-- buttons sit right where a right thumb turns the camera, so nothing goes
+	-- off the moment a finger lands; what it does next decides
+	-- (Config.Look.Touch):
+	--   it moves more than Slop from where it landed: a DRAG. It never fires,
+	--     not even back over a button; it turns the camera instead
+	--   it stays still for Commit (FastCommit for BLOCK and DASH): HELD. Down
+	--     now, up when that finger lifts (at least TapHold after the down). A
+	--     held finger that moves on keeps holding and turns the camera too
+	--     (aiming a charge, a guard, an M1 chain)
+	--   it lifts first: a TAP. Down on the lift, and for a move you can hold,
+	--     up TapHold later (a BLOCK tap is a short guard: a parry try)
+	-- A finger that starts on EMOTE never turns the camera.
+	-- Only a finger that STARTS on a button counts: Roblox also hands a
+	-- button the InputBegan of a finger that slides onto it from somewhere
+	-- else (a camera swipe across the buttons). The finger is followed, not
+	-- the button: the button's InputEnded fires when a finger slides off it,
+	-- so only the finger's own End or Cancel lets go.
+	-- [input] = { name, start, last, moved, t0, commit, state = "pending" /
+	-- "held" / "drag", hold (an up is owed on the lift), heldAt, touch, conn }
+	TOUCH.fingers = {}
+	TOUCH.look = Vector2.zero -- this frame's drag for the camera (GUI pixels)
+	TOUCH.tapUps = {} -- [name] = the up still owed a moment from now (TOUCH.owe)
+
+	function TOUCH.cfg()
+		return (Config and Config.Look and Config.Look.Touch) or {}
+	end
+
+	-- where the finger is (nil: no position to read - the test harness's
+	-- finger, which counts as not moving)
+	function TOUCH.at(input)
+		local p = input.Position
+		return p and Vector2.new(p.X, p.Y) or nil
+	end
+
+	-- each down / up goes in a thread of its own (as each button's own
+	-- InputBegan was before): a move whose handler errors can't stop another
+	-- finger's press in the same frame, or a tap's let-go being set up. It
+	-- runs at once up to its first wait, so a RUN tap still shows on the lift.
+	function TOUCH.fire(name, down)
+		task.spawn(TOUCH.send, name, down)
+	end
+
+	function TOUCH.send(name, down)
+		if callbacks.TouchAction then
+			callbacks.TouchAction(name, down)
+		end
+	end
+
+	-- a move a finger can hold (it has a let-go); the rest only press
+	function TOUCH.holdable(name)
+		if callbacks.TouchHoldable then
+			return callbacks.TouchHoldable(name) == true
+		end
+		return true
+	end
+
+	-- down (a tap's up still owed on that button goes first: one up per down)
+	function TOUCH.press(name)
+		if TOUCH.tapUps[name] then
+			TOUCH.tapUps[name] = nil
+			TOUCH.fire(name, false)
+		end
+		TOUCH.fire(name, true)
+	end
+
+	-- an up owed a moment from now (a press, the pad hiding, Roblox's menu
+	-- or the like sends it sooner: still only the one)
+	function TOUCH.owe(name, after)
+		local token = {}
+		TOUCH.tapUps[name] = token
+		task.delay(after, function()
+			if TOUCH.tapUps[name] == token then
+				TOUCH.tapUps[name] = nil
+				TOUCH.fire(name, false)
+			end
+		end)
+	end
+
+	-- a tap: down now (straight away, inside the lift), up TapHold later
+	function TOUCH.tap(name)
+		TOUCH.press(name)
+		if TOUCH.holdable(name) then
+			TOUCH.owe(name, TOUCH.cfg().TapHold or 0.1)
+		end
+	end
+
+	-- how far the finger's got from where it landed (the furthest so far)
+	function TOUCH.track(f, input)
+		local p = TOUCH.at(input)
+		if p and f.start then
+			f.moved = math.max(f.moved, (p - f.start).Magnitude)
+			if f.state == "pending" and f.moved > (TOUCH.cfg().Slop or 10) then
+				f.state = "drag"
+			end
+		end
+		return p
+	end
+
+	-- the finger came up (or was cancelled: a pending press is dropped)
+	function TOUCH.lift(input, cancelled)
+		local f = TOUCH.fingers[input]
+		if not f then
+			return
+		end
+		TOUCH.fingers[input] = nil
+		if f.conn then
+			f.conn:Disconnect()
+		end
+		TOUCH.track(f, input) -- (a flick between two frames is still a drag)
+		if f.state == "pending" and not cancelled then
+			TOUCH.tap(f.name)
+		elseif f.state == "held" and f.hold then
+			-- (a hold that only just went down still lasts a tap's TapHold:
+			-- a BLOCK lifted just past FastCommit would guard for a frame,
+			-- shorter than a quicker tap's - and no parry)
+			local left = (TOUCH.cfg().TapHold or 0.1) - (os.clock() - (f.heldAt or 0))
+			if cancelled or left <= 0 then
+				TOUCH.fire(f.name, false)
+			else
+				TOUCH.owe(f.name, left)
+			end
+		end
+	end
+
 	function TOUCH.wire(button, name)
-		local held = nil
-		local function up(input)
-			if held == input then
-				held = nil
-				if callbacks.TouchAction then
-					callbacks.TouchAction(name, false)
+		button.InputBegan:Connect(function(input)
+			local kind = input.UserInputType
+			if kind ~= Enum.UserInputType.Touch and kind ~= Enum.UserInputType.MouseButton1 then
+				return
+			end
+			if input.UserInputState ~= Enum.UserInputState.Begin or TOUCH.fingers[input] then
+				return -- (slid on from somewhere else: a swipe across the buttons, not a press)
+			end
+			for _, g in TOUCH.fingers do
+				if g.name == name and g.state ~= "drag" then
+					return -- (a second finger on the same button)
+				end
+			end
+			local cfg = TOUCH.cfg()
+			local p = TOUCH.at(input)
+			local f = {
+				name = name, start = p, last = p, moved = 0, t0 = os.clock(), state = "pending", hold = false,
+				commit = (cfg.FastCommit or {})[name] or cfg.Commit or 0.1, touch = kind == Enum.UserInputType.Touch,
+			}
+			TOUCH.fingers[input] = f
+			f.conn = input:GetPropertyChangedSignal("UserInputState"):Connect(function()
+				-- (read again every time: the test harness's finger has one
+				-- signal for all its properties)
+				local s = input.UserInputState
+				if s == Enum.UserInputState.End or s == Enum.UserInputState.Cancel then
+					TOUCH.lift(input, s == Enum.UserInputState.Cancel)
+				end
+			end)
+		end)
+	end
+
+	-- every frame, before the camera: each finger's movement and time
+	function TOUCH.step()
+		TOUCH.look = Vector2.zero -- (cleared every frame, used or not: no turn is saved up to jump later)
+		if next(TOUCH.fingers) == nil then
+			return
+		end
+		local now = os.clock()
+		local slop = TOUCH.cfg().Slop or 10
+		local due, gone = nil, nil
+		for input, f in TOUCH.fingers do
+			local s = input.UserInputState
+			if s == Enum.UserInputState.End or s == Enum.UserInputState.Cancel then
+				gone = gone or {}
+				gone[input] = s == Enum.UserInputState.Cancel -- (its signal never came: let go below)
+			else
+				local p = TOUCH.track(f, input)
+				-- a drag turns the camera, and so does a held finger moved
+				-- on past the slop (never one that started on EMOTE: that
+				-- one only taps)
+				if p and f.last and f.touch and f.moved > slop and f.name ~= "QuirkEmote" and (f.state == "drag" or f.state == "held") then
+					TOUCH.look += p - f.last
+				end
+				f.last = p or f.last
+				if f.state == "pending" and now - f.t0 >= f.commit then
+					f.state = "held"
+					due = due or {}
+					table.insert(due, input)
 				end
 			end
 		end
-		button.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-				if held then
-					return -- (a second finger on the same button)
-				end
-				held = input
-				if callbacks.TouchAction then
-					callbacks.TouchAction(name, true)
-				end
-				local conn
-				conn = input:GetPropertyChangedSignal("UserInputState"):Connect(function()
-					if input.UserInputState == Enum.UserInputState.End or input.UserInputState == Enum.UserInputState.Cancel then
-						conn:Disconnect()
-						up(input)
-					end
-				end)
+		for input, cancelled in gone or {} do
+			TOUCH.lift(input, cancelled)
+		end
+		for _, input in due or {} do
+			local f = TOUCH.fingers[input]
+			if f and f.state == "held" then -- (still there: a press before it can hide the pad)
+				f.hold = TOUCH.holdable(f.name)
+				f.heldAt = os.clock()
+				TOUCH.press(f.name)
 			end
-		end)
-		button.InputEnded:Connect(up)
+		end
+	end
+
+	-- let go of everything: every down that went gets its one up, a press
+	-- still deciding is dropped (the pad hiding, Roblox's menu, a respawn,
+	-- the app losing focus, leaving touch)
+	function TOUCH.releaseAll()
+		local list, owed = TOUCH.fingers, TOUCH.tapUps
+		TOUCH.fingers, TOUCH.tapUps = {}, {}
+		TOUCH.look = Vector2.zero
+		for _, f in list do
+			if f.conn then
+				f.conn:Disconnect()
+			end
+		end
+		for _, f in list do
+			if f.state == "held" and f.hold then
+				TOUCH.fire(f.name, false)
+			end
+		end
+		for name in owed do
+			TOUCH.fire(name, false)
+		end
+	end
+	HUD.TouchRelease = TOUCH.releaseAll
+
+	-- the drag since last asked, for the camera (QuirkClient), and cleared
+	function HUD.TakeTouchLook()
+		local d = TOUCH.look
+		TOUCH.look = Vector2.zero
+		return d
 	end
 
 	function TOUCH.build()
@@ -8360,6 +8557,16 @@ do
 			BackgroundTransparency = 1,
 			Parent = gui,
 		}, { make("UIScale", { Name = "TouchScale" }) })
+		-- (round 82) the fingers on the buttons, every frame before the camera
+		-- runs; and nothing stays held when Roblox's menu opens or the app
+		-- loses focus (a swipe home, the notification shade)
+		RunService:BindToRenderStep("QuirkTouchFingers", Enum.RenderPriority.Input.Value + 1, TOUCH.step)
+		pcall(function()
+			game:GetService("GuiService").MenuOpened:Connect(TOUCH.releaseAll)
+		end)
+		pcall(function()
+			game:GetService("UserInputService").WindowFocusReleased:Connect(TOUCH.releaseAll)
+		end)
 		for _, spec in TOUCH.LAYOUT do
 			if type(spec[2]) == "string" then
 				local b = make("TextButton", {
@@ -8430,6 +8637,9 @@ do
 				TOUCH.saved[f] = saved
 			end
 			if not slot.Tap then
+				-- (round 82: round like the button it covers - a UICorner on
+				-- the box doesn't round what's inside it, and a square Tap
+				-- caught fingers in its corners)
 				slot.Tap = make("TextButton", {
 					Name = "Tap",
 					Size = UDim2.fromScale(1, 1),
@@ -8437,7 +8647,7 @@ do
 					Text = "",
 					ZIndex = 10,
 					Parent = f,
-				})
+				}, { make("UICorner", { CornerRadius = UDim.new(0.5, 0) }) })
 				TOUCH.wire(slot.Tap, name)
 			end
 			slot.Tap.Visible = true
@@ -8596,6 +8806,9 @@ do
 	function HUD.TouchSync()
 		if TOUCH.pad then
 			TOUCH.pad.Visible = TOUCH.on and not HUD.MenuVisible() and not HUD.UnoVisible()
+			if not TOUCH.pad.Visible then
+				TOUCH.releaseAll() -- (round 82: nothing stays held under a hidden pad - leaving touch too)
+			end
 		end
 	end
 
