@@ -12648,6 +12648,401 @@ end)
 	task.wait(0.3)
 	dx.RestoreArea = nil
 end)
+---------------------------------------------------------------------------
+-- Round 95: POSSESS PLAYERS - a dev takes over a player as he does a dummy
+-- (Kit.PS, as Destruction.Possess): their own moves, run as theirs
+---------------------------------------------------------------------------
+;M.section(function()
+	local X = 95500
+	print("== round 95: POSSESS A PLAYER (a dummy's keys and their own moves; their own machine does nothing)")
+	local PS = dx.Possess
+	check(PS ~= nil and type(PS.victims) == "table" and type(PS.heroMove) == "function", "the possess code knows players (Kit.PS.victims, heroMove)")
+	if not PS then
+		return
+	end
+	local PI = Config.PARKOUR_INDEX
+	local allowedWas = PS.allowed
+	PS.allowed = function(p)
+		return p == A
+	end
+	fire(SelectQuirk, A, "Explosion")
+	fire(SelectQuirk, B, "Explosion")
+	for _, c in { aChar, bChar } do
+		if c then
+			c.Parent = nil
+		end
+	end
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 10)))
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 30), Vector3.new(X, 3, 40)))
+	task.wait(0.6) -- (the switch's own wait)
+	fire(TestCommand, A, "ResetCooldowns")
+	fire(TestCommand, B, "ResetCooldowns")
+
+	-- not his own body
+	fire(UseAbility, A, PI, "PossessStart", { Target = aChar })
+	check(PS.rec[A] == nil, "never his own body")
+	-- a player in a ranked duel isn't to be had
+	B:SetAttribute("RankedDuel", 1)
+	PS.last[A] = nil
+	fire(UseAbility, A, PI, "PossessStart", { Target = bChar })
+	check(PS.rec[A] == nil, "...nor someone in a ranked duel")
+	B:SetAttribute("RankedDuel", nil)
+
+	-- IN
+	PS.last[A] = nil
+	clearSent()
+	fire(UseAbility, A, PI, "PossessStart", { Target = bChar })
+	local rec = PS.rec[A]
+	check(rec ~= nil and rec.Kind == "Player" and rec.Victim == B and rec.Body == bChar, "a dev takes over a PLAYER (" .. tostring(rec and rec.Kind) .. ")")
+	if not rec then
+		PS.allowed = allowedWas
+		return
+	end
+	check(PS.victims[B] == rec and B:GetAttribute("PossessedBy") == A.UserId and bChar:GetAttribute("Possessed") == true,
+		"...marked: their PossessedBy says who (their screen's banner), their body Possessed")
+	check(aChar:GetAttribute("Parked") == true and A:GetAttribute("Possessing") == "BRAVO", "...his own body parked; he's in BRAVO")
+	check(PS.away(B) == true, "...whatever their body does credits nobody (PS.away)")
+	local walk = bHum.WalkSpeed
+	check(bHum.WalkSpeed == walk and rec.Raid == nil, "...their walk is their own (nothing of a dummy's put on them)")
+
+	-- THEIR OWN MACHINE: nothing it asks goes through
+	clearSent()
+	local quirkA1 = Config.GetAbility("Explosion", 1)
+	fire(UseAbility, B, 1, Vector3.new(0, 0, 1), bRoot.Position + Vector3.new(0, 0, 20), 1, bRoot.Position)
+	check(#sentTo(A, quirkA1.Id) == 0, "their own keys do nothing (" .. quirkA1.Id .. " asked from their machine: dropped)")
+	fire(SelectQuirk, B, "FullCowl")
+	check(B:GetAttribute("Quirk") == "Explosion", "...nor can they switch hero meanwhile")
+
+	-- HIS: their own move, run as theirs - everyone sees it, their screen too
+	clearSent()
+	fire(UseAbility, A, PI, "PossessAct", { Act = "Move", Slot = "Ability1", Dir = Vector3.new(0, 0, 1), Aim = bRoot.Position + Vector3.new(0, 0, 30), Origin = bRoot.Position })
+	task.wait(0.1)
+	local seenA, seenB = #sentTo(A, quirkA1.Id), #sentTo(B, quirkA1.Id)
+	check(seenA > 0 and seenB > 0, "HIS 1: their " .. quirkA1.Name .. " goes off as theirs - on his screen and theirs (" .. seenA .. ", " .. seenB .. ")")
+	local cd = tonumber(bChar:GetAttribute("PossessCd_Ability1"))
+	check(cd ~= nil and cd > workspace:GetServerTimeNow() + quirkA1.Cooldown * 0.5, "...its cooldown on the body for his screen (" .. tostring(cd and math.floor((cd - workspace:GetServerTimeNow()) * 10) / 10) .. " s)")
+	-- (again at once: their cooldown holds it)
+	clearSent()
+	PS.last[A] = nil
+	fire(UseAbility, A, PI, "PossessAct", { Act = "Move", Slot = "Ability1", Dir = Vector3.new(0, 0, 1), Aim = bRoot.Position + Vector3.new(0, 0, 30) })
+	check(#sentTo(A, quirkA1.Id) == 0, "...and their cooldown holds it")
+	-- never their ult (it isn't a key of theirs he has)
+	B:SetAttribute("Ult", 100)
+	clearSent()
+	PS.last[A] = nil
+	fire(UseAbility, A, PI, "PossessAct", { Act = "Move", Slot = "Ult" })
+	check(B:GetAttribute("UltActive") ~= true, "...never their ult")
+	B:SetAttribute("Ult", 0)
+	-- a dummy's M1 in their body: everyone else's screen plays it, theirs too
+	clearSent()
+	PS.last[A] = nil
+	fire(UseAbility, A, PI, "PossessAct", { Act = "M1", CF = bRoot.CFrame })
+	check(#sentTo(B, "Punch") > 0 and #sentTo(A, "Punch") == 0, "M1: the heroes' chain - their screen sees their body throw it (his already plays it)")
+	-- no ult charge for them while he's in
+	local u0 = B:GetAttribute("Ult") or 0
+	local dm = makeCharacter("Dummy95", CFrame.new(X, 3, 34))
+	dm.Parent = dummies
+	fire(UseAbility, A, PI, "PossessAct", { Act = "Move", Slot = "Ability2", Dir = Vector3.new(0, 0, 1), Aim = Vector3.new(X, 3, 34), Origin = bRoot.Position })
+	task.wait(0.6)
+	check((B:GetAttribute("Ult") or 0) == u0, "...no ult charge for them meanwhile")
+	dm.Parent = nil
+
+	-- someone else can't take them from him
+	local C = Players:FindFirstChild("Charlie") or addPlayer("Charlie", 3)
+	local cChar = spawnChar(C, CFrame.new(X + 40, 3, 0))
+	PS.allowed = function(p)
+		return p == A or p == C
+	end
+	fire(UseAbility, C, PI, "PossessStart", { Target = bChar })
+	check(PS.rec[C] == nil and PS.rec[A] == rec, "another dev can't take them from him")
+	-- ...nor a dev's parked body
+	PS.last[C] = nil
+	fire(UseAbility, C, PI, "PossessStart", { Target = aChar })
+	check(PS.rec[C] == nil, "...nor a dev's parked body")
+
+	-- OUT: theirs again
+	fire(UseAbility, A, PI, "PossessLeave")
+	check(PS.rec[A] == nil and PS.victims[B] == nil and B:GetAttribute("PossessedBy") == nil and bChar:GetAttribute("Possessed") == nil,
+		"K: out - their body's theirs again (PossessedBy, Possessed gone)")
+	check(bChar:GetAttribute("PossessCd_Ability1") == nil, "...the body's cooldown marks gone")
+	task.wait(1.2)
+	check(aChar:GetAttribute("Parked") == nil, "...his own body back")
+	clearSent()
+	fire(TestCommand, B, "ResetCooldowns")
+	fire(UseAbility, B, 1, Vector3.new(0, 0, 1), bRoot.Position + Vector3.new(0, 0, 20), 1, bRoot.Position)
+	check(#sentTo(A, quirkA1.Id) > 0, "...and their own keys work again")
+
+	-- their reset: he's sent home, they reset
+	task.wait(0.6)
+	PS.last[A] = nil
+	fire(UseAbility, A, PI, "PossessStart", { Target = bChar })
+	check(PS.rec[A] ~= nil, "in again")
+	fire(UseAbility, B, PI, "PossessReset")
+	check(PS.rec[A] == nil and PS.victims[B] == nil and bHum.Health <= 0, "their RESET: he's sent home and they reset")
+	task.wait(1.2)
+	-- leaving: a dev in a player who leaves the game is sent home
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 30), Vector3.new(X, 3, 40)))
+	task.wait(0.1)
+	PS.last[A] = nil
+	fire(UseAbility, A, PI, "PossessStart", { Target = bChar })
+	check(PS.rec[A] ~= nil and PS.victims[B] ~= nil, "in again")
+	bChar.Parent = nil
+	task.wait(0.3)
+	check(PS.rec[A] == nil and PS.victims[B] == nil, "their body gone (a new one, or they left): he's sent home")
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 30), Vector3.new(X, 3, 40)))
+	if cChar then
+		cChar.Parent = nil
+	end
+	task.wait(1.2)
+	PS.allowed = allowedWas
+	fire(TestCommand, A, "ResetCooldowns")
+	fire(TestCommand, B, "ResetCooldowns")
+end)
+
+---------------------------------------------------------------------------
+-- Round 95: RANKED DUELS on the Sky Coffin's stage (Kit.RK, as
+-- Destruction.Ranked): the queue, best of 3, KO / ring out / time, Elo,
+-- the save, the board, leaving
+---------------------------------------------------------------------------
+;M.section(function()
+	local X = 96000
+	print("== round 95: RANKED DUELS (queue, best of 3, the rating, the board)")
+	local RK = dx.Ranked
+	check(RK ~= nil and type(RK.join) == "function" and type(RK.apart) == "function", "the ranked duels are there (Kit.RK)")
+	if not RK then
+		return
+	end
+	local RC = Config.Ranked
+	local PI = Config.PARKOUR_INDEX
+	local C -- (Charlie, below; the suite has a `C` of its own)
+	-- (quick: these tests don't wait out real rounds)
+	local saved = {}
+	for k, v in { Intro = 0.2, Countdown = 0.4, Between = 0.4, EndHold = 0.5, RoundTime = 2.5 } do
+		saved[k] = RC[k]
+		RC[k] = v
+	end
+	-- the stage (the harness doesn't build the Sky Coffin) and a store that
+	-- keeps what it's given
+	local STAGE = Vector3.new(X, 200, 0)
+	local stageWas = RK.stage
+	RK.stage = function()
+		return STAGE
+	end
+	local store = { data = {}, writes = 0 }
+	function store.GetAsync(_, k)
+		return store.data[k]
+	end
+	function store.UpdateAsync(_, k, f)
+		store.writes += 1
+		store.data[k] = f(store.data[k])
+	end
+	local board = { data = {} }
+	function board.SetAsync(_, k, v)
+		board.data[k] = v
+	end
+	function board.GetSortedAsync(_, _asc, size)
+		local page = {}
+		for k, v in board.data do
+			table.insert(page, { key = k, value = v })
+		end
+		table.sort(page, function(a, b)
+			return a.value > b.value
+		end)
+		while #page > size do
+			table.remove(page)
+		end
+		return { GetCurrentPage = function()
+			return page
+		end }
+	end
+	local storeWas, boardWas = RK.store, RK.boardStore
+	RK.store, RK.boardStore = store, board
+	store.data["r_" .. A.UserId] = { Rating = 1100, Played = 12, Wins = 8, Losses = 4, Best = 1150 }
+	store.data["r_" .. B.UserId] = nil
+
+	fire(SelectQuirk, A, "Explosion")
+	fire(SelectQuirk, B, "Explosion")
+	for _, c in { aChar, bChar } do
+		if c then
+			c.Parent = nil
+		end
+	end
+	local homeA = CFrame.new(X + 300, 3, 0)
+	aChar, aHum, aRoot = spawnChar(A, homeA)
+	bChar, bHum, bRoot = spawnChar(B, CFrame.new(X + 310, 3, 0))
+	RK.load(A)
+	RK.load(B)
+	check(A:GetAttribute("RankedRating") == 1100 and A:GetAttribute("RankedTier") == "PRO HERO" and A:GetAttribute("RankedPlayed") == 12,
+		"their record loads: 1100, PRO HERO, 12 played")
+	check(B:GetAttribute("RankedRating") == RC.Start and B:GetAttribute("RankedPlayed") == 0, "...a first-timer starts at " .. RC.Start)
+
+	-- a dev-only hero can't queue
+	local devOnly
+	for name in Config.Quirks do
+		if Config.IsDevOnly(name) then
+			devOnly = name
+			break
+		end
+	end
+	if devOnly then
+		A:SetAttribute("Quirk", devOnly)
+		RK.last[A] = nil
+		fire(UseAbility, A, PI, "RankedJoin")
+		check(RK.queued(A) == nil, "a dev-only hero (" .. devOnly .. ") can't queue")
+		A:SetAttribute("Quirk", "Explosion")
+	end
+
+	-- THE QUEUE: both in, paired on the next tick (100 apart: within 200)
+	RK.last[A] = nil
+	clearSent()
+	fire(UseAbility, A, PI, "RankedJoin")
+	check(RK.queued(A) ~= nil and A:GetAttribute("RankedQueued") ~= nil, "RANKED app: in the queue (RankedQueued)")
+	fire(UseAbility, B, PI, "RankedJoin")
+	local t0 = os.clock()
+	while not RK.match and os.clock() - t0 < 3 do
+		task.wait(0.1)
+	end
+	local m = RK.match
+	check(m ~= nil and ((m.P[1] == A and m.P[2] == B) or (m.P[1] == B and m.P[2] == A)), "...paired: a duel")
+	if not m then
+		RK.stage, RK.store, RK.boardStore = stageWas, storeWas, boardWas
+		return
+	end
+	check(RK.queued(A) == nil and A:GetAttribute("RankedQueued") == nil and A:GetAttribute("RankedDuel") == m.Id, "...out of the queue, in the duel (RankedDuel)")
+	check(#sentTo(A, "RankedFound") == 1 and #sentTo(B, "RankedMatch") >= 1, "...the VS card on their screens, the word to everyone")
+	-- the hero they came with
+	fire(SelectQuirk, A, "FullCowl")
+	check(A:GetAttribute("Quirk") == "Explosion", "...no hero switch in a duel")
+
+	-- ROUND 1: on their marks, held
+	t0 = os.clock()
+	while m.Phase ~= "Countdown" and os.clock() - t0 < 3 do
+		task.wait(0.05)
+	end
+	local sideA = m.P[1] == A and 1 or 2
+	local markA = RK.mark(STAGE, sideA)
+	check(m.Phase == "Countdown" and (aRoot.Position - markA.Position).Magnitude < 1 and aRoot.Anchored == true and aChar:GetAttribute("RankedHold") == true,
+		"ROUND 1: up on the stage, on their marks, held through the countdown")
+	check(aHum.Health == aHum.MaxHealth, "...healed")
+	clearSent()
+	local a1 = Config.GetAbility("Explosion", 1)
+	fire(UseAbility, A, 1, Vector3.new(1, 0, 0), STAGE, 1, aRoot.Position)
+	check(#sentTo(B, a1.Id) == 0, "...their moves wait on the marks")
+	check(RK.apart(A, bChar) == true, "...no hits before FIGHT")
+	-- FIGHT
+	t0 = os.clock()
+	while m.Phase ~= "Fight" and os.clock() - t0 < 3 do
+		task.wait(0.05)
+	end
+	check(m.Phase == "Fight" and aRoot.Anchored == false and aChar:GetAttribute("RankedHold") == nil, "FIGHT: let go")
+	check(#sentTo(A, "RankedFight") == 1, "...the call on their screen")
+	-- only each other
+	C = Players:FindFirstChild("Charlie") or addPlayer("Charlie", 3)
+	local cChar, _, cRoot = spawnChar(C, CFrame.new(X + 330, 3, 0))
+	check(RK.apart(A, bChar) == false and RK.apart(C, bChar) == true and RK.apart(A, cChar) == true and RK.apart(C, cChar) == false,
+		"only each other: nobody else's hits land on them, theirs on nobody else")
+	-- a KO: the blow that would have killed leaves them at 1 and down
+	bChar:PivotTo(aRoot.CFrame * CFrame.new(0, 0, -3) * CFrame.Angles(0, math.pi, 0))
+	bHum.Health = 2
+	task.wait(0.1)
+	m1(A)
+	task.wait(0.2)
+	check(bHum.Health >= 1 and bHum.Health <= 2 and m.Score[A] == 1, "KO: their blow would have killed - left at " .. tostring(bHum.Health) .. ", the round's A's (" .. tostring(m.Score[A]) .. "-" .. tostring(m.Score[B]) .. ")")
+	local ends = sentTo(A, "RankedRoundEnd")
+	check(#ends == 1 and ends[1].How == "KO" and ends[1].Me == 1, "...called: KO, 1-0")
+
+	-- ROUND 2: a ring out
+	t0 = os.clock()
+	while not (m.Round == 2 and m.Phase == "Fight") and os.clock() - t0 < 4 do
+		task.wait(0.05)
+	end
+	check(m.Round == 2 and m.Phase == "Fight" and bHum.Health == bHum.MaxHealth, "ROUND 2: back on the marks, healed")
+	-- someone else up on the stage: thrown off
+	cChar:PivotTo(CFrame.new(STAGE + Vector3.new(5, 3, 20)))
+	-- (the harness's Debris takes the push away after its 0.25 s: look while it's on)
+	local shoved = false
+	t0 = os.clock()
+	while not shoved and os.clock() - t0 < 0.6 do
+		shoved = cRoot:FindFirstChild("Knockback") ~= nil
+		task.wait(0.02)
+	end
+	check(shoved and RK.pushed[cChar] ~= nil, "anyone else on the stage is thrown off it")
+	cChar:PivotTo(CFrame.new(X + 330, 3, 0))
+	clearSent()
+	bChar:PivotTo(CFrame.new(STAGE + Vector3.new(60, 1, 0)))
+	task.wait(0.3)
+	check(m.Score[A] == 2, "RING OUT: off the top and down to it - A's 2-0")
+
+	-- THE RESULT
+	t0 = os.clock()
+	while not m.Over and os.clock() - t0 < 3 do
+		task.wait(0.05)
+	end
+	local gain, loss = Config.RankedDelta(1100, RC.Start, RC.K, RC.KNew)
+	check(A:GetAttribute("RankedRating") == 1100 + gain and B:GetAttribute("RankedRating") == RC.Start - loss,
+		string.format("the rating: A +%d (K %d), B -%d (KNew %d, a first match): %s / %s", gain, RC.K, loss, RC.KNew, tostring(A:GetAttribute("RankedRating")), tostring(B:GetAttribute("RankedRating"))))
+	check(A:GetAttribute("RankedWins") == 9 and B:GetAttribute("RankedLosses") == 1 and B:GetAttribute("RankedPlayed") == 1, "...wins, losses, played")
+	local resA, resB = sentTo(A, "RankedResult")[1], sentTo(B, "RankedResult")[1]
+	check(resA and resA.Result == "Win" and resA.Delta == gain and resA.Me == 2 and resB and resB.Result == "Loss" and resB.Delta == -loss,
+		"...each told: VICTORY +" .. gain .. ", DEFEAT -" .. loss)
+	check(#sentTo(C, "RankedOver") == 1, "...and everyone: who beat whom")
+	task.wait(0.3)
+	local sa = store.data["r_" .. A.UserId]
+	check(type(sa) == "table" and sa.Rating == 1100 + gain and sa.Played == 13, "SAVED (UpdateAsync): " .. tostring(sa and sa.Rating))
+	check(board.data["r_" .. A.UserId] == 1100 + gain and board.data["r_" .. B.UserId] == RC.Start - loss, "...and on the ordered board")
+	local list = RK.publish()
+	check(list[1] and list[1].UserId == A.UserId and list[1].Tier == "PRO HERO", "the RANKED board: A first, PRO HERO")
+	-- home
+	t0 = os.clock()
+	while RK.match and os.clock() - t0 < 3 do
+		task.wait(0.05)
+	end
+	task.wait(0.2)
+	check(RK.match == nil and A:GetAttribute("RankedDuel") == nil and (aRoot.Position - homeA.Position).Magnitude < 2 and not aRoot.Anchored,
+		"...and home: back where they were, the stage free")
+
+	-- LEAVING mid-duel loses it (and a round on TIME first)
+	local G = addPlayer("Golf", 7)
+	local H = addPlayer("Hotel", 8)
+	fire(SelectQuirk, G, "Explosion")
+	fire(SelectQuirk, H, "Explosion")
+	local gChar, gHum = spawnChar(G, CFrame.new(X + 350, 3, 0))
+	local hChar, hHum = spawnChar(H, CFrame.new(X + 360, 3, 0))
+	task.wait(0.3)
+	check(RK.loaded[G] and RK.loaded[H], "newcomers' records load as they join")
+	fire(UseAbility, G, PI, "RankedJoin")
+	fire(UseAbility, H, PI, "RankedJoin")
+	t0 = os.clock()
+	while not (RK.match and RK.match.Phase == "Fight") and os.clock() - t0 < 4 do
+		task.wait(0.05)
+	end
+	local m2 = RK.match
+	check(m2 ~= nil and m2.Phase == "Fight", "a second duel")
+	if m2 then
+		gHum.Health = gHum.MaxHealth * 0.5
+		hHum.Health = hHum.MaxHealth * 0.8
+		t0 = os.clock()
+		while m2.Round < 2 and os.clock() - t0 < 5 do
+			task.wait(0.05)
+		end
+		check(m2.Score[H] == 1, "TIME: more health left takes the round")
+		Players.PlayerRemoving:Fire(H)
+		task.wait(0.2)
+		check(m2.Over and G:GetAttribute("RankedWins") == 1, "LEFT mid-duel: it's a loss - the other one wins it")
+	end
+	task.wait(1)
+
+	for k, v in saved do
+		RC[k] = v
+	end
+	RK.stage, RK.store, RK.boardStore = stageWas, storeWas, boardWas
+	if cChar then
+		cChar.Parent = nil
+	end
+	gChar.Parent = nil
+	hChar.Parent = nil
+end)
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}

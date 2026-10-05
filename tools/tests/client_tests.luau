@@ -6368,8 +6368,8 @@ local ok59, err59 = pcall(function()
 		end
 	end
 	local app = dock and dock:FindFirstChild("App_Outfit")
-	if apps ~= 5 or not app or app.Size.X.Offset * 5 + 4 * 5 > 260 then
-		problem("THE PHONE: an OUTFIT app on the dock - five apps that fit (" .. apps .. ")")
+	if apps ~= 6 or not app or not dock:FindFirstChild("App_Ranked") or app.Size.X.Offset * 6 + 5 * 3 > 260 then
+		problem("THE PHONE: OUTFIT and (round 95) RANKED apps on the dock - six apps that fit (" .. apps .. ")")
 	end
 	HUD.ShowMenu(true)
 	signalOf(app, "Activated"):Fire()
@@ -11494,6 +11494,311 @@ local ok85, err85 = pcall(function()
 end)
 if not ok85 then
 	problem("round 94 tests errored: " .. tostring(err85))
+end
+end
+
+
+print("== round 95: POSSESS A PLAYER (the dev's keys; their screen) and RANKED DUELS (the app; the duel on screen)")
+do
+local ok95, err95 = pcall(function()
+	local PS = VFX.DevFly and VFX.DevFly.PS
+	if not PS then
+		problem("POSSESS 95: the client's possess code (VFX.DevFly.PS)")
+		return
+	end
+	local hud95 = playerGui:FindFirstChild("QuirkHUD")
+	r.implementMethod("Players", "GetPlayerByUserId", function(self, id)
+		for _, p in self:GetChildren() do
+			if p.UserId == id then
+				return p
+			end
+		end
+		return nil
+	end)
+	local function firedSince(n, pred)
+		local out = {}
+		for i = n + 1, #fired do
+			if pred(fired[i]) then
+				table.insert(out, fired[i])
+			end
+		end
+		return out
+	end
+	local function isAct(e, act)
+		return e[1] == "UseAbility" and e[2] == Config.PARKOUR_INDEX and e[3] == "PossessAct" and type(e[4]) == "table" and e[4].Act == act
+	end
+
+	-- another player, as Bakugo
+	local other = Instance.new("Player")
+	other.Name = "Bravo95"
+	other.UserId = 95002
+	other.DisplayName = "Bravo95"
+	other.Parent = Players
+	local oChar, oHum, oRoot = makeR15("Bravo95", Vector3.new(30, 3, 0))
+	oHum.MaxHealth = 300
+	oHum.Health = 300
+	oChar.Parent = workspace
+	other.Character = oChar
+	other:SetAttribute("Quirk", "Explosion")
+	localPlayer:SetAttribute("DevFlyer", true)
+
+	-- THE DEV'S SIDE: players are bodies
+	local found = false
+	for _, m in PS.candidates() do
+		found = found or m == oChar
+	end
+	if not found or PS.kindOf(oChar) ~= "Player" then
+		problem("POSSESS 95: another player's body is one he can take (" .. tostring(found) .. ", " .. tostring(PS.kindOf(oChar)) .. ")")
+	end
+	for _, m in PS.candidates() do
+		if m == myChar then
+			problem("POSSESS 95: ...never his own")
+		end
+	end
+	-- their keys: a dummy's three, then their hero's five
+	local moves = PS.playerMoves(oChar)
+	local a1 = Config.GetAbility("Explosion", 1)
+	local heroMoves = 0
+	for _, m in moves do
+		if m.Act == "Move" then
+			heroMoves += 1
+		end
+	end
+	if #moves ~= 3 + heroMoves or heroMoves < 4 or moves[1].Act ~= "M1" or moves[4].Slot ~= "Ability1" or moves[4].Name ~= string.upper(a1.Name) then
+		problem("POSSESS 95: a player's keys are M1 / F / Q and their own moves (" .. #moves .. ": " .. tostring(moves[4] and moves[4].Name) .. ")")
+	end
+	for _, m in moves do
+		if m.Slot == "Ult" then
+			problem("POSSESS 95: ...never their ult")
+		end
+	end
+	-- in it (the server's word, as PS.sync would bind it)
+	oChar:SetAttribute("PossessedBy", localPlayer.UserId)
+	PS.bind(oChar, "BRAVO95")
+	if PS.state ~= "On" or PS.kind ~= "Player" or PS.body ~= oChar then
+		problem("POSSESS 95: in a player's body (" .. tostring(PS.state) .. ", " .. tostring(PS.kind) .. ")")
+	end
+	task.wait(1.1) -- (the wisp's flight)
+	-- the dock: their eight keys
+	local dockF = hud95 and hud95:FindFirstChild("PossessMoves", true)
+	local shown, names = 0, {}
+	for _, box in dockF and dockF:GetChildren() or {} do
+		if box:IsA("Frame") and box.Visible then
+			shown += 1
+			local nm = box:FindFirstChild("MoveName")
+			names[box.LayoutOrder] = nm and nm.Text
+		end
+	end
+	if shown ~= #moves or names[4] ~= string.upper(a1.Name) then
+		problem("POSSESS 95: the dock shows their " .. #moves .. " keys (" .. shown .. ", 4th " .. tostring(names[4]) .. ")")
+	end
+	-- 1: their AP Shot, asked for as theirs
+	local n0 = #fired
+	PS.slot("Ability1", true)
+	PS.slot("Ability1", false)
+	local sent = firedSince(n0, function(e)
+		return isAct(e, "Move")
+	end)
+	if #sent ~= 1 or sent[1][4].Slot ~= "Ability1" or typeof(sent[1][4].Aim) ~= "Vector3" then
+		problem("POSSESS 95: 1 asks the server for their move 1 (" .. #sent .. ")")
+	end
+	-- (on its cooldown: the body's PossessCd_Ability1)
+	oChar:SetAttribute("PossessCd_Ability1", workspace:GetServerTimeNow() + 5)
+	PS.actAt = 0
+	n0 = #fired
+	PS.slot("Ability1", true)
+	if #firedSince(n0, function(e)
+		return isAct(e, "Move")
+	end) ~= 0 then
+		problem("POSSESS 95: ...not while it's cooling down")
+	end
+	-- the ult key: nothing
+	n0 = #fired
+	PS.slot("Ult", true)
+	if #firedSince(n0, function(e)
+		return e[1] == "UseAbility"
+	end) ~= 0 then
+		problem("POSSESS 95: the ult key does nothing in a player's body")
+	end
+	-- M1: the heroes' chain (a dummy's)
+	PS.m1Next = 0
+	n0 = #fired
+	PS.slot("M1", true)
+	PS.slot("M1", false)
+	if #firedSince(n0, function(e)
+		return isAct(e, "M1")
+	end) ~= 1 then
+		problem("POSSESS 95: M1 in a player's body is a dummy's chain")
+	end
+	-- their pace (their hero's walk, run with sprint)
+	PS.drive(1 / 60)
+	local base = oChar:GetAttribute("BaseWalkSpeed") or Config.BaseWalkSpeed
+	if math.abs(oHum.WalkSpeed - base) > 0.01 then
+		problem("POSSESS 95: they walk at their own pace (" .. tostring(oHum.WalkSpeed) .. " vs " .. tostring(base) .. ")")
+	end
+	PS.exit("Server")
+	oChar:SetAttribute("PossessedBy", nil)
+	oChar:SetAttribute("PossessCd_Ability1", nil)
+	if PS.state ~= "Off" then
+		problem("POSSESS 95: ...and out")
+	end
+
+	-- THEIR SIDE: this screen's body taken
+	setAttr(localPlayer, "PossessedBy", other.UserId)
+	setAttr(myChar, "Possessed", true)
+	task.wait(0.1)
+	local banner = hud95 and hud95:FindFirstChild("PossessedBanner")
+	if not (banner and banner.Visible and banner:FindFirstChild("Dev") and banner.Dev.Text == "BRAVO95") then
+		problem("POSSESS 95: their screen: CONTROLLED BY BRAVO95 (" .. tostring(banner and banner.Visible) .. ")")
+	end
+	if not actions.QuirkPossessedSink then
+		problem("POSSESS 95: ...the game's keys sunk")
+	end
+	n0 = #fired
+	if actions.QuirkPunch then
+		actions.QuirkPunch(nil, Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.Unknown, UserInputType = Enum.UserInputType.MouseButton1 })
+		task.wait()
+		actions.QuirkPunch(nil, Enum.UserInputState.End, { KeyCode = Enum.KeyCode.Unknown, UserInputType = Enum.UserInputType.MouseButton1 })
+	end
+	if #firedSince(n0, function(e)
+		return e[1] == "UseAbility" and e[2] == 0
+	end) ~= 0 then
+		problem("POSSESS 95: ...their own M1 does nothing")
+	end
+	setAttr(myChar, "Possessed", nil)
+	setAttr(localPlayer, "PossessedBy", nil)
+	task.wait(0.1)
+	if banner and banner.Visible then
+		problem("POSSESS 95: ...the banner goes when he leaves")
+	end
+	if PS.taken ~= nil or PS.takenReset then
+		problem("POSSESS 95: ...their keys and reset button theirs again")
+	end
+	other.Parent = nil
+	oChar.Parent = nil
+	localPlayer:SetAttribute("DevFlyer", nil)
+
+	-- RANKED: the phone's app
+	HUD.ToggleRanked(true)
+	local panel95 = hud95 and hud95:FindFirstChild("RankedDuels")
+	if not (panel95 and panel95.Visible) then
+		problem("RANKED 95: the RANKED app opens")
+	end
+	local qb = panel95 and panel95:FindFirstChild("Queue")
+	if not (qb and qb.Text == "FIND A MATCH") then
+		problem("RANKED 95: ...FIND A MATCH (" .. tostring(qb and qb.Text) .. ")")
+	end
+	n0 = #fired
+	if qb then
+		signalOf(qb, "Activated"):Fire()
+	end
+	if #firedSince(n0, function(e)
+		return e[1] == "UseAbility" and e[2] == Config.PARKOUR_INDEX and e[3] == "RankedJoin"
+	end) ~= 1 then
+		problem("RANKED 95: ...which asks the server to queue")
+	end
+	setAttr(localPlayer, "RankedQueued", workspace:GetServerTimeNow() - 12)
+	task.wait(0.4)
+	if not (qb and string.find(qb.Text, "SEARCHING... 0:1", 1, true)) then
+		problem("RANKED 95: ...SEARCHING, how long (" .. tostring(qb and qb.Text) .. ")")
+	end
+	n0 = #fired
+	if qb then
+		signalOf(qb, "Activated"):Fire()
+	end
+	if #firedSince(n0, function(e)
+		return e[3] == "RankedLeave"
+	end) ~= 1 then
+		problem("RANKED 95: ...again to stop")
+	end
+	setAttr(localPlayer, "RankedQueued", nil)
+	setAttr(localPlayer, "RankedRating", 1112)
+	setAttr(localPlayer, "RankedPlayed", 13)
+	task.wait(0.05)
+	local tierL = panel95 and panel95:FindFirstChild("You") and panel95.You:FindFirstChild("Tier")
+	if not (tierL and tierL.Text == "PRO HERO") then
+		problem("RANKED 95: your tier on the card (" .. tostring(tierL and tierL.Text) .. ")")
+	end
+	HUD.SetRankedBoard({ { UserId = 7, Name = "Top", Rating = 1720 }, { UserId = localPlayer.UserId, Name = "Tester", Rating = 1112 } }, localPlayer.UserId)
+	local row1 = panel95 and panel95:FindFirstChild("Row1")
+	local tierText
+	for _, c in row1 and row1:GetChildren() or {} do
+		if c:IsA("TextLabel") and c.Text == "SYMBOL OF PEACE" then
+			tierText = c.Text
+		end
+	end
+	if not tierText then
+		problem("RANKED 95: the top 10, with their tiers")
+	end
+	HUD.ToggleRanked(false)
+
+	-- THE DUEL ON SCREEN
+	local PV = remotes:FindFirstChild("PlayVFX")
+	PV.OnClientEvent:Fire("RankedFound", nil, {
+		You = { Name = "Tester", UserId = localPlayer.UserId, Rating = 1112, Tier = "PRO HERO", Hero = "EXPLOSION" },
+		Opp = { Name = "Bravo", UserId = 2, Rating = 983, Tier = "SIDEKICK", Hero = "EXPLOSION" },
+	})
+	task.wait(0.05)
+	local sb = hud95 and hud95:FindFirstChild("RankedScore")
+	if not (sb and sb.Visible and sb:FindFirstChild("ThemName") and sb.ThemName.Text == "BRAVO") then
+		problem("RANKED 95: the scoreboard: you and them")
+	end
+	local card = hud95 and hud95:FindFirstChild("RankedCard")
+	if not (card and card.Visible and card.Title.Text == "VS") then
+		problem("RANKED 95: the VS card")
+	end
+	PV.OnClientEvent:Fire("RankedRound", nil, { Round = 1, Me = 0, Them = 0, Countdown = 0.6 })
+	task.wait(0.05)
+	local call = hud95 and hud95:FindFirstChild("RankedCall")
+	if not (call and call.Visible and call.Big.Text == "ROUND 1") then
+		problem("RANKED 95: ROUND 1 (" .. tostring(call and call.Big.Text) .. ")")
+	end
+	setAttr(myChar, "RankedHold", true)
+	n0 = #fired
+	if actions.QuirkPunch then
+		actions.QuirkPunch(nil, Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.Unknown, UserInputType = Enum.UserInputType.MouseButton1 })
+		task.wait()
+		actions.QuirkPunch(nil, Enum.UserInputState.End, { KeyCode = Enum.KeyCode.Unknown, UserInputType = Enum.UserInputType.MouseButton1 })
+	end
+	if #firedSince(n0, function(e)
+		return e[1] == "UseAbility" and e[2] == 0
+	end) ~= 0 then
+		problem("RANKED 95: held on the marks: no M1")
+	end
+	setAttr(myChar, "RankedHold", nil)
+	-- (and without it, the same press does go: the check above means something)
+	task.wait(1)
+	n0 = #fired
+	if actions.QuirkPunch then
+		actions.QuirkPunch(nil, Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.Unknown, UserInputType = Enum.UserInputType.MouseButton1 })
+		task.wait()
+		actions.QuirkPunch(nil, Enum.UserInputState.End, { KeyCode = Enum.KeyCode.Unknown, UserInputType = Enum.UserInputType.MouseButton1 })
+	end
+	if #firedSince(n0, function(e)
+		return e[1] == "UseAbility" and e[2] == 0
+	end) == 0 then
+		problem("RANKED 95: (control) an M1 off the marks does go")
+	end
+	PV.OnClientEvent:Fire("RankedFight", nil, { Round = 1, Me = 0, Them = 0, Ends = workspace:GetServerTimeNow() + 90 })
+	task.wait(0.05)
+	if not (call.Big.Text == "FIGHT!") then
+		problem("RANKED 95: FIGHT!")
+	end
+	PV.OnClientEvent:Fire("RankedRoundEnd", nil, { Round = 1, Me = 1, Them = 0, How = "RING OUT", Winner = "Tester", WinnerId = localPlayer.UserId })
+	task.wait(0.05)
+	if not (call.Big.Text == "RING OUT!" and string.find(sb.Score.Text, ">1<", 1, true)) then
+		problem("RANKED 95: RING OUT!, 1-0 (" .. tostring(call.Big.Text) .. ", " .. tostring(sb.Score.Text) .. ")")
+	end
+	PV.OnClientEvent:Fire("RankedResult", nil, { Result = "Win", How = "KO", Delta = 12, Rating = 1124, Tier = "PRO HERO", Me = 2, Them = 0, Opp = "Bravo" })
+	task.wait(0.05)
+	if not (card.Visible and card.Title.Text == "VICTORY" and string.find(card.Line2.Text, "+12", 1, true)) then
+		problem("RANKED 95: the result: VICTORY, +12 (" .. tostring(card.Title.Text) .. ", " .. tostring(card.Line2.Text) .. ")")
+	end
+	-- everyone else's line
+	PV.OnClientEvent:Fire("RankedOver", nil, { Winner = "Alpha", Loser = "Bravo", Score = "2-1", A = "Alpha", B = "Bravo" })
+end)
+if not ok95 then
+	problem("round 95 tests errored: " .. tostring(err95))
 end
 end
 

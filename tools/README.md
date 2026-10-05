@@ -5,7 +5,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 94, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 95, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
@@ -15,7 +15,88 @@ videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tool
 
 ---
 
-## Where things stand (Round 94)
+## Where things stand (Round 95)
+
+Round 95 is built on Round 94. It changed four scripts (`QuirkConfig`,
+`HUD`, `QuirkClient`, `QuirkServer`); nothing else in the place changed.
+Not playtested in Studio yet.
+
+**Ranked duels on the Sky Coffin** (`Config.Ranked`, the server's `Kit.RK`).
+The owner picked this from the list of ideas ("Let's do 3!").
+- **Queue.** The phone has a new RANKED app (⚔️). FIND A MATCH puts you in
+  the queue; press it again to leave. The server pairs the two closest in
+  rating, within 200 points, widening by 100 every 10 s of waiting. One
+  duel runs at a time, because there's one stage.
+- **Duel.** Kurogiri's mist takes both players to the Sports Festival
+  stage on the Sky Coffin. They're healed, cooldowns are reset and the ult
+  meter is emptied. They're held on their marks through a 3 s countdown.
+  First to 2 rounds wins (5 rounds at most). A round ends one of three ways:
+  - **KO.** The blow that would kill leaves them at 1 HP and down. Nobody
+    dies up there.
+  - **Ring out.** Off the top of the stage and down to it.
+  - **Time.** At 90 s, more health left wins the round. Equal health is a
+    draw.
+- **Rules during a duel.** The two can only hit each other, and only while
+  a round is on. Anyone else who gets on the stage is thrown off. There are
+  no finishers, no hero switching and no dev flight, and duelists can't
+  possess or be possessed.
+- **Rating.** Elo (`Config.RankedDelta`): K 32, or 48 for a player's first
+  10 matches. Leaving mid-duel counts as a loss.
+- **Saving.** Each player's record is saved to a DataStore with
+  `UpdateAsync`; Studio keeps it in memory unless `StudioSaves`. The best
+  ratings from every server go on an ordered store. They're published,
+  together with whoever's in the server, as `ReplicatedStorage.RankedBoard`
+  (JSON) for the app.
+- **Tiers.** ROOKIE, SIDEKICK, PRO HERO, TOP 100, TOP 10, SYMBOL OF PEACE.
+  A player's tier and rating show over their head once they've played a
+  match.
+- **On screen.** A VS card, a scoreboard along the top, the calls (ROUND n,
+  3-2-1, FIGHT!, K.O.!, RING OUT!, TIME!) and a result card (VICTORY /
+  DEFEAT / DRAW, the rating change, PROMOTED). Everyone else gets a line
+  when a duel starts and ends.
+
+**Possessing players** (`Config.Possess.Players`). The owner: "let me take
+control of players too like how I can do that to dummies".
+- **Who.** Devs only, the same people as the dummy possess. K or the test
+  menu's Possess panel now lists other players as well.
+- **Controls.** A player body uses a dummy's keys (M1 chain, F guard, Q
+  dash or ragdoll cancel) plus that player's own hero moves on 1 2 3 R 4,
+  but never their ult. The moves run on the server as theirs, with their
+  cooldowns (`PS.heroMove` → `Kit.onUseAbility`).
+- **Credit.** Nothing the body does credits anyone: no KO, Bucks or ult
+  charge.
+- **The possessed player's screen.** A banner reads "CONTROLLED BY <dev>".
+  Their controls and the game's keys do nothing. Reset still works: the dev
+  is sent home and the player resets.
+- **What the server does.** The remote handler drops everything their own
+  machine sends (`Kit.PS.fromVictim`). Their body's network ownership goes
+  to the dev and comes back to them afterwards. A possessed body's ragdoll
+  is run by the server, as a dummy's is.
+- **Limits.**
+  - Possession can't target the dev's own body, another dev's parked body,
+    someone who is possessing a body themselves, or anyone in a ranked
+    duel.
+  - A move that carries the caster across the map on their own screen
+    (a dash attack's travel, say) goes off where the body stands. That
+    travel normally runs on the caster's own machine.
+
+**Tests (round 95).**
+- **New checks:** 26 server checks for possession, 33 for ranked duels,
+  and a client section for both. They fail on round 94's sources and
+  pass now.
+- **Full server suite:** 1,860 passed, 41 failed. That's round 94's 40
+  plus the snack machine's "…nobody else can take it", which flips.
+- **Full client suite:** the same problems as round 94 up to where both
+  stall.
+- **Running the client suite:** run it with the place's own animations
+  (`ANIM_RBXM=<the place's Animations folder as .rbxm>`). Without them,
+  the USS clip checks fail and the M1 clip checks don't run.
+- **Timing checks:** HITSTOP, BACK DASH 66, M1Brawler3 and PAD
+  SENSITIVITY 68 flip from run to run, more so when the machine is
+  busy.
+- **Updated test:** the phone dock test now expects six apps.
+
+### Round 94
 
 Rounds 85–93 were made in another session, on top of Round 84 (the dev
 flight, LIGHTSPEED, the light wipe, Saitama, Bakugo's Max Capacity and
@@ -272,6 +353,17 @@ Found in round 94:
   itself to stand in for a part streaming back in.
 - The server tests can't reach `Kit`. They reach the light wipe through
   the stubbed Destruction module (`Destruction.LightWipe`).
+
+Found in round 95:
+- Possession and ranked duels are reached the same way:
+  `Destruction.Possess` (`Kit.PS`) and `Destruction.Ranked` (`Kit.RK`).
+- The harness doesn't build the Sky Coffin. The ranked tests stub
+  `RK.stage`.
+- The harness's DataStore mock has no `UpdateAsync`, and every store name
+  shares one table. The ranked tests give `RK` a store of their own.
+- On the client, a method can be implemented only once
+  (`r.implementMethod`), so `UnbindAction` stays a no-op. The tests check
+  what the code tracks instead.
 
 These checks have failed on and off for many rounds and aren't caused by
 recent work:

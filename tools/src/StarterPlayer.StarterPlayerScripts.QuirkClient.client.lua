@@ -149,6 +149,8 @@ local function busy(char)
 		or FreeCam.directing -- (round 87: the director camera has the keys; the body stands still)
 		or char:GetAttribute("Parked") -- (round 87: he's in another body - this one waits, doing nothing)
 		or char:GetAttribute("DevCarrying") -- (round 88: holding someone in the dev flight - his hands are full: the carry's moves only)
+		or char:GetAttribute("Possessed") -- (round 95: a dev's in this body - it's his to drive, Possess)
+		or char:GetAttribute("RankedHold") -- (round 95: a ranked duel - on the marks, or between rounds)
 end
 
 -- which of the quirk's 4th moves is picked (Deku's R cycles through them)
@@ -1235,7 +1237,7 @@ local function startBlock()
 		or char:GetAttribute("Ragdolled") or char:GetAttribute("Frozen") or char:GetAttribute("Holding")
 		or char:GetAttribute("Grabbed") or char:GetAttribute("Finishing") or char:GetAttribute("BeingFinished")
 		or char:GetAttribute("Submerged") or Parkour.Busy or Hold.active or FreeCam.on or dashing or actionRemaining(char) > 0
-		or char:GetAttribute("Parked") then -- (round 87: he's in another body)
+		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") then -- (round 87: he's in another body; round 95: a dev's in this one)
 		return
 	end
 	blocking = true
@@ -1370,7 +1372,7 @@ local function dash()
 		or char:GetAttribute("Kaiju") or Parkour.Busy or char:GetAttribute("Holding") or Hold.active
 		or char:GetAttribute("Frozen") or char:GetAttribute("Grabbed") or char:GetAttribute("Finishing")
 		or char:GetAttribute("BeingFinished") or char:GetAttribute("Submerged") or FreeCam.on
-		or char:GetAttribute("Parked") then -- (round 87: he's in another body)
+		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") then -- (round 87: he's in another body; round 95: a dev's in this one)
 		return -- (a kaiju doesn't dash)
 	end
 	-- (round 65, JJS) a side or back dash can cut into your own M1 (thrown
@@ -4335,7 +4337,7 @@ end
 local function useItem(id)
 	local char, _, root = getCharacter()
 	if not char or not id or char:GetAttribute("Stunned") or char:GetAttribute("Ragdolled") or VFX.InOwnCinematic()
-		or char:GetAttribute("Parked") then -- (round 87: he's in another body)
+		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") then -- (round 87: he's in another body; round 95: a dev's in this one)
 		return
 	end
 	if (player:GetAttribute("Item_" .. id) or 0) <= 0 then
@@ -4705,6 +4707,64 @@ do
 		end
 		return Enum.ContextActionResult.Sink
 	end, false, table.unpack(Config.BoardKeys or { Enum.KeyCode.L }))
+end
+
+---------------------------------------------------------------------------
+-- (round 95) THE RANKED APP (Config.Ranked; the server's Kit.RK): your
+-- record off your attributes (RankedRating / Played / Wins / Losses), the
+-- queue (RankedQueued: since when) and the duel (RankedDuel); the board off
+-- ReplicatedStorage.RankedBoard. FIND A MATCH asks the server (UseAbility,
+-- PARKOUR_INDEX: RankedJoin / RankedLeave).
+---------------------------------------------------------------------------
+do
+	local RKC = {}
+	function RKC.send(kind)
+		UseAbility:FireServer(Config.PARKOUR_INDEX, kind)
+	end
+	HUD.BuildRanked({
+		Join = function()
+			RKC.send("RankedJoin")
+		end,
+		Leave = function()
+			RKC.send("RankedLeave")
+		end,
+		OnToggle = function(open)
+			if open then
+				HUD.ToggleShop(false)
+			end
+			if inputMode == "Gamepad" then
+				selectGui(open and HUD.RankedFirstButton() or nil)
+			end
+		end,
+	})
+	function RKC.sync()
+		HUD.SetRanked({
+			Rating = player:GetAttribute("RankedRating"),
+			Played = player:GetAttribute("RankedPlayed"),
+			Wins = player:GetAttribute("RankedWins"),
+			Losses = player:GetAttribute("RankedLosses"),
+			Queued = player:GetAttribute("RankedQueued"),
+			Duel = player:GetAttribute("RankedDuel") ~= nil,
+		})
+	end
+	for _, attr in { "RankedRating", "RankedPlayed", "RankedWins", "RankedLosses", "RankedQueued", "RankedDuel" } do
+		player:GetAttributeChangedSignal(attr):Connect(RKC.sync)
+	end
+	task.defer(RKC.sync)
+	function RKC.read()
+		local value = ReplicatedStorage:FindFirstChild("RankedBoard")
+		local ok, list = pcall(function()
+			return game:GetService("HttpService"):JSONDecode(value and value.Value ~= "" and value.Value or "[]")
+		end)
+		HUD.SetRankedBoard(ok and type(list) == "table" and list or {}, player.UserId)
+	end
+	task.spawn(function()
+		local value = ReplicatedStorage:WaitForChild("RankedBoard", 30)
+		if value then
+			value.Changed:Connect(RKC.read)
+			RKC.read()
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -5486,6 +5546,37 @@ end)
 
 -- Fight feedback that lives on the HUD rather than in the world
 local UI_EVENTS = {
+	-- (round 95) RANKED DUELS (Kit.RK): a duel starting / won (everyone), and
+	-- for the two in it: the VS card, each round, FIGHT, its end, the result
+	RankedMatch = function(data)
+		HUD.RankedFeed("Match", data, player.UserId)
+	end,
+	RankedOver = function(data)
+		HUD.RankedFeed("Over", data, player.UserId)
+	end,
+	RankedFound = function(data)
+		HUD.ToggleRanked(false)
+		HUD.RankedFound(data)
+		VFX.PlaySound("RankedFound", nil, 1)
+	end,
+	RankedRound = function(data)
+		HUD.RankedRound(data)
+		VFX.PlaySound("RankedRound", nil, 1)
+	end,
+	RankedFight = function(data)
+		HUD.RankedFight(data)
+		VFX.PlaySound("RankedFight", nil, 1)
+	end,
+	RankedRoundEnd = function(data)
+		HUD.RankedRoundEnd(data, player.UserId)
+		VFX.PlaySound(data.How == "KO" and "KOConfirm" or "RankedRound", nil, 1)
+	end,
+	RankedResult = function(data)
+		HUD.RankedResult(data)
+		if data.Result == "Win" or data.Promoted then
+			VFX.PlaySound("RankedWin", nil, 1)
+		end
+	end,
 	-- (server settings: someone reset your cooldowns)
 	ResetCooldowns = function()
 		lastUsed = {}
@@ -8466,6 +8557,14 @@ end
 -- moves were. Everything's given back as it was when he leaves: the
 -- camera, the zoom, the keys, the phone's buttons, the reset button, the
 -- HUD.
+-- (round 95) PLAYERS are bodies too (Possess.Players): a dummy's keys
+-- (M1, F, Q) and their own hero's moves on 1 2 3, R and 4 (never their
+-- ult) - asked for as theirs, the server runs them, every screen plays
+-- them; they walk and run at their own pace. On THEIR screen (their
+-- PossessedBy, their body's Possessed) nothing drives it meanwhile - the
+-- controls off, the game's keys sunk, a flight ended, the guard down -
+-- their reset button asks the server (he's sent home, they reset), and a
+-- banner says who has them; all of it back as it was when he leaves.
 ---------------------------------------------------------------------------
 do
 	local PSC = Config.Possess or {}
@@ -8524,10 +8623,58 @@ do
 				consider(m)
 			end
 		end
+		-- (round 95) everyone else's body (not his own; not another dev's parked one)
+		if PSC.Players ~= false then
+			for _, plr in Players:GetPlayers() do
+				local m = plr ~= player and plr.Character or nil
+				local hum = m and m:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health > 0 and m:FindFirstChild("HumanoidRootPart") and not m:GetAttribute("Parked") then
+					table.insert(out, m)
+				end
+			end
+		end
 		return out
 	end
 	function PS.kindOf(m)
+		if Players:GetPlayerFromCharacter(m) then
+			return "Player" -- (round 95)
+		end
 		return (m:GetAttribute("Boss") and m.Parent and m.Parent.Name == "NomuRaid") and "Nomu" or "Dummy"
+	end
+	-- (round 95) a player's keys: a dummy's (M1, F, Q), then their hero's
+	-- moves as they are right now (their form, their ult's kit, Deku's pick)
+	-- on 1 2 3, R and 4 - never the ult
+	PS.SLOT_INDEX = { Ability1 = 1, Ability2 = 2, Ability3 = 3, Special = Config.SPECIAL_INDEX, Extra = Config.EXTRA_INDEX }
+	function PS.playerMoves(body)
+		local M = PSC.Moves or {}
+		local out = {}
+		for _, m in M.Player or {} do
+			table.insert(out, m)
+		end
+		local plr = Players:GetPlayerFromCharacter(body)
+		local quirk = plr and plr:GetAttribute("Quirk")
+		if quirk then
+			local alt, ult, pick = plr:GetAttribute("QuirkAlt") == true, plr:GetAttribute("UltActive") == true, plr:GetAttribute("QuirkPick")
+			for _, k in M.HeroKeys or {} do
+				local index = PS.SLOT_INDEX[k.Slot]
+				local ok, ab = pcall(Config.GetAbility, quirk, index, alt, ult, pick)
+				if index and ok and type(ab) == "table" then
+					table.insert(out, {
+						Act = "Move", Slot = k.Slot, Cd = k.Slot, Name = string.upper(tostring(ab.Name or ab.Id or k.Slot)),
+						Key = k.Key, Pad = k.Pad, Touch = k.Touch, Hold = ab.Hold ~= nil,
+					})
+				end
+			end
+		end
+		return out
+	end
+	function PS.moveFor(slot)
+		for _, m in PS.moves or {} do
+			if m.Slot == slot then
+				return m
+			end
+		end
+		return nil
 	end
 	function PS.chest(m)
 		local r = m:FindFirstChild("HumanoidRootPart")
@@ -8799,7 +8946,8 @@ do
 		PS.state = "On"
 		PS.body, PS.hum, PS.root, PS.label = body, hum, root, tostring(label or body.Name)
 		PS.kind = PS.kindOf(body)
-		PS.moves = (PSC.Moves or {})[PS.kind] or {}
+		PS.moves = PS.kind == "Player" and PS.playerMoves(body) or (PSC.Moves or {})[PS.kind] or {}
+		PS.moveAt = nil
 		PS.m1Count, PS.m1Last, PS.m1Next, PS.dashAt, PS.blocking = 0, 0, 0, 0, false
 		-- (this machine runs it now: no tripping over by itself, as the server has it)
 		pcall(function()
@@ -8807,7 +8955,7 @@ do
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 		end)
 		HUD.BindHumanoid(hum)
-		if PS.kind == "Dummy" then
+		if PS.kind == "Dummy" or PS.kind == "Player" then
 			-- (its guard and its ragdoll cancel's meter on the bar, not his)
 			HUD.BindGuard(body)
 			local function evasive()
@@ -8818,6 +8966,19 @@ do
 				body:GetAttributeChangedSignal("Ragdolled"):Connect(evasive),
 			}
 			evasive()
+		end
+		-- (round 95) a player: their keys follow their hero (a form, the ult's
+		-- kit, Deku's pick, a new hero)
+		local owner = PS.kind == "Player" and Players:GetPlayerFromCharacter(body) or nil
+		if owner then
+			for _, attr in { "Quirk", "QuirkAlt", "UltActive", "QuirkPick" } do
+				table.insert(PS.bodyConns, owner:GetAttributeChangedSignal(attr):Connect(function()
+					if PS.body == body then
+						PS.moves = PS.playerMoves(body)
+						task.defer(PS.hud)
+					end
+				end))
+			end
 		end
 		PS.hud()
 		-- the camera rides the wisp across
@@ -8830,7 +8991,7 @@ do
 	end
 	function PS.hud()
 		if PS.state == "On" then
-			HUD.Possess({ Name = PS.label, Body = PS.body, Moves = PS.moves, Mode = inputMode, Run = PS.kind == "Dummy", Guard = PS.kind == "Dummy" })
+			HUD.Possess({ Name = PS.label, Body = PS.body, Moves = PS.moves, Mode = inputMode, Run = PS.kind ~= "Nomu", Guard = PS.kind ~= "Nomu" })
 		end
 	end
 	-- out of this body (into another, or home)
@@ -9143,6 +9304,28 @@ do
 				hum.WalkSpeed = want
 			end
 		end
+		-- (round 95) a player walks and runs at their own pace (their hero's,
+		-- slowed by their guard or a slow - a stun's own speed is left alone)
+		if drive and PS.kind == "Player" and not body:GetAttribute("Stunned") then
+			local base = body:GetAttribute("BaseWalkSpeed") or Config.BaseWalkSpeed or 18
+			local want = PS.running() and base * ((Config.Movement or {}).SprintMultiplier or 1.5) or base
+			if PS.blocking then
+				want = math.min(base, (Config.Guard or {}).BlockWalkSpeed or 7)
+			end
+			local slowed = body:GetAttribute("SlowedTo")
+			if type(slowed) == "number" then
+				want = math.min(want, slowed)
+			end
+			if math.abs(hum.WalkSpeed - want) > 0.01 then
+				hum.WalkSpeed = want
+			end
+		end
+		-- ...and while a move of theirs goes, it follows his aim
+		if PS.kind == "Player" and PS.moveAt and os.clock() - PS.moveAt < (PSC.AimFollow or 3) and os.clock() - (PS.aimAt or 0) >= 0.1 then
+			PS.aimAt = os.clock()
+			local dir, pos = PS.aim()
+			PS.send("PossessAct", { Act = "Aim", Dir = dir, Aim = pos })
+		end
 		-- facing: the camera in shift lock
 		local face
 		if cam and PS.locked() then
@@ -9177,10 +9360,12 @@ do
 		if slot == "M1" then
 			PS.m1Down = down
 		end
-		if PS.kind == "Dummy" and slot == "Block" then
+		if (PS.kind == "Dummy" or PS.kind == "Player") and slot == "Block" then
 			PS.block(down)
 		elseif down then
 			PS.fire(slot)
+		elseif PS.kind == "Player" then
+			PS.moveUp(slot) -- (round 95: a held move of theirs lets go)
 		end
 	end
 	function PS.fire(slot)
@@ -9190,6 +9375,8 @@ do
 		end
 		if PS.kind == "Nomu" then
 			PS.nomuAct(act)
+		elseif act == "Move" then
+			PS.heroMove(slot)
 		elseif act == "M1" then
 			PS.punch()
 		elseif act == "Dash" then
@@ -9292,6 +9479,37 @@ do
 		VFX.PlaySound("Dash", root.Position, 0.9)
 		PS.send("PossessAct", { Act = "Dash", Dir = dir })
 	end
+	-- (round 95) A PLAYER'S OWN MOVE: asked for as theirs, aimed where he
+	-- aims (the server runs it, every screen plays it - this one too: it's
+	-- not this machine's hero); its cooldown is the body's PossessCd_<slot>
+	function PS.heroMove(slot)
+		local now = os.clock()
+		if not PS.free() or now - PS.actAt < 0.15 then
+			return
+		end
+		local ready = tonumber(PS.body:GetAttribute("PossessCd_" .. slot))
+		if ready and ready > workspace:GetServerTimeNow() + 0.05 then
+			return
+		end
+		PS.actAt, PS.moveAt = now, now
+		if PS.blocking then
+			PS.block(false)
+		end
+		local dir, pos = PS.aim()
+		PS.face(dir)
+		PS.send("PossessAct", {
+			Act = "Move", Slot = slot, Dir = dir, Aim = pos, Origin = PS.root.Position,
+			Air = PS.hum.FloorMaterial == Enum.Material.Air, Seed = math.random(1, 2 ^ 30),
+		})
+	end
+	-- (its key let go: a held one goes, wherever he's aiming)
+	function PS.moveUp(slot)
+		local m = PS.moveFor(slot)
+		if m and m.Hold then
+			local dir, pos = PS.aim()
+			PS.send("PossessAct", { Act = "MoveUp", Slot = slot, Dir = dir, Aim = pos })
+		end
+	end
 	-- THE NOMU: its moves, where he aims (the raid's own on the server)
 	function PS.nomuAct(act)
 		local now = os.clock()
@@ -9337,7 +9555,12 @@ do
 			local by = m:GetAttribute("PossessedBy")
 			local state = (by == player.UserId and "Mine") or (by ~= nil and "Taken") or "Free"
 			local name, color
-			if PS.kindOf(m) == "Nomu" then
+			local owner = Players:GetPlayerFromCharacter(m)
+			if owner then
+				-- (round 95) a player: their name, their hero's colour
+				local q = Config.Quirks[owner:GetAttribute("Quirk") or ""]
+				name, color = string.upper(owner.DisplayName), (q and q.Color) or Color3.fromRGB(120, 200, 255)
+			elseif PS.kindOf(m) == "Nomu" then
 				name, color = tostring(m:GetAttribute("BossName") or "HIGH-END NOMU"), Color3.fromRGB(210, 34, 44)
 			else
 				local k = Config.DummyKind and Config.DummyKind(m:GetAttribute("DummyKind") or "")
@@ -9347,6 +9570,12 @@ do
 			local sub = state == "Mine" and "you're in it" or string.format("%d studs away%s", d, state == "Taken" and "  ·  someone's in it" or "")
 			if PS.kindOf(m) == "Nomu" then
 				sub = "RAID BOSS  ·  " .. sub
+			elseif owner then
+				local q = Config.Quirks[owner:GetAttribute("Quirk") or ""]
+				sub = "PLAYER" .. (q and ("  ·  " .. tostring(q.DisplayName or "")) or "") .. "  ·  " .. sub
+				if owner:GetAttribute("RankedDuel") ~= nil and state == "Free" then
+					sub ..= "  ·  in a ranked duel"
+				end
 			end
 			table.insert(out, { Model = m, Name = name, Sub = sub, Color = color, State = state, Dist = state == "Mine" and -1 or d })
 		end
@@ -9373,6 +9602,114 @@ do
 			HUD.TogglePossessPanel(false)
 		end
 	end
+
+	---------------------------------------------------------------------------
+	-- (round 95) THIS SCREEN'S BODY TAKEN: a dev's in it (the server's word:
+	-- this player's PossessedBy, the body's Possessed). Nothing here drives
+	-- it meanwhile: Roblox's controls off, the game's keys sunk (busy() and
+	-- the guard, dash and item gates say no too), any flight of his own
+	-- ended, the guard down. The reset button asks the server (he's sent
+	-- home, then they reset), and a banner says who has them. All of it
+	-- back as it was when he leaves.
+	---------------------------------------------------------------------------
+	function PS.takenKeys()
+		local keys = {
+			Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D, Enum.KeyCode.Space,
+			Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right, Enum.KeyCode.ButtonA,
+			Enum.KeyCode.LeftShift, Enum.KeyCode.LeftControl,
+		}
+		for _, k in select(2, PS.slots()) do
+			if not table.find(keys, k) then
+				table.insert(keys, k)
+			end
+		end
+		return keys
+	end
+	function PS.takenSync()
+		local id = player:GetAttribute("PossessedBy")
+		local char = player.Character
+		if id ~= nil and char ~= nil and char:GetAttribute("Possessed") == true then
+			local by = Players:GetPlayerByUserId(id)
+			local name = by and by.DisplayName or "A DEV"
+			if not PS.taken then
+				PS.takenOn()
+			end
+			PS.taken = name
+			HUD.Possessed({ By = name })
+		elseif PS.taken then
+			PS.taken = nil
+			PS.takenOff()
+		end
+	end
+	function PS.takenOn()
+		if DevFly.active and DevFly.stop then
+			DevFly.stop("Server")
+		end
+		if BlastFly.active and BlastFly.stop then
+			BlastFly.stop("Action")
+		end
+		if FloatFly.active and FloatFly.stop then
+			FloatFly.stop("Hit")
+		end
+		if HawksFly.active and HawksFly.stop then
+			HawksFly.stop("Key")
+		end
+		guardHeld = false
+		stopBlock()
+		CombatInput.pending = nil
+		m1Held = false
+		local ctl = PS.controls()
+		if ctl then
+			pcall(function()
+				ctl:Disable()
+			end)
+		end
+		ContextActionService:BindActionAtPriority("QuirkPossessedSink", function()
+			return Enum.ContextActionResult.Sink
+		end, false, 3150, table.unpack(PS.takenKeys()))
+		if not PS.takenEvent then
+			PS.takenEvent = Instance.new("BindableEvent")
+			PS.takenEvent.Event:Connect(function()
+				if PS.taken then
+					PS.send("PossessReset")
+				end
+			end)
+		end
+		PS.takenReset = pcall(function()
+			StarterGui:SetCore("ResetButtonCallback", PS.takenEvent)
+		end)
+	end
+	function PS.takenOff()
+		local ctl = PS.controls()
+		if ctl then
+			pcall(function()
+				ctl:Enable()
+			end)
+		end
+		pcall(function()
+			ContextActionService:UnbindAction("QuirkPossessedSink")
+		end)
+		if PS.takenReset then
+			PS.takenReset = false
+			pcall(function()
+				StarterGui:SetCore("ResetButtonCallback", true)
+			end)
+		end
+		HUD.Possessed(nil)
+	end
+	function PS.watchTaken(char)
+		if PS.takenConn then
+			PS.takenConn:Disconnect()
+			PS.takenConn = nil
+		end
+		if char then
+			PS.takenConn = char:GetAttributeChangedSignal("Possessed"):Connect(PS.takenSync)
+		end
+		task.defer(PS.takenSync)
+	end
+	player.CharacterAdded:Connect(PS.watchTaken)
+	player:GetAttributeChangedSignal("PossessedBy"):Connect(PS.takenSync)
+	PS.watchTaken(player.Character)
 
 	player:GetAttributeChangedSignal("Possessing"):Connect(PS.sync)
 	player:GetAttributeChangedSignal("PossessSeq"):Connect(PS.sync) -- (one body straight into another of the same name)

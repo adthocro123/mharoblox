@@ -2212,12 +2212,18 @@ function HUD.BuildMenu()
 		{ "Board", "TOP", "🏆", Color3.fromRGB(240, 180, 40), function()
 			HUD.ToggleBoard(true)
 		end },
+		-- (round 95) RANKED DUELS: your tier, the top 10, FIND A MATCH
+		{ "Ranked", "RANKED", "⚔️", Color3.fromRGB(222, 64, 72), function()
+			if HUD.ToggleRanked then
+				HUD.ToggleRanked(true)
+			end
+		end },
 	}
 	for i, app in APPS do
 		local b = make("TextButton", {
 			Name = "App_" .. app[1],
 			LayoutOrder = i,
-			Size = UDim2.fromOffset(46, 64),
+			Size = UDim2.fromOffset(#APPS > 5 and 40 or 46, 64), -- ((round 95) six of them across)
 			BackgroundTransparency = 1,
 			Text = "",
 			ZIndex = 63,
@@ -2226,7 +2232,7 @@ function HUD.BuildMenu()
 		local icon = make("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0),
 			Position = UDim2.fromScale(0.5, 0),
-			Size = UDim2.fromOffset(42, 42),
+			Size = #APPS > 5 and UDim2.fromOffset(38, 38) or UDim2.fromOffset(42, 42),
 			BackgroundColor3 = app[4],
 			ZIndex = 64,
 			Parent = b,
@@ -2255,6 +2261,13 @@ function HUD.BuildMenu()
 			HUD.ShowMenu(false)
 			app[5]()
 		end)
+	end
+	-- ((round 95) six across: a little closer together, clear of the dock's round ends)
+	if #APPS > 5 then
+		local list = dock:FindFirstChildOfClass("UIListLayout")
+		if list then
+			list.Padding = UDim.new(0, 3)
+		end
 	end
 	-- the home bar
 	make("Frame", {
@@ -7397,7 +7410,7 @@ do
 				SortOrder = Enum.SortOrder.LayoutOrder,
 			}),
 		})
-		for i = 1, 4 do
+		for i = 1, 8 do -- ((round 95) a player: a dummy's 3 and their hero's 5)
 			local box = make("Frame", {
 				Name = "Move" .. i,
 				Size = UDim2.fromOffset(104, 70),
@@ -7502,15 +7515,17 @@ do
 		for i, box in PH.boxes do
 			local m = info.Moves and info.Moves[i]
 			if m and box.Frame.Visible then
-				local ready = body and tonumber(body:GetAttribute("PossessCd_" .. (m.Act or ""))) or nil
+				-- ((round 95) a player's own moves each have theirs: Cd, the slot)
+				local ck = m.Cd or m.Act or ""
+				local ready = body and tonumber(body:GetAttribute("PossessCd_" .. ck)) or nil
 				local left = ready and ready - serverNow or 0
 				-- (how long it was, from when this cooldown was first seen)
-				if ready and PH.cdAt[m.Act] ~= ready then
-					PH.cdAt[m.Act] = ready
-					PH.cdLen[m.Act] = math.max(left, 0.05)
+				if ready and PH.cdAt[ck] ~= ready then
+					PH.cdAt[ck] = ready
+					PH.cdLen[ck] = math.max(left, 0.05)
 				end
 				if left > 0.02 then
-					box.Cover.Size = UDim2.fromScale(1, math.clamp(left / (PH.cdLen[m.Act] or left), 0, 1))
+					box.Cover.Size = UDim2.fromScale(1, math.clamp(left / (PH.cdLen[ck] or left), 0, 1))
 					box.Cd.Text = left >= 1 and string.format("%d", math.ceil(left)) or string.format("%.1f", left)
 				else
 					box.Cover.Size = UDim2.fromScale(1, busy and 1 or 0)
@@ -7582,9 +7597,12 @@ do
 		chip.Body.Size = UDim2.new(1, -(28 + kick + (keyed and 82 or 128)), 1, 0)
 		chip.Visible = true
 		local bySlot = {}
+		-- ((round 95) a player's eight keys: narrower boxes)
+		local boxW = #(info.Moves or {}) > 5 and 84 or 104
 		for i, box in PH.boxes do
 			local m = info.Moves and info.Moves[i]
 			box.Frame.Visible = m ~= nil
+			box.Frame.Size = UDim2.fromOffset(boxW, 70)
 			if m then
 				box.Key.Text = (mode == "Gamepad" and m.Pad) or (mode == "Touch" and m.Touch) or m.Key or ""
 				box.Name.Text = m.Name or ""
@@ -7666,6 +7684,151 @@ do
 	end
 
 	---------------------------------------------------------------------------
+	-- (round 95) THE POSSESSED PLAYER'S SCREEN: a dev's in their body. A
+	-- banner along the top - CONTROLLED BY <who>, and that they get it back
+	-- when he leaves (or reset) - and the screen's edge pulses his colour.
+	-- info = { By = his name } - nil: gone
+	---------------------------------------------------------------------------
+	function PH.takenBanner()
+		if PH.taken and PH.taken.Parent then
+			return PH.taken
+		end
+		if not gui then
+			return nil
+		end
+		local v = violet()
+		local edgeF = make("Frame", {
+			Name = "PossessedEdge",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Visible = false,
+			ZIndex = 1,
+			Parent = gui,
+		}, { make("UIStroke", { Name = "Glow", Thickness = 6, Color = v, Transparency = 0.4, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+		local f = make("Frame", {
+			Name = "PossessedBanner",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 74),
+			Size = UDim2.new(0.92, 0, 0, 58),
+			BackgroundColor3 = INK,
+			BackgroundTransparency = 0.08,
+			Visible = false,
+			ZIndex = 30,
+			Parent = gui,
+		}, {
+			make("UISizeConstraint", { MaxSize = Vector2.new(470, 58) }),
+			corner(10),
+			make("UIStroke", { Name = "Edge", Thickness = 2, Color = v, Transparency = 0.15, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+			make("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 150, 200)), Rotation = 90 }),
+		})
+		make("Frame", {
+			Name = "Ring",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0, 26, 0.5, 0),
+			Size = UDim2.fromOffset(16, 16),
+			BackgroundTransparency = 1,
+			ZIndex = 31,
+			Parent = f,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), make("UIStroke", { Thickness = 2, Color = v, Transparency = 0.2 }) })
+		make("Frame", {
+			Name = "Pulse",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0, 26, 0.5, 0),
+			Size = UDim2.fromOffset(10, 10),
+			BackgroundColor3 = light(v),
+			ZIndex = 32,
+			Parent = f,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		make("TextLabel", {
+			Name = "Kicker",
+			Position = UDim2.fromOffset(46, 7),
+			Size = UDim2.new(1, -58, 0, 14),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = light(v),
+			Text = "CONTROLLED BY",
+			ZIndex = 31,
+			Parent = f,
+		})
+		make("TextLabel", {
+			Name = "Dev",
+			Position = UDim2.fromOffset(46, 20),
+			Size = UDim2.new(1, -58, 0, 20),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 18,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = WHITE,
+			Text = "",
+			ZIndex = 31,
+			Parent = f,
+		}, { textStroke(1) })
+		make("TextLabel", {
+			Name = "Sub",
+			Position = UDim2.fromOffset(46, 40),
+			Size = UDim2.new(1, -58, 0, 13),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = DIM,
+			Text = "A dev is in your body. It's yours again when they leave - or reset.",
+			ZIndex = 31,
+			Parent = f,
+		})
+		PH.taken, PH.takenEdge = f, edgeF
+		return f
+	end
+	function HUD.Possessed(info)
+		local f = PH.takenBanner()
+		if not f then
+			return
+		end
+		if not info then
+			f.Visible = false
+			PH.takenEdge.Visible = false
+			if PH.takenConn then
+				PH.takenConn:Disconnect()
+				PH.takenConn = nil
+			end
+			return
+		end
+		f.Dev.Text = string.upper(tostring(info.By or ""))
+		if not f.Visible then
+			-- (it drops in)
+			f.Position = UDim2.new(0.5, 0, 0, 40)
+			f.Visible = true
+			pcall(function()
+				TweenService:Create(f, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.new(0.5, 0, 0, 74) }):Play()
+			end)
+		end
+		PH.takenEdge.Visible = true
+		if not PH.takenConn then
+			PH.takenConn = RunService.RenderStepped:Connect(function()
+				local now = os.clock()
+				local k = (math.sin(now * 3.4) + 1) / 2
+				local glow = PH.takenEdge:FindFirstChild("Glow")
+				if glow then
+					glow.Transparency = 0.35 + 0.5 * k
+				end
+				local ring = f:FindFirstChild("Ring")
+				if ring then
+					local s = 12 + 14 * ((now * 1.1) % 1)
+					ring.Size = UDim2.fromOffset(s, s)
+					local st = ring:FindFirstChildOfClass("UIStroke")
+					if st then
+						st.Transparency = 0.15 + 0.85 * ((now * 1.1) % 1)
+					end
+				end
+			end)
+		end
+	end
+
+	---------------------------------------------------------------------------
 	-- the test menu's POSSESS panel. cb = { List() -> { { Model, Name, Sub,
 	-- Color, State = "Free" | "Mine" | "Taken" } }, Pick(model), Leave(),
 	-- In() -> the name of the body you're in (nil: your own) }
@@ -7711,7 +7874,7 @@ do
 			TextSize = 11,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = Color3.fromRGB(190, 194, 214),
-			Text = "Take over a body. K aims at one, K again to leave.",
+			Text = "Take over a body - a dummy, the Nomu, a player. K aims, K again leaves.",
 			ZIndex = 21,
 			Parent = frame,
 		})
@@ -12880,6 +13043,638 @@ do
 
 	function HUD.BoardVisible()
 		return boardPanel ~= nil and boardPanel.Visible
+	end
+
+	---------------------------------------------------------------------------
+	-- (round 95) RANKED DUELS (Config.Ranked; the server's Kit.RK). The
+	-- phone's RANKED app: your tier (its colour, your rating, wins and
+	-- losses, placement matches, how far to the next), the ladder of tiers,
+	-- the top 10 of every server (ReplicatedStorage.RankedBoard), and FIND A
+	-- MATCH / SEARCHING (how long; again to stop) / IN A DUEL. The duel on
+	-- screen: the VS card, the scoreboard along the top (both of you, the
+	-- round, the clock), each round's calls (ROUND 2 - 3 - 2 - 1 - FIGHT!,
+	-- KO!, RING OUT!, TIME!) and the result (VICTORY / DEFEAT / DRAW, the
+	-- score, the rating's move, PROMOTED). Everyone else gets a line when a
+	-- duel starts and ends. (One local: RKH.)
+	---------------------------------------------------------------------------
+	local RKH = { rows = {}, ladder = {}, info = {}, cb = {} }
+	HUD.RankedHud = RKH
+	function RKH.tiers()
+		return (Config and Config.Ranked and Config.Ranked.Tiers) or {}
+	end
+	function RKH.tierOf(rating)
+		if Config and Config.RankedTier then
+			return Config.RankedTier(rating)
+		end
+		return 1, { Name = "ROOKIE", Min = 0, Color = Color3.fromRGB(196, 140, 98) }
+	end
+	function RKH.label(props, parent)
+		props.BackgroundTransparency = props.BackgroundTransparency or 1
+		props.ZIndex = props.ZIndex or 62
+		props.Parent = parent
+		return make("TextLabel", props)
+	end
+
+	function HUD.BuildRanked(cb)
+		RKH.cb = cb or RKH.cb
+		if RKH.panel or not gui then
+			return
+		end
+		local size = (Config and Config.Ranked and Config.Ranked.BoardSize) or 10
+		local H = 92 + math.max(size * 25, 6 * 26 + 160) + 64
+		local p = panel("RankedDuels", "RANKED DUELS", "One on one on the Sky Coffin's stage - first to 2 rounds", 560, H, function()
+			HUD.ToggleRanked(false)
+		end)
+		RKH.panel = p
+		-- YOUR RANK
+		local card = make("Frame", {
+			Name = "You",
+			Position = UDim2.fromOffset(14, 70),
+			Size = UDim2.fromOffset(250, 150),
+			BackgroundColor3 = Color3.fromRGB(28, 30, 44),
+			ZIndex = 61,
+			Parent = p,
+		}, { corner(8) })
+		RKH.cardStroke = make("UIStroke", { Thickness = 2, Color = Color3.fromRGB(196, 140, 98), Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = card })
+		RKH.label({ Position = UDim2.fromOffset(14, 8), Size = UDim2.new(1, -28, 0, 14), Font = HEAD_FONT, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(170, 176, 204), Text = "YOUR RANK" }, card)
+		RKH.tierName = RKH.label({ Name = "Tier", Position = UDim2.fromOffset(12, 22), Size = UDim2.new(1, -24, 0, 40), Font = COMIC_FONT, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(196, 140, 98), Text = "ROOKIE" }, card)
+		textStroke(2).Parent = RKH.tierName
+		make("UITextSizeConstraint", { MaxTextSize = 38, Parent = RKH.tierName })
+		RKH.rating = RKH.label({ Name = "Rating", Position = UDim2.fromOffset(14, 64), Size = UDim2.new(1, -28, 0, 22), Font = HEAD_FONT, TextSize = 20, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.new(1, 1, 1), RichText = true, Text = "" }, card)
+		RKH.record = RKH.label({ Name = "Record", Position = UDim2.fromOffset(14, 88), Size = UDim2.new(1, -28, 0, 16), Font = UI_FONT, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(200, 204, 225), Text = "" }, card)
+		local track = make("Frame", {
+			Name = "Next",
+			Position = UDim2.fromOffset(14, 114),
+			Size = UDim2.new(1, -28, 0, 8),
+			BackgroundColor3 = Color3.fromRGB(46, 50, 70),
+			ZIndex = 62,
+			Parent = card,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		RKH.fill = make("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(196, 140, 98), BorderSizePixel = 0, ZIndex = 63, Parent = track }, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		RKH.next = RKH.label({ Name = "NextText", Position = UDim2.fromOffset(14, 126), Size = UDim2.new(1, -28, 0, 14), Font = UI_FONT, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(150, 156, 184), Text = "" }, card)
+		-- THE LADDER
+		RKH.label({ Position = UDim2.fromOffset(16, 230), Size = UDim2.fromOffset(240, 14), Font = HEAD_FONT, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(170, 176, 204), Text = "TIERS" }, p)
+		local tiers = RKH.tiers()
+		for i, t in tiers do
+			local row = make("Frame", {
+				Name = "Tier" .. i,
+				Position = UDim2.fromOffset(14, 248 + (#tiers - i) * 26),
+				Size = UDim2.fromOffset(250, 23),
+				BackgroundColor3 = Color3.fromRGB(34, 37, 54),
+				BackgroundTransparency = 0.7,
+				ZIndex = 61,
+				Parent = p,
+			}, { corner(4), make("Frame", { Size = UDim2.new(0, 3, 1, 0), BackgroundColor3 = t.Color, BorderSizePixel = 0, ZIndex = 62 }) })
+			RKH.label({ Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -70, 1, 0), Font = HEAD_FONT, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = t.Color, Text = t.Name }, row)
+			RKH.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 0), Size = UDim2.fromOffset(60, 23), Font = UI_FONT, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromRGB(200, 204, 225), Text = t.Min .. "+" }, row)
+			RKH.ladder[i] = row
+		end
+		-- THE TOP 10
+		RKH.label({ Position = UDim2.fromOffset(282, 70), Size = UDim2.fromOffset(260, 14), Font = HEAD_FONT, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(170, 176, 204), Text = "TOP " .. size .. " - EVERY SERVER" }, p)
+		for i = 1, size do
+			local row = make("Frame", {
+				Name = "Row" .. i,
+				Position = UDim2.fromOffset(280, 88 + (i - 1) * 25),
+				Size = UDim2.fromOffset(266, 23),
+				BackgroundColor3 = i % 2 == 1 and Color3.fromRGB(30, 33, 48) or Color3.fromRGB(24, 26, 38),
+				ZIndex = 61,
+				Parent = p,
+			}, { corner(4) })
+			local place = RKH.label({ Size = UDim2.fromOffset(30, 23), Font = HEAD_FONT, TextSize = 12,
+				TextColor3 = i == 1 and Color3.fromRGB(255, 212, 64) or i == 2 and Color3.fromRGB(210, 214, 230) or i == 3 and Color3.fromRGB(215, 140, 80) or Color3.fromRGB(150, 154, 178), Text = "#" .. i }, row)
+			local name = RKH.label({ Position = UDim2.fromOffset(32, 0), Size = UDim2.fromOffset(118, 23), Font = UI_FONT, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.new(1, 1, 1), Text = "-" }, row)
+			local tier = RKH.label({ Position = UDim2.fromOffset(152, 0), Size = UDim2.fromOffset(68, 23), Font = HEAD_FONT, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(150, 154, 178), Text = "" }, row)
+			local rating = RKH.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 0), Size = UDim2.fromOffset(44, 23), Font = HEAD_FONT, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.new(1, 1, 1), Text = "" }, row)
+			RKH.rows[i] = { Row = row, Place = place, Name = name, Tier = tier, Rating = rating }
+		end
+		-- FIND A MATCH
+		RKH.button = make("TextButton", {
+			Name = "Queue",
+			Position = UDim2.new(0, 14, 1, -58),
+			Size = UDim2.new(1, -28, 0, 44),
+			BackgroundColor3 = Color3.fromRGB(56, 170, 84),
+			AutoButtonColor = true,
+			Font = COMIC_FONT,
+			TextSize = 28,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "FIND A MATCH",
+			ZIndex = 62,
+			Parent = p,
+		}, { corner(8), stroke(2), textStroke(1.5) })
+		RKH.button.Activated:Connect(function()
+			local st = RKH.state
+			if st == "Queued" then
+				if RKH.cb.Leave then
+					RKH.cb.Leave()
+				end
+			elseif st == "Idle" then
+				if RKH.cb.Join then
+					RKH.cb.Join()
+				end
+			end
+		end)
+		RKH.refresh()
+	end
+	function HUD.ToggleRanked(force)
+		if not RKH.panel then
+			HUD.BuildRanked()
+		end
+		if not RKH.panel then
+			return false
+		end
+		local open = force
+		if open == nil then
+			open = not RKH.panel.Visible
+		end
+		RKH.panel.Visible = open
+		if open then
+			if settingsPanel then
+				settingsPanel.Visible = false
+			end
+			if boardPanel then
+				boardPanel.Visible = false
+			end
+			RKH.refresh()
+		end
+		if RKH.cb.OnToggle then
+			RKH.cb.OnToggle(open)
+		end
+		if open and not RKH.clock then
+			-- (SEARCHING... 0:12: the clock goes round while it's up)
+			RKH.clock = RunService.Heartbeat:Connect(function()
+				if not (RKH.panel and RKH.panel.Visible) then
+					RKH.clock:Disconnect()
+					RKH.clock = nil
+					return
+				end
+				if RKH.state == "Queued" and os.clock() - (RKH.tickAt or 0) > 0.25 then
+					RKH.tickAt = os.clock()
+					RKH.refreshButton()
+				end
+			end)
+		end
+		return open
+	end
+	function HUD.RankedVisible()
+		return RKH.panel ~= nil and RKH.panel.Visible
+	end
+	function HUD.RankedFirstButton()
+		return RKH.button
+	end
+	-- info = { Rating, Played, Wins, Losses, Queued (server time), Duel }
+	function HUD.SetRanked(info)
+		RKH.info = info or {}
+		RKH.refresh()
+	end
+	function RKH.refreshButton()
+		local b = RKH.button
+		if not b then
+			return
+		end
+		local info = RKH.info
+		if info.Duel then
+			RKH.state = "Duel"
+			b.Text = "IN A DUEL"
+			b.BackgroundColor3 = Color3.fromRGB(80, 82, 96)
+		elseif info.Queued then
+			RKH.state = "Queued"
+			local t = math.max(0, math.floor(workspace:GetServerTimeNow() - info.Queued))
+			b.Text = string.format("SEARCHING... %d:%02d  ·  CANCEL", t // 60, t % 60)
+			local k = (math.sin(os.clock() * 4) + 1) / 2
+			b.BackgroundColor3 = Color3.fromRGB(214, 150, 40):Lerp(Color3.fromRGB(240, 180, 60), k)
+		else
+			RKH.state = "Idle"
+			b.Text = "FIND A MATCH"
+			b.BackgroundColor3 = Color3.fromRGB(56, 170, 84)
+		end
+	end
+	function RKH.refresh()
+		if not RKH.panel then
+			return
+		end
+		local info = RKH.info
+		local R = (Config and Config.Ranked) or {}
+		local rating = tonumber(info.Rating) or R.Start or 1000
+		local played = tonumber(info.Played) or 0
+		local idx, tier = RKH.tierOf(rating)
+		local tiers = RKH.tiers()
+		RKH.tierName.Text = played > 0 and tier.Name or "UNRANKED"
+		RKH.tierName.TextColor3 = played > 0 and tier.Color or Color3.fromRGB(170, 176, 204)
+		RKH.cardStroke.Color = played > 0 and tier.Color or Color3.fromRGB(90, 94, 116)
+		RKH.rating.Text = string.format('%d <font size="12" color="#AAB0CC">RATING</font>', rating)
+		RKH.record.Text = string.format("%dW - %dL  ·  %d played", tonumber(info.Wins) or 0, tonumber(info.Losses) or 0, played)
+		local nextT = tiers[idx + 1]
+		if played < (R.Placement or 10) then
+			RKH.next.Text = string.format("PLACEMENT  %d / %d  (ratings move faster)", played, R.Placement or 10)
+		elseif nextT then
+			RKH.next.Text = string.format("%d to %s", nextT.Min - rating, nextT.Name)
+		else
+			RKH.next.Text = "THE TOP TIER"
+		end
+		local frac = nextT and math.clamp((rating - tier.Min) / math.max(nextT.Min - tier.Min, 1), 0, 1) or 1
+		RKH.fill.Size = UDim2.fromScale(frac, 1)
+		RKH.fill.BackgroundColor3 = tier.Color
+		for i, row in RKH.ladder do
+			local mine = i == idx and played > 0
+			row.BackgroundTransparency = mine and 0.15 or 0.7
+			row.BackgroundColor3 = mine and tiers[i].Color:Lerp(Color3.fromRGB(20, 22, 32), 0.6) or Color3.fromRGB(34, 37, 54)
+		end
+		RKH.refreshButton()
+	end
+	-- the board's rows: { { UserId, Name, Rating, Tier }, ... } best first
+	function HUD.SetRankedBoard(list, myUserId)
+		RKH.list, RKH.me = list, myUserId
+		if not RKH.panel then
+			return
+		end
+		for i, row in RKH.rows do
+			local e = list and list[i]
+			if e then
+				local _, tier = RKH.tierOf(e.Rating or 0)
+				row.Name.Text = tostring(e.Name or "?")
+				row.Name.TextColor3 = e.UserId == myUserId and Color3.fromRGB(255, 226, 92) or Color3.new(1, 1, 1)
+				row.Tier.Text = tier.Name
+				row.Tier.TextColor3 = tier.Color
+				row.Rating.Text = tostring(e.Rating or 0)
+			else
+				row.Name.Text = "-"
+				row.Name.TextColor3 = Color3.fromRGB(110, 114, 136)
+				row.Tier.Text = ""
+				row.Rating.Text = ""
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- the duel on screen
+	---------------------------------------------------------------------------
+	-- the scoreboard along the top: you and them, the round, the clock
+	function RKH.board()
+		if RKH.top and RKH.top.Parent then
+			return RKH.top
+		end
+		if not gui then
+			return nil
+		end
+		local f = make("Frame", {
+			Name = "RankedScore",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 48),
+			Size = UDim2.new(0.94, 0, 0, 54),
+			BackgroundColor3 = Color3.fromRGB(14, 15, 22),
+			BackgroundTransparency = 0.12,
+			Visible = false,
+			ZIndex = 40,
+			Parent = gui,
+		}, { make("UISizeConstraint", { MaxSize = Vector2.new(500, 54) }), corner(10), stroke(2) })
+		local function side(name, x, anchor, align)
+			local nm = make("TextLabel", {
+				Name = name .. "Name",
+				AnchorPoint = Vector2.new(anchor, 0),
+				Position = UDim2.new(x, anchor == 0 and 12 or -12, 0, 6),
+				Size = UDim2.new(0.5, -70, 0, 20),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 15,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextXAlignment = align,
+				TextColor3 = Color3.new(1, 1, 1),
+				Text = "",
+				ZIndex = 41,
+				Parent = f,
+			})
+			local tier = make("TextLabel", {
+				Name = name .. "Tier",
+				AnchorPoint = Vector2.new(anchor, 0),
+				Position = UDim2.new(x, anchor == 0 and 12 or -12, 0, 28),
+				Size = UDim2.new(0.5, -70, 0, 16),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 11,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextXAlignment = align,
+				TextColor3 = Color3.fromRGB(190, 194, 214),
+				Text = "",
+				ZIndex = 41,
+				Parent = f,
+			})
+			return nm, tier
+		end
+		RKH.meName, RKH.meTier = side("Me", 0, 0, Enum.TextXAlignment.Left)
+		RKH.themName, RKH.themTier = side("Them", 1, 1, Enum.TextXAlignment.Right)
+		RKH.score = make("TextLabel", {
+			Name = "Score",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 2),
+			Size = UDim2.fromOffset(120, 32),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 34,
+			TextColor3 = Color3.new(1, 1, 1),
+			RichText = true,
+			Text = "0 - 0",
+			ZIndex = 41,
+			Parent = f,
+		}, { textStroke(2) })
+		RKH.clockText = make("TextLabel", {
+			Name = "Clock",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 34),
+			Size = UDim2.fromOffset(120, 16),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 11,
+			TextColor3 = Color3.fromRGB(255, 212, 64),
+			Text = "",
+			ZIndex = 41,
+			Parent = f,
+		})
+		RKH.top = f
+		return f
+	end
+	function RKH.setScore(me, them)
+		if RKH.score then
+			RKH.score.Text = string.format('<font color="#78DCFF">%d</font> - <font color="#FF7A6E">%d</font>', me or 0, them or 0)
+		end
+	end
+	function RKH.tick()
+		if not (RKH.top and RKH.top.Visible) then
+			return
+		end
+		local round = RKH.round or 1
+		if RKH.ends then
+			local left = math.max(0, math.ceil(RKH.ends - workspace:GetServerTimeNow()))
+			RKH.clockText.Text = string.format("ROUND %d  ·  %d:%02d", round, left // 60, left % 60)
+			RKH.clockText.TextColor3 = left <= 10 and Color3.fromRGB(255, 90, 80) or Color3.fromRGB(255, 212, 64)
+		else
+			RKH.clockText.Text = string.format("ROUND %d", round)
+		end
+	end
+	-- a big call in the middle of the screen (it punches in and fades)
+	function HUD.RankedCall(text, color, sub, hold)
+		if not gui then
+			return
+		end
+		local c = RKH.callFrame
+		if not (c and c.Parent) then
+			c = make("Frame", {
+				Name = "RankedCall",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.38),
+				Size = UDim2.fromOffset(700, 150),
+				BackgroundTransparency = 1,
+				ZIndex = 45,
+				Parent = gui,
+			})
+			make("UIScale", { Name = "Pop", Parent = c })
+			make("TextLabel", {
+				Name = "Big",
+				Size = UDim2.new(1, 0, 0, 104),
+				BackgroundTransparency = 1,
+				Font = COMIC_FONT,
+				TextSize = 100,
+				TextColor3 = Color3.new(1, 1, 1),
+				Text = "",
+				ZIndex = 46,
+				Parent = c,
+			}, { textStroke(4) })
+			make("TextLabel", {
+				Name = "Sub",
+				Position = UDim2.fromOffset(0, 104),
+				Size = UDim2.new(1, 0, 0, 28),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 20,
+				TextColor3 = Color3.new(1, 1, 1),
+				Text = "",
+				ZIndex = 46,
+				Parent = c,
+			}, { textStroke(2) })
+			RKH.callFrame = c
+		end
+		local token = {}
+		RKH.callToken = token
+		c.Big.Text = text
+		c.Big.TextColor3 = color or Color3.new(1, 1, 1)
+		c.Big.TextTransparency = 0
+		c.Sub.Text = sub or ""
+		c.Sub.TextTransparency = 0
+		c.Visible = true
+		local pop = c:FindFirstChild("Pop")
+		if pop then
+			pop.Scale = 1.8
+			pcall(function()
+				TweenService:Create(pop, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+			end)
+		end
+		task.delay(hold or 0.75, function()
+			if RKH.callToken ~= token then
+				return
+			end
+			pcall(function()
+				TweenService:Create(c.Big, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+				TweenService:Create(c.Sub, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+			end)
+			task.delay(0.32, function()
+				if RKH.callToken == token then
+					c.Visible = false
+				end
+			end)
+		end)
+	end
+	-- a card in the middle: the VS before round 1, the result after the last
+	function RKH.cardFrame()
+		if RKH.mid and RKH.mid.Parent then
+			return RKH.mid
+		end
+		if not gui then
+			return nil
+		end
+		local f = make("Frame", {
+			Name = "RankedCard",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.42),
+			Size = UDim2.new(0.94, 0, 0, 190),
+			BackgroundColor3 = Color3.fromRGB(14, 15, 22),
+			BackgroundTransparency = 0.08,
+			Visible = false,
+			ZIndex = 50,
+			Parent = gui,
+		}, { make("UISizeConstraint", { MaxSize = Vector2.new(520, 190) }), corner(12) })
+		RKH.midStroke = make("UIStroke", { Thickness = 3, Color = Color3.fromRGB(222, 64, 72), ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = f })
+		for i, spec in {
+			{ "Kicker", 10, 16, HEAD_FONT, 12 }, { "Title", 26, 58, COMIC_FONT, 56 }, { "Line1", 88, 24, HEAD_FONT, 18 },
+			{ "Line2", 116, 22, UI_FONT, 15 }, { "Line3", 142, 20, HEAD_FONT, 14 }, { "Line4", 164, 18, UI_FONT, 12 },
+		} do
+			make("TextLabel", {
+				Name = spec[1],
+				LayoutOrder = i,
+				Position = UDim2.fromOffset(12, spec[2]),
+				Size = UDim2.new(1, -24, 0, spec[3]),
+				BackgroundTransparency = 1,
+				Font = spec[4],
+				TextSize = spec[5],
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				RichText = true,
+				TextColor3 = Color3.new(1, 1, 1),
+				Text = "",
+				ZIndex = 51,
+				Parent = f,
+			}, spec[1] == "Title" and { textStroke(3) } or nil)
+		end
+		RKH.mid = f
+		return f
+	end
+	function RKH.showCard(lines, color, hold)
+		local f = RKH.cardFrame()
+		if not f then
+			return
+		end
+		for name, text in lines do
+			local l = f:FindFirstChild(name)
+			if l then
+				l.Text = text
+			end
+		end
+		f.Title.TextColor3 = color
+		RKH.midStroke.Color = color
+		local token = {}
+		RKH.midToken = token
+		f.Position = UDim2.fromScale(0.5, 0.36)
+		f.Visible = true
+		pcall(function()
+			TweenService:Create(f, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.fromScale(0.5, 0.42) }):Play()
+		end)
+		task.delay(hold, function()
+			if RKH.midToken == token then
+				f.Visible = false
+			end
+		end)
+	end
+	function RKH.hex(c)
+		return string.format("#%02X%02X%02X", math.floor(c.R * 255), math.floor(c.G * 255), math.floor(c.B * 255))
+	end
+	function RKH.who(card)
+		card = type(card) == "table" and card or {}
+		local _, tier = RKH.tierOf(card.Rating or 0)
+		return string.format('%s <font color="%s">%s %d</font>', tostring(card.Name or "?"), RKH.hex(tier.Color), tostring(card.Tier or tier.Name), tonumber(card.Rating) or 0), tier
+	end
+	-- FOUND: the VS card, the scoreboard up
+	function HUD.RankedFound(data)
+		local you, opp = data.You or {}, data.Opp or {}
+		local youText = RKH.who(you)
+		local oppText, oppTier = RKH.who(opp)
+		RKH.showCard({
+			Kicker = "RANKED DUEL  ·  THE SKY COFFIN",
+			Title = "VS",
+			Line1 = oppText,
+			Line2 = tostring(opp.Hero or ""),
+			Line3 = "you: " .. youText,
+			Line4 = "First to 2 rounds - KO, ring out, or more health at the bell",
+		}, oppTier.Color, ((Config and Config.Ranked and Config.Ranked.Intro) or 2.5) + 0.4)
+		local f = RKH.board()
+		if f then
+			RKH.meName.Text = string.upper(tostring(you.Name or "YOU"))
+			RKH.meTier.Text = string.format("%s · %d", tostring(you.Tier or ""), tonumber(you.Rating) or 0)
+			RKH.themName.Text = string.upper(tostring(opp.Name or "?"))
+			RKH.themTier.Text = string.format("%s · %d", tostring(opp.Tier or ""), tonumber(opp.Rating) or 0)
+			RKH.round, RKH.ends = 1, nil
+			RKH.setScore(0, 0)
+			f.Visible = true
+			if not RKH.topConn then
+				RKH.topConn = RunService.Heartbeat:Connect(function()
+					pcall(RKH.tick)
+				end)
+			end
+		end
+	end
+	-- a round: ROUND n, then 3 2 1 (FIGHT comes from the server)
+	function HUD.RankedRound(data)
+		local f = RKH.board()
+		if f then
+			f.Visible = true
+		end
+		RKH.round, RKH.ends = data.Round or 1, nil
+		RKH.setScore(data.Me, data.Them)
+		local span = math.max(tonumber(data.Countdown) or 3, 0.3)
+		local n = math.max(1, math.floor(span + 0.5))
+		local step = span / (n + 1)
+		local token = {}
+		RKH.countToken = token
+		HUD.RankedCall("ROUND " .. tostring(data.Round or 1), Color3.fromRGB(255, 212, 64), string.format("%d - %d", data.Me or 0, data.Them or 0), step * 0.8)
+		for k = 1, n do
+			task.delay(k * step, function()
+				if RKH.countToken == token then
+					HUD.RankedCall(tostring(n - k + 1), Color3.new(1, 1, 1), nil, step * 0.7)
+				end
+			end)
+		end
+	end
+	function HUD.RankedFight(data)
+		RKH.countToken = nil
+		RKH.round, RKH.ends = data.Round or RKH.round, tonumber(data.Ends)
+		RKH.setScore(data.Me, data.Them)
+		HUD.RankedCall("FIGHT!", Color3.fromRGB(255, 90, 70), nil, 0.6)
+	end
+	function HUD.RankedRoundEnd(data, myUserId)
+		RKH.ends = nil
+		RKH.setScore(data.Me, data.Them)
+		local how = tostring(data.How or "")
+		local mine = data.WinnerId ~= nil and data.WinnerId == myUserId
+		local big = (how == "KO" and "K.O.!") or (how == "RING OUT" and "RING OUT!") or (how == "TIME" and (data.WinnerId and "TIME!" or "DRAW")) or how
+		local sub = data.Winner and (mine and "YOU TAKE THE ROUND" or (string.upper(tostring(data.Winner)) .. " TAKES THE ROUND")) or "NOBODY TAKES IT"
+		HUD.RankedCall(big, mine and Color3.fromRGB(120, 220, 255) or Color3.fromRGB(255, 110, 90), sub, 1.4)
+	end
+	-- the result card (6 s), then the scoreboard comes down
+	function HUD.RankedResult(data)
+		RKH.countToken, RKH.ends = nil, nil
+		if data.Result ~= "Off" then
+			local win, draw = data.Result == "Win", data.Result == "Draw"
+			local color = (draw and Color3.fromRGB(200, 204, 225)) or (win and Color3.fromRGB(255, 212, 64)) or Color3.fromRGB(255, 90, 80)
+			local _, tier = RKH.tierOf(data.Rating or 0)
+			local d = tonumber(data.Delta) or 0
+			local dText = string.format('<font color="%s">%s%d</font>', d >= 0 and "#7CE08A" or "#FF7A6E", d >= 0 and "+" or "", d)
+			local extra = (data.Promoted and "PROMOTED!  ") or (data.Demoted and "DEMOTED  ") or ""
+			if data.Placement then
+				extra ..= string.format("PLACEMENT %d / %d", data.Placement + 0, data.Of or 10)
+			end
+			RKH.showCard({
+				Kicker = "RANKED DUEL" .. (data.How == "LEFT" and "  ·  THEY LEFT" or ""),
+				Title = draw and "DRAW" or (win and "VICTORY" or "DEFEAT"),
+				Line1 = string.format("%d - %d  vs  %s", data.Me or 0, data.Them or 0, tostring(data.Opp or "?")),
+				Line2 = string.format('%d %s  <font color="%s">%s</font>', tonumber(data.Rating) or 0, dText, RKH.hex(tier.Color), tostring(data.Tier or tier.Name)),
+				Line3 = extra,
+				Line4 = "",
+			}, color, 6)
+			if data.Promoted then
+				HUD.RankedCall(tostring(data.Tier or tier.Name), tier.Color, "PROMOTED", 1.6)
+			end
+		end
+		task.delay(data.Result == "Off" and 0 or 5, function()
+			if RKH.top then
+				RKH.top.Visible = false
+			end
+			if RKH.topConn then
+				RKH.topConn:Disconnect()
+				RKH.topConn = nil
+			end
+		end)
+	end
+	-- everyone else: a duel starting, a duel won
+	function HUD.RankedFeed(kind, data, myUserId)
+		if kind == "Match" then
+			local a, b = data.A or {}, data.B or {}
+			if a.UserId == myUserId or b.UserId == myUserId then
+				return
+			end
+			HUD.Notice(string.format("RANKED DUEL on the Sky Coffin: %s (%s) vs %s (%s)", tostring(a.Name), tostring(a.Tier), tostring(b.Name), tostring(b.Tier)), Color3.fromRGB(255, 160, 150))
+		elseif kind == "Over" then
+			if data.Winner then
+				HUD.Notice(string.format("RANKED: %s beat %s %s", tostring(data.Winner), tostring(data.Loser), tostring(data.Score or "")), Color3.fromRGB(255, 212, 64))
+			else
+				HUD.Notice(string.format("RANKED: %s and %s drew", tostring(data.A), tostring(data.B)), Color3.fromRGB(200, 204, 225))
+			end
+		end
 	end
 
 	-- (a controller's first pick in either panel)

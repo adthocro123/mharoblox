@@ -357,7 +357,9 @@ end
 
 local function broadcast(effectId, casterChar, data, exceptPlayer)
 	for _, plr in Players:GetPlayers() do
-		if plr ~= exceptPlayer then
+		-- (round 95) a player a dev's in (Kit.PS: their PossessedBy) sees their
+		-- own body's moves too - their machine didn't play them
+		if plr ~= exceptPlayer or plr:GetAttribute("PossessedBy") ~= nil then
 			PlayVFX:FireClient(plr, effectId, casterChar, data)
 		end
 	end
@@ -380,7 +382,8 @@ local finishedBy = setmetatable({}, { __mode = "k" })
 local KAIJU = (Config.FindAbilityById and Config.FindAbilityById("Kaiju")) or {}
 
 local function addUlt(player, amount)
-	if not player or player:GetAttribute("UltActive") then
+	-- ((round 95) nor while a dev's in their body: Kit.PS - it's his fight)
+	if not player or player:GetAttribute("UltActive") or player:GetAttribute("PossessedBy") ~= nil then
 		return
 	end
 	local quirk = Config.Quirks[player:GetAttribute("Quirk") or ""]
@@ -437,6 +440,11 @@ local function damage(attacker, model, amount, opts)
 	end
 	-- (round 87) a dev's own body, parked while he's in another (Kit.PS): out of every fight
 	if Reactions.parked and Reactions.parked[model] then
+		return false
+	end
+	-- (round 95) a ranked duel (Kit.RK): its two fight only each other, and
+	-- only while a round's on
+	if Reactions.RK and Reactions.RK.apart(attacker, model, opts) then
 		return false
 	end
 	-- (round 69) one of Twice's doubles: his own hits go through it, and
@@ -555,6 +563,11 @@ local function damage(attacker, model, amount, opts)
 	end
 	if Reactions.NR and model:GetAttribute("Boss") then
 		Reactions.NR.hit(attacker, model, amount) -- (round 71: the raid's damage board)
+	end
+	-- (round 95) a ranked duel's blow that would have killed leaves them at 1
+	-- and down: the round's over (Kit.RK) - nobody dies up there
+	if Reactions.RK and hum.Health - amount < 1 and Reactions.RK.downs(attacker, model) then
+		amount = math.max(0, math.floor(hum.Health) - 1)
 	end
 	hum:TakeDamage(amount)
 	if hum.Health <= 0 then
@@ -992,7 +1005,9 @@ end
 local function setRagdoll(model, on)
 	local hum = model:FindFirstChildOfClass("Humanoid")
 	local root = model:FindFirstChild("HumanoidRootPart")
-	local isPlayer = Players:GetPlayerFromCharacter(model) ~= nil
+	-- ((round 95) a player a dev's in is run as a dummy is: the server holds
+	-- the body while it's down, and stands it up - Kit.PS)
+	local isPlayer = Players:GetPlayerFromCharacter(model) ~= nil and model:GetAttribute("Possessed") ~= true
 	if on then
 		for _, motor in model:GetDescendants() do
 			if motor:IsA("Motor6D") and motor.Enabled and motor.Name ~= "Root" and motor.Name ~= "RootJoint"
@@ -11140,6 +11155,9 @@ local function handleFinisher(player, char, root, target, aim)
 	end
 	if finishing[target] or target:GetAttribute("Finishing") or char:GetAttribute("Finishing") then
 		return
+	end
+	if Reactions.RK and Reactions.RK.noFinish(char, target) then
+		return -- (round 95: no finisher in a ranked duel - nobody dies up there)
 	end
 	if (troot.Position - root.Position).Magnitude > (FINISH.Range or 10) + 4 then
 		return
@@ -24944,8 +24962,8 @@ end
 ---------------------------------------------------------------------------
 -- (round 87) POSSESS (Config.Possess): a dev takes over a training dummy or
 -- the raid's High-End Nomu. Who: the dev flight's people (Kit.DF.allowed),
--- checked here on every request; a player is never a body, and a body has
--- one dev at a time. His own body is PARKED where he left it - anchored,
+-- checked here on every request; a body has one dev at a time. (Round 95:
+-- a PLAYER is a body too - Possess.Players - see PS.heroMove.) His own body is PARKED where he left it - anchored,
 -- hidden on every screen, out of every hitbox and every hit (Reactions.
 -- parked), earning nothing - and given back exactly as it was. The body's
 -- AI stands aside (its Possessed attribute: the dummy brains and the raid's
@@ -24970,6 +24988,7 @@ do
 		rec = {}, -- [player] = the body he's in (and his own, parked). (round 87, in Studio) none of these are weak: the engine can drop an Instance key from a weak table while the instance lives, and a lost record left a dev stuck in a dummy
 		back = {}, -- [player] = his record while the wisp carries him home
 		byBody = {}, -- [body] = the player in it
+		victims = {}, -- (round 95) [a player whose body a dev's in] = his record
 		parked = {}, -- [char] = true: its player is elsewhere
 		last = {}, -- [player] = { [what] = os.clock() } (requests too close together)
 		-- what's switched off on a parked body (its parts and decals go clear)
@@ -24980,11 +24999,19 @@ do
 		BODY_TAKEN = { "Grabbed", "BeingFinished", "Frozen", "Clashing" },
 		-- what the server holds a body for (its own rules run these)
 		HELD = { "Ragdolled", "Grabbed", "Frozen", "BeingFinished" },
-		CDS = { "M1", "Dash", "Swipe", "Slam", "Charge", "Roar" },
+		CDS = { "M1", "Dash", "Swipe", "Slam", "Charge", "Roar", "Ability1", "Ability2", "Ability3", "Special", "Extra" },
 		-- (round 87 review) what a body can be asked to do (anything else is dropped)
-		ACTS = { M1 = true, Block = true, Dash = true, Evade = true, Swipe = true, Slam = true, Charge = true, Roar = true },
+		-- ((round 95) a player's: Move / MoveUp - a move of theirs, its key
+		-- let go - and Aim, where he's aiming as it goes)
+		ACTS = { M1 = true, Block = true, Dash = true, Evade = true, Swipe = true, Slam = true, Charge = true, Roar = true, Move = true, MoveUp = true, Aim = true },
+		-- (round 95) a player can't be taken while one of these has them (as
+		-- BODY_TAKEN for any body): a finisher, a kaiju, a carry, UNO...
+		PLAYER_TAKEN = { "Parked", "Finishing", "Kaiju", "Submerged", "PlayingUno", "DevCarrying", "CarriedBy", "HawksCarriedBy", "TimeStopped" },
+		-- (round 95) a player's own moves: the slot his key is, as their move index
+		SLOTS = { Ability1 = 1, Ability2 = 2, Ability3 = 3, Special = Config.SPECIAL_INDEX, Extra = Config.EXTRA_INDEX },
 	}
 	Kit.PS = PS
+	Destruction.Possess = PS -- (round 95: for the tests, as Kit.CR is: Destruction.Carry)
 	Reactions.parked = PS.parked -- (damage() and stunProof() ask: a parked body is out of every fight)
 
 	function PS.allowed(player)
@@ -24992,8 +25019,9 @@ do
 	end
 	-- (round 87 review) he's away: in a body, or his soul on its way home -
 	-- onKnockedOut credits him nothing meanwhile
+	-- ((round 95) and a player a dev's in: whatever their body does is his)
 	function PS.away(player)
-		return PS.rec[player] ~= nil or PS.back[player] ~= nil
+		return PS.rec[player] ~= nil or PS.back[player] ~= nil or PS.victims[player] ~= nil
 	end
 	function PS.gap(player, key, t)
 		local now = os.clock()
@@ -25030,19 +25058,27 @@ do
 		return math.clamp(d * (T.PerStud or 0.004), T.Min or 0.38, T.Max or 0.85)
 	end
 
-	-- what a model is to us: "Dummy" or "Nomu" (with its raid), or nil -
-	-- not a body (a player, a player's double, a boss that isn't the raid's)
+	-- what a model is to us: "Dummy" or "Nomu" (with its raid), (round 95)
+	-- "Player" (with who), or nil - not a body (a player's double, a boss
+	-- that isn't the raid's; a player with Possess.Players off)
 	function PS.bodyKind(model)
 		if typeof(model) ~= "Instance" or not model:IsA("Model") or not model:IsDescendantOf(workspace) then
 			return nil
 		end
-		if Players:GetPlayerFromCharacter(model) or model:GetAttribute("TwiceClone") then
+		if model:GetAttribute("TwiceClone") then
 			return nil
 		end
 		local hum = model:FindFirstChildOfClass("Humanoid")
 		local root = model:FindFirstChild("HumanoidRootPart")
 		if not hum or not root or hum.Health <= 0 then
 			return nil
+		end
+		local owner = Players:GetPlayerFromCharacter(model)
+		if owner then
+			if CFG.Players == false then
+				return nil
+			end
+			return "Player", owner
 		end
 		local r = Kit.NR and Kit.NR.active
 		if r and r.Model == model then
@@ -25067,6 +25103,10 @@ do
 	end
 	-- the name his screen shows for it
 	function PS.label(model, kind)
+		if kind == "Player" then
+			local owner = Players:GetPlayerFromCharacter(model)
+			return string.upper(owner and owner.DisplayName or model.Name)
+		end
 		if kind == "Nomu" then
 			return tostring(model:GetAttribute("BossName") or "HIGH-END NOMU")
 		end
@@ -25310,9 +25350,11 @@ do
 			Evasive = body:GetAttribute("Evasive"), Blocking = g ~= nil and g.Blocking == true,
 		}
 		rec.Saved = s
-		pcall(function()
-			hum:MoveTo(root.Position) -- (whatever its AI was walking to: forgotten)
-		end)
+		if rec.Kind ~= "Player" then
+			pcall(function()
+				hum:MoveTo(root.Position) -- (whatever its AI was walking to: forgotten)
+			end)
+		end
 		if s.Blocking then
 			setBlocking(body, false)
 		end
@@ -25320,7 +25362,24 @@ do
 			Kit.counters[body] = nil
 			body:SetAttribute("Countering", nil)
 		end
-		hum.UseJumpPower = true
+		if rec.Kind == "Player" then
+			-- (round 95) a player: their walk, their jump, their meters stay
+			-- theirs (his machine runs them as theirs would); their guard's
+			-- down when he gives them back, a flight of theirs ends, and
+			-- they're marked (their screen says who has them)
+			s.Blocking = false
+			PS.victims[rec.Victim] = rec
+			rec.Victim:SetAttribute("PossessedBy", rec.Player.UserId)
+			if Kit.DF and Kit.DF.setPower and rec.Victim:GetAttribute("DevFlight") then
+				pcall(Kit.DF.setPower, rec.Victim, false)
+			end
+			-- (a held charge of theirs lets go)
+			if HoldMoves.active[rec.Victim] then
+				pcall(HoldMoves.release, rec.Victim)
+			end
+		else
+			hum.UseJumpPower = true
+		end
 		if rec.Kind == "Dummy" then
 			local D = CFG.Dummy or {}
 			hum.WalkSpeed = D.WalkSpeed or 16
@@ -25331,7 +25390,7 @@ do
 			if s.Evasive == nil then
 				body:SetAttribute("Evasive", 0)
 			end
-		else
+		elseif rec.Kind == "Nomu" then
 			hum.JumpPower = (CFG.Nomu or {}).JumpPower or 58
 			body:SetAttribute("BaseJumpPower", hum.JumpPower)
 			if rec.Raid then
@@ -25360,6 +25419,14 @@ do
 		body:SetAttribute("PossessBusy", nil)
 		body:SetAttribute("Possessed", nil)
 		body:SetAttribute("PossessedBy", nil)
+		-- (round 95) a player: theirs again
+		local victim = rec.Victim
+		if victim and PS.victims[victim] == rec then
+			PS.victims[victim] = nil
+			if victim:GetAttribute("PossessedBy") ~= nil then
+				victim:SetAttribute("PossessedBy", nil)
+			end
+		end
 		pcall(function()
 			rec.Player.ReplicationFocus = s.Focus
 		end)
@@ -25381,15 +25448,20 @@ do
 			if (g ~= nil and g.Blocking == true) ~= (s.Blocking == true) then
 				setBlocking(body, s.Blocking == true)
 			end
-			pcall(function()
-				hum:Move(Vector3.zero)
-			end)
-			pcall(function()
-				hum:MoveTo(root.Position)
-			end)
+			if not victim then
+				pcall(function()
+					hum:Move(Vector3.zero)
+				end)
+				pcall(function()
+					hum:MoveTo(root.Position)
+				end)
+			end
 		end
-		-- (the server's again, as every dummy and the raid's Nomu is)
-		if root then
+		-- (the server's again, as every dummy and the raid's Nomu is - (round
+		-- 95) a player's, their own machine's)
+		if root and victim then
+			PS.playerOwn(body, root, victim)
+		elseif root then
 			PS.serverOwn(body, root)
 		end
 		rec.owner = nil
@@ -25407,6 +25479,36 @@ do
 			end
 			pcall(function()
 				root:SetNetworkOwner(nil)
+			end)
+			return true
+		end
+		if give() then
+			return
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			while os.clock() - t0 < (CFG.OwnerWait or 20) do
+				task.wait(0.2)
+				if give() then
+					return
+				end
+			end
+		end)
+	end
+
+	-- (round 95) a player's body back to their own machine, as it is when
+	-- nobody's in it (at once, or as soon as an anchor lets go) - unless
+	-- someone's taken it again, or it isn't theirs any more
+	function PS.playerOwn(body, root, victim)
+		local function give()
+			if PS.byBody[body] ~= nil or not root.Parent or victim.Parent == nil or victim.Character ~= body then
+				return true
+			end
+			if root.Anchored then
+				return false
+			end
+			pcall(function()
+				root:SetNetworkOwner(victim)
 			end)
 			return true
 		end
@@ -25470,6 +25572,22 @@ do
 		if not kind then
 			return PS.deny(player, "NotABody")
 		end
+		-- (round 95) a player: never his own body, another dev's parked one,
+		-- someone in a body themselves (or on their way home), someone in a
+		-- ranked duel (Kit.RK) - nor while a finisher, a carry, a kaiju has them
+		if kind == "Player" then
+			if raid == player or model == player.Character then
+				return PS.deny(player, "NotABody")
+			end
+			if PS.parked[model] or PS.rec[raid] or PS.back[raid] or PS.victims[raid] or raid:GetAttribute("RankedDuel") ~= nil then
+				return PS.deny(player, "Busy")
+			end
+			for _, flag in PS.PLAYER_TAKEN do
+				if model:GetAttribute(flag) then
+					return PS.deny(player, "Busy")
+				end
+			end
+		end
 		if model:GetAttribute("Possessed") or PS.byBody[model] then
 			return PS.deny(player, "Taken")
 		end
@@ -25483,6 +25601,9 @@ do
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		if not (root and hum and alive(char)) then
 			return PS.deny(player, "You")
+		end
+		if player:GetAttribute("RankedDuel") ~= nil then
+			return PS.deny(player, "You") -- (round 95: not in a ranked duel, Kit.RK)
 		end
 		local rec, from, hop = PS.rec[player], nil, nil
 		if rec then
@@ -25521,6 +25642,7 @@ do
 			from = PS.chest(rec.OwnRoot)
 		end
 		rec.Body, rec.Hum, rec.Root, rec.Kind, rec.Raid = model, model:FindFirstChildOfClass("Humanoid"), model:FindFirstChild("HumanoidRootPart"), kind, raid
+		rec.Raid, rec.Victim = kind == "Nomu" and raid or nil, kind == "Player" and raid or nil -- (round 95)
 		rec.m1, rec.dashAt = nil, nil
 		PS.take(rec)
 		PS.rec[player] = rec
@@ -25745,6 +25867,47 @@ do
 		-- (the move set its own cooldown as it started)
 		PS.cd(rec, act, (r.Next[act] or now) - now)
 	end
+	-- (round 95) A PLAYER'S OWN MOVES - 1 2 3, R, 4 (Possess.Moves.HeroKeys):
+	-- asked for as theirs (Kit.onUseAbility - their hero, their form, their
+	-- cooldowns, every rule a move of theirs goes by, run here; everyone's
+	-- screen plays it, theirs too), aimed where he aims; never their ult.
+	-- MoveUp lets go of a held one; Aim follows his aim while one goes. A
+	-- move that went puts its cooldown on the body for his screen.
+	function PS.heroMove(rec, act, data)
+		local victim, root = rec.Victim, rec.Root
+		if not victim or not victim.Parent or victim.Character ~= rec.Body then
+			return
+		end
+		local dir = (PS.vec(data.Dir) and data.Dir.Magnitude > 0.01) and data.Dir.Unit or root.CFrame.LookVector
+		local aim = PS.aimPoint(rec, data.Aim, CFG.MoveReach or 600)
+		Kit.liveAim[victim] = { Dir = dir, Time = os.clock() }
+		if act == "Aim" then
+			return
+		end
+		if act == "MoveUp" then
+			Kit.onUseAbility(victim, Config.RELEASE_INDEX, dir, aim)
+			return
+		end
+		local index = type(data.Slot) == "string" and PS.SLOTS[data.Slot] or nil
+		if not index then
+			return
+		end
+		local quirk = victim:GetAttribute("Quirk")
+		local alt, ult, pick = victim:GetAttribute("QuirkAlt") == true, victim:GetAttribute("UltActive") == true, victim:GetAttribute("QuirkPick")
+		local ability = Config.GetAbility(quirk, index, alt, ult, pick)
+		if not ability then
+			return
+		end
+		local key = Config.CooldownKey(quirk, index, alt, ult, pick)
+		local before = cooldowns[victim] and cooldowns[victim][key]
+		local seed = (typeof(data.Seed) == "number" and data.Seed == data.Seed) and data.Seed or math.random(1, 2 ^ 30)
+		local origin = PS.vec(data.Origin) and data.Origin or root.Position
+		Kit.onUseAbility(victim, index, dir, aim, seed, origin, data.Air == true)
+		local after = cooldowns[victim] and cooldowns[victim][key]
+		if after and after ~= before and type(ability.Cooldown) == "number" then
+			PS.cd(rec, data.Slot, ability.Cooldown)
+		end
+	end
 	function PS.act(rec, data)
 		if not alive(rec.Body) then
 			return
@@ -25752,6 +25915,10 @@ do
 		local act = data.Act
 		if rec.Kind == "Nomu" then
 			PS.nomu(rec, act, data)
+		elseif act == "Move" or act == "MoveUp" or act == "Aim" then
+			if rec.Kind == "Player" then
+				PS.heroMove(rec, act, data)
+			end
 		elseif act == "M1" then
 			PS.punch(rec, data)
 		elseif act == "Block" then
@@ -25783,6 +25950,19 @@ do
 			end
 		end
 	end
+	-- (round 95) what a possessed player's own machine asks (the remote's
+	-- own handler sends it here): nothing - their body's his - but their
+	-- reset still resets them (and he's sent home first)
+	function PS.fromVictim(victim, index, kind)
+		local rec = PS.victims[victim]
+		if rec and index == Config.PARKOUR_INDEX and kind == "PossessReset" and PS.gap(victim, "reset", 1) then
+			local hum = rec.Hum
+			PS.stop(rec.Player, "Down")
+			if hum and hum.Parent and hum.Health > 0 then
+				hum.Health = 0
+			end
+		end
+	end
 	-- true: it's been dealt with (one of ours - or anything at all from a
 	-- player whose own body is parked: it does nothing)
 	function PS.route(player, char, index, kind, data)
@@ -25811,6 +25991,12 @@ do
 		end
 		local body = rec.Body
 		if not body.Parent or not body:IsDescendantOf(workspace) or not rec.Root.Parent or rec.Hum.Health <= 0 then
+			PS.stop(player, "Down")
+			return
+		end
+		-- (round 95) a player: gone, or in a new body of their own
+		local victim = rec.Victim
+		if victim and (not victim.Parent or victim.Character ~= body) then
 			PS.stop(player, "Down")
 			return
 		end
@@ -25869,6 +26055,12 @@ do
 		PS.stop(player, "Left")
 		PS.back[player] = nil
 		PS.last[player] = nil -- (round 87, in Studio: not weak any more)
+		-- (round 95) a player someone's in, leaving: he's sent home
+		local vr = PS.victims[player]
+		if vr then
+			PS.stop(vr.Player, "Down")
+		end
+		PS.victims[player] = nil
 	end)
 end
 
@@ -30349,6 +30541,11 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 	if Kit.HA and Kit.HA.route(player, char, index, aimDir, aimPos) then
 		return
 	end
+	-- (round 95) ranked duels (Kit.RK): the queue - and in a duel, between
+	-- its rounds, nothing (only the guard going down)
+	if Kit.RK and Kit.RK.route(player, char, index, aimDir, aimPos) then
+		return
+	end
 	-- (round 74) stopped in DIO's time: nothing
 	if char and char:GetAttribute("TimeStopped") and not (index == Config.BLOCK_INDEX and aimDir ~= true) then
 		return
@@ -30607,7 +30804,15 @@ function Kit.runMove(handler, player, char, root, ability, ...)
 	handler(player, char, root, ability, ...)
 end
 
-UseAbility.OnServerEvent:Connect(Kit.onUseAbility)
+-- ((round 95) a player a dev's in: their own machine's requests do nothing
+-- - Kit.PS.fromVictim; the body's moves are his, run as theirs)
+UseAbility.OnServerEvent:Connect(function(player, ...)
+	if Kit.PS and Kit.PS.victims[player] then
+		Kit.PS.fromVictim(player, ...)
+		return
+	end
+	Kit.onUseAbility(player, ...)
+end)
 
 local lastSwitch = {} -- [player] = os.clock() of the last quirk switch
 local SWITCH_COOLDOWN = 2.5
@@ -30621,6 +30826,12 @@ SelectQuirk.OnServerEvent:Connect(function(player, quirkName)
 	end
 	if Kit.AE and Kit.AE.heroLocked(player) then
 		return -- (round 87) HERO SHUFFLE deals the heroes till it ends
+	end
+	if Kit.PS and Kit.PS.victims[player] then
+		return -- (round 95) a dev's in their body: their hero stays till he leaves
+	end
+	if Kit.RK and Kit.RK.foe(player) then
+		return -- (round 95) in a ranked duel: the hero they came with
 	end
 	local now = os.clock()
 	if not canTest(player) and not player:GetAttribute("NoCooldowns") and now - (lastSwitch[player] or -math.huge) < SWITCH_COOLDOWN then
@@ -33381,6 +33592,878 @@ end)()
 	end)
 end)()
 
+
+---------------------------------------------------------------------------
+-- (round 95) RANKED DUELS (Config.Ranked) - the owner: "Let's do 3!" (ranked
+-- duels in the Sky Coffin). The phone's RANKED app asks to join the queue
+-- (UseAbility, PARKOUR_INDEX: RankedJoin / RankedLeave - checked here); the
+-- two in it nearest in rating (Match: within Range, wider the longer they
+-- wait) are paired once the stage is free. Kurogiri's mist takes them up to
+-- the Sky Coffin's Sports Festival stage, on their marks, healed, cooldowns
+-- fresh, the ult meter empty, a dev flight over; held there through the
+-- countdown (anchored - their moves wait: RankedHold). A ROUND ends on a KO
+-- (the blow that would have killed leaves them at 1 and down: damage()
+-- asks RK.downs), a RING OUT (off the top of the stage and down to it: RK.
+-- outside) or, at RoundTime, on health left (even: a draw). First to Wins
+-- (MaxRounds at most; level then: a draw). Meanwhile nobody else touches
+-- them and they touch nobody else (RK.apart), anyone else on the stage is
+-- thrown off it, nobody finishes anyone, no hero switch, no dev flight, no
+-- possessing or being possessed. THE RATING: Elo (Config.RankedDelta; KNew
+-- for their first Placement matches), never under Floor; leaving mid-duel
+-- loses it. Saved per player (DataStore, UpdateAsync; Studio keeps it in
+-- memory unless StudioSaves) and the best of every server on an ordered
+-- store, published with whoever's here as ReplicatedStorage.RankedBoard
+-- (JSON) for the RANKED app; their RankedRating / RankedTier / RankedPlayed
+-- / RankedWins / RankedLosses attributes, and over their head the tier and
+-- rating once they've played. (In a function of its own: the main chunk is
+-- at its local limit.)
+---------------------------------------------------------------------------
+xpcall(function()
+	local RC = Config.Ranked or {}
+	local RK = {
+		KINDS = { RankedJoin = true, RankedLeave = true },
+		queue = {}, -- { { Player, At } } in the order they joined
+		data = {}, -- [player] = { Rating, Played, Wins, Losses, Best }
+		loaded = {}, -- [player] = true once their save was read (never saved over what couldn't be)
+		last = {}, -- [player] = os.clock() of their last ask
+		pushed = {}, -- [char] = os.clock() till they can be thrown off the stage again
+		names = {}, -- [userId] = their name (the board)
+		stored = {}, -- the board's last page from the ordered store
+		seq = 0,
+		match = nil, -- the duel on the stage
+	}
+	Kit.RK = RK
+	Reactions.RK = RK -- (damage() asks: RK.apart, RK.downs; the finisher, RK.noFinish)
+	Destruction.Ranked = RK -- (the tests)
+
+	-- saved for real: a live server - Studio only with StudioSaves
+	if RC.Enabled ~= false and (not RunService:IsStudio() or RC.StudioSaves == true) then
+		pcall(function()
+			RK.store = game:GetService("DataStoreService"):GetDataStore(RC.DataStore or "QuirkBattlegrounds_Ranked_v1")
+		end)
+		pcall(function()
+			RK.boardStore = game:GetService("DataStoreService"):GetOrderedDataStore(RC.Board or "QuirkBattlegrounds_RankedBoard_v1")
+		end)
+	end
+	RK.boardValue = ReplicatedStorage:FindFirstChild("RankedBoard") or Instance.new("StringValue")
+	RK.boardValue.Name = "RankedBoard"
+	RK.boardValue.Parent = ReplicatedStorage
+
+	---------------------------------------------------------------------------
+	-- their record
+	---------------------------------------------------------------------------
+	function RK.blank()
+		local start = RC.Start or 1000
+		return { Rating = start, Played = 0, Wins = 0, Losses = 0, Best = start }
+	end
+	-- on their player (the RANKED app, the board) and over their head
+	function RK.show(player)
+		local d = RK.data[player]
+		if not d or not player.Parent then
+			return
+		end
+		local _, tier = Config.RankedTier(d.Rating)
+		player:SetAttribute("RankedRating", d.Rating)
+		player:SetAttribute("RankedPlayed", d.Played)
+		player:SetAttribute("RankedWins", d.Wins)
+		player:SetAttribute("RankedLosses", d.Losses)
+		player:SetAttribute("RankedTier", tier.Name)
+		RK.tag(player)
+	end
+	function RK.load(player)
+		local d = RK.blank()
+		if RK.store then
+			local ok, saved = pcall(function()
+				return RK.store:GetAsync("r_" .. player.UserId)
+			end)
+			if not ok then
+				return -- (DataStores down: no ranked for them this time - and nothing saved over it)
+			end
+			if type(saved) == "table" then
+				for k, v in saved do
+					if type(d[k]) == "number" and type(v) == "number" and v == v then
+						d[k] = math.floor(v)
+					end
+				end
+			end
+		end
+		if not player.Parent then
+			return
+		end
+		RK.data[player] = d
+		RK.loaded[player] = true
+		RK.show(player)
+	end
+	function RK.save(player)
+		local d = RK.data[player]
+		if not (RK.store and d and RK.loaded[player]) then
+			return
+		end
+		local copy, id = table.clone(d), player.UserId
+		pcall(function()
+			RK.store:UpdateAsync("r_" .. id, function()
+				return copy
+			end)
+		end)
+		if RK.boardStore and copy.Played > 0 then
+			pcall(function()
+				RK.boardStore:SetAsync("r_" .. id, math.floor(copy.Rating))
+			end)
+		end
+	end
+	-- over their head: the tier and the rating (once they've played one)
+	function RK.tag(player)
+		local char = player.Character
+		local head = char and char:FindFirstChild("Head")
+		local d = RK.data[player]
+		local old = head and head:FindFirstChild("RankedTag")
+		if not head or RC.Tag == false or not d or d.Played <= 0 then
+			if old then
+				old:Destroy()
+			end
+			return
+		end
+		local _, tier = Config.RankedTier(d.Rating)
+		local bb = old
+		if not bb then
+			bb = Instance.new("BillboardGui")
+			bb.Name = "RankedTag"
+			bb.Size = UDim2.fromOffset(160, 20)
+			bb.StudsOffset = Vector3.new(0, 2.7, 0)
+			bb.MaxDistance = RC.TagDistance or 70
+			bb.LightInfluence = 0
+			local t = Instance.new("TextLabel")
+			t.Name = "Text"
+			t.Size = UDim2.fromScale(1, 1)
+			t.BackgroundTransparency = 1
+			t.Font = Enum.Font.GothamBlack
+			t.TextScaled = true
+			t.TextStrokeTransparency = 0.3
+			t.Parent = bb
+			bb.Parent = head
+		end
+		local t = bb:FindFirstChild("Text")
+		if t then
+			t.Text = string.format("%s  %d", tier.Name, d.Rating)
+			t.TextColor3 = tier.Color
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- the board: the best of every server and whoever's here
+	---------------------------------------------------------------------------
+	function RK.publish()
+		local byId = {}
+		for _, e in RK.stored do
+			byId[e.UserId] = { UserId = e.UserId, Name = e.Name, Rating = e.Rating }
+		end
+		for _, plr in Players:GetPlayers() do
+			local d = RK.data[plr]
+			if d and d.Played > 0 then
+				byId[plr.UserId] = { UserId = plr.UserId, Name = plr.DisplayName, Rating = d.Rating, Wins = d.Wins, Losses = d.Losses }
+			end
+		end
+		local list = {}
+		for _, e in byId do
+			local _, tier = Config.RankedTier(e.Rating)
+			e.Tier = tier.Name
+			table.insert(list, e)
+		end
+		table.sort(list, function(a, b)
+			return a.Rating > b.Rating or (a.Rating == b.Rating and a.UserId < b.UserId)
+		end)
+		while #list > (RC.BoardSize or 10) do
+			table.remove(list)
+		end
+		pcall(function()
+			RK.boardValue.Value = game:GetService("HttpService"):JSONEncode(list)
+		end)
+		return list
+	end
+	function RK.readBoard()
+		if not RK.boardStore then
+			return
+		end
+		pcall(function()
+			local page = RK.boardStore:GetSortedAsync(false, RC.BoardSize or 10):GetCurrentPage()
+			local fresh = {}
+			for _, entry in page do
+				local id = tonumber(string.match(entry.key, "%d+"))
+				if id then
+					if not RK.names[id] then
+						local ok, name = pcall(function()
+							return Players:GetNameFromUserIdAsync(id)
+						end)
+						RK.names[id] = ok and name or ("Hero " .. id)
+					end
+					table.insert(fresh, { UserId = id, Name = RK.names[id], Rating = tonumber(entry.value) or 0 })
+				end
+			end
+			RK.stored = fresh
+		end)
+	end
+
+	---------------------------------------------------------------------------
+	-- the stage
+	---------------------------------------------------------------------------
+	-- the middle of the stage's top (nil: no Sky Coffin up there)
+	function RK.stage()
+		local SC = Kit.SC
+		if not (SC and SC.model and SC.model.Parent) then
+			return nil
+		end
+		local center = (SC.cfg and SC.cfg.Center) or Vector3.new(-70, 1600, 888)
+		return center + ((RC.Stage or {}).Offset or Vector3.new(0, 4.8, -10))
+	end
+	-- off the top of it and down to it (or far off it - the gate, the street)
+	function RK.outside(pos, stage)
+		local S = RC.Stage or {}
+		local rel = pos - stage
+		if rel.Y < -60 or Vector3.new(rel.X, 0, rel.Z).Magnitude > 400 then
+			return true
+		end
+		local half = S.Half or 42
+		return (math.abs(rel.X) > half or math.abs(rel.Z) > half) and rel.Y < (S.OutBelow or 1) + 3
+	end
+	-- their mark (side 1: -X, facing the other)
+	function RK.mark(stage, side)
+		local spot = (RC.Stage or {}).Spot or 22
+		local x = side == 1 and -spot or spot
+		local at = stage + Vector3.new(x, 3, 0)
+		return CFrame.lookAt(at, stage + Vector3.new(-x, 3, 0))
+	end
+
+	---------------------------------------------------------------------------
+	-- who's in it
+	---------------------------------------------------------------------------
+	function RK.foe(player)
+		local m = RK.match
+		if not m then
+			return nil
+		end
+		if m.P[1] == player then
+			return m.P[2]
+		elseif m.P[2] == player then
+			return m.P[1]
+		end
+		return nil
+	end
+	-- the duelist whose body this is
+	function RK.of(model)
+		local m = RK.match
+		if not m or typeof(model) ~= "Instance" then
+			return nil
+		end
+		for _, p in m.P do
+			if p.Character == model then
+				return p
+			end
+		end
+		return nil
+	end
+	-- (damage()) true: this hit isn't to land - a duelist and anyone but
+	-- their opponent, or between rounds
+	function RK.apart(attacker, model, opts)
+		local m = RK.match
+		if not m then
+			return false
+		end
+		local target = RK.of(model)
+		local from = typeof(attacker) == "Instance" and RK.foe(attacker) and attacker or nil
+		if not from then
+			local am = type(opts) == "table" and opts.AttackerModel or nil
+			from = am and RK.of(am) or nil
+		end
+		if not target and not from then
+			return false
+		end
+		return not (target and from and RK.foe(from) == target and m.Phase == "Fight")
+	end
+	-- (damage()) the blow that would have killed a duelist: the round's
+	-- their opponent's (true: they're left at 1)
+	function RK.downs(attacker, model)
+		local m = RK.match
+		local p = RK.of(model)
+		if not (m and p and m.Phase == "Fight") then
+			return false
+		end
+		RK.finish(m, RK.foe(p), "KO")
+		return true
+	end
+	function RK.noFinish(char, target)
+		return RK.match ~= nil and (RK.of(char) ~= nil or RK.of(target) ~= nil)
+	end
+	-- in a duel, when they can't do anything: their moves wait
+	function RK.route(player, char, index, kind, data)
+		if index == Config.PARKOUR_INDEX and type(kind) == "string" and RK.KINDS[kind] then
+			RK.request(player, kind)
+			return true
+		end
+		local m = RK.match
+		if m and m.Phase ~= "Fight" and RK.foe(player) then
+			return not (index == Config.BLOCK_INDEX and kind ~= true) -- (the guard going down always gets through)
+		end
+		return false
+	end
+
+	---------------------------------------------------------------------------
+	-- the queue
+	---------------------------------------------------------------------------
+	function RK.notice(player, text, color)
+		PlayVFX:FireClient(player, "Notice", nil, { Text = text, Color = color or Color3.fromRGB(255, 150, 120) })
+	end
+	-- why they can't duel right now (nil: they can)
+	function RK.why(player)
+		if RC.Enabled == false then
+			return "Ranked duels are off"
+		end
+		if not RK.loaded[player] then
+			return "Your ranked record hasn't loaded - try again in a moment"
+		end
+		local char = player.Character
+		if not (char and char:FindFirstChild("HumanoidRootPart") and alive(char)) then
+			return "You need to be up and about"
+		end
+		local quirk = player:GetAttribute("Quirk")
+		if not quirk or not Config.Quirks[quirk] then
+			return "Pick a hero first"
+		end
+		if Config.IsDevOnly(quirk) then
+			return "Dev-only heroes can't play ranked"
+		end
+		if (Kit.PS and Kit.PS.away(player)) or char:GetAttribute("Parked") then
+			return "Not while you're in another body (or someone's in yours)"
+		end
+		if not RK.stage() then
+			return "The Sky Coffin isn't up"
+		end
+		return nil
+	end
+	function RK.queued(player)
+		for i, q in RK.queue do
+			if q.Player == player then
+				return i
+			end
+		end
+		return nil
+	end
+	function RK.join(player)
+		if RK.queued(player) or RK.foe(player) then
+			return false
+		end
+		local why = RK.why(player)
+		if why then
+			RK.notice(player, why)
+			return false
+		end
+		table.insert(RK.queue, { Player = player, At = os.clock() })
+		player:SetAttribute("RankedQueued", workspace:GetServerTimeNow())
+		RK.notice(player, RK.match and "In the ranked queue - you're up once the stage is free" or "Looking for an opponent...", Color3.fromRGB(120, 220, 255))
+		return true
+	end
+	function RK.leave(player, told)
+		local i = RK.queued(player)
+		if i then
+			table.remove(RK.queue, i)
+		end
+		if player:GetAttribute("RankedQueued") ~= nil then
+			player:SetAttribute("RankedQueued", nil)
+		end
+		if told and i then
+			RK.notice(player, "Left the ranked queue", Color3.fromRGB(200, 204, 225))
+		end
+	end
+	function RK.request(player, kind)
+		local now = os.clock()
+		if now - (RK.last[player] or -1e9) < 0.4 then
+			return
+		end
+		RK.last[player] = now
+		if kind == "RankedJoin" then
+			RK.join(player)
+		elseif kind == "RankedLeave" then
+			RK.leave(player, true)
+		end
+	end
+	-- how far apart in rating they'll be paired, having waited this long
+	function RK.range(q, now)
+		local MM = RC.Match or {}
+		return (MM.Range or 200) + (MM.Widen or 100) * math.floor((now - q.At) / math.max(MM.WidenEvery or 10, 1))
+	end
+	-- the two to pair (indexes in the queue): the longest waiting first, with
+	-- whoever's nearest them in rating - anyone who can't right now waits
+	function RK.pair()
+		local now = os.clock()
+		for i = #RK.queue, 1, -1 do
+			if not RK.queue[i].Player.Parent then
+				table.remove(RK.queue, i)
+			end
+		end
+		local ready = {}
+		for i, q in RK.queue do
+			if RK.why(q.Player) == nil then
+				table.insert(ready, i)
+			end
+		end
+		for _, i in ready do
+			local a = RK.queue[i]
+			local ra = RK.data[a.Player].Rating
+			local best, bestGap
+			for _, j in ready do
+				if j ~= i then
+					local b = RK.queue[j]
+					local gap = math.abs(ra - RK.data[b.Player].Rating)
+					if gap <= math.max(RK.range(a, now), RK.range(b, now)) and (not bestGap or gap < bestGap) then
+						best, bestGap = j, gap
+					end
+				end
+			end
+			if best then
+				return i, best
+			end
+		end
+		return nil
+	end
+
+	---------------------------------------------------------------------------
+	-- the duel
+	---------------------------------------------------------------------------
+	-- each of them told (their own score first)
+	function RK.tell(m, kind, data)
+		for _, p in m.P do
+			if p.Parent then
+				local d = table.clone(data or {})
+				local foe = RK.foe(p) or (m.P[1] == p and m.P[2] or m.P[1])
+				d.Me, d.Them = m.Score[p] or 0, m.Score[foe] or 0
+				d.Round = m.Round
+				PlayVFX:FireClient(p, kind, nil, d)
+			end
+		end
+	end
+	function RK.card(p)
+		local d = RK.data[p] or RK.blank()
+		local _, tier = Config.RankedTier(d.Rating)
+		local q = Config.Quirks[p:GetAttribute("Quirk") or ""]
+		return { Name = p.DisplayName, UserId = p.UserId, Rating = d.Rating, Tier = tier.Name, Hero = q and q.DisplayName or "" }
+	end
+	-- held on their marks (true) or let go
+	function RK.hold(m, on)
+		for _, p in m.P do
+			local char = m.Char[p]
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root and root.Parent then
+				if on then
+					root.Anchored = true
+					m.Anchored[p] = root
+				elseif m.Anchored[p] == root then
+					root.Anchored = false
+					m.Anchored[p] = nil
+				end
+			end
+			if char and char.Parent then
+				char:SetAttribute("RankedHold", on or nil)
+			end
+		end
+	end
+	-- Kurogiri's mist: from where they are to `to`
+	function RK.warp(p, char, root, to)
+		broadcast("SkyWarp", char, { From = root.Position, To = to.Position, Up = to.Position.Y > root.Position.Y + 200 })
+		pcall(function()
+			p:RequestStreamAroundAsync(to.Position, 3)
+		end)
+		if char.Parent and root.Parent and p.Character == char then
+			char:PivotTo(to)
+			root.AssemblyLinearVelocity = Vector3.zero
+			broadcast("SkyWarpOut", char, { To = to.Position })
+		end
+	end
+	function RK.start(p1, p2)
+		RK.seq += 1
+		local m = {
+			Id = RK.seq, P = { p1, p2 }, Score = { [p1] = 0, [p2] = 0 }, Round = 0, Phase = "Intro",
+			Home = {}, Char = {}, Anchored = {}, Start = {},
+		}
+		RK.match = m
+		for _, p in m.P do
+			RK.leave(p)
+			p:SetAttribute("RankedDuel", m.Id)
+			local char = p.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			m.Home[p] = root and root.CFrame
+			m.Start[p] = RK.data[p].Rating
+			-- (one thing at a time: a dev flight, an ult - over; the meter empty)
+			if Kit.DF and Kit.DF.setPower and p:GetAttribute("DevFlight") then
+				pcall(Kit.DF.setPower, p, false)
+			end
+			if p:GetAttribute("UltActive") then
+				pcall(endUlt, p, char, true)
+			end
+			p:SetAttribute("Ult", 0)
+		end
+		local a, b = RK.card(p1), RK.card(p2)
+		broadcast("RankedMatch", nil, { A = a, B = b })
+		PlayVFX:FireClient(p1, "RankedFound", nil, { You = a, Opp = b })
+		PlayVFX:FireClient(p2, "RankedFound", nil, { You = b, Opp = a })
+		task.spawn(RK.run, m)
+		return m
+	end
+	-- a round's setup: both alive, healed, fresh, on their marks and held
+	-- (false: someone's gone - it's been settled)
+	function RK.setup(m)
+		local stage = RK.stage()
+		if not stage then
+			RK.abort(m, "The Sky Coffin went away")
+			return false
+		end
+		for side, p in m.P do
+			-- (dead between rounds: back in a moment)
+			local t0 = os.clock()
+			while p.Parent and not (p.Character and alive(p.Character) and p.Character:FindFirstChild("HumanoidRootPart")) and os.clock() - t0 < (RC.RespawnWait or 10) do
+				task.wait(0.2)
+			end
+			if RK.match ~= m or m.Over then
+				return false
+			end
+			local char = p.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if not (p.Parent and root and hum and alive(char)) then
+				RK.conclude(m, RK.foe(p), "LEFT")
+				return false
+			end
+			m.Char[p] = char
+			if p:GetAttribute("UltActive") then
+				pcall(endUlt, p, char, true)
+			end
+			hum.Health = hum.MaxHealth
+			cooldowns[p] = {}
+			recoverUntil[p] = nil
+			PlayVFX:FireClient(p, "ResetCooldowns", nil, {})
+			local mark = RK.mark(stage, side)
+			if m.Round == 1 or (root.Position - mark.Position).Magnitude > 60 then
+				RK.warp(p, char, root, mark)
+			else
+				char:PivotTo(mark)
+				root.AssemblyLinearVelocity = Vector3.zero
+			end
+		end
+		RK.hold(m, true)
+		return true
+	end
+	-- the round's over (once): who took it and how
+	function RK.finish(m, winner, how)
+		if m.Phase ~= "Fight" or m.Result then
+			return
+		end
+		m.Phase = "Between"
+		m.Result = { Winner = winner, How = how }
+		for _, p in m.P do
+			local char = p.Character
+			if char and char.Parent then
+				char:SetAttribute("RankedHold", true)
+			end
+		end
+		-- (KO'd: down a moment - nobody dies up here)
+		local loser = winner and RK.foe(winner)
+		local lc = loser and loser.Character
+		if how == "KO" and lc and alive(lc) then
+			pcall(ragdoll, lc, 2)
+		end
+	end
+	function RK.decided(m)
+		for _, p in m.P do
+			if (m.Score[p] or 0) >= (RC.Wins or 2) then
+				return p
+			end
+		end
+		return nil
+	end
+	function RK.run(m)
+		local ok, err = pcall(function()
+			task.wait(RC.Intro or 2.5) -- (the VS card)
+			while RK.match == m and not m.Over do
+				m.Round += 1
+				if not RK.setup(m) then
+					return
+				end
+				m.Phase = "Countdown"
+				RK.tell(m, "RankedRound", { Countdown = RC.Countdown or 3 })
+				task.wait(RC.Countdown or 3)
+				if RK.match ~= m or m.Over then
+					return
+				end
+				RK.hold(m, false)
+				m.Result = nil
+				m.Phase = "Fight"
+				m.Ends = os.clock() + (RC.RoundTime or 90)
+				RK.tell(m, "RankedFight", { Ends = workspace:GetServerTimeNow() + (RC.RoundTime or 90) })
+				while RK.match == m and not m.Over and not m.Result do
+					task.wait(0.1)
+				end
+				if RK.match ~= m or m.Over then
+					return
+				end
+				local r = m.Result
+				if r.Winner then
+					m.Score[r.Winner] += 1
+				end
+				RK.tell(m, "RankedRoundEnd", { Winner = r.Winner and r.Winner.DisplayName or nil, WinnerId = r.Winner and r.Winner.UserId or nil, How = r.How })
+				local won = RK.decided(m)
+				if won or m.Round >= (RC.MaxRounds or 5) then
+					task.wait(1.2)
+					if RK.match == m and not m.Over then
+						local a, b = m.P[1], m.P[2]
+						local lead = (m.Score[a] > m.Score[b] and a) or (m.Score[b] > m.Score[a] and b) or nil
+						RK.conclude(m, won or lead, won and r.How or "POINTS")
+					end
+					return
+				end
+				task.wait(RC.Between or 3)
+			end
+		end)
+		if not ok then
+			warn("[QuirkServer] ranked duel: " .. tostring(err))
+			RK.abort(m, "Something went wrong - no rating change")
+		end
+	end
+	-- the result: the ratings, the save, both told, everyone told
+	function RK.conclude(m, winner, how)
+		if RK.match ~= m or m.Over then
+			return
+		end
+		m.Over = true
+		m.Phase = "End"
+		RK.hold(m, false)
+		local delta, before = {}, {}
+		for _, p in m.P do
+			before[p] = RK.data[p] and RK.data[p].Rating or (RC.Start or 1000)
+		end
+		if winner then
+			local loser = RK.foe(winner)
+			local dw, dl = RK.data[winner], RK.data[loser]
+			if dw and dl then
+				local place = RC.Placement or 10
+				local kw = dw.Played < place and (RC.KNew or RC.K) or RC.K
+				local kl = dl.Played < place and (RC.KNew or RC.K) or RC.K
+				local gain, loss = Config.RankedDelta(dw.Rating, dl.Rating, kw, kl)
+				dw.Rating += gain
+				dw.Wins += 1
+				dw.Best = math.max(dw.Best, dw.Rating)
+				dl.Rating = math.max(RC.Floor or 0, dl.Rating - loss)
+				dl.Losses += 1
+			end
+		end
+		for _, p in m.P do
+			local d = RK.data[p]
+			if d then
+				d.Played += 1
+				delta[p] = d.Rating - before[p]
+				RK.show(p)
+				task.spawn(RK.save, p)
+			end
+		end
+		for _, p in m.P do
+			local d = RK.data[p]
+			local foe = RK.foe(p)
+			if p.Parent and d then
+				local was = Config.RankedTier(before[p])
+				local now, tier = Config.RankedTier(d.Rating)
+				PlayVFX:FireClient(p, "RankedResult", nil, {
+					Result = winner == nil and "Draw" or (winner == p and "Win" or "Loss"),
+					How = how, Delta = delta[p] or 0, Rating = d.Rating, Tier = tier.Name,
+					Promoted = now > was or nil, Demoted = now < was or nil,
+					Me = m.Score[p] or 0, Them = foe and m.Score[foe] or 0, Opp = foe and foe.DisplayName or "?",
+					Placement = d.Played < (RC.Placement or 10) and d.Played or nil, Of = RC.Placement or 10,
+				})
+			end
+		end
+		local a, b = m.P[1], m.P[2]
+		broadcast("RankedOver", nil, {
+			Winner = winner and winner.DisplayName or nil, Loser = winner and (RK.foe(winner) or a).DisplayName or nil,
+			A = a.DisplayName, B = b.DisplayName, Score = string.format("%d-%d", math.max(m.Score[a], m.Score[b]), math.min(m.Score[a], m.Score[b])),
+			How = how,
+		})
+		RK.publish()
+		task.delay(RC.EndHold or 4.5, RK.close, m)
+	end
+	-- no result (the stage went away, an error): everyone home, no change
+	function RK.abort(m, why)
+		if RK.match ~= m then
+			return
+		end
+		m.Over = true
+		m.Phase = "End"
+		RK.hold(m, false)
+		for _, p in m.P do
+			if p.Parent then
+				RK.notice(p, "Ranked duel called off: " .. tostring(why))
+				PlayVFX:FireClient(p, "RankedResult", nil, { Result = "Off" })
+			end
+		end
+		RK.close(m)
+	end
+	-- home: back where they were, healed, the stage free
+	function RK.close(m)
+		if RK.match ~= m then
+			return
+		end
+		RK.match = nil
+		for _, p in m.P do
+			if p.Parent then
+				p:SetAttribute("RankedDuel", nil)
+				local char = p.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if char then
+					char:SetAttribute("RankedHold", nil)
+				end
+				if m.Anchored[p] and m.Anchored[p].Parent then
+					m.Anchored[p].Anchored = false
+				end
+				if root and hum and alive(char) then
+					hum.Health = hum.MaxHealth
+					cooldowns[p] = {}
+					PlayVFX:FireClient(p, "ResetCooldowns", nil, {})
+					if char == m.Char[p] and m.Home[p] then
+						task.spawn(RK.warp, p, char, root, m.Home[p])
+					end
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- every tick: pairing, and the duel kept straight
+	---------------------------------------------------------------------------
+	function RK.watch(m, now)
+		local S = RC.Stage or {}
+		local stage = RK.stage()
+		for _, p in m.P do
+			-- (never a dev flight in a duel)
+			if Kit.DF and Kit.DF.setPower and p:GetAttribute("DevFlight") then
+				pcall(Kit.DF.setPower, p, false)
+			end
+		end
+		if m.Phase == "Fight" then
+			for _, p in m.P do
+				local char = p.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if p.Parent and m.Phase == "Fight" then
+					if char ~= m.Char[p] or not root or not alive(char) then
+						RK.finish(m, RK.foe(p), "KO") -- (died some other way: the round's lost)
+					elseif stage and RK.outside(root.Position, stage) then
+						RK.finish(m, RK.foe(p), "RING OUT")
+					end
+				end
+			end
+			if m.Phase == "Fight" and now >= (m.Ends or math.huge) then
+				local f = {}
+				for _, p in m.P do
+					local hum = m.Char[p] and m.Char[p]:FindFirstChildOfClass("Humanoid")
+					f[p] = (hum and hum.MaxHealth > 0) and hum.Health / hum.MaxHealth or 0
+				end
+				local a, b = m.P[1], m.P[2]
+				if math.abs(f[a] - f[b]) < 0.005 then
+					RK.finish(m, nil, "TIME")
+				else
+					RK.finish(m, f[a] > f[b] and a or b, "TIME")
+				end
+			end
+		elseif m.Phase == "Countdown" then
+			RK.hold(m, true) -- (on their marks)
+		end
+		-- nobody else on the stage while it's on
+		if stage then
+			for _, plr in Players:GetPlayers() do
+				local char = plr.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if not RK.foe(plr) and root and alive(char) and not root.Anchored and (RK.pushed[char] or 0) < now then
+					local rel = root.Position - stage
+					local half = (S.Half or 42) + 2
+					if math.abs(rel.X) < half and math.abs(rel.Z) < half and rel.Y > -3 and rel.Y < 60 then
+						RK.pushed[char] = now + 0.8
+						local away = Vector3.new(rel.X, 0, rel.Z)
+						away = away.Magnitude > 0.5 and away.Unit or Vector3.new(0, 0, 1)
+						knockback(char, away * (S.PushOut or 70) + UP * 30, 0.25, true)
+						RK.notice(plr, "A ranked duel is on - keep off the stage")
+					end
+				end
+			end
+		end
+	end
+	function RK.tick()
+		local now = os.clock()
+		if now >= (RK.pairAt or 0) then
+			RK.pairAt = now + ((RC.Match or {}).Every or 1)
+			if not RK.match and #RK.queue >= 2 then
+				local i, j = RK.pair()
+				if i then
+					RK.start(RK.queue[i].Player, RK.queue[j].Player)
+				end
+			end
+			-- (the cooldowns that are over, and bodies that are gone)
+			for char, untilAt in RK.pushed do
+				if untilAt < now or char.Parent == nil then
+					RK.pushed[char] = nil
+				end
+			end
+		end
+		local m = RK.match
+		if m and not m.Over then
+			RK.watch(m, now)
+		end
+	end
+	do
+		local acc = 0
+		RunService.Heartbeat:Connect(function(dt)
+			acc += dt
+			if acc < 0.1 then
+				return
+			end
+			acc = 0
+			local ok, err = pcall(RK.tick)
+			if not ok then
+				warn("[QuirkServer] ranked: " .. tostring(err))
+			end
+		end)
+	end
+
+	---------------------------------------------------------------------------
+	-- coming and going
+	---------------------------------------------------------------------------
+	function RK.hook(player)
+		player.CharacterAdded:Connect(function(char)
+			task.spawn(function()
+				char:WaitForChild("Head", 10)
+				if player.Character == char then
+					RK.tag(player)
+				end
+			end)
+		end)
+		task.spawn(RK.load, player)
+	end
+	Players.PlayerAdded:Connect(RK.hook)
+	for _, plr in Players:GetPlayers() do
+		RK.hook(plr)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		RK.leave(player)
+		local m = RK.match
+		if m and RK.foe(player) and not m.Over then
+			RK.conclude(m, RK.foe(player), "LEFT") -- (leaving's a loss)
+		end
+		RK.data[player], RK.loaded[player], RK.last[player] = nil, nil, nil
+	end)
+	task.spawn(function()
+		while true do
+			RK.readBoard()
+			RK.publish()
+			task.wait(RC.BoardRefresh or 60)
+		end
+	end)
+end, function(err)
+	warn("[QuirkServer] ranked duels: " .. tostring(err))
+end)
 
 Players.PlayerRemoving:Connect(function(player)
 	Store.PlayerLeft(player)

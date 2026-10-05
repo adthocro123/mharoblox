@@ -1290,7 +1290,9 @@ Config.Director = {
 -- everyone else. Who: the dev flight's people (Kit.DF.allowed: the owner,
 -- Config.Console.Owners, DevFlight.Devs, Studio's tester); the server
 -- checks it on every request. K (Key) takes the body you aim at (a dummy,
--- the Nomu, or any model with the Possessable attribute - never a player;
+-- the Nomu, or any model with the Possessable attribute - (round 95) or a
+-- PLAYER (Players: the owner, "let me take control of players too like how
+-- I can do that to dummies");
 -- within AimCone degrees of the aim is enough, out to Range studs), or pick
 -- one off the test menu's POSSESS panel. K again (the panel's LEAVE, your
 -- reset), the body going down, a new hero or leaving brings you back. Your
@@ -1304,8 +1306,16 @@ Config.Director = {
 -- CHARGE, 3 ROAR, on the raid's cooldowns; the raid's clock, health and
 -- pay-out still apply. A possessed body's hits credit nobody: no KO, Bucks
 -- or ult for anyone (and the dev never earns from the raid he's playing).
+-- (round 95) A PLAYER fights as a dummy does (M1, F, Q) plus their own
+-- hero's moves - 1 2 3, R and 4, run by the server as theirs (their
+-- cooldowns; moves that carry their body across the map on its own
+-- screen go off where it stands) - never their ult. Their own keys do
+-- nothing meanwhile, their screen says who has them, and they get it back
+-- as it was when he leaves (or they reset). Never another dev's parked
+-- body, nor someone in a ranked duel.
 Config.Possess = {
 	Enabled = true,
+	Players = true, -- (round 95) players are bodies too
 	Key = Enum.KeyCode.K,
 	Range = 260, -- studs K reaches
 	AimCone = 8, -- degrees: a body this near the aim counts (no pixel hunt)
@@ -1343,6 +1353,21 @@ Config.Possess = {
 			{ Act = "Block", Slot = "Block", Name = "GUARD", Key = "F", Pad = "X", Touch = "BLOCK" },
 			{ Act = "Dash", Slot = "Dash", Name = "DASH", Key = "Q", Pad = "Y", Touch = "DASH" },
 			{ Act = "Jump", Slot = "Jump", Name = "JUMP", Key = "SPACE", Pad = "A", Touch = "JUMP" },
+		},
+		-- (round 95) a player: a dummy's keys, then their hero's moves (the
+		-- client adds those from their hero: Act "Move", Slot Ability1-3 /
+		-- Special / Extra - HeroKeys says the caps)
+		Player = {
+			{ Act = "M1", Slot = "M1", Name = "PUNCH", Key = "M1", Pad = "B", Touch = "HIT" },
+			{ Act = "Block", Slot = "Block", Name = "GUARD", Key = "F", Pad = "X", Touch = "BLOCK" },
+			{ Act = "Dash", Slot = "Dash", Name = "DASH", Key = "Q", Pad = "Y", Touch = "DASH" },
+		},
+		HeroKeys = {
+			{ Slot = "Ability1", Key = "1", Pad = "LB", Touch = "1" },
+			{ Slot = "Ability2", Key = "2", Pad = "LT", Touch = "2" },
+			{ Slot = "Ability3", Key = "3", Pad = "RT", Touch = "3" },
+			{ Slot = "Special", Key = "R", Pad = "<", Touch = "R" },
+			{ Slot = "Extra", Key = "4", Pad = "RB", Touch = "4" },
 		},
 		Nomu = {
 			{ Act = "Swipe", Slot = "M1", Name = "SWIPE", Key = "M1", Pad = "B", Touch = "HIT" },
@@ -3743,6 +3768,92 @@ function Config.RankOf(kills)
 end
 -- TOP HEROES (the HUD's leaderboard, L): the most kills of all time
 Config.Leaderboard = { Enabled = true, Store = "QuirkBattlegrounds_Kills_v1", Size = 10, Refresh = 60 }
+
+---------------------------------------------------------------------------
+-- (round 95) RANKED DUELS. The owner: "Let's do 3!" - ranked duels in the
+-- Sky Coffin. One on one on the Sports Festival stage up on the Sky Coffin
+-- (the one-on-one tournament's own), first to Wins rounds (MaxRounds at
+-- most). Join from the phone's RANKED app; the server pairs the two in the
+-- queue nearest in rating (Match: within Range points, widening by Widen
+-- every WidenEvery s waited). Both are taken up to the stage (where they
+-- were and their hero kept), healed, their cooldowns and ult meter reset,
+-- any flight ended, and held on their marks through the Countdown.
+--   A ROUND is won by a KO (nobody dies: the blow that would have killed
+--   leaves them at 1 and down), a RING OUT - off the stage and down on the
+--   ground round it, as at the Sports Festival (Stage.Half studs from its
+--   middle, under the stage's top + OutBelow) - or, at RoundTime, more
+--   health left (even: a draw, no point). Between rounds (Between s) the
+--   stage is put back and they start again from their marks.
+--   NOBODY ELSE touches them meanwhile, and they touch nobody else; anyone
+--   else on the stage is thrown off it (PushOut); no finishers. They can't
+--   switch hero, use the dev flight, possess or be possessed.
+--   RATING: the winner's goes up and the loser's down by the Elo rule (K;
+--   KNew for someone's first Placement matches), never under Floor.
+--   Leaving mid-duel loses it; dying some other way (the void, a reset)
+--   loses the round (back on the marks once they're back, RespawnWait s).
+--   SAVED as Bucks are (DataStore; Studio keeps its own unless
+--   StudioSaves); the best of every server on the RANKED app's board
+--   (Board, BoardSize, refreshed every BoardRefresh s).
+--   TIERS: the rating each starts at, and its colour - over their head too
+--   once they've played one (Tag, seen from TagDistance studs). Dev-only
+--   heroes can't queue. Intro: the VS card before round 1.
+---------------------------------------------------------------------------
+Config.Ranked = {
+	Enabled = true,
+	DataStore = "QuirkBattlegrounds_Ranked_v1",
+	Board = "QuirkBattlegrounds_RankedBoard_v1",
+	BoardSize = 10,
+	BoardRefresh = 60,
+	StudioSaves = false,
+	Start = 1000,
+	K = 32,
+	KNew = 48,
+	Placement = 10,
+	Floor = 0,
+	Wins = 2,
+	MaxRounds = 5,
+	RoundTime = 90,
+	Countdown = 3,
+	Between = 3,
+	EndHold = 4.5,
+	Intro = 2.5,
+	RespawnWait = 10,
+	Tag = true,
+	TagDistance = 70,
+	Match = { Range = 200, Widen = 100, WidenEvery = 10, Every = 1 },
+	-- the stage: its middle from the Sky Coffin's (its top's surface), half
+	-- its width, the marks (Spot studs out either side), and the push that
+	-- throws anyone else off it
+	Stage = { Offset = Vector3.new(0, 4.8, -10), Half = 42, Spot = 22, OutBelow = 1, PushOut = 70 },
+	Tiers = {
+		{ Name = "ROOKIE", Min = 0, Color = Color3.fromRGB(196, 140, 98) },
+		{ Name = "SIDEKICK", Min = 900, Color = Color3.fromRGB(196, 204, 220) },
+		{ Name = "PRO HERO", Min = 1100, Color = Color3.fromRGB(255, 206, 70) },
+		{ Name = "TOP 100", Min = 1300, Color = Color3.fromRGB(70, 214, 200) },
+		{ Name = "TOP 10", Min = 1500, Color = Color3.fromRGB(186, 110, 255) },
+		{ Name = "SYMBOL OF PEACE", Min = 1700, Color = Color3.fromRGB(255, 92, 80) },
+	},
+}
+-- the tier a rating is in (its index and entry)
+function Config.RankedTier(rating)
+	local tiers = Config.Ranked.Tiers
+	local best = 1
+	for i, t in tiers do
+		if (tonumber(rating) or 0) >= t.Min then
+			best = i
+		end
+	end
+	return best, tiers[best]
+end
+-- what a match moves each rating by (the Elo rule): the winner's gain and
+-- the loser's loss (both whole, at least 1), each by their own K
+function Config.RankedDelta(winnerRating, loserRating, kWinner, kLoser)
+	local R = Config.Ranked
+	local expect = 1 / (1 + 10 ^ (((tonumber(loserRating) or R.Start) - (tonumber(winnerRating) or R.Start)) / 400))
+	local gain = math.max(1, math.floor((kWinner or R.K) * (1 - expect) + 0.5))
+	local loss = math.max(1, math.floor((kLoser or R.K) * (1 - expect) + 0.5))
+	return gain, loss
+end
 
 -- Map destruction (parts with the Destroyable attribute set to true)
 Config.Destruction = {
@@ -6749,6 +6860,12 @@ Config.Sounds = {
 	KOConfirm = { { Id = S.Stinger, Volume = 1.2 }, { Id = L.CrackyPunch, Volume = 0.96, Speed = 0.6, Length = 0.4 } },
 	Streak = { { Id = S.Victory, Volume = 0.7 } },
 	RankUp = { { Id = S.Victory, Volume = 0.9 }, { Id = S.Stinger, Volume = 0.7, Speed = 1.25, Delay = 0.12 } }, -- a new hero rank
+	-- (round 95) RANKED DUELS: the VS card, each round, FIGHT (the Sports
+	-- Festival crowd), a win
+	RankedFound = { { Id = S.Stinger, Volume = 1 }, { Id = S.Ping, Volume = 0.6, Speed = 0.8, Delay = 0.1 } },
+	RankedRound = { { Id = S.Ping, Volume = 0.8, Speed = 1.2 } },
+	RankedFight = { { Id = S.Stinger, Volume = 0.9, Speed = 1.1 }, { Id = L.CrowdRoar, Volume = 0.7, Speed = 1, Length = 2.5 } },
+	RankedWin = { { Id = S.Victory, Volume = 1 }, { Id = L.CrowdWhoops, Volume = 0.6, Speed = 1, Delay = 0.2, Length = 2.5 } },
 	-- (round 86) the roster switch: a hero released to everyone (the NEW HERO
 	-- banner), your hero pulled back to DEV ONLY, a switch flipped on the panel.
 	-- (review) The release is a debut, not a rank-up (RankUp is Victory +
