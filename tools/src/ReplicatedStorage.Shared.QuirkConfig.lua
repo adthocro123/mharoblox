@@ -3911,6 +3911,72 @@ Config.Dismantle = {
 	Gash = { Radius = 1.4, MaxGap = 30, Spacing = 24, Max = 10, Budget = 60 },
 }
 
+---------------------------------------------------------------------------
+-- (round 97) ANTI-EXPLOIT (Kit.AX) - the owner: "Sure do the anti exploit".
+-- The server already decides hits, damage, cooldowns, Bucks and every dev
+-- feature; what it took on trust was where a body is (each player's own
+-- machine moves their own body). The WATCHDOG looks at everyone's body
+-- every Tick s - not testers, nor the dev flight's people (CheckTesters:
+-- them too, to try it in Studio) - and flags what nothing in the game can
+-- do: faster than Speed.Max studs/s flat over Speed.Window s, a jump of
+-- Teleport studs between two looks, rising faster than Rise studs/s,
+-- Hover.Time s in the air without falling (no ground within Hover.Ground
+-- studs under them), spinning faster than Spin rad/s (SpinCarried while
+-- something's moving them), going faster than Fling studs/s. Anything that
+-- moves a body for real excuses it, and for Grace s after: a request of
+-- theirs (every move, dash, parkour and flight asks the server), the
+-- server moving it (a respawn, a warp, a grab, a ranked mark), a force the
+-- server put on it (a hit's knockback, Zero Gravity) and the states that
+-- carry it (ragdolled, grabbed, carried, flying, phasing, stopped time...).
+-- Low gravity (under LowGravity, Moon Gravity, Zero Gravity): no rising or
+-- hovering checks.
+--   MODE "Log" (as shipped: run it a while, see what it would catch, no
+--   false alarms?) only notes them: the F2 console's `flags` and `ax`, a
+--   line in a live server's output, a toast for the owner in the server
+--   (Notify). "Enforce" also acts: back to where they last stood (Pull:
+--   speed, teleport, rising, hovering), a flinger's body out of everyone's
+--   way for Quarantine s, and at KickAt points (0: never) a kick. "Off".
+--   The console's `ax enforce` / `ax log` / `ax off` switches one server.
+--   Each flag is Points[kind]; Decay of them forgotten a second. LogGap s
+--   between two lines for the same player and kind; LogSize kept.
+-- REQUESTS: past Requests.Rate a second (Burst at once): flagged (Spam;
+--   Enforce: dropped).
+-- CLASH: presses no faster than Clash.MaxRate a second; Clash.Run presses
+--   in a row spaced more evenly than Clash.Steady s (a hand can't): Clash.
+-- FARMING (whatever the mode; testers and the dev flight's people are
+--   never limited either): KO the same player more than Farm.Free
+--   times in Farm.Window s and the rest pay nothing - no Bucks, KO count,
+--   streak, ult or heal; dummies pay at most Farm.DummyBucks a Window; a
+--   ranked match with someone you've played Farm.RankedFree times in
+--   Farm.RankedWindow s is unrated.
+---------------------------------------------------------------------------
+Config.AntiExploit = {
+	Enabled = true,
+	Mode = "Log", -- "Log" | "Enforce" | "Off"
+	CheckTesters = false,
+	Tick = 0.25,
+	Grace = 2.5,
+	Speed = { Max = 75, Window = 1 },
+	Teleport = 45,
+	Rise = 95,
+	Hover = { Time = 3, Ground = 14, Fall = 4 },
+	Spin = 100,
+	SpinCarried = 400,
+	Fling = 800,
+	LowGravity = 150,
+	Points = { Speed = 1, Teleport = 3, Rise = 1, Hover = 2, Spin = 3, Fling = 2, Spam = 1, Clash = 1 },
+	Decay = 0.1,
+	KickAt = 0,
+	KickMessage = "Removed by the server's anti-cheat. If that's a mistake, rejoin.",
+	Quarantine = 8,
+	LogGap = 4,
+	LogSize = 300,
+	Notify = true,
+	Requests = { Rate = 40, Burst = 80 },
+	Clash = { MaxRate = 11, Run = 12, Steady = 0.006 },
+	Farm = { Enabled = true, Window = 600, Free = 3, DummyBucks = 20, RankedWindow = 3600, RankedFree = 2 },
+}
+
 -- Map destruction (parts with the Destroyable attribute set to true)
 Config.Destruction = {
 	Enabled = true,

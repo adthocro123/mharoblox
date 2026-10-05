@@ -3789,12 +3789,15 @@ function HUD.KOPopup(data)
 		Font = COMIC_FONT,
 		TextScaled = true,
 		TextColor3 = Color3.fromRGB(255, 70, 60),
-		Text = data.Finisher and "FINISHED!" or data.Counted and "K.O.!" or "DUMMY DOWN",
+		Text = data.Finisher and "FINISHED!" or (data.Counted or data.Farmed) and "K.O.!" or "DUMMY DOWN",
 		Rotation = -5,
 		ZIndex = 37,
 		Parent = holder,
 	}, { textStroke(4) })
 	local sub = { "KNOCKED OUT " .. string.upper(data.Victim or "?") }
+	if data.Farmed then
+		table.insert(sub, "NO REWARD - THE SAME PLAYER AGAIN") -- (round 97: Config.AntiExploit.Farm)
+	end
 	if data.Counted and (data.Streak or 0) >= 2 then
 		table.insert(sub, string.format("STREAK x%d%s", data.Streak, data.Callout and ("  —  " .. data.Callout) or ""))
 	end

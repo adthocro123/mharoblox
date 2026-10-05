@@ -5,7 +5,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 96, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 97, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
@@ -15,11 +15,96 @@ videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tool
 
 ---
 
-## Where things stand (Round 96)
+## Where things stand (Round 97)
+
+Round 97 is built on Round 96. It changed three scripts (`QuirkConfig`,
+`HUD`, `QuirkServer`); nothing else in the place changed. Not playtested in
+Studio yet.
+
+**Anti-exploit** (`Config.AntiExploit`, the server's `Kit.AX`). The owner:
+"Sure do the anti exploit". The server already decided hits, damage,
+cooldowns, Bucks and every dev feature. What it trusted was where each body
+is, because each player's own machine moves their own body. This round adds:
+- **Movement watchdog.** Four times a second the server looks at every
+  player's body and flags what nothing in the game can do:
+  - **Speed:** over 75 studs/s flat, measured over a second.
+  - **Teleport:** a jump of 45+ studs between two looks.
+  - **Rise:** going up faster than 95 studs/s.
+  - **Hover:** 3 s in the air with nothing under them and not falling.
+  - **Spin:** over 100 rad/s, the usual fling exploit.
+  - **Fling:** a body moving over 800 studs/s.
+- **What excuses a body** (for 2.5 s after, too):
+  - any request of theirs except raising a guard (every move, dash,
+    parkour and flight asks the server);
+  - the server moving the body itself (a respawn, a warp, a grab, a ranked
+    mark). The root's `CFrame` changed signal only fires for server sets;
+    a client moving its own body never fires it on the server.
+  - a force the server put in the root (a hit's `Knockback`, Zero Gravity).
+    A client's own forces never reach the server.
+  - states that carry the body: ragdolled, grabbed, carried, stunned,
+    frozen, finishers, clashes, possession, every flight, phasing, stopped
+    time, ranked holds.
+  - Low gravity (Moon Gravity, Zero Gravity, an admin event) turns the rise
+    and hover checks off.
+- **Lag.** A laggy machine sends nothing and then all of it at once, so
+  every check measures over the time since the body last moved. A body
+  frozen in mid-air stops counting as hovering after a second.
+- **Who's watched.** Everyone except testers and the dev flight's people
+  (who fly and teleport for real). In Studio everyone counts as a tester;
+  set `CheckTesters = true` to try it on yourself.
+- **Modes.**
+  - **`Log` (as shipped):** it only takes notes. They go to the F2
+    console's `flags` (the last flags) and `ax` (who has how many points),
+    which only the owner sees; to a live server's output (F9 → Server);
+    and to a toast for the owner if they're in the server (`Notify`).
+  - **`Enforce`:** also pulls a body back to where it last stood (speed,
+    teleport, rise, hover), and takes a flinger's body out of everyone's
+    way for 8 s (it touches no one). At `KickAt` points it kicks; that's
+    0 by default, meaning never.
+  - **`Off`.**
+  - Switch every server in `Config.AntiExploit.Mode`, or one server with
+    `ax enforce` / `ax log` / `ax off` in the F2 console. `ax clear [who]`
+    forgets someone's flags.
+- **Request rate.** Over 40 requests a second (80 at once) is flagged as
+  Spam; in Enforce the extra requests are dropped.
+- **Clash.** Presses are capped at 11 a second, down from about 19. Twelve
+  presses in a row spaced more evenly than 6 ms is flagged as a macro.
+- **Farming limits.** These apply in every mode, but not to testers or the
+  dev flight's people:
+  - The 4th KO of the same player inside 10 minutes pays nothing: no
+    Bucks, KO count, streak, ult or heal. The popup still says K.O.! with
+    "NO REWARD - THE SAME PLAYER AGAIN", and the kill feed still shows it.
+  - Dummies pay at most 20 Bucks every 10 minutes.
+  - A 3rd ranked match against the same player inside an hour is unrated.
+- **Known gaps.**
+  - An exploit that also sends the game's own move requests stays
+    excused for 2.5 s after each one.
+  - Walking through walls isn't checked.
+  - A hover held perfectly still isn't caught after its first second,
+    because it looks exactly like a frozen connection.
+  - Log mode is there to show what it would catch before turning
+    Enforce on.
+
+**Tests (round 97).**
+- **New checks:** 41 server checks (the watchdog, every excuse, lag, Log
+  and Enforce, fling, spam, clash, farming, the console) and a client
+  check (the no-reward popup). Both fail on round 96's sources and pass
+  now.
+- **Full server suite:** 1,924 passed, 41 failed. That's round 94's 40
+  plus the snack machine's "…nobody else can take it", which flips.
+- **Destruction suite:** unchanged (36 passed).
+- **Full client suite** (run on its own): the same problems as round 96 up
+  to the round 17 stall, apart from timing checks that flip from run to
+  run. This time FLOAT 75, HITSTOP, M1Brawler4 and RADIO 84 failed (RADIO
+  84's own test notes a slow frame can miss a flicker), and BACK DASH 66
+  passed. Run alongside the server suite, THE CHAIN also failed once; on
+  its own it passes.
+
+### Round 96
 
 Round 96 is built on Round 95. It changed five scripts (`QuirkConfig`,
 `VFX`, `QuirkClient`, `QuirkServer`, `Destruction`); nothing else in the
-place changed. Not playtested in Studio yet.
+place changed.
 
 **Dismantle** (`Config.Dismantle`, the server's `Kit.DM`, the cut itself in
 `Destruction.Slice` / `Collapse` / `Crumble`). The owner: "Make it so when I
@@ -438,6 +523,16 @@ Found in round 95:
 - On the client, a method can be implemented only once
   (`r.implementMethod`), so `UnbindAction` stays a no-op. The tests check
   what the code tracks instead.
+
+Found in round 97:
+- In Studio everyone is a tester, so the watchdog and the farming limits
+  skip everyone in the harness. The round 97 tests swap in their own
+  `AX.exempt`, stand the background look down and call `AX.check`
+  themselves.
+- To move a body the way its own machine would (no `CFrame` changed
+  signal), the tests write the mock's `_props.CFrame` directly. A normal
+  `root.CFrame =` is a server move.
+- The anti-exploit is reached through `Destruction.AntiExploit` (`Kit.AX`).
 
 Found in round 96:
 - Dismantle is reached the same way: `Destruction.Dismantle` (`Kit.DM`).

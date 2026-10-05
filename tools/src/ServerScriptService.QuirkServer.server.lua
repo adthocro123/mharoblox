@@ -11399,7 +11399,10 @@ local function onKnockedOut(model)
 		Kit.Console.print(string.format("KO: %s -> %s%s", feed.Killer or "?", feed.Victim or "?", feed.Finisher and " (finisher)" or ""), "event")
 	end
 	if killer then
-		local counts = victim ~= nil or FIGHTS.DummyKOsCount == true
+		-- (round 97) farming (Kit.AX.farmed: the same player KO'd again and
+		-- again): still a KO, but no count, streak, ult, heal or Bucks
+		local farmed = victim ~= nil and Kit.AX ~= nil and Kit.AX.farmed(killer, victim) or false
+		local counts = (victim ~= nil or FIGHTS.DummyKOsCount == true) and not farmed
 		local streakNow = 0
 		if counts then
 			local streak = statValue(killer, "Streak")
@@ -11430,6 +11433,11 @@ local function onKnockedOut(model)
 		local econ = Config.Economy or {}
 		local pay = victim and (econ.PerKO or 5) or (econ.PerDummyKO or 0)
 		pay *= Kit.AE and Kit.AE.mult("Bucks") or 1 -- (round 87: MONEY RAIN pays double)
+		if farmed then
+			pay = 0
+		elseif not victim and Kit.AX then
+			pay = Kit.AX.dummyPay(killer, pay) -- (round 97: dummies pay so much a while)
+		end
 		Store.AddBucks(killer, pay)
 		PlayVFX:FireClient(killer, "KOConfirm", nil, {
 			Victim = feed.Victim,
@@ -11439,11 +11447,12 @@ local function onKnockedOut(model)
 			Heal = counts and (FIGHTS.HealOnKO or 0) or 0,
 			Finisher = finished or nil,
 			Bucks = pay > 0 and pay or nil,
+			Farmed = farmed or nil, -- (round 97)
 		})
 		feed.Streak = streakNow
 		feed.Callout = callout
 		feed.Shutdown = ended >= (FIGHTS.ShutdownStreak or 3) and ended or nil
-		if counts then
+		if counts or farmed then
 			for _, plr in Players:GetPlayers() do
 				PlayVFX:FireClient(plr, "KOFeed", nil, feed)
 			end
@@ -16906,11 +16915,16 @@ do
 		end
 		local cfg = CL.cfg()
 		local now = os.clock()
-		if index ~= s.Index or now - s.Last < (cfg.MinGap or 0.07) * 0.75 then
+		-- (round 97) no faster than a hand (Kit.AX.clashGap)
+		local gap = math.max((cfg.MinGap or 0.07) * 0.75, Kit.AX and Kit.AX.clashGap(player) or 0)
+		if index ~= s.Index or now - s.Last < gap then
 			PlayVFX:FireClient(player, "ClashSync", nil, { Id = id, Index = s.Index })
 			return
 		end
 		s.Last = now
+		if Kit.AX then
+			Kit.AX.clashPress(player, now) -- (round 97: a macro's too even)
+		end
 		local want = s.Key
 		s.Index += 1
 		s.Key = CL.nextKey(s)
@@ -30812,6 +30826,11 @@ end
 -- ((round 95) a player a dev's in: their own machine's requests do nothing
 -- - Kit.PS.fromVictim; the body's moves are his, run as theirs)
 UseAbility.OnServerEvent:Connect(function(player, ...)
+	-- (round 97) the anti-exploit hears every request: a move excuses a fast
+	-- body; past the rate it's flagged (Enforce: dropped)
+	if Kit.AX and Kit.AX.request(player, ...) == false then
+		return
+	end
 	if Kit.PS and Kit.PS.victims[player] then
 		Kit.PS.fromVictim(player, ...)
 		return
@@ -34243,7 +34262,9 @@ xpcall(function()
 		for _, p in m.P do
 			before[p] = RK.data[p] and RK.data[p].Rating or (RC.Start or 1000)
 		end
-		if winner then
+		-- (round 97) the same two again and again (Kit.AX.rematch): unrated
+		m.Unrated = Kit.AX ~= nil and Kit.AX.rematch(m.P[1], m.P[2]) or nil
+		if winner and not m.Unrated then
 			local loser = RK.foe(winner)
 			local dw, dl = RK.data[winner], RK.data[loser]
 			if dw and dl then
@@ -34279,7 +34300,11 @@ xpcall(function()
 					Promoted = now > was or nil, Demoted = now < was or nil,
 					Me = m.Score[p] or 0, Them = foe and m.Score[foe] or 0, Opp = foe and foe.DisplayName or "?",
 					Placement = d.Played < (RC.Placement or 10) and d.Played or nil, Of = RC.Placement or 10,
+					Unrated = m.Unrated or nil, -- (round 97)
 				})
+				if m.Unrated then
+					RK.notice(p, "Unrated: you two have played too often lately (no rating change)")
+				end
 			end
 		end
 		local a, b = m.P[1], m.P[2]
@@ -34848,6 +34873,573 @@ xpcall(function()
 	end)
 end, function(err)
 	warn("[QuirkServer] dismantle: " .. tostring(err))
+end)
+
+---------------------------------------------------------------------------
+-- (round 97) ANTI-EXPLOIT (Config.AntiExploit) - the owner: "Sure do the
+-- anti exploit". The server already decides hits, damage, cooldowns, Bucks
+-- and every dev feature; what it took on trust was where a body is: each
+-- player's own machine moves their own body.
+--   THE WATCHDOG: every Tick s, everyone's body (not testers, nor the dev
+--   flight's people - CheckTesters: them too). A body's EXCUSED - for Grace
+--   s, and while it lasts - by a request of theirs (every move, dash,
+--   parkour and flight asks), the server moving it (its root's CFrame set
+--   here: a respawn, a warp, a grab, a ranked mark - a client moving its
+--   own body never fires that here), a force the server put in it (a
+--   hit's Knockback, Zero Gravity: what a client makes never reaches the
+--   server) and the states that carry it (CARRIED). Unexcused, it's
+--   flagged for: Speed (flat, over Speed.Window), Teleport (between two
+--   looks), Rise, Hover (no ground under it, not falling, Hover.Time s),
+--   Fling (its speed); and anytime for Spin (SpinCarried while excused).
+--   MODE: "Log" (as shipped) only notes them - `flags` / `ax` in the F2
+--   console (the owner's eyes only), a live server's output, a toast for
+--   the owner (Notify); "Enforce" also pulls the body back to where it
+--   last stood, takes a flinger out of everyone's way (Quarantine s) and at
+--   KickAt points kicks; "Off". Points: Points[kind] a flag, Decay a second.
+--   REQUESTS: Requests.Rate a second (Burst): past it Spam (Enforce: dropped).
+--   CLASH: Clash.MaxRate presses a second at most; Clash.Run presses spaced
+--   more evenly than Clash.Steady s: a macro (Clash).
+--   FARMING (whatever the mode; never testers or the dev flight's people):
+--   Farm - the same victim, dummies, ranked rematches.
+-- Destruction.AntiExploit = AX (the tests). (A function of its own: the
+-- main chunk is at its local limit.)
+---------------------------------------------------------------------------
+xpcall(function()
+	local AC = Config.AntiExploit or {}
+	local AX = {
+		state = {}, -- [player] = their watch
+		log = {}, -- the flags, oldest first
+		pairKOs = {}, -- ["killer:victim"] = { os.clock() of each KO }
+		rated = {}, -- ["a:b"] = { os.clock() of each ranked match }
+		dummy = {}, -- [player] = { At, Paid }
+		mode = AC.Mode or "Log",
+		params = RaycastParams.new(),
+	}
+	AX.params.FilterType = Enum.RaycastFilterType.Exclude
+	Kit.AX = AX
+	Destruction.AntiExploit = AX
+	-- the states that carry a body (its own machine still moves it)
+	AX.CARRIED = {
+		"Ragdolled", "Grabbed", "CarriedBy", "HawksCarriedBy", "Compressed", "Frozen", "Stunned", "Finishing",
+		"BeingFinished", "Clashing", "Parked", "Possessed", "DevFlying", "BlastFlying", "Floating", "HawksFlying",
+		"HawksFalling", "Phasing", "PhaseDive", "WallPhase", "Vanished", "Submerged", "BodyLocked", "TimeStopped",
+		"RankedHold", "DevCarrying",
+	}
+	-- what a server-made force in the root is (a client's never reaches here)
+	AX.MOVERS = { LinearVelocity = true, VectorForce = true, BodyVelocity = true, BodyPosition = true, BodyForce = true, AlignPosition = true, LineForce = true }
+
+	function AX.on()
+		return AC.Enabled ~= false and AX.mode ~= "Off"
+	end
+	function AX.enforcing()
+		return AX.on() and AX.mode == "Enforce"
+	end
+	-- never watched: testers (in Studio: everyone) and the dev flight's people
+	function AX.exempt(player)
+		if AC.CheckTesters == true then
+			return false
+		end
+		return canTest(player) or player:GetAttribute("DevFlyer") == true
+	end
+	function AX.watch(player)
+		local st = AX.state[player]
+		if not st then
+			local R = AC.Requests or {}
+			st = {
+				Points = 0, ReqAt = -1e9, MovedAt = -1e9, ExcusedUntil = -1e9, Air = 0, Trail = {},
+				Bucket = R.Burst or 80, BucketAt = os.clock(), Gaps = {}, LastPress = nil, Said = {},
+			}
+			AX.state[player] = st
+		end
+		return st
+	end
+	-- a body (new, or the first look): start over with it, and hear the
+	-- server move it (not our own pull back)
+	function AX.bind(st, root, now)
+		if st.Root == root then
+			return
+		end
+		for _, c in st.Conns or {} do
+			c:Disconnect()
+		end
+		st.Root = root
+		local function moved()
+			if st.PulledTo and (root.Position - st.PulledTo).Magnitude < 1 and os.clock() - (st.PulledAt or -1e9) < 1 then
+				return -- (our own pull back excuses nothing)
+			end
+			st.MovedAt = os.clock()
+		end
+		st.Conns = { root:GetPropertyChangedSignal("CFrame"):Connect(moved), root:GetPropertyChangedSignal("Position"):Connect(moved) }
+		local p = root.Position
+		st.LastPos, st.LastT, st.Good, st.Air, st.Trail, st.ChangedAt = p, now, p, 0, { { now, p } }, now
+		st.MovedAt = now
+	end
+	-- what's carrying it right now (nil: nothing)
+	function AX.carried(player, char, root)
+		for _, a in AX.CARRIED do
+			if char:GetAttribute(a) then
+				return a
+			end
+		end
+		for _, c in root:GetChildren() do
+			if AX.MOVERS[c.ClassName] then
+				return c.Name
+			end
+		end
+		if player:GetAttribute("DevFlight") or player:GetAttribute("Flight") or player:GetAttribute("SizeMode") then
+			return "Flight"
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum and (hum.Sit or hum.PlatformStand) then
+			return "Seated"
+		end
+		return nil
+	end
+	-- low gravity: no rising or hovering checks
+	function AX.floaty(char)
+		local zero = tonumber(char:GetAttribute("ZeroGUntil"))
+		return workspace.Gravity < (AC.LowGravity or 150) or workspace:GetAttribute("MoonGravity") == true
+			or (zero ~= nil and zero > workspace:GetServerTimeNow())
+	end
+	-- ground under it (anything but its own body)
+	function AX.grounded(char, root)
+		AX.params.FilterDescendantsInstances = { char }
+		local ok, hit = pcall(function()
+			return workspace:Raycast(root.Position, Vector3.new(0, -((AC.Hover or {}).Ground or 14), 0), AX.params)
+		end)
+		return ok and hit ~= nil
+	end
+
+	---------------------------------------------------------------------------
+	-- a flag: noted (the log, the output, the owner's toast), counted, and
+	-- in Enforce acted on
+	---------------------------------------------------------------------------
+	function AX.flag(player, kind, detail, pos)
+		local st = AX.watch(player)
+		local now = os.clock()
+		st.Points += ((AC.Points or {})[kind] or 1)
+		st.Flags = (st.Flags or 0) + 1
+		if now - (st.Said[kind] or -1e9) >= (AC.LogGap or 4) then
+			st.Said[kind] = now
+			local entry = {
+				T = os.time(), At = now, Name = player.Name, UserId = player.UserId, Kind = kind,
+				Detail = tostring(detail or ""), Mode = AX.mode, Pos = typeof(pos) == "Vector3" and pos or nil,
+			}
+			table.insert(AX.log, entry)
+			while #AX.log > (AC.LogSize or 300) do
+				table.remove(AX.log, 1)
+			end
+			local line = string.format("[AX] %s (%d) %s: %s%s", player.Name, player.UserId, kind, entry.Detail, AX.mode == "Log" and " [log only]" or "")
+			if not RunService:IsStudio() then
+				warn(line)
+			end
+			if AC.Notify ~= false and Kit.Console then
+				for _, plr in Players:GetPlayers() do
+					if plr ~= player and Kit.Console.isOwner(plr) then
+						PlayVFX:FireClient(plr, "Notice", nil, { Text = string.format("AX: %s - %s (%s)", player.DisplayName, kind, entry.Detail), Color = Color3.fromRGB(255, 170, 90) })
+					end
+				end
+			end
+		end
+		if AX.enforcing() and (AC.KickAt or 0) > 0 and st.Points >= AC.KickAt and not AX.exempt(player) then
+			st.Kicked = true
+			player:Kick(AC.KickMessage or "Removed by the server's anti-cheat.")
+		end
+	end
+	-- (Enforce) back to where it last stood
+	function AX.pull(player, st, root, now)
+		if now - (st.PulledAt or -1e9) < 0.4 or not st.Good then
+			return
+		end
+		st.PulledAt, st.PulledTo = now, st.Good + Vector3.new(0, 0.5, 0)
+		st.Pulls = (st.Pulls or 0) + 1
+		root.CFrame = CFrame.new(st.PulledTo) * root.CFrame.Rotation
+		root.AssemblyLinearVelocity = Vector3.zero
+		st.LastPos, st.Trail, st.Air, st.ChangedAt = st.PulledTo, { { now, st.PulledTo } }, 0, now
+	end
+	-- (Enforce) a flinger's body touches nobody for a while
+	function AX.quarantine(player, char)
+		local st = AX.watch(player)
+		local now = os.clock()
+		if (st.QuarantineUntil or 0) > now then
+			return
+		end
+		local t = AC.Quarantine or 8
+		st.QuarantineUntil = now + t
+		local function set(group)
+			for _, d in char:GetDescendants() do
+				if d:IsA("BasePart") and d.Name ~= "RagdollCollider" then
+					d.CollisionGroup = group
+				end
+			end
+		end
+		set("Loose")
+		char:SetAttribute("Quarantined", true)
+		task.delay(t, function()
+			if char.Parent then
+				char:SetAttribute("Quarantined", nil)
+				set(Destruction.looseState and Destruction.looseState[char] and "Loose" or "Characters")
+			end
+		end)
+	end
+
+	---------------------------------------------------------------------------
+	-- the look
+	---------------------------------------------------------------------------
+	function AX.check(player, now)
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local st = AX.watch(player)
+		if not root or not hum or hum.Health <= 0 then
+			return
+		end
+		AX.bind(st, root, now)
+		local dt = math.max(now - (st.LastT or now), 1e-3)
+		st.Points = math.max(0, st.Points - (AC.Decay or 0.1) * dt)
+		local pos = root.Position
+		local grace = AC.Grace or 2.5
+		local why = AX.carried(player, char, root)
+		if why then
+			st.ExcusedUntil = now + grace
+		end
+		local excused = why ~= nil or now < st.ExcusedUntil or now - st.ReqAt < grace or now - st.MovedAt < grace
+		-- spinning (whatever else is going on: far past what anything does)
+		local spin = root.AssemblyAngularVelocity
+		spin = typeof(spin) == "Vector3" and spin.Magnitude or 0
+		if spin > (excused and (AC.SpinCarried or 400) or (AC.Spin or 100)) then
+			AX.flag(player, "Spin", string.format("%.0f rad/s", spin), pos)
+			if AX.enforcing() then
+				AX.quarantine(player, char)
+				pcall(function()
+					root.AssemblyAngularVelocity = Vector3.zero
+				end)
+			end
+		end
+		if excused then
+			st.LastPos, st.LastT, st.Good, st.Air, st.Trail, st.ChangedAt = pos, now, pos, 0, { { now, pos } }, now
+			return
+		end
+		-- (a machine that lags sends nothing, then all of it at once: every
+		-- check measures over the time since the body last moved)
+		local flagged, pull = false, false
+		local jump = pos - (st.LastPos or pos)
+		local moved = jump.Magnitude > 0.05
+		local since = math.max(now - (st.ChangedAt or st.LastT or now), dt)
+		local maxSpeed = (AC.Speed or {}).Max or 75
+		local flat = Vector3.new(jump.X, 0, jump.Z).Magnitude
+		local T = AC.Teleport or 45
+		if moved and (flat >= T or jump.Y >= T) and jump.Magnitude / since > maxSpeed * 1.5 then
+			AX.flag(player, "Teleport", string.format("%.0f studs in %.2f s", jump.Magnitude, since), pos)
+			flagged, pull = true, true
+		end
+		-- speed, flat, over the window (a point each time it moved)
+		if moved then
+			table.insert(st.Trail, { now, pos })
+		end
+		local window = (AC.Speed or {}).Window or 1
+		while #st.Trail > 2 and now - st.Trail[2][1] >= window do
+			table.remove(st.Trail, 1)
+		end
+		local first = st.Trail[1]
+		local span = now - first[1]
+		if moved and not flagged and span >= window * 0.8 then
+			local d = pos - first[2]
+			local speed = Vector3.new(d.X, 0, d.Z).Magnitude / span
+			if speed > maxSpeed then
+				AX.flag(player, "Speed", string.format("%.0f studs/s", speed), pos)
+				flagged, pull = true, true
+			end
+		end
+		-- up, and hanging there (a body that hasn't moved at all for a
+		-- second is a frozen machine, not a hover: not counted)
+		local vy = jump.Y / since
+		local grounded = AX.grounded(char, root)
+		local fm = hum.FloorMaterial
+		if typeof(fm) == "EnumItem" and fm ~= Enum.Material.Air then
+			grounded = true -- (the body's own floor, where a ray can't see it)
+		end
+		if not AX.floaty(char) and not (typeof(hum.GetState) == "function" and hum:GetState() == Enum.HumanoidStateType.Climbing) then
+			if vy > (AC.Rise or 95) then
+				AX.flag(player, "Rise", string.format("%.0f studs/s up", vy), pos)
+				flagged, pull = true, true
+			end
+			local H = AC.Hover or {}
+			if not grounded and jump.Y / dt > -(H.Fall or 4) and (moved or now - (st.ChangedAt or now) < 1) then
+				st.Air += dt
+			elseif grounded or jump.Y / dt <= -(H.Fall or 4) then
+				st.Air = 0
+			end
+			if st.Air >= (H.Time or 3) then
+				AX.flag(player, "Hover", string.format("%.1f s in the air", st.Air), pos)
+				flagged, pull = true, true
+				st.Air = 0
+			end
+		else
+			st.Air = 0
+		end
+		-- flung (its own speed)
+		local v = root.AssemblyLinearVelocity
+		local speed = typeof(v) == "Vector3" and v.Magnitude or 0
+		if speed > (AC.Fling or 800) then
+			AX.flag(player, "Fling", string.format("%.0f studs/s", speed), pos)
+			flagged = true
+			if AX.enforcing() then
+				AX.quarantine(player, char)
+			end
+		end
+		if pull and AX.enforcing() then
+			AX.pull(player, st, root, now)
+			return
+		end
+		if grounded and not flagged then
+			st.Good = pos
+		end
+		if moved then
+			st.ChangedAt = now
+		end
+		st.LastPos, st.LastT = pos, now
+	end
+	function AX.tick()
+		if not AX.on() then
+			return
+		end
+		local now = os.clock()
+		for _, plr in Players:GetPlayers() do
+			if not AX.exempt(plr) then
+				local ok, err = pcall(AX.check, plr, now)
+				if not ok then
+					warn("[AX] " .. tostring(err))
+				end
+			end
+		end
+	end
+	task.spawn(function()
+		while true do
+			task.wait(AC.Tick or 0.25)
+			AX.tick()
+		end
+	end)
+
+	---------------------------------------------------------------------------
+	-- requests, the clash
+	---------------------------------------------------------------------------
+	-- every UseAbility: false = drop it (Enforce, past the rate)
+	function AX.request(player, index)
+		if not AX.on() or AX.exempt(player) then
+			return true
+		end
+		local st = AX.watch(player)
+		local now = os.clock()
+		if index ~= Config.BLOCK_INDEX then
+			st.ReqAt = now -- (a move: the body may go fast now)
+		end
+		local R = AC.Requests or {}
+		st.Bucket = math.min(R.Burst or 80, st.Bucket + (now - st.BucketAt) * (R.Rate or 40))
+		st.BucketAt = now
+		if st.Bucket < 1 then
+			AX.flag(player, "Spam", string.format("over %d requests a second", R.Rate or 40))
+			return not AX.enforcing()
+		end
+		st.Bucket -= 1
+		return true
+	end
+	function AX.clashGap(player)
+		if not AX.on() or (player and AX.exempt(player)) then
+			return 0
+		end
+		return 1 / ((AC.Clash or {}).MaxRate or 11)
+	end
+	-- a press that counted: a run too even for a hand is a macro
+	function AX.clashPress(player, now)
+		if not AX.on() or AX.exempt(player) then
+			return
+		end
+		local st = AX.watch(player)
+		local CC = AC.Clash or {}
+		if st.LastPress and now - st.LastPress < 0.5 then
+			table.insert(st.Gaps, now - st.LastPress)
+			while #st.Gaps > (CC.Run or 12) do
+				table.remove(st.Gaps, 1)
+			end
+		else
+			st.Gaps = {}
+		end
+		st.LastPress = now
+		if #st.Gaps >= (CC.Run or 12) then
+			local sum = 0
+			for _, g in st.Gaps do
+				sum += g
+			end
+			local mean = sum / #st.Gaps
+			local var = 0
+			for _, g in st.Gaps do
+				var += (g - mean) ^ 2
+			end
+			local sd = math.sqrt(var / #st.Gaps)
+			if sd < (CC.Steady or 0.006) then
+				AX.flag(player, "Clash", string.format("%d presses %.0f ms apart, within %.1f ms", #st.Gaps + 1, mean * 1000, sd * 1000))
+				st.Gaps = {}
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- farming (whatever the mode)
+	---------------------------------------------------------------------------
+	local function recent(list, window, now)
+		local keep = {}
+		for _, t in list or {} do
+			if now - t < window then
+				table.insert(keep, t)
+			end
+		end
+		return keep
+	end
+	-- this KO: farmed? (the same victim more than Free times in Window)
+	function AX.farmed(killer, victim)
+		local F = AC.Farm or {}
+		if F.Enabled == false or AC.Enabled == false or typeof(killer) ~= "Instance" or typeof(victim) ~= "Instance" or AX.exempt(killer) then
+			return false
+		end
+		local now = os.clock()
+		local key = killer.UserId .. ":" .. victim.UserId
+		local list = recent(AX.pairKOs[key], F.Window or 600, now)
+		table.insert(list, now)
+		AX.pairKOs[key] = list
+		return #list > (F.Free or 3)
+	end
+	-- a dummy KO's pay, so much a window
+	function AX.dummyPay(killer, pay)
+		local F = AC.Farm or {}
+		if F.Enabled == false or AC.Enabled == false or not killer or (pay or 0) <= 0 or AX.exempt(killer) then
+			return pay
+		end
+		local now = os.clock()
+		local d = AX.dummy[killer]
+		if not d or now - d.At >= (F.Window or 600) then
+			d = { At = now, Paid = 0 }
+			AX.dummy[killer] = d
+		end
+		local left = math.max((F.DummyBucks or 20) - d.Paid, 0)
+		local give = math.min(pay, left)
+		d.Paid += give
+		return give
+	end
+	-- this ranked match: unrated? (these two, RankedFree times already in RankedWindow)
+	function AX.rematch(a, b)
+		local F = AC.Farm or {}
+		if F.Enabled == false or AC.Enabled == false or typeof(a) ~= "Instance" or typeof(b) ~= "Instance" or AX.exempt(a) or AX.exempt(b) then
+			return false
+		end
+		local now = os.clock()
+		local key = math.min(a.UserId, b.UserId) .. ":" .. math.max(a.UserId, b.UserId)
+		local list = recent(AX.rated[key], F.RankedWindow or 3600, now)
+		local unrated = #list >= (F.RankedFree or 2)
+		table.insert(list, now)
+		AX.rated[key] = list
+		return unrated
+	end
+
+	---------------------------------------------------------------------------
+	-- the console (F2): the owner's eyes only
+	---------------------------------------------------------------------------
+	local Console = Kit.Console
+	if Console then
+		local function addCmd(names, usage, help, fn)
+			local cmd = { Name = names[1], Usage = usage, Help = help, Fn = fn, Quiet = true }
+			for _, n in names do
+				Console.commands[string.lower(n)] = cmd
+			end
+			table.insert(Console.order, cmd)
+		end
+		local function find(word)
+			word = string.lower(word or "")
+			for _, plr in Players:GetPlayers() do
+				local n, d = string.lower(plr.Name), string.lower(plr.DisplayName)
+				if n == word or d == word or string.sub(n, 1, #word) == word or string.sub(d, 1, #word) == word then
+					return plr
+				end
+			end
+			return nil
+		end
+		addCmd({ "ax", "anticheat" }, "ax [log|enforce|off] | ax clear [who]", "The anti-exploit: how it stands, switch its mode (this server), or forget someone's flags", function(player, args)
+			local w = string.lower(args[1] or "")
+			if w == "log" or w == "enforce" or w == "off" then
+				AX.mode = (w == "log" and "Log") or (w == "enforce" and "Enforce") or "Off"
+				Console.print("Anti-exploit: " .. AX.mode .. " (this server)", "ok", player)
+				return nil
+			elseif w == "clear" then
+				local who = args[2] and find(args[2])
+				for plr, st in AX.state do
+					if not who or plr == who then
+						st.Points, st.Flags = 0, 0
+					end
+				end
+				local keep = {}
+				for _, e in AX.log do
+					if who and e.UserId ~= who.UserId then
+						table.insert(keep, e)
+					end
+				end
+				AX.log = keep
+				Console.print("Cleared " .. (who and who.DisplayName or "everyone"), "ok", player)
+				return nil
+			end
+			Console.print(string.format("Anti-exploit: %s · %d flags logged", AX.on() and AX.mode or "Off", #AX.log), "info", player)
+			local rows = {}
+			for plr, st in AX.state do
+				if plr.Parent and (st.Flags or 0) > 0 then
+					table.insert(rows, { plr, st })
+				end
+			end
+			table.sort(rows, function(a, b)
+				return a[2].Points > b[2].Points
+			end)
+			for i, r in rows do
+				if i > 10 then
+					break
+				end
+				Console.print(string.format("  %s (%d): %d flags, %.1f points%s", r[1].DisplayName, r[1].UserId, r[2].Flags or 0, r[2].Points, (r[2].Pulls or 0) > 0 and (", pulled back " .. r[2].Pulls) or ""), "info", player)
+			end
+			if #rows == 0 then
+				Console.print("  nobody flagged", "info", player)
+			end
+			return nil
+		end)
+		addCmd({ "flags" }, "flags [who] [n]", "The anti-exploit's last flags (newest last)", function(player, args)
+			local who = args[1] and not tonumber(args[1]) and find(args[1]) or nil
+			local n = tonumber(args[2] or args[1]) or 10
+			local list = {}
+			for i = #AX.log, 1, -1 do
+				local e = AX.log[i]
+				if not who or e.UserId == who.UserId then
+					table.insert(list, 1, e)
+					if #list >= n then
+						break
+					end
+				end
+			end
+			if #list == 0 then
+				Console.print("No flags" .. (who and (" for " .. who.DisplayName) or ""), "info", player)
+			end
+			for _, e in list do
+				Console.print(string.format("%s  %s (%d)  %s: %s%s", os.date("!%H:%M:%S", e.T), e.Name, e.UserId, e.Kind, e.Detail,
+					e.Pos and string.format("  @ %.0f, %.0f, %.0f", e.Pos.X, e.Pos.Y, e.Pos.Z) or ""), "err", player)
+			end
+			return nil
+		end)
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		local st = AX.state[player]
+		for _, c in st and st.Conns or {} do
+			c:Disconnect()
+		end
+		AX.state[player], AX.dummy[player] = nil, nil
+	end)
+end, function(err)
+	warn("[QuirkServer] anti-exploit: " .. tostring(err))
 end)
 
 Players.PlayerRemoving:Connect(function(player)

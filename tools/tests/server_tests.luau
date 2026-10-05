@@ -13232,6 +13232,387 @@ end)
 	DM.last[A] = nil
 end)
 
+---------------------------------------------------------------------------
+-- Round 97: ANTI-EXPLOIT (Kit.AX, as Destruction.AntiExploit): the movement
+-- watchdog and its excuses, Log and Enforce, anti-fling, the request and
+-- clash caps, the farming limits, the console's ax / flags
+---------------------------------------------------------------------------
+;M.section(function()
+	local X = 97000
+	print("== round 97: ANTI-EXPLOIT (the watchdog, its excuses, Log / Enforce, fling, spam, clash, farming, the console)")
+	local AX = dx.AntiExploit
+	check(AX ~= nil and type(AX.check) == "function" and type(AX.farmed) == "function", "the anti-exploit is there (Kit.AX)")
+	if not AX then
+		return
+	end
+	local AC = Config.AntiExploit
+	check(AC.Mode == "Log" and AX.mode == "Log" and (AC.KickAt or 0) == 0, "it ships in Log mode, never kicking")
+	-- (quick, and driven here: the background look stood down)
+	local tickWas, exemptWas = AX.tick, AX.exempt
+	AX.tick = function() end
+	local watched = { [A] = true }
+	AX.exempt = function(p)
+		return not watched[p]
+	end
+	local saved = {}
+	for k, v in { Grace = 0.3, Speed = { Max = 75, Window = 0.4 }, Hover = { Time = 0.6, Ground = 14, Fall = 4 }, KickAt = 0 } do
+		saved[k] = AC[k]
+		AC[k] = v
+	end
+	-- the street: ground under anyone below 14 studs up
+	local rayWas = workspace.Raycast
+	workspace.Raycast = function(_, origin, dir)
+		if dir.Y < 0 and origin.Y >= 0 and origin.Y + dir.Y <= 0.5 then
+			return { Position = Vector3.new(origin.X, 0, origin.Z), Instance = basePlate }
+		end
+		return nil
+	end
+	for _, c in { aChar, bChar } do
+		if c then
+			c.Parent = nil
+		end
+	end
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 4)))
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 4), Vector3.new(X, 3, 0)))
+	AX.state[A] = nil
+	AX.log = {}
+	-- his own machine moving his body (the server never hears a CFrame set)
+	local function slide(pos)
+		local cf = rawget(aRoot, "_props").CFrame
+		rawget(aRoot, "_props").CFrame = CFrame.new(pos) * cf.Rotation
+	end
+	local function look()
+		AX.check(A, os.clock())
+	end
+	-- (the log starts over - and the gap between two lines of a kind with it)
+	local function clearLog()
+		AX.log = {}
+		for _, s in AX.state do
+			s.Said = {}
+		end
+	end
+	local function flagged(kind)
+		local n = 0
+		for _, e in AX.log do
+			if e.UserId == A.UserId and e.Kind == kind then
+				n += 1
+			end
+		end
+		return n
+	end
+	-- walk a path: `step` studs every 0.1 s, `n` times
+	local function walk(from, dir, step, n)
+		local p = from
+		for _ = 1, n do
+			task.wait(0.1)
+			p += dir * step
+			slide(p)
+			look()
+		end
+		return p
+	end
+	look()
+	task.wait(0.35) -- (a new body: the grace runs out)
+	look()
+
+	-- walking and running: nothing
+	local p = walk(Vector3.new(X, 3, 0), Vector3.new(1, 0, 0), 2.5, 8) -- (25 studs/s)
+	check(#AX.log == 0, "walking and running: nothing flagged")
+	-- SPEED: 140 studs/s on the street
+	p = walk(p, Vector3.new(1, 0, 0), 14, 6)
+	check(flagged("Speed") >= 1, "SPEED: 140 studs/s flat with nothing to excuse it is flagged")
+	check(math.abs(aRoot.Position.X - p.X) < 0.01, "...in Log mode he's left where he is (only noted)")
+	local entry = AX.log[#AX.log]
+	check(entry and entry.Name == A.Name and entry.Mode == "Log" and typeof(entry.Pos) == "Vector3", "...the log has who, what, where")
+	task.wait(0.35)
+	look()
+	-- TELEPORT: 200 studs between two looks
+	clearLog()
+	task.wait(0.1)
+	p += Vector3.new(0, 0, 200)
+	slide(p)
+	look()
+	check(flagged("Teleport") == 1, "TELEPORT: 200 studs between two looks is flagged")
+
+	-- THE EXCUSES
+	local function excusedBy(label, setup, undo)
+		task.wait(0.4)
+		look()
+		clearLog()
+		setup()
+		task.wait(0.1)
+		p += Vector3.new(0, 0, 150)
+		slide(p)
+		look()
+		if undo then
+			undo()
+		end
+		check(#AX.log == 0, "...not when " .. label)
+	end
+	excusedBy("the server moved him itself (a warp, a respawn, a grab)", function()
+		aRoot.CFrame = CFrame.new(p + Vector3.new(0, 0, 1))
+		p += Vector3.new(0, 0, 1)
+	end)
+	excusedBy("he's just asked for a move (a dash, a flight, parkour)", function()
+		AX.request(A, 1)
+	end)
+	local kb
+	excusedBy("a hit's knockback is on him (the server's force)", function()
+		kb = M.new("LinearVelocity", "Knockback")
+		kb.Parent = aRoot
+	end, function()
+		kb.Parent = nil
+	end)
+	excusedBy("he's ragdolled", function()
+		aChar:SetAttribute("Ragdolled", true)
+		look()
+		aChar:SetAttribute("Ragdolled", nil)
+	end)
+	excusedBy("he's flying (Bakugo's blasts)", function()
+		aChar:SetAttribute("BlastFlying", true)
+	end, function()
+		aChar:SetAttribute("BlastFlying", nil)
+	end)
+	-- ...but a block isn't a move
+	task.wait(0.4)
+	look()
+	clearLog()
+	AX.request(A, Config.BLOCK_INDEX, true)
+	task.wait(0.1)
+	p += Vector3.new(0, 0, 150)
+	slide(p)
+	look()
+	check(flagged("Teleport") == 1, "...a guard going up isn't a move: still flagged")
+
+	-- a lagging machine: nothing for 2 s, then all of it at once - running pace
+	task.wait(0.4)
+	look()
+	clearLog()
+	local before = aRoot.Position
+	for _ = 1, 8 do
+		task.wait(0.25)
+		look()
+	end
+	p = before + Vector3.new(50, 0, 0)
+	slide(p)
+	look()
+	check(#AX.log == 0, "a lagging player's catch-up (50 studs after 2 s of nothing) isn't a teleport or speeding")
+
+	-- RISE and HOVER
+	task.wait(0.4)
+	look()
+	clearLog()
+	p = walk(p, Vector3.new(0, 1, 0), 16, 2) -- (160 studs/s up)
+	check(flagged("Rise") >= 1, "RISE: 160 studs/s straight up is flagged")
+	task.wait(0.4)
+	look()
+	clearLog()
+	p = Vector3.new(p.X, 80, p.Z)
+	aRoot.CFrame = CFrame.new(p) -- (the server put him up there: excused a moment)
+	look()
+	task.wait(0.35)
+	for _ = 1, 9 do
+		task.wait(0.1)
+		p += Vector3.new(1, 0, 0)
+		slide(p)
+		look()
+	end
+	check(flagged("Hover") >= 1, "HOVER: drifting about 80 studs up, not falling, is flagged")
+	-- a machine that's frozen up there (lag) isn't hovering
+	clearLog()
+	AC.Hover.Time = 1.5
+	for _ = 1, 25 do
+		task.wait(0.1)
+		look()
+	end
+	AC.Hover.Time = 0.6
+	check(flagged("Hover") == 0, "...not a body frozen in the air (a lagging machine sends nothing)")
+	clearLog()
+	workspace:SetAttribute("MoonGravity", true)
+	for _ = 1, 9 do
+		task.wait(0.1)
+		look()
+	end
+	workspace:SetAttribute("MoonGravity", nil)
+	check(flagged("Hover") == 0, "...not under Moon Gravity (low gravity: no rising or hovering checks)")
+	p = Vector3.new(p.X, 3, p.Z)
+	aRoot.CFrame = CFrame.new(p)
+	look()
+
+	-- SPIN and FLING
+	task.wait(0.4)
+	clearLog()
+	aRoot.AssemblyAngularVelocity = Vector3.new(0, 900, 0)
+	look()
+	check(flagged("Spin") == 1, "SPIN: 900 rad/s is flagged (the fling exploit)")
+	aRoot.AssemblyAngularVelocity = Vector3.zero
+	aRoot.AssemblyLinearVelocity = Vector3.new(2000, 0, 0)
+	task.wait(0.1)
+	look()
+	aRoot.AssemblyLinearVelocity = Vector3.zero
+	check(flagged("Fling") == 1, "FLING: 2000 studs/s is flagged")
+
+	-- nobody's watched who isn't to be (testers, the dev flight's people)
+	check(exemptWas(B) == true, "testers (in Studio: everyone) and the dev flight's people aren't watched")
+
+	-- THE CONSOLE (F2): the owner's eyes only
+	local consoleRemote = remotes:FindFirstChild("Console")
+	clearLog()
+	AX.flag(A, "Speed", "test entry", p)
+	clearSent()
+	task.wait(0.06)
+	consoleRemote.OnServerEvent:Fire(A, "Run", "flags")
+	task.wait()
+	local mine, everyone = 0, 0
+	for _, s in M.sent do
+		if s.Args[1] == "Line" then
+			if s.To == A then
+				mine += 1
+			elseif s.To == "all" then
+				everyone += 1
+			end
+		end
+	end
+	check(mine >= 2 and everyone == 0, "the console's `flags` shows the log to the owner only (" .. mine .. " lines, " .. everyone .. " to everyone)")
+	task.wait(0.06)
+	consoleRemote.OnServerEvent:Fire(A, "Run", "ax enforce")
+	task.wait()
+	check(AX.mode == "Enforce", "`ax enforce` switches this server to Enforce")
+
+	-- ENFORCE: put back; a flinger out of everyone's way; the kick
+	task.wait(0.4)
+	look()
+	local stood = aRoot.Position
+	task.wait(0.1)
+	look()
+	slide(stood + Vector3.new(200, 0, 0))
+	look()
+	local st = AX.state[A]
+	check((st.Pulls or 0) >= 1 and (aRoot.Position - (stood + Vector3.new(0, 0.5, 0))).Magnitude < 0.01,
+		"ENFORCE: a teleporter is put back where he last stood")
+	check(st.MovedAt < st.PulledAt, "...and that pull back excuses nothing (it's not a server move of the game's)")
+	aRoot.AssemblyAngularVelocity = Vector3.new(0, 900, 0)
+	look()
+	aRoot.AssemblyAngularVelocity = Vector3.zero
+	local loose = true
+	for _, d in aChar:GetDescendants() do
+		if d:IsA("BasePart") and d.Name ~= "RagdollCollider" and d.CollisionGroup ~= "Loose" then
+			loose = false
+		end
+	end
+	check(aChar:GetAttribute("Quarantined") == true and loose, "...a spinning flinger's body touches nobody for a while (Quarantine)")
+	local kicked
+	rawset(A, "Kick", function(_, msg)
+		kicked = msg
+	end)
+	AC.KickAt = 5
+	st.Points = 4.5
+	AX.flag(A, "Teleport", "test", p)
+	check(kicked ~= nil, "...and at KickAt points (when it's set) he's kicked")
+	rawset(A, "Kick", nil)
+	AC.KickAt = 0
+	task.wait(0.06)
+	consoleRemote.OnServerEvent:Fire(A, "Run", "ax log")
+	task.wait()
+	check(AX.mode == "Log", "`ax log` puts it back")
+
+	-- REQUESTS: past the rate
+	clearLog()
+	local st2 = AX.watch(A)
+	st2.Bucket, st2.BucketAt = 3, os.clock()
+	local dropped = 0
+	for _ = 1, 10 do
+		if AX.request(A, 1) == false then
+			dropped += 1
+		end
+	end
+	check(flagged("Spam") == 1 and dropped == 0, "REQUESTS: past the rate it's flagged (Log: still let through)")
+	AX.mode = "Enforce"
+	st2.Bucket, st2.BucketAt = 1, os.clock()
+	local passed = AX.request(A, 1)
+	local refused = AX.request(A, 1)
+	AX.mode = "Log"
+	check(passed == true and refused == false, "...Enforce drops it")
+
+	-- CLASH: human speed; a macro's too even
+	check(math.abs(AX.clashGap(A) - 1 / AC.Clash.MaxRate) < 1e-6 and AX.clashGap(B) == 0, "CLASH: presses at most " .. AC.Clash.MaxRate .. " a second (testers: as before)")
+	clearLog()
+	local t = 1000
+	for _ = 1, 14 do
+		t += 0.1
+		AX.clashPress(A, t)
+	end
+	check(flagged("Clash") == 1, "...a run of presses exactly 100 ms apart is a macro")
+	clearLog()
+	AX.watch(A).LastPress = nil
+	local jitter = { 0.09, 0.13, 0.1, 0.16, 0.11, 0.12, 0.095, 0.14, 0.105, 0.15, 0.1, 0.125, 0.11, 0.135 }
+	t = 2000
+	for _, g in jitter do
+		t += g
+		AX.clashPress(A, t)
+	end
+	check(flagged("Clash") == 0, "...a hand's uneven presses aren't")
+
+	-- FARMING
+	local C9 = addPlayer("Charlie97", 97003)
+	watched[C9] = true
+	AX.pairKOs = {}
+	local seq = {}
+	for i = 1, 4 do
+		seq[i] = AX.farmed(A, B)
+	end
+	check(not seq[1] and not seq[2] and not seq[3] and seq[4], "FARMING: the 4th KO of the same player inside " .. AC.Farm.Window .. " s pays nothing")
+	check(AX.farmed(A, C9) == false and AX.farmed(B, A) == false, "...another victim, or the other way round, still counts")
+	AX.dummy[A] = nil
+	local paid = 0
+	for _ = 1, 30 do
+		paid += AX.dummyPay(A, 1)
+	end
+	check(paid == AC.Farm.DummyBucks, "...dummies pay " .. AC.Farm.DummyBucks .. " Bucks a window at most (" .. paid .. ")")
+	AX.rated = {}
+	local r1, r2, r3 = AX.rematch(A, C9), AX.rematch(C9, A), AX.rematch(A, C9)
+	check(not r1 and not r2 and r3, "...a 3rd ranked match with the same player inside the hour is unrated")
+	watched[B] = nil
+	check(AX.farmed(B, A) == false and AX.rematch(A, B) == false, "...testers aren't limited")
+
+	-- a farmed KO, for real: still a K.O. for everyone, no reward
+	AX.pairKOs = {}
+	for i = 1, 4 do
+		if bChar.Parent == nil or bHum.Health <= 0 then
+			bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(aRoot.Position + aRoot.CFrame.LookVector * 4, aRoot.Position))
+		end
+		bRoot.CFrame = CFrame.lookAt(aRoot.Position + aRoot.CFrame.LookVector * 4, aRoot.Position)
+		task.wait(Config.M1.ComboReset + 0.1)
+		clearSent()
+		local kills0, bucks0 = A:GetAttribute("Kills") or 0, A:GetAttribute("Bucks") or 0
+		bHum.Health = 3
+		m1(A)
+		task.wait(0.1)
+		if i == 4 then
+			local conf = sentTo(A, "KOConfirm")[1]
+			check(bHum.Health == 0 and conf ~= nil and conf.Farmed == true and not conf.Counted and conf.Bucks == nil,
+				"a 4th KO of the same player: K.O. on his screen, marked no reward (" .. tostring(conf and conf.Farmed) .. ")")
+			check((A:GetAttribute("Kills") or 0) == kills0 and (A:GetAttribute("Bucks") or 0) == bucks0, "...no KO count, no Bucks")
+			check(#sentTo(B, "KOFeed") == 1, "...the kill feed still has it")
+		end
+	end
+
+	-- tidy
+	AX.mode = "Log"
+	AX.tick, AX.exempt = tickWas, exemptWas
+	for k, v in saved do
+		AC[k] = v
+	end
+	workspace.Raycast = rayWas
+	AX.log, AX.pairKOs, AX.rated, AX.dummy = {}, {}, {}, {}
+	AX.state[A], AX.state[B], AX.state[C9] = nil, nil, nil
+	if aChar then
+		aChar:SetAttribute("Quarantined", nil)
+	end
+	table.remove(playerList, table.find(playerList, C9))
+	C9.Parent = nil
+end)
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}

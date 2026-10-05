@@ -11969,6 +11969,50 @@ if not ok96 then
 end
 end
 
+print("== round 97: ANTI-EXPLOIT (a farmed KO: still a K.O., marked no reward)")
+do
+local ok97, err97 = pcall(function()
+	local hud97 = playerGui:FindFirstChild("QuirkHUD")
+	-- the popup the next call makes (the ones already up are left to fade)
+	function newPopupTexts97(fn) -- (a global: the suite is at its local limit)
+		local before = {}
+		for _, d in hud97 and hud97:GetDescendants() or {} do
+			if d.Name == "KOPopup" then
+				before[d] = true
+			end
+		end
+		fn()
+		local out = {}
+		for _, d in hud97 and hud97:GetDescendants() or {} do
+			if d.Name == "KOPopup" and not before[d] then
+				for _, l in d:GetDescendants() do
+					if l:IsA("TextLabel") then
+						table.insert(out, l.Text)
+					end
+				end
+			end
+		end
+		return table.concat(out, " | ")
+	end
+	local texts = newPopupTexts97(function()
+		HUD.KOPopup({ Victim = "Bravo97", Counted = false, Farmed = true })
+	end)
+	if not string.find(texts, "K.O.!", 1, true) or string.find(texts, "DUMMY DOWN", 1, true) or not string.find(texts, "NO REWARD", 1, true) then
+		problem("ANTI-EXPLOIT 97: a farmed KO's popup says K.O.! and NO REWARD (" .. texts .. ")")
+	end
+	texts = newPopupTexts97(function()
+		HUD.KOPopup({ Victim = "Dummy", Counted = false })
+	end)
+	if not string.find(texts, "DUMMY DOWN", 1, true) or string.find(texts, "NO REWARD", 1, true) then
+		problem("ANTI-EXPLOIT 97: ...a dummy's is as it was (" .. texts .. ")")
+	end
+	task.wait(2.6) -- (both gone before the next section)
+end)
+if not ok97 then
+	problem("ANTI-EXPLOIT 97: errored: " .. tostring(err97))
+end
+end
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")
