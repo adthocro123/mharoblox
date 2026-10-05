@@ -11438,6 +11438,9 @@ local function onKnockedOut(model)
 		elseif not victim and Kit.AX then
 			pay = Kit.AX.dummyPay(killer, pay) -- (round 97: dummies pay so much a while)
 		end
+		if pay > 0 and Kit.GP then
+			pay = Kit.GP.bucks(killer, pay) -- (round 98: 2x BUCKS / VIP)
+		end
 		Store.AddBucks(killer, pay)
 		PlayVFX:FireClient(killer, "KOConfirm", nil, {
 			Victim = feed.Victim,
@@ -17561,6 +17564,9 @@ do
 				e.Reward = pay.Consolation or 1
 			end
 			e.Reward = math.floor(e.Reward * (Kit.AE and Kit.AE.mult("Bucks") or 1) + 0.5) -- (round 87: MONEY RAIN pays double)
+			if e.Reward > 0 and Kit.GP then
+				e.Reward = Kit.GP.bucks(e.Player, e.Reward) -- (round 98: 2x BUCKS / VIP)
+			end
 			if e.Reward > 0 and Store.AddBucks then
 				Store.AddBucks(e.Player, e.Reward)
 			end
@@ -20194,6 +20200,60 @@ local function setupStore()
 		dirty[player] = true
 	end
 
+	-- (round 98) THE EMOTE SLOTS PASS (Config.GamePasses.EmoteSlots; Kit.GP
+	-- says who has it: Pass_EmoteSlots): a second ring of RING2 slots round
+	-- the wheel - slots SLOTS + 1 to SLOTS + RING2. On the player as
+	-- EmoteWheel2 ("Id,,Id", like EmoteWheel), saved as Wheel2. Without the
+	-- pass it's kept, not used: it's back when the pass is
+	Store.RING2 = math.max(math.floor(tonumber(((Config.GamePasses or {}).EmoteSlots or {}).Extra) or 8), 0)
+	function Store.extraSlots(player)
+		return player:GetAttribute("Pass_EmoteSlots") == true and Store.RING2 or 0
+	end
+	function Store.wheel2List(player)
+		local owned, out, i = ownedSet(player), {}, 0
+		for id in string.gmatch((player:GetAttribute("EmoteWheel2") or "") .. ",", "([^,]*),") do
+			i += 1
+			if i > Store.RING2 then
+				break
+			end
+			out[i] = (EMOTES[id] and owned[id]) and id or ""
+		end
+		for k = i + 1, Store.RING2 do
+			out[k] = ""
+		end
+		return out
+	end
+	function Store.setWheel2(player, list)
+		local out, any = {}, false
+		for i = 1, Store.RING2 do
+			out[i] = list[i] or ""
+			any = any or out[i] ~= ""
+		end
+		player:SetAttribute("EmoteWheel2", any and table.concat(out, ",") or nil)
+		dirty[player] = true
+	end
+	-- new ones go on the first free slot: the wheel, then its second ring
+	function Store.toFreeSlots(player, ids)
+		local wheel, ring = wheelList(player), Store.wheel2List(player)
+		local extra, ringChanged = Store.extraSlots(player), false
+		for _, id in ids do
+			local free = table.find(wheel, "")
+			if free then
+				wheel[free] = id
+			elseif extra > 0 then
+				local k = table.find(ring, "")
+				if k and k <= extra then
+					ring[k] = id
+					ringChanged = true
+				end
+			end
+		end
+		setWheel(player, wheel)
+		if ringChanged then
+			Store.setWheel2(player, ring)
+		end
+	end
+
 	-- (round 92) a wheel saved with fewer slots (from: the old 4) laid out on
 	-- today's SLOTS (8): each emote keeps its place on the ring - slot i of
 	-- `from` goes to the slot that points the same way (1, 2, 3, 4 of 4 ->
@@ -20343,14 +20403,7 @@ local function setupStore()
 			table.insert(got, e.Id)
 		end
 		setOwned(player, owned, order)
-		local wheel = wheelList(player)
-		for _, id in got do
-			local free = table.find(wheel, "")
-			if free then
-				wheel[free] = id
-			end
-		end
-		setWheel(player, wheel)
+		Store.toFreeSlots(player, got) -- (round 98: the second ring too)
 		if picks > 0 then
 			player:SetAttribute("EmotePicks", (player:GetAttribute("EmotePicks") or 0) + picks)
 			dirty[player] = true
@@ -20395,19 +20448,15 @@ local function setupStore()
 		owned[id] = true
 		table.insert(order, id)
 		setOwned(player, owned, order)
-		local wheel = wheelList(player)
-		local free = table.find(wheel, "")
-		if free then
-			wheel[free] = id
-			setWheel(player, wheel)
-		end
+		Store.toFreeSlots(player, { id }) -- (round 98: the second ring too)
 		PlayVFX:FireClient(player, "EmoteRoll", nil, { Got = { id }, Pick = 0 })
 	end
 
 	-- put an emote you own in a slot of the wheel ("" empties it); it leaves
 	-- any other slot it was in
 	local function equipEmote(player, slot, id)
-		if slot ~= math.floor(slot) or slot < 1 or slot > SLOTS then
+		-- (round 98) slots past SLOTS: the EMOTE SLOTS pass's ring
+		if slot ~= math.floor(slot) or slot < 1 or slot > SLOTS + Store.extraSlots(player) then
 			return
 		end
 		if id ~= "" and not ownedSet(player)[id] then
@@ -20418,14 +20467,26 @@ local function setupStore()
 			return
 		end
 		lastEquip[player] = now
-		local wheel = wheelList(player)
+		local wheel, ring = wheelList(player), Store.wheel2List(player)
 		for i = 1, SLOTS do
 			if id ~= "" and wheel[i] == id then
 				wheel[i] = ""
 			end
 		end
-		wheel[slot] = id
+		for i = 1, #ring do
+			if id ~= "" and ring[i] == id then
+				ring[i] = ""
+			end
+		end
+		if slot > SLOTS then
+			ring[slot - SLOTS] = id
+		else
+			wheel[slot] = id
+		end
 		setWheel(player, wheel)
+		if ring[slot - SLOTS] ~= nil or player:GetAttribute("EmoteWheel2") then
+			Store.setWheel2(player, ring)
+		end
 	end
 
 	-- (round 63) CODES (the REWARDS tab, Config.Codes): each works once per
@@ -20524,6 +20585,7 @@ local function setupStore()
 			Wheel = table.concat(Store.FoldWheel(wheelList(player), 4), ","),
 			WheelAll = player:GetAttribute("EmoteWheel") or "",
 			WheelSlots = SLOTS, -- (how many slots WheelAll has; a save without WheelAll: an older server's 4)
+			Wheel2 = player:GetAttribute("EmoteWheel2") or "", -- (round 98) the EMOTE SLOTS pass's ring
 			Picks = player:GetAttribute("EmotePicks") or 0, -- (round 63) free picks waiting
 			Codes = player:GetAttribute("CodesUsed") or "",
 			Receipts = receipts[player] or {}, -- (round 72) Robux purchases handed over
@@ -20622,6 +20684,15 @@ local function setupStore()
 					table.insert(newest, order[k])
 				end
 				setWheel(player, Store.SpreadWheel(list, from, newest))
+				-- (round 98) the EMOTE SLOTS pass's ring (kept, pass or not)
+				if type(data.Wheel2) == "string" and data.Wheel2 ~= "" then
+					local ring, k = {}, 0
+					for id in string.gmatch(data.Wheel2 .. ",", "([^,]*),") do
+						k += 1
+						ring[k] = set[id] and id or ""
+					end
+					Store.setWheel2(player, ring)
+				end
 			end
 			if type(data.Outfit) == "number" and data.Outfit > 0 then
 				Store.PickOutfit(player, data.Outfit, true)
@@ -20952,11 +21023,27 @@ local function setupStore()
 		return ok and desc or nil
 	end
 
+	-- (round 98) the AWAKENING OUTFITS pass (Config.GamePasses): theirs (Kit.GP
+	-- says so: Pass_AwakeningOutfits), or it's not set up and free till it is
+	function Store.outfitPass(player)
+		local spec = (Config.GamePasses or {}).AwakeningOutfits
+		if type(spec) ~= "table" or ((tonumber(spec.Id) or 0) == 0 and spec.FreeUntilSetUp ~= false) then
+			return true
+		end
+		return player:GetAttribute("Pass_AwakeningOutfits") == true
+	end
+
 	-- the pick (0 = none): kept on the player (AwakenOutfit), saved, and its
-	-- look fetched now so it's ready the moment they awaken
+	-- look fetched now so it's ready the moment they awaken. (round 98)
+	-- Picking one takes the pass; a saved pick stays either way - it's worn
+	-- once they have it
 	function Store.PickOutfit(player, id, fromSave)
 		local cfg = Config.AwakeningOutfits
 		if not cfg or cfg.Enabled == false or type(id) ~= "number" or id ~= id or id < 0 or id > 2 ^ 53 or id % 1 ~= 0 then
+			return
+		end
+		if not fromSave and id ~= 0 and not Store.outfitPass(player) then
+			PlayVFX:FireClient(player, "Notice", nil, { Text = "Awakening outfits come with the AWAKENING OUTFITS pass - it's in the shop", Color = Color3.fromRGB(255, 212, 64) })
 			return
 		end
 		local now = os.clock()
@@ -20993,7 +21080,7 @@ local function setupStore()
 			return
 		end
 		local id = tonumber(player:GetAttribute("AwakenOutfit")) or 0
-		local want = (on == true and id > 0) and id or nil
+		local want = (on == true and id > 0 and Store.outfitPass(player)) and id or nil -- (round 98: the pass)
 		if char:GetAttribute("AwakenFit") == want then
 			return
 		end
@@ -22199,7 +22286,7 @@ local function setupUno()
 		if winner then
 			toast(T, text or (winner.DisplayName .. " WINS!"), Color3.fromRGB(255, 212, 64))
 			if Store.AddBucks and (U.WinBucks or 0) > 0 then
-				Store.AddBucks(winner, U.WinBucks)
+				Store.AddBucks(winner, Kit.GP and Kit.GP.bucks(winner, U.WinBucks) or U.WinBucks) -- (round 98: 2x BUCKS / VIP)
 			end
 		elseif text then
 			toast(T, text)
@@ -24844,7 +24931,7 @@ do
 					if (ev.got[uid] or 0) < cap and Vector3.new(off.X, 0, off.Z).Magnitude <= reach and off.Y > -3 and off.Y < 9 * math.max(AE.size, 1) then
 						ev.bills[id] = nil
 						ev.got[uid] = (ev.got[uid] or 0) + 1
-						Store.AddBucks(plr, def.Value or 1)
+						Store.AddBucks(plr, Kit.GP and Kit.GP.bucks(plr, def.Value or 1) or (def.Value or 1)) -- (round 98: 2x BUCKS / VIP)
 						plr:SetAttribute("EventBills", ev.got[uid])
 						broadcast("AdminBillTaken", e[2], { Id = id, By = plr, Value = def.Value or 1, Got = ev.got[uid], Cap = cap })
 						break
@@ -30917,6 +31004,19 @@ xpcall(function()
 		return yes
 	end
 
+	-- (round 98) how high someone is at the console: 3 the owner; 2 / 1 an
+	-- ADMIN / MOD tag (Kit.MOD - Config.Tags' Powers); 0 everyone else (they
+	-- watch). A command's Staff is the level it needs (none: the owner's)
+	function Console.level(player)
+		if Console.isOwner(player) then
+			return 3
+		end
+		return Kit.MOD ~= nil and Kit.MOD.level(player) or 0
+	end
+	function Console.allowed(player, cmd)
+		return Console.level(player) >= math.min(cmd.Staff or 3, 3)
+	end
+
 	-- a line for everyone's console (kind: "cmd", "ok", "err", "info", "event"),
 	-- or just for one player's (onlyTo: help, a refusal)
 	function Console.print(text, kind, onlyTo)
@@ -31075,7 +31175,9 @@ xpcall(function()
 		end
 		local list = {}
 		for _, cmd in Console.order do
-			table.insert(list, cmd.Name)
+			if Console.allowed(player, cmd) then -- (round 98: staff - theirs)
+				table.insert(list, cmd.Name)
+			end
 		end
 		Console.print("Commands: " .. table.concat(list, "  "), "info", player)
 		Console.print("Targets: me (default), all, others, random, or the start of a name.  'help <command>' for more.", "info", player)
@@ -31087,7 +31189,8 @@ xpcall(function()
 			local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
 			local q = Config.Quirks[plr:GetAttribute("Quirk") or ""]
 			table.insert(lines, string.format("%s (@%s)  %s  %d HP  %d KOs  $%d%s", plr.DisplayName, plr.Name, q and (q.DisplayName or "?") or "no hero",
-				hum and math.floor(hum.Health) or 0, plr:GetAttribute("Kills") or 0, plr:GetAttribute("Bucks") or 0, Console.isOwner(plr) and "  [OWNER]" or ""))
+				hum and math.floor(hum.Health) or 0, plr:GetAttribute("Kills") or 0, plr:GetAttribute("Bucks") or 0,
+				plr:GetAttribute("Tag") and ("  [" .. string.upper(tostring(plr:GetAttribute("Tag"))) .. "]") or (Console.isOwner(plr) and "  [OWNER]" or ""))) -- (round 98: their name tag)
 		end
 		return table.concat(lines, "\n"), "info"
 	end)
@@ -31255,14 +31358,35 @@ xpcall(function()
 		end)
 		return err or ("Brought " .. names(list)), kind or "ok"
 	end)
-	add({ "kick" }, "kick <who> [reason]", "Kick them from this server (never an owner)", function(player, args)
+	-- (round 98) staff can kick too: one person at a time (the owner: all /
+	-- others as well), never the owner nor anyone as high as they are; the
+	-- start of a name that fits more than one kicks nobody
+	add({ "kick" }, "kick <who> [reason]", "Kick them from this server - they can come back (never the owner, nor staff as high as you)", function(player, args)
+		local level = Console.level(player)
+		local word = string.lower(args[1] or "")
+		local many = word == "all" or word == "everyone" or word == "*" or word == "others" or word == "random"
+		if many and level < 3 then
+			return "Name one person", "err"
+		end
 		local list = targets(player, args[1] or "")
+		if #list > 1 and not many then
+			return "'" .. tostring(args[1]) .. "' could be " .. names(list) .. " - type more of the name", "err"
+		end
 		local kicked = {}
-		local reason = #args > 1 and table.concat(args, " ", 2) or "Kicked from this server."
+		local reason = #args > 1 and table.concat(args, " ", 2) or ""
+		if reason ~= "" and Kit.MOD then
+			reason = Kit.MOD.filter(reason, player.UserId) -- (round 98: typed by one, read by another)
+		end
+		if reason == "" then
+			reason = "Kicked from this server."
+		end
 		for _, plr in list do
-			if plr ~= player and not Console.isOwner(plr) then
+			if plr ~= player and not Console.isOwner(plr) and Console.level(plr) < level then
 				table.insert(kicked, plr)
 				plr:Kick(reason)
+				if Kit.MOD then
+					Kit.MOD.note(string.format("%s kicked %s (%d): %s", player.Name, plr.Name, plr.UserId, reason), player)
+				end
 			end
 		end
 		return #kicked > 0 and ("Kicked " .. names(kicked)) or "No one kicked", #kicked > 0 and "ok" or "err"
@@ -31506,7 +31630,9 @@ xpcall(function()
 		if #args == 0 then
 			return
 		end
-		if not Console.isOwner(player) then
+		-- (round 98) the owner - or staff (Console.level)
+		local level = Console.level(player)
+		if level <= 0 then
 			Console.print("Read-only: only the owner of this game can run commands here.", "err", player)
 			return
 		end
@@ -31516,17 +31642,24 @@ xpcall(function()
 		end
 		Console.lastRun[player] = now
 		local cmd = Console.commands[string.lower(table.remove(args, 1))]
-		-- (everyone watching sees what the owner runs - but help is just theirs)
-		Console.print(player.DisplayName .. "> " .. text, "cmd", cmd and cmd.Quiet and player or nil)
+		-- (round 98) staff run only what's theirs
+		if cmd and not Console.allowed(player, cmd) then
+			Console.print("That one's the owner's - 'help' lists yours", "err", player)
+			return
+		end
+		-- (everyone watching sees what the owner runs - but help is just theirs,
+		-- and so is all of it for staff, and the moderation commands: Quiet)
+		local quiet = ((cmd and cmd.Quiet) or level < 3) and player or nil
+		Console.print(player.DisplayName .. "> " .. text, "cmd", quiet)
 		if not cmd then
-			Console.print("Unknown command - 'help' lists them", "err")
+			Console.print("Unknown command - 'help' lists them", "err", quiet)
 			return
 		end
 		local ok, reply, kind = pcall(cmd.Fn, player, args)
 		if not ok then
-			Console.print("Error: " .. tostring(reply), "err")
+			Console.print("Error: " .. tostring(reply), "err", quiet)
 		elseif reply then
-			Console.print(reply, kind or "ok")
+			Console.print(reply, kind or "ok", quiet)
 		end
 	end
 
@@ -31540,14 +31673,22 @@ xpcall(function()
 				return
 			end
 			Console.lastSync[player] = now
+			-- (round 98) staff: the commands that are theirs, and the box to type in
+			-- (everyone watching still sees every command, as before)
+			local level = Console.level(player)
 			local list = {}
 			for _, cmd in Console.order do
-				table.insert(list, { Name = cmd.Name, Usage = cmd.Usage, Help = cmd.Help })
+				if level <= 0 or Console.allowed(player, cmd) then
+					table.insert(list, { Name = cmd.Name, Usage = cmd.Usage, Help = cmd.Help })
+				end
 			end
 			for _, cmd in Console.clientOnly do
 				table.insert(list, cmd)
 			end
-			ConsoleRemote:FireClient(player, "Sync", { Log = Console.log, Commands = list, Owner = Console.isOwner(player) })
+			ConsoleRemote:FireClient(player, "Sync", {
+				Log = Console.log, Commands = list, Owner = level > 0,
+				Role = level >= 3 and "OWNER" or level == 2 and "ADMIN" or level == 1 and "MOD" or nil,
+			})
 		end
 	end)
 	-- (the client shows the input box to the owner; the server checks anyway)
@@ -35440,6 +35581,1173 @@ xpcall(function()
 	end)
 end, function(err)
 	warn("[QuirkServer] anti-exploit: " .. tostring(err))
+end)
+
+---------------------------------------------------------------------------
+-- (round 98) MODERATION, NAME TAGS, GAME PASSES (Config.Moderation /
+-- Config.Tags / Config.GamePasses). The owner: "Give me some ban commands
+-- or kick too. Also make some gamepasses, more emote slots. Awakening
+-- outfits, and make some badges that peoples names. Like mod, tester, etc
+-- one for me too. Make them so I can give them out".
+-- ONE RECORD A PERSON (Kit.MOD): a DataStore key a UserId ("staff_<id>"):
+--   { Name, Ban = { Until (os.time; 0 = for good), Reason, By, ByName, At },
+--     Tags = { [Id] = { By, At } }, Passes = { [key] = { By, At } } }
+-- Read when they join (and again if it's ReadAgain s old when it's asked
+-- for). A change (MOD.edit) is in force here at once, saved after with
+-- UpdateAsync (the same change made to what's saved; tried again if it
+-- fails) and sent to every other server (MessagingService: the record
+-- itself) - a ban kicks them wherever they are, new tags / passes show at
+-- once. Two lists for the console, saved the same way: the bans
+-- (BanIndex) and who has tags or given passes (StaffIndex). Studio keeps
+-- its changes to itself (StudioSaves).
+-- STAFF (MOD.level): 3 the owner, 2 an ADMIN tag, 1 a MOD tag, 0 the rest.
+-- TAGS (Kit.TG): on the player as Tags ("Owner,Mod": all of them, in
+-- Config.Tags order) and Tag (the one shown), with StaffLevel and
+-- ConsoleRole; every screen draws them (QuirkClient: over the head, in
+-- chat). BadgeId: awarded once a visit (if they haven't got it).
+-- PASSES (Kit.GP): Pass_<key> = true on the player - bought (Roblox says
+-- so at join, or they've just bought it here), given (their record), or
+-- free (not set up, FreeUntilSetUp). The store asks for the emote ring and
+-- the outfits; GP.bucks: Bucks earned with 2x BUCKS / VIP.
+-- Destruction.Moderation = MOD (the tests). (A function of its own: the
+-- main chunk is at its local limit.)
+---------------------------------------------------------------------------
+xpcall(function()
+	local MC = Config.Moderation or {}
+	local TC = Config.Tags or {}
+	local PC = Config.GamePasses or {}
+	local Console = Kit.Console
+	local MOD = {
+		records = {}, -- [UserId] = their record as this server has it
+		readAt = {}, -- [UserId] = os.clock() it was read
+		pending = {}, -- [UserId] = { fn, ... }: changes not saved yet
+		saving = {}, -- [UserId] = true: a save is out
+		names = {}, -- [UserId] = their name, as Roblox gave it
+		awarded = {}, -- [player] = { [BadgeId] = true }: asked this visit
+		index = { Ban = {}, Staff = {} }, -- the console's lists as this server has them ([tostring(UserId)] = entry)
+		indexOps = { Ban = {}, Staff = {} }, -- changes to them not saved yet: { key, entry | false }
+		indexAt = {}, -- [which] = os.clock() read
+		indexBusy = {}, -- [which] = true: a save is out
+		ds = nil, -- the DataStore (false: none to be had)
+	}
+	local TG = { order = {}, spec = {}, shown = {} }
+	local GP = { bought = {} } -- bought: [player] = { [key] = true } (Roblox's say)
+	Kit.MOD, Kit.TG, Kit.GP = MOD, TG, GP
+	MOD.TG, MOD.GP, MOD.Console = TG, GP, Console
+	Destruction.Moderation = MOD
+	do
+		local ok, id = pcall(function()
+			return game.JobId
+		end)
+		MOD.serverId = (ok and type(id) == "string" and id ~= "") and id or ("server-" .. tostring(math.random(1, 2 ^ 30)))
+	end
+	for _, t in TC.List or {} do
+		if type(t) == "table" and type(t.Id) == "string" and not TG.spec[t.Id] then
+			table.insert(TG.order, t)
+			TG.spec[t.Id] = t
+		end
+	end
+	local POWERS = { Mod = 1, Admin = 2 }
+	local SPANS = { s = 1, m = 60, h = 3600, d = 86400, w = 604800, y = 31536000 }
+
+	---------------------------------------------------------------------------
+	-- the records
+	---------------------------------------------------------------------------
+	function MOD.studioOnly()
+		return RunService:IsStudio() and MC.StudioSaves ~= true
+	end
+	function MOD.store()
+		if MOD.ds == nil then
+			local ok, ds = pcall(function()
+				return game:GetService("DataStoreService"):GetDataStore(MC.DataStore or "QuirkBattlegrounds_Moderation_v1")
+			end)
+			MOD.ds = (ok and ds) or false
+		end
+		return MOD.ds or nil
+	end
+	-- a record, checked (whatever the store held)
+	function MOD.clean(t)
+		t = type(t) == "table" and t or {}
+		local rec = { Name = type(t.Name) == "string" and string.sub(t.Name, 1, 40) or nil, Tags = {}, Passes = {} }
+		local b = t.Ban
+		if type(b) == "table" and tonumber(b.Until) then
+			rec.Ban = { Until = tonumber(b.Until), Reason = string.sub(tostring(b.Reason or ""), 1, 200), By = tonumber(b.By) or 0, ByName = tostring(b.ByName or "?"), At = tonumber(b.At) or 0 }
+		end
+		for k, v in type(t.Tags) == "table" and t.Tags or {} do
+			if TG.spec[k] and not TG.spec[k].Auto then
+				rec.Tags[k] = { By = tostring(type(v) == "table" and v.By or ""), At = tonumber(type(v) == "table" and v.At or 0) or 0 }
+			end
+		end
+		for k, v in type(t.Passes) == "table" and t.Passes or {} do
+			if type(k) == "string" and type(PC[k]) == "table" then
+				rec.Passes[k] = { By = tostring(type(v) == "table" and v.By or ""), At = tonumber(type(v) == "table" and v.At or 0) or 0 }
+			end
+		end
+		return rec
+	end
+	-- ...and for the store
+	function MOD.dump(rec)
+		local t = { Name = rec.Name, Tags = {}, Passes = {} }
+		if rec.Ban then
+			t.Ban = table.clone(rec.Ban)
+		end
+		for k, v in rec.Tags do
+			t.Tags[k] = table.clone(v)
+		end
+		for k, v in rec.Passes do
+			t.Passes[k] = table.clone(v)
+		end
+		return t
+	end
+	function MOD.here(id)
+		for _, plr in Players:GetPlayers() do
+			if plr.UserId == id then
+				return plr
+			end
+		end
+		return nil
+	end
+	-- someone's record (yields: read from the store unless it was read
+	-- lately; changes not saved yet go on top of what's read)
+	function MOD.get(id)
+		id = tonumber(id)
+		if not id then
+			return MOD.clean(nil)
+		end
+		local rec = MOD.records[id]
+		if rec and os.clock() - (MOD.readAt[id] or -1e9) < (MC.ReadAgain or 30) then
+			return rec
+		end
+		local ds = MOD.store()
+		local ok, data = false, nil
+		if ds then
+			ok, data = pcall(ds.GetAsync, ds, "staff_" .. id)
+		end
+		if ok then
+			local base = MOD.clean(data)
+			for _, fn in MOD.pending[id] or {} do
+				pcall(fn, base)
+			end
+			MOD.records[id] = base
+			MOD.readAt[id] = os.clock()
+			return base
+		end
+		rec = rec or MOD.clean(nil)
+		MOD.records[id] = rec
+		return rec
+	end
+	-- a change to someone's record (fn(rec) makes it): here at once, saved
+	-- after, every other server sent the record
+	function MOD.edit(id, fn, op)
+		id = tonumber(id)
+		local rec = MOD.records[id] or MOD.clean(nil)
+		fn(rec)
+		MOD.records[id] = rec
+		MOD.pending[id] = MOD.pending[id] or {}
+		table.insert(MOD.pending[id], fn)
+		task.spawn(MOD.flush, id)
+		MOD.publish({ Op = op or "Rec", Id = id, Rec = MOD.dump(rec) })
+		return rec
+	end
+	function MOD.flush(id)
+		local ds = MOD.store()
+		if MOD.studioOnly() or MOD.saving[id] or not ds then
+			return
+		end
+		MOD.saving[id] = true
+		for try = 1, 3 do
+			local fns = table.clone(MOD.pending[id] or {})
+			if #fns == 0 then
+				break
+			end
+			local ok, saved = pcall(ds.UpdateAsync, ds, "staff_" .. id, function(old)
+				local rec = MOD.clean(old)
+				for _, fn in fns do
+					pcall(fn, rec)
+				end
+				return MOD.dump(rec)
+			end)
+			if ok then
+				local list = MOD.pending[id] or {}
+				for _ = 1, #fns do
+					table.remove(list, 1)
+				end
+				MOD.pending[id] = #list > 0 and list or nil
+				-- what's saved (anyone else's changes with it), and what's still waiting
+				local rec = MOD.clean(saved)
+				for _, fn in MOD.pending[id] or {} do
+					pcall(fn, rec)
+				end
+				MOD.records[id] = rec
+				MOD.readAt[id] = os.clock()
+				local plr = MOD.here(id)
+				if plr then
+					MOD.enforce(plr, true)
+				end
+			else
+				task.wait(2 * try)
+			end
+		end
+		MOD.saving[id] = nil
+	end
+
+	-- the console's lists: Ban ([id] = { Name, Until, Reason, By, ByName, At })
+	-- and Staff ([id] = { Name, Tags = "Mod,Tester", Passes = "VIP", At })
+	function MOD.trim(map)
+		local list = {}
+		for k, e in map do
+			if type(e) == "table" then
+				table.insert(list, { k, tonumber(e.At) or 0 })
+			else
+				map[k] = nil
+			end
+		end
+		local cap = MC.IndexSize or 200
+		if #list > cap then
+			table.sort(list, function(a, b)
+				return a[2] > b[2]
+			end)
+			for i = cap + 1, #list do
+				map[list[i][1]] = nil
+			end
+		end
+		return map
+	end
+	function MOD.indexSet(which, id, entry)
+		local key = tostring(id)
+		MOD.index[which][key] = entry or nil
+		table.insert(MOD.indexOps[which], { key, entry or false })
+		task.spawn(MOD.indexFlush, which)
+	end
+	function MOD.indexFlush(which)
+		local ds = MOD.store()
+		if MOD.studioOnly() or MOD.indexBusy[which] or not ds then
+			return
+		end
+		MOD.indexBusy[which] = true
+		for try = 1, 3 do
+			local ops = table.clone(MOD.indexOps[which])
+			if #ops == 0 then
+				break
+			end
+			local ok, saved = pcall(ds.UpdateAsync, ds, which .. "Index", function(old)
+				local map = {}
+				for k, e in type(old) == "table" and old or {} do
+					map[k] = e
+				end
+				for _, op in ops do
+					map[op[1]] = op[2] or nil
+				end
+				return MOD.trim(map)
+			end)
+			if ok then
+				for _ = 1, #ops do
+					table.remove(MOD.indexOps[which], 1)
+				end
+				local map = {}
+				for k, e in type(saved) == "table" and saved or {} do
+					map[k] = e
+				end
+				for _, op in MOD.indexOps[which] do
+					map[op[1]] = op[2] or nil
+				end
+				MOD.index[which] = map
+				MOD.indexAt[which] = os.clock()
+			else
+				task.wait(2 * try)
+			end
+		end
+		MOD.indexBusy[which] = nil
+	end
+	-- a list (yields: read again if it's old)
+	function MOD.indexRead(which)
+		if os.clock() - (MOD.indexAt[which] or -1e9) < (MC.ReadAgain or 30) then
+			return MOD.index[which]
+		end
+		local ds = MOD.store()
+		local ok, data = false, nil
+		if ds then
+			ok, data = pcall(ds.GetAsync, ds, which .. "Index")
+		end
+		if ok then
+			local map = {}
+			for k, e in type(data) == "table" and data or {} do
+				map[k] = e
+			end
+			for _, op in MOD.indexOps[which] do
+				map[op[1]] = op[2] or nil
+			end
+			MOD.index[which] = map
+			MOD.indexAt[which] = os.clock()
+		end
+		return MOD.index[which]
+	end
+	-- someone's line in the staff list, from their record (none: off it)
+	function MOD.staffIndex(id, name)
+		local rec = MOD.records[id] or MOD.clean(nil)
+		local tags, passes = {}, {}
+		for _, t in TG.order do
+			if rec.Tags[t.Id] then
+				table.insert(tags, t.Id)
+			end
+		end
+		for _, key in PC.Order or {} do
+			if rec.Passes[key] then
+				table.insert(passes, key)
+			end
+		end
+		MOD.indexSet("Staff", id, (#tags + #passes > 0) and { Name = name or rec.Name or tostring(id), Tags = table.concat(tags, ","), Passes = table.concat(passes, ","), At = os.time() } or nil)
+	end
+
+	-- every other server: a record that changed (Rec, or - too big - just
+	-- who: they read it)
+	function MOD.publish(msg)
+		if MOD.studioOnly() then
+			return
+		end
+		msg.From = MOD.serverId
+		local okJson, json = pcall(function()
+			return game:GetService("HttpService"):JSONEncode(msg)
+		end)
+		if not (okJson and type(json) == "string" and #json <= 900) then
+			msg.Rec = nil
+		end
+		task.spawn(pcall, function()
+			game:GetService("MessagingService"):PublishAsync(MC.Topic or "QuirkModeration", msg)
+		end)
+	end
+	function MOD.onMessage(message)
+		local msg = type(message) == "table" and message.Data or nil
+		local id = type(msg) == "table" and tonumber(msg.Id) or nil
+		if not id or msg.From == MOD.serverId then
+			return
+		end
+		if type(msg.Rec) == "table" then
+			local rec = MOD.clean(msg.Rec)
+			for _, fn in MOD.pending[id] or {} do
+				pcall(fn, rec)
+			end
+			MOD.records[id] = rec
+			MOD.readAt[id] = os.clock()
+		else
+			MOD.readAt[id] = nil
+		end
+		local plr = MOD.here(id)
+		if plr then
+			if type(msg.Rec) ~= "table" then
+				MOD.get(id)
+			end
+			MOD.enforce(plr)
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- who's who
+	---------------------------------------------------------------------------
+	-- the game's owner, by UserId (someone who isn't here)
+	function MOD.ownerId(id)
+		if table.find((Config.Console or {}).Owners or {}, id) then
+			return true
+		end
+		local creator = tonumber(game.CreatorId) or 0
+		local okType, group = pcall(function()
+			return game.CreatorType == Enum.CreatorType.Group
+		end)
+		if okType and group then
+			if MOD.groupOwner == nil then
+				local ok, info = pcall(function()
+					return game:GetService("GroupService"):GetGroupInfoAsync(creator)
+				end)
+				MOD.groupOwner = ok and type(info) == "table" and type(info.Owner) == "table" and tonumber(info.Owner.Id) or false
+			end
+			return MOD.groupOwner == id
+		end
+		return id == creator and id ~= 0
+	end
+	-- 3 the owner, 2 admin, 1 mod, 0 the rest
+	function MOD.level(player)
+		if Console and Console.isOwner(player) then
+			return 3
+		end
+		return tonumber(player:GetAttribute("StaffLevel")) or 0
+	end
+	-- ...someone who may not be here (yields: their saved record)
+	function MOD.levelOfId(id)
+		local plr = MOD.here(id)
+		if plr then
+			return MOD.level(plr)
+		end
+		if MOD.ownerId(id) then
+			return 3
+		end
+		return TG.power(MOD.get(id))
+	end
+	function MOD.nameOf(id)
+		local plr = MOD.here(id)
+		if plr then
+			return plr.Name
+		end
+		if MOD.names[id] then
+			return MOD.names[id]
+		end
+		if MOD.records[id] and MOD.records[id].Name then
+			return MOD.records[id].Name
+		end
+		local ok, name = pcall(function()
+			return Players:GetNameFromUserIdAsync(id)
+		end)
+		if ok and type(name) == "string" then
+			MOD.names[id] = name
+			return name
+		end
+		return tostring(id)
+	end
+	-- who a command's about: me, someone here (their whole name, or the only
+	-- one whose name starts so), @username or a UserId (anyone). Never all /
+	-- others / random. -> UserId, name, the player if here | nil, why not
+	function MOD.resolve(word, player)
+		if type(word) ~= "string" or word == "" then
+			return nil, "Who? (someone here, @username or a UserId)"
+		end
+		local lower = string.lower(word)
+		if lower == "all" or lower == "everyone" or lower == "*" or lower == "others" or lower == "random" then
+			return nil, "Name one person - '" .. word .. "' isn't allowed here"
+		end
+		if lower == "me" and player then
+			return player.UserId, player.Name, player
+		end
+		local digits = string.match(word, "^%d+$")
+		if digits then
+			local id = tonumber(digits)
+			local plr = MOD.here(id)
+			return id, plr and plr.Name or MOD.nameOf(id), plr
+		end
+		local at = string.match(word, "^@(.+)$")
+		local name = string.lower(at or word)
+		local starts = {}
+		for _, plr in Players:GetPlayers() do
+			local n, d = string.lower(plr.Name), string.lower(plr.DisplayName)
+			if n == name or (not at and d == name) then
+				return plr.UserId, plr.Name, plr
+			end
+			if not at and (string.sub(n, 1, #name) == name or string.sub(d, 1, #name) == name) then
+				table.insert(starts, plr)
+			end
+		end
+		if #starts == 1 then
+			return starts[1].UserId, starts[1].Name, starts[1]
+		elseif #starts > 1 then
+			local list = {}
+			for _, plr in starts do
+				table.insert(list, plr.Name)
+			end
+			return nil, "'" .. word .. "' could be " .. table.concat(list, ", ") .. " - type more of the name"
+		end
+		local ok, id = pcall(function()
+			return Players:GetUserIdFromNameAsync(at or word)
+		end)
+		if ok and tonumber(id) then
+			MOD.names[tonumber(id)] = at or word
+			return tonumber(id), at or word, nil
+		end
+		return nil, "No one called '" .. (at or word) .. "' here or on Roblox"
+	end
+	-- a line for the owner's and every staff member's console here (but by)
+	function MOD.note(text, by)
+		for _, plr in Players:GetPlayers() do
+			if plr ~= by and Console and Console.level(plr) > 0 then
+				Console.print("[mod] " .. text, "event", plr)
+			end
+		end
+		if not RunService:IsStudio() then
+			print("[Moderation] " .. text)
+		end
+	end
+	-- text one person typed for another to read: through Roblox's filter
+	-- (Studio, when it can't: as typed; a live server: nothing)
+	function MOD.filter(text, from, to)
+		local ok, out = pcall(function()
+			local result = game:GetService("TextService"):FilterStringAsync(text, from)
+			if to then
+				return result:GetNonChatStringForUserAsync(to)
+			end
+			return result:GetNonChatStringForBroadcastAsync()
+		end)
+		if ok and type(out) == "string" then
+			return out
+		end
+		return RunService:IsStudio() and text or ""
+	end
+
+	---------------------------------------------------------------------------
+	-- bans
+	---------------------------------------------------------------------------
+	function MOD.banned(ban)
+		return type(ban) == "table" and (ban.Until == 0 or ban.Until > os.time())
+	end
+	-- "2d 3h", "45m", "for good"
+	function MOD.span(secs)
+		if not secs or secs <= 0 then
+			return "for good"
+		end
+		local d, h, m = math.floor(secs / 86400), math.floor(secs % 86400 / 3600), math.floor(secs % 3600 / 60)
+		if d > 0 then
+			return d .. "d" .. (h > 0 and (" " .. h .. "h") or "")
+		elseif h > 0 then
+			return h .. "h" .. (m > 0 and (" " .. m .. "m") or "")
+		end
+		return math.max(m, 1) .. "m"
+	end
+	-- 30m, 12h, 7d, 2w, 1y, perm (0); a bare number: days. Not a time: nil
+	function MOD.parseTime(word)
+		word = string.lower(tostring(word or ""))
+		if word == "perm" or word == "permanent" or word == "forever" then
+			return 0
+		end
+		local n, unit = string.match(word, "^(%d+%.?%d*)([smhdwy]?)$")
+		n = tonumber(n)
+		if not n or n <= 0 then
+			return nil
+		end
+		return math.max(math.floor(n * (SPANS[unit] or 86400)), 1)
+	end
+	function MOD.kickText(ban)
+		local left = ban.Until == 0 and "It's permanent." or ("It ends in " .. MOD.span(ban.Until - os.time()) .. ".")
+		return (MC.BanMessage or "You're banned from this game.") .. " " .. (ban.Reason ~= "" and ("Reason: " .. ban.Reason .. ". ") or "") .. left
+	end
+	-- ban: by (the player at the console), id / name (who), secs (0: for good)
+	function MOD.ban(by, id, name, secs, reason)
+		local now = os.time()
+		local ban = {
+			Until = secs > 0 and now + secs or 0, Reason = string.sub(reason or "", 1, 200),
+			By = by and by.UserId or 0, ByName = by and by.Name or "server", At = now,
+		}
+		MOD.edit(id, function(rec)
+			rec.Ban = table.clone(ban)
+			rec.Name = name
+		end, "Ban")
+		MOD.indexSet("Ban", id, { Name = name, Until = ban.Until, Reason = ban.Reason, By = ban.By, ByName = ban.ByName, At = now })
+		local plr = MOD.here(id)
+		if plr then
+			plr:Kick(MOD.kickText(ban))
+		end
+		-- (Roblox's own ban list as well: their alt accounts too, and it needs
+		-- nothing from this game to keep them out)
+		if MC.RobloxBans ~= false and not RunService:IsStudio() then
+			task.spawn(pcall, function()
+				Players:BanAsync({
+					UserIds = { id },
+					ApplyToUniverse = true,
+					Duration = secs > 0 and secs or -1,
+					DisplayReason = string.sub(ban.Reason ~= "" and ban.Reason or (MC.BanMessage or "Banned"), 1, 400),
+					PrivateReason = string.sub("Banned by " .. ban.ByName .. " (" .. ban.By .. ") from the in-game console", 1, 1000),
+					ExcludeAltAccounts = MC.BanAlts == false,
+				})
+			end)
+		end
+		return ban
+	end
+	function MOD.unban(_by, id, name)
+		MOD.edit(id, function(rec)
+			rec.Ban = nil
+			rec.Name = rec.Name or name
+		end, "Unban")
+		MOD.indexSet("Ban", id, nil)
+		if MC.RobloxBans ~= false and not RunService:IsStudio() then
+			task.spawn(pcall, function()
+				Players:UnbanAsync({ UserIds = { id }, ApplyToUniverse = true })
+			end)
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- tags
+	---------------------------------------------------------------------------
+	function TG.power(rec)
+		local p = 0
+		for id in rec.Tags do
+			local spec = TG.spec[id]
+			p = math.max(p, spec and POWERS[spec.Powers or ""] or 0)
+		end
+		return p
+	end
+	-- a tag by its Id or Text (or the start of one)
+	function TG.find(word)
+		word = string.lower(tostring(word or ""))
+		if word == "" then
+			return nil
+		end
+		for _, t in TG.order do
+			if string.lower(t.Id) == word or string.lower(t.Text or "") == word then
+				return t
+			end
+		end
+		for _, t in TG.order do
+			if string.sub(string.lower(t.Id), 1, #word) == word or string.sub(string.lower(t.Text or ""), 1, #word) == word then
+				return t
+			end
+		end
+		return nil
+	end
+	function TG.names()
+		local list = {}
+		for _, t in TG.order do
+			if not t.Auto then
+				table.insert(list, t.Text or t.Id)
+			end
+		end
+		return table.concat(list, ", ")
+	end
+	-- their tags on them, and what comes with them: staff powers (StaffLevel,
+	-- ConsoleRole), badges. quiet: no toast (they've only just come in)
+	function TG.apply(player, quiet)
+		if not player.Parent then
+			return
+		end
+		local rec = MOD.records[player.UserId] or MOD.clean(nil)
+		local owner = Console ~= nil and Console.isOwner(player) or false
+		local held = {}
+		for _, t in TG.order do
+			local on
+			if t.Auto == "Owner" then
+				on = owner
+			else
+				on = rec.Tags[t.Id] ~= nil or (t.Pass ~= nil and GP.owns(player, t.Pass))
+			end
+			if on then
+				table.insert(held, t.Id)
+			end
+		end
+		local shown = TC.Enabled ~= false
+		local was = TG.shown[player] or {}
+		player:SetAttribute("Tags", (shown and #held > 0) and table.concat(held, ",") or nil)
+		player:SetAttribute("Tag", shown and held[1] or nil)
+		local power = owner and 0 or TG.power(rec)
+		player:SetAttribute("StaffLevel", power > 0 and power or nil)
+		player:SetAttribute("ConsoleRole", power == 2 and "Admin" or power == 1 and "Mod" or nil)
+		local now = {}
+		for _, id in held do
+			now[id] = true
+		end
+		TG.shown[player] = now
+		-- (the toast: one they've just been given, or had taken away)
+		if not quiet then
+			for _, id in held do
+				local t = TG.spec[id]
+				if not was[id] and not t.Auto then
+					local powers = t.Powers and " Press F2 for the console: kick, ban, warn." or ""
+					PlayVFX:FireClient(player, "Notice", nil, { Text = (t.Icon or "") .. " You've got the " .. (t.Text or id) .. " tag!" .. powers, Color = t.Color })
+				end
+			end
+			for id in was do
+				local t = TG.spec[id]
+				if not now[id] and t and not t.Auto then
+					PlayVFX:FireClient(player, "Notice", nil, { Text = "Your " .. (t.Text or id) .. " tag was taken back", Color = Color3.fromRGB(200, 200, 210) })
+				end
+			end
+		end
+		-- (a Roblox badge for a tag: once a visit, if they haven't got it)
+		MOD.awarded[player] = MOD.awarded[player] or {}
+		for _, id in held do
+			local badge = tonumber(TG.spec[id].BadgeId) or 0
+			if badge > 0 and not MOD.awarded[player][badge] then
+				MOD.awarded[player][badge] = true
+				task.spawn(pcall, function()
+					local BS = game:GetService("BadgeService")
+					if not BS:UserHasBadgeAsync(player.UserId, badge) then
+						BS:AwardBadge(player.UserId, badge)
+					end
+				end)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- passes
+	---------------------------------------------------------------------------
+	function GP.keyOf(passId)
+		passId = tonumber(passId)
+		for _, key in PC.Order or {} do
+			local spec = PC[key]
+			if passId and type(spec) == "table" and (tonumber(spec.Id) or 0) > 0 and tonumber(spec.Id) == passId then
+				return key
+			end
+		end
+		return nil
+	end
+	-- not set up yet, and free till it is
+	function GP.free(key)
+		local spec = PC[key]
+		return type(spec) == "table" and (tonumber(spec.Id) or 0) == 0 and spec.FreeUntilSetUp == true
+	end
+	function GP.owns(player, key)
+		return player:GetAttribute("Pass_" .. key) == true
+	end
+	-- a pass by its key or name (or the start of one)
+	function GP.find(word)
+		word = string.lower((string.gsub(tostring(word or ""), "[%s_%-]", "")))
+		if word == "" then
+			return nil
+		end
+		for _, pass in { true, false } do
+			for _, key in PC.Order or {} do
+				local spec = PC[key] or {}
+				local k, n = string.lower(key), string.lower((string.gsub(tostring(spec.Name or ""), "[%s_%-%+]", "")))
+				if pass and (k == word or n == word) or not pass and (string.sub(k, 1, #word) == word or string.sub(n, 1, #word) == word) then
+					return key
+				end
+			end
+		end
+		return nil
+	end
+	-- their passes on them (Pass_<key>; PassGiven_<key>: a given one)
+	function GP.apply(player)
+		local rec = MOD.records[player.UserId] or MOD.clean(nil)
+		local bought = GP.bought[player] or {}
+		for _, key in PC.Order or {} do
+			local given = rec.Passes[key] ~= nil
+			player:SetAttribute("Pass_" .. key, (GP.free(key) or given or bought[key] == true) or nil)
+			player:SetAttribute("PassGiven_" .. key, given or nil)
+		end
+	end
+	-- Roblox's answer: which they've bought (yields)
+	function GP.check(player)
+		local MPS = game:GetService("MarketplaceService")
+		GP.bought[player] = GP.bought[player] or {}
+		for _, key in PC.Order or {} do
+			local id = tonumber((PC[key] or {}).Id) or 0
+			if id > 0 and not GP.bought[player][key] then
+				local ok, yes = pcall(function()
+					return MPS:UserOwnsGamePassAsync(player.UserId, id)
+				end)
+				if ok and yes == true and GP.bought[player] then
+					GP.bought[player][key] = true
+				end
+			end
+		end
+		if player.Parent then
+			GP.apply(player)
+			TG.apply(player, true)
+		end
+	end
+	-- bought just now, in the game
+	function GP.purchased(player, passId, done)
+		local key = GP.keyOf(passId)
+		if not done or not key or typeof(player) ~= "Instance" or not player.Parent then
+			return
+		end
+		local had = GP.owns(player, key)
+		GP.bought[player] = GP.bought[player] or {}
+		GP.bought[player][key] = true
+		GP.apply(player)
+		TG.apply(player, true)
+		if not had then
+			PlayVFX:FireClient(player, "PassBought", nil, { Key = key })
+		end
+	end
+	pcall(function()
+		game:GetService("MarketplaceService").PromptGamePassPurchaseFinished:Connect(GP.purchased)
+	end)
+	-- Bucks earned, with 2x BUCKS and VIP
+	function GP.bucks(player, amount)
+		if type(amount) ~= "number" or amount <= 0 or typeof(player) ~= "Instance" or not player:IsA("Player") then
+			return amount
+		end
+		local m = 1
+		if GP.owns(player, "DoubleBucks") then
+			m *= tonumber((PC.DoubleBucks or {}).Multiplier) or 2
+		end
+		if GP.owns(player, "VIP") then
+			m *= 1 + (tonumber((PC.VIP or {}).BucksBonus) or 0)
+		end
+		return m == 1 and amount or math.floor(amount * m + 0.5)
+	end
+
+	---------------------------------------------------------------------------
+	-- in and out
+	---------------------------------------------------------------------------
+	-- their record on them: banned - out; their passes, their tags
+	function MOD.enforce(player, quiet)
+		if not player.Parent then
+			return
+		end
+		local rec = MOD.records[player.UserId] or MOD.clean(nil)
+		if MC.Enabled ~= false and MOD.banned(rec.Ban) and not (Console and Console.isOwner(player)) then
+			player:Kick(MOD.kickText(rec.Ban))
+			return
+		end
+		GP.apply(player)
+		TG.apply(player, quiet)
+	end
+	function MOD.join(player)
+		GP.apply(player)
+		TG.apply(player, true) -- (the owner's tag straight away)
+		MOD.get(player.UserId)
+		if not player.Parent then
+			return
+		end
+		MOD.enforce(player, true)
+		if player.Parent then
+			GP.check(player)
+		end
+	end
+	Players.PlayerAdded:Connect(function(player)
+		task.spawn(MOD.join, player)
+	end)
+	for _, player in Players:GetPlayers() do
+		task.spawn(MOD.join, player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		GP.bought[player], MOD.awarded[player], TG.shown[player] = nil, nil, nil
+	end)
+	task.spawn(function()
+		if MOD.studioOnly() then
+			return
+		end
+		pcall(function()
+			MOD.sub = game:GetService("MessagingService"):SubscribeAsync(MC.Topic or "QuirkModeration", MOD.onMessage)
+		end)
+	end)
+
+	---------------------------------------------------------------------------
+	-- the console
+	---------------------------------------------------------------------------
+	if Console then
+		-- (Staff: the level a command needs - 1 a mod, 2 an admin; none: the owner's)
+		local function addCmd(names, usage, help, staff, fn)
+			local cmd = { Name = names[1], Usage = usage, Help = help, Fn = fn, Quiet = true, Staff = staff }
+			for _, n in names do
+				Console.commands[string.lower(n)] = cmd
+			end
+			table.insert(Console.order, cmd)
+		end
+		local function say(player, text, kind)
+			Console.print(text, kind or "info", player)
+		end
+		-- the old commands staff can use too
+		for name, lvl in { help = 1, players = 1, kick = 1, tp = 1, flags = 1, announce = 2, bring = 2, respawn = 2 } do
+			if Console.commands[name] then
+				Console.commands[name].Staff = lvl
+			end
+		end
+
+		addCmd({ "ban" }, "ban <who> [time] [reason]",
+			"Ban from every server: out now, and turned away till it runs out. time: 30m, 12h, 7d, 2w, perm (none: for good; a mod's: a day, 3 days at most). who: someone here, @username or a UserId",
+			1, function(player, args)
+				if MC.Enabled == false then
+					return "Moderation is switched off (Config.Moderation)", "err"
+				end
+				local level = Console.level(player)
+				local id, name = MOD.resolve(args[1], player)
+				if not id then
+					return name, "err"
+				end
+				if id == player.UserId then
+					return "You can't ban yourself", "err"
+				end
+				local theirs = MOD.levelOfId(id)
+				if theirs >= 3 then
+					return "Nobody can ban the owner", "err"
+				elseif theirs >= level then
+					return name .. " is staff as high as you - you can't ban them", "err"
+				end
+				local secs = MOD.parseTime(args[2])
+				local reason = MOD.filter(table.concat(args, " ", secs and 3 or 2), player.UserId)
+				if not secs then
+					secs = level == 1 and (MC.ModDefaultBan or 86400) or (MC.DefaultBan or 0)
+				end
+				local capped = false
+				if level == 1 and (secs == 0 or secs > (MC.ModMaxBan or 259200)) then
+					secs, capped = MC.ModMaxBan or 259200, true
+				end
+				MOD.ban(player, id, name, secs, reason)
+				local text = string.format("Banned %s (%d) %s%s%s", name, id, secs == 0 and "for good" or ("for " .. MOD.span(secs)),
+					reason ~= "" and (": " .. reason) or "", capped and "  (the longest a mod can)" or "")
+				MOD.note(player.Name .. " - " .. text, player)
+				return text, "ok"
+			end)
+		addCmd({ "unban" }, "unban <who>", "Lift a ban (a mod: only their own). who: @username or a UserId", 1, function(player, args)
+			local level = Console.level(player)
+			local id, name = MOD.resolve(args[1], player)
+			if not id then
+				return name, "err"
+			end
+			local rec = MOD.get(id)
+			if not MOD.banned(rec.Ban) then
+				if level >= 2 and MC.RobloxBans ~= false then
+					MOD.unban(player, id, name) -- (Roblox's own list may still have them)
+					return name .. " has no ban here - lifted any on Roblox's ban list too", "ok"
+				end
+				return name .. " isn't banned", "err"
+			end
+			if level < 2 and rec.Ban.By ~= player.UserId then
+				return "Only " .. tostring(rec.Ban.ByName) .. " (or an admin) can lift that ban", "err"
+			end
+			MOD.unban(player, id, name)
+			local text = "Unbanned " .. name .. " (" .. id .. ")"
+			MOD.note(player.Name .. " - " .. text, player)
+			return text, "ok"
+		end)
+		addCmd({ "bans", "banlist" }, "bans [who]", "The bans in force, newest first - or one person's", 1, function(player, args)
+			if args[1] then
+				local id, name = MOD.resolve(args[1], player)
+				if not id then
+					return name, "err"
+				end
+				local ban = MOD.get(id).Ban
+				if not MOD.banned(ban) then
+					say(player, name .. " (" .. id .. ") isn't banned")
+					return nil
+				end
+				say(player, string.format("%s (%d): banned %s by %s, %s%s", name, id, ban.Until == 0 and "for good" or (MOD.span(ban.Until - os.time()) .. " left"),
+					ban.ByName, os.date("!%Y-%m-%d", ban.At), ban.Reason ~= "" and (" - " .. ban.Reason) or ""), "err")
+				return nil
+			end
+			local list = {}
+			for k, e in MOD.indexRead("Ban") do
+				if type(e) == "table" and tonumber(e.Until) and (e.Until == 0 or e.Until > os.time()) then
+					table.insert(list, { Id = tonumber(k) or 0, E = e })
+				end
+			end
+			table.sort(list, function(a, b)
+				return (tonumber(a.E.At) or 0) > (tonumber(b.E.At) or 0)
+			end)
+			if #list == 0 then
+				say(player, "No bans in force")
+			end
+			for i, r in list do
+				if i > 25 then
+					say(player, "  ... and " .. (#list - 25) .. " more")
+					break
+				end
+				local e = r.E
+				say(player, string.format("  %s (%d)  %s  by %s%s", tostring(e.Name), r.Id, e.Until == 0 and "for good" or (MOD.span(e.Until - os.time()) .. " left"),
+					tostring(e.ByName), (e.Reason or "") ~= "" and (" - " .. e.Reason) or ""), "err")
+			end
+			return nil
+		end)
+		addCmd({ "warn" }, "warn <who> <text>", "A warning on their screen, from the moderators", 1, function(player, args)
+			local id, name, plr = MOD.resolve(args[1], player)
+			if not id then
+				return name, "err"
+			end
+			if not plr then
+				return name .. " isn't in this server", "err"
+			end
+			local text = table.concat(args, " ", 2)
+			if text == "" then
+				return "Warn them about what?  warn <who> <text>", "err"
+			end
+			text = MOD.filter(string.sub(text, 1, 200), player.UserId, plr.UserId)
+			PlayVFX:FireClient(plr, "ModWarn", nil, { Text = text, By = player.DisplayName })
+			MOD.note(player.Name .. " warned " .. plr.Name .. ": " .. text, player)
+			return "Warned " .. plr.DisplayName .. ": " .. text, "ok"
+		end)
+
+		addCmd({ "tag", "givetag" }, "tag <who> <tag>", "Give someone a name tag, saved: " .. TG.names() .. " (MOD / ADMIN: console powers too). who: me, someone here, @username or a UserId", nil, function(player, args)
+			local id, name, plr = MOD.resolve(args[1], player)
+			if not id then
+				return name, "err"
+			end
+			local t = TG.find(args[2])
+			if not t then
+				return "No tag '" .. tostring(args[2] or "") .. "' - try: " .. TG.names(), "err"
+			end
+			if t.Auto then
+				return "The " .. (t.Text or t.Id) .. " tag can't be given - it's the game's owner's", "err"
+			end
+			if MOD.get(id).Tags[t.Id] then
+				return name .. " already has " .. (t.Text or t.Id), "err"
+			end
+			local entry = { By = player.Name, At = os.time() }
+			MOD.edit(id, function(rec)
+				rec.Tags[t.Id] = table.clone(entry)
+				rec.Name = name
+			end)
+			MOD.staffIndex(id, name)
+			if plr then
+				TG.apply(plr)
+			end
+			if t.Powers then
+				MOD.note(player.Name .. " made " .. name .. " " .. (t.Text or t.Id), player)
+			end
+			return string.format("Gave %s the %s tag (saved)%s", name, t.Text or t.Id, plr and "" or " - they'll see it when they join"), "ok"
+		end)
+		addCmd({ "untag", "taketag" }, "untag <who> <tag|all>", "Take a name tag back (all: every one)", nil, function(player, args)
+			local id, name, plr = MOD.resolve(args[1], player)
+			if not id then
+				return name, "err"
+			end
+			local rec = MOD.get(id)
+			local all = string.lower(args[2] or "") == "all"
+			local t = not all and TG.find(args[2]) or nil
+			if not all and not t then
+				return "Which tag? untag <who> <tag|all>", "err"
+			end
+			if t and not rec.Tags[t.Id] then
+				return name .. " doesn't have " .. (t.Text or t.Id) .. (t.Auto and " to take - it's the owner's" or ""), "err"
+			end
+			if all and next(rec.Tags) == nil then
+				return name .. " has no tags to take", "err"
+			end
+			MOD.edit(id, function(r)
+				if all then
+					table.clear(r.Tags)
+				elseif t then
+					r.Tags[t.Id] = nil
+				end
+			end)
+			MOD.staffIndex(id, name)
+			if plr then
+				TG.apply(plr)
+			end
+			return string.format("Took %s from %s", all and "every tag" or ((t and t.Text or "?") .. " tag"), name), "ok"
+		end)
+		addCmd({ "tags", "staff" }, "tags [who|tag]", "Who has which name tag (and given passes): everyone, one person, or one tag", 1, function(player, args)
+			local t = args[1] and TG.find(args[1]) or nil
+			if args[1] and not t then
+				local id, name = MOD.resolve(args[1], player)
+				if not id then
+					return name, "err"
+				end
+				local rec = MOD.get(id)
+				local list = {}
+				for _, spec in TG.order do
+					if rec.Tags[spec.Id] then
+						table.insert(list, spec.Text or spec.Id)
+					end
+				end
+				say(player, string.format("%s (%d): %s", name, id, #list > 0 and table.concat(list, ", ") or "no tags"))
+				return nil
+			end
+			local rows, seen = {}, {}
+			for k, e in MOD.indexRead("Staff") do
+				if type(e) == "table" then
+					seen[tostring(k)] = true
+					table.insert(rows, { Name = tostring(e.Name), Id = tonumber(k) or 0, Tags = tostring(e.Tags or ""), Passes = tostring(e.Passes or "") })
+				end
+			end
+			for _, plr in Players:GetPlayers() do
+				local tags = plr:GetAttribute("Tags")
+				if tags and not seen[tostring(plr.UserId)] then
+					table.insert(rows, { Name = plr.Name, Id = plr.UserId, Tags = tags, Passes = "" })
+				end
+			end
+			table.sort(rows, function(a, b)
+				return a.Name < b.Name
+			end)
+			local shown = 0
+			for _, r in rows do
+				local has = {}
+				for id in string.gmatch(r.Tags, "[^,]+") do
+					if not t or id == t.Id then
+						table.insert(has, (TG.spec[id] and TG.spec[id].Text) or id)
+					end
+				end
+				if #has > 0 or (not t and r.Passes ~= "") then
+					shown += 1
+					say(player, string.format("  %s (%d): %s%s", r.Name, r.Id, table.concat(has, ", "), (not t and r.Passes ~= "") and ("  [given: " .. r.Passes .. "]") or ""))
+				end
+			end
+			if shown == 0 then
+				say(player, t and ("Nobody has " .. (t.Text or t.Id)) or "No tags given yet - tag <who> <tag>")
+			end
+			return nil
+		end)
+
+		local function passNames()
+			local list = {}
+			for _, key in PC.Order or {} do
+				table.insert(list, key)
+			end
+			return table.concat(list, ", ")
+		end
+		addCmd({ "givepass" }, "givepass <who> <pass>", "Give someone a game pass's perks, saved: " .. passNames(), nil, function(player, args)
+			local id, name, plr = MOD.resolve(args[1], player)
+			if not id then
+				return name, "err"
+			end
+			local key = GP.find(args[2])
+			if not key then
+				return "No pass '" .. tostring(args[2] or "") .. "' - try: " .. passNames(), "err"
+			end
+			if MOD.get(id).Passes[key] then
+				return name .. " was already given " .. key, "err"
+			end
+			local entry = { By = player.Name, At = os.time() }
+			MOD.edit(id, function(rec)
+				rec.Passes[key] = table.clone(entry)
+				rec.Name = name
+			end)
+			MOD.staffIndex(id, name)
+			if plr then
+				local had = GP.owns(plr, key)
+				GP.apply(plr)
+				TG.apply(plr)
+				if not had then
+					PlayVFX:FireClient(plr, "PassBought", nil, { Key = key, Gift = player.DisplayName })
+				end
+			end
+			return string.format("Gave %s %s (saved)", name, key), "ok"
+		end)
+		addCmd({ "takepass" }, "takepass <who> <pass>", "Take a given pass back (a bought one is theirs)", nil, function(player, args)
+			local id, name, plr = MOD.resolve(args[1], player)
+			if not id then
+				return name, "err"
+			end
+			local key = GP.find(args[2])
+			if not key then
+				return "No pass '" .. tostring(args[2] or "") .. "' - try: " .. passNames(), "err"
+			end
+			if not MOD.get(id).Passes[key] then
+				return name .. " wasn't given " .. key .. " (a bought pass can't be taken)", "err"
+			end
+			MOD.edit(id, function(rec)
+				rec.Passes[key] = nil
+			end)
+			MOD.staffIndex(id, name)
+			if plr then
+				GP.apply(plr)
+				TG.apply(plr)
+			end
+			return string.format("Took %s back from %s%s", key, name, (plr and GP.owns(plr, key)) and " (they still have it: they bought it, or it's free)" or ""), "ok"
+		end)
+		addCmd({ "passes" }, "passes [who]", "The game passes, and who has them here (or one person's)", nil, function(player, args)
+			if args[1] then
+				local id, name = MOD.resolve(args[1], player)
+				if not id then
+					return name, "err"
+				end
+				local plr = MOD.here(id)
+				local rec = MOD.get(id)
+				local list = {}
+				for _, key in PC.Order or {} do
+					local given = rec.Passes[key] ~= nil
+					local has = plr and GP.owns(plr, key) or given or GP.free(key)
+					if has then
+						table.insert(list, key .. (given and " (given)" or GP.free(key) and " (free)" or ""))
+					end
+				end
+				say(player, string.format("%s (%d): %s", name, id, #list > 0 and table.concat(list, ", ") or "none"))
+				return nil
+			end
+			for _, key in PC.Order or {} do
+				local spec = PC[key] or {}
+				local who = {}
+				for _, plr in Players:GetPlayers() do
+					if GP.owns(plr, key) then
+						table.insert(who, plr.Name)
+					end
+				end
+				local id = tonumber(spec.Id) or 0
+				say(player, string.format("  %s  %s  %s", key, id > 0 and ("pass " .. id) or (GP.free(key) and "not set up - free for everyone" or "not set up (Config.GamePasses." .. key .. ".Id)"),
+					#who > 0 and ("- here: " .. table.concat(who, ", ")) or ""))
+			end
+			return nil
+		end)
+	end
+end, function(err)
+	warn("[QuirkServer] moderation: " .. tostring(err))
 end)
 
 Players.PlayerRemoving:Connect(function(player)

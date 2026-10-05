@@ -3977,6 +3977,120 @@ Config.AntiExploit = {
 	Farm = { Enabled = true, Window = 600, Free = 3, DummyBucks = 20, RankedWindow = 3600, RankedFree = 2 },
 }
 
+---------------------------------------------------------------------------
+-- (round 98) MODERATION (the server's Kit.MOD; the F2 console). The owner:
+-- "Give me some ban commands or kick too".
+--   kick <who> [reason]        out of this server now (they can come back)
+--   ban <who> [time] [reason]  out of every server now, and turned away
+--                              each time they come back until it runs out.
+--                              time: 30m, 12h, 7d, 2w, 1y or perm (a bare
+--                              number is days); none given: DefaultBan
+--   unban <who>                lifts it
+--   bans [who]                 the bans in force, or one person's
+--   warn <who> <text>          a warning on their screen
+-- <who>: someone here (their name, or the start of it), @username or a
+-- UserId - those two reach people who aren't here, too. Never all /
+-- others / random. Nobody can kick or ban the owner, themselves, or staff
+-- as high as they are.
+-- Bans are saved (DataStore) and, with RobloxBans, also put on Roblox's own
+-- ban list (Players:BanAsync) - that one also turns away the alt accounts
+-- Roblox ties to them (BanAlts) and needs nothing from this game to work.
+-- Studio keeps its bans to itself (StudioSaves = true: it saves them).
+-- STAFF: a MOD or ADMIN tag (Config.Tags, Powers) lets someone use the
+-- console for these too. Mods ban for ModMaxBan at most (none given:
+-- ModDefaultBan) and lift only their own bans; admins have no cap, lift
+-- anyone's, and get announce / bring / respawn. The rest stays the owner's.
+---------------------------------------------------------------------------
+Config.Moderation = {
+	Enabled = true,
+	DataStore = "QuirkBattlegrounds_Moderation_v1",
+	Topic = "QuirkModeration",
+	RobloxBans = true,
+	BanAlts = true,
+	StudioSaves = false,
+	DefaultBan = 0, -- seconds; 0 = for good
+	ModMaxBan = 3 * 86400,
+	ModDefaultBan = 86400,
+	BanMessage = "You're banned from this game.",
+	IndexSize = 200, -- (how many bans and staff the lists keep)
+	ReadAgain = 30, -- (s: a saved record read this long ago is read again)
+}
+
+---------------------------------------------------------------------------
+-- (round 98) NAME TAGS. The owner: "make some badges that peoples names.
+-- Like mod, tester, etc one for me too. Make them so I can give them out".
+-- A tag sits over someone's name - everyone sees it, out to Distance
+-- studs, and it's hidden whenever their name is (turning invisible, out of
+-- sight) - and before their name in chat. More than one: the first in this
+-- list shows; all of them are theirs.
+--   tag <who> <tag>        give one (saved: every server, every visit)
+--   untag <who> <tag|all>  take it back
+--   tags [who|tag]         who has what
+-- (the owner's commands; <who> as for bans.)
+-- Auto = "Owner": the game's owner always has it - nobody gives or takes
+-- it. Pass: the game pass (Config.GamePasses) that gives it. Powers: "Mod"
+-- or "Admin" (Config.Moderation). BadgeId: a Roblox badge (Creator Hub ->
+-- your experience -> Associated Items -> Badges) awarded to whoever has the
+-- tag - 0 = none. Add your own: a new line with its own Id, Text and Color.
+-- Height: studs over the head; Lift: pixels further up, clear of the name.
+---------------------------------------------------------------------------
+Config.Tags = {
+	Enabled = true,
+	Overhead = true,
+	Chat = true,
+	ShowOwn = false, -- (your own over your own head: Roblox doesn't show you your own name either)
+	Distance = 100,
+	Height = 2.2,
+	Lift = 22,
+	List = {
+		{ Id = "Owner", Text = "OWNER", Icon = "👑", Color = Color3.fromRGB(255, 196, 40), Auto = "Owner" },
+		{ Id = "Admin", Text = "ADMIN", Icon = "🛡", Color = Color3.fromRGB(255, 84, 84), Powers = "Admin" },
+		{ Id = "Dev", Text = "DEV", Icon = "🛠", Color = Color3.fromRGB(176, 120, 255) },
+		{ Id = "Mod", Text = "MOD", Icon = "🔨", Color = Color3.fromRGB(80, 168, 255), Powers = "Mod" },
+		{ Id = "Tester", Text = "TESTER", Icon = "🧪", Color = Color3.fromRGB(96, 220, 120) },
+		{ Id = "Creator", Text = "CREATOR", Icon = "🎥", Color = Color3.fromRGB(255, 108, 188) },
+		{ Id = "VIP", Text = "VIP", Icon = "⭐", Color = Color3.fromRGB(255, 226, 92), Pass = "VIP" },
+		{ Id = "OG", Text = "OG", Icon = "🔥", Color = Color3.fromRGB(255, 148, 56) },
+	},
+}
+function Config.TagSpec(id)
+	for _, t in (Config.Tags or {}).List or {} do
+		if t.Id == id then
+			return t
+		end
+	end
+	return nil
+end
+
+---------------------------------------------------------------------------
+-- (round 98) GAME PASSES. The owner: "make some gamepasses, more emote
+-- slots. Awakening outfits". Roblox makes the passes themselves: on the
+-- Creator Hub (your experience -> Monetization -> Passes) create each one,
+-- give it a picture and a price, put it on sale, and paste its ID into Id
+-- here. Id 0 = not set up: not sold (Studio shows it anyway, marked).
+-- They're on the shop's SHOP tab under GAME PASSES. Bought in the game: it
+-- works at once; bought on the website: the next time they join.
+-- Price: what the button says until Roblox tells the game the real one.
+-- The owner can give any of them (saved) from the console:
+--   givepass <who> <pass>   takepass <who> <pass>   passes [who]
+-- (takepass only takes a given one back - a bought pass is theirs.)
+--   EmoteSlots: Extra more slots on the emote wheel - a second ring round
+--     the first. (Losing it hides the ring; what's on it is kept.)
+--   AwakeningOutfits: wear one of your saved Roblox outfits while you're
+--     awakened - the phone's OUTFIT app (round 59 - it was free). Until its
+--     Id is set it stays free for everyone (FreeUntilSetUp).
+--   VIP: the VIP name tag (Config.Tags), and BucksBonus more Bucks earned.
+--   DoubleBucks: Bucks earned x Multiplier - KOs, raids, UNO wins, money
+--     rain (not codes, refunds or what the owner gives). With VIP: x2.5.
+---------------------------------------------------------------------------
+Config.GamePasses = {
+	Order = { "EmoteSlots", "AwakeningOutfits", "VIP", "DoubleBucks" },
+	EmoteSlots = { Id = 0, Price = 99, Name = "+8 EMOTE SLOTS", Info = "A second ring on your emote wheel - 16 emotes at once!", Icon = "🎭", Color = Color3.fromRGB(240, 120, 170), Extra = 8 },
+	AwakeningOutfits = { Id = 0, Price = 149, Name = "AWAKENING OUTFITS", Info = "Wear one of your saved Roblox outfits every time you awaken!", Icon = "👕", Color = Color3.fromRGB(80, 130, 230), FreeUntilSetUp = true },
+	VIP = { Id = 0, Price = 199, Name = "VIP", Info = "A gold VIP tag over your name and in chat - and 25% more Bucks!", Icon = "⭐", Color = Color3.fromRGB(255, 200, 60), Tag = "VIP", BucksBonus = 0.25 },
+	DoubleBucks = { Id = 0, Price = 249, Name = "2x BUCKS", Info = "Double Bucks from every KO, raid, UNO win and money rain!", Icon = "💵", Color = Color3.fromRGB(90, 200, 110), Multiplier = 2 },
+}
+
 -- Map destruction (parts with the Destroyable attribute set to true)
 Config.Destruction = {
 	Enabled = true,

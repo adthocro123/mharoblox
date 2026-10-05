@@ -9558,6 +9558,42 @@ do
 				end
 			end)
 		end
+		-- (round 98) GAME PASSES (Config.GamePasses): a banner each - its price in
+		-- Robux, or OWNED. One that isn't set up (no Id) shows in Studio only,
+		-- marked, so it can be seen before it's on sale
+		SH.passCards = {}
+		SH.studio = select(2, pcall(function()
+			return game:GetService("RunService"):IsStudio()
+		end)) == true
+		SH.passHeader = make("TextLabel", {
+			Name = "PassesTitle",
+			LayoutOrder = 4,
+			Size = UDim2.new(1, 0, 0, 30),
+			BackgroundTransparency = 1,
+			Font = SH.font,
+			TextSize = 26,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = SH.ink,
+			Text = "Game passes:",
+			Visible = false,
+			ZIndex = 52,
+			Parent = shopGrid,
+		})
+		for i, key in (Config.GamePasses or {}).Order or {} do
+			local spec = (Config.GamePasses or {})[key]
+			if type(spec) == "table" then
+				local b = banner("Pass_" .. key, 4 + i, spec.Name or key, spec.Info or "", spec.Icon or "🎟", spec.Color or Color3.fromRGB(255, 200, 60))
+				local price = pill(b, "R$ " .. tostring(spec.Price or "?"), 132)
+				price.BackgroundColor3 = Color3.fromRGB(0, 150, 96)
+				SH.passCards[key] = { Button = b, Price = price }
+				b.MouseButton1Click:Connect(function()
+					if shopCallbacks.OnPass then
+						shopCallbacks.OnPass(key)
+					end
+				end)
+			end
+		end
+		HUD.RefreshPasses()
 		make("TextLabel", {
 			Name = "ByName",
 			LayoutOrder = 10,
@@ -9617,11 +9653,14 @@ do
 		-- emote's icon and its name under it, shrunk to fit (the list's ON
 		-- WHEEL · n says which slot each one's in)
 		local slotsN = Config.EmoteSlots or 4
+		-- (round 98) room at the end of the row for the EMOTE SLOTS pass's button
+		SH.ringOn = type((Config.GamePasses or {}).EmoteSlots) == "table"
+		SH.ring = 1
 		for i = 1, slotsN do
 			local slot = make("TextButton", {
 				Name = "Slot" .. i,
 				LayoutOrder = i,
-				Size = UDim2.new(1 / slotsN, -6 * (slotsN - 1) / slotsN, 1, 0),
+				Size = SH.ringOn and UDim2.new(0.9 / slotsN, -math.floor((6 * slotsN - 8) / slotsN), 1, 0) or UDim2.new(1 / slotsN, -6 * (slotsN - 1) / slotsN, 1, 0),
 				BackgroundColor3 = WHITE,
 				BackgroundTransparency = 0.15,
 				AutoButtonColor = true,
@@ -9633,7 +9672,8 @@ do
 				make("UIStroke", { Thickness = 2, Color = Color3.fromRGB(46, 46, 52), ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
 				make("UIStroke", { Name = "Ring", Thickness = 3, Color = Color3.fromRGB(78, 226, 240), Transparency = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
 			})
-			make("TextLabel", {
+			local num = make("TextLabel", {
+				Name = "Num",
 				Position = UDim2.fromOffset(3, 3),
 				Size = UDim2.fromOffset(15, 15),
 				BackgroundColor3 = Color3.fromRGB(46, 46, 52),
@@ -9667,9 +9707,35 @@ do
 				ZIndex = 54,
 				Parent = slot,
 			}, { make("UITextSizeConstraint", { MaxTextSize = 16 }) })
-			emoteSlots[i] = { Button = slot, Icon = icon, Name = name }
+			emoteSlots[i] = { Button = slot, Icon = icon, Name = name, Num = num }
 			slot.MouseButton1Click:Connect(function()
 				HUD.EmoteSlotClicked(i)
+			end)
+		end
+		-- (round 98) THE EMOTE SLOTS PASS (Config.GamePasses.EmoteSlots): without
+		-- it, +8 SLOTS (the pass); with it, RING 1 / RING 2 - the tiles show
+		-- that ring's slots
+		if SH.ringOn then
+			SH.ringButton = make("TextButton", {
+				Name = "RingButton",
+				LayoutOrder = 99,
+				Size = UDim2.new(0.1, -8, 1, 0),
+				BackgroundColor3 = Color3.fromRGB(255, 206, 70),
+				AutoButtonColor = true,
+				Font = SH.font,
+				TextScaled = true,
+				TextColor3 = SH.ink,
+				Text = "+" .. tostring((Config.GamePasses.EmoteSlots.Extra or 8)) .. "\nSLOTS",
+				ZIndex = 53,
+				Parent = emoteSlotRow,
+			}, {
+				corner(4),
+				make("UIStroke", { Thickness = 2, Color = Color3.fromRGB(46, 46, 52), ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+				make("UITextSizeConstraint", { MaxTextSize = 18 }),
+				make("UIPadding", { PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 2), PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 2) }),
+			})
+			SH.ringButton.MouseButton1Click:Connect(function()
+				HUD.EmoteRingClicked()
 			end)
 		end
 		SH.tools = make("Frame", {
@@ -10335,11 +10401,61 @@ do
 
 	-- owned: { [Id] = true }; wheel: the Id in each slot ("" = empty);
 	-- order: the ones owned, oldest first (as they were got)
+	-- (round 98) the GAME PASSES banners: state = { [key] = { Owned, Given,
+	-- Price } } (the price: Roblox's, once the screen has asked)
+	function HUD.RefreshPasses(state)
+		SH.passState = state or SH.passState or {}
+		local any = false
+		for key, card in SH.passCards or {} do
+			local spec = (Config.GamePasses or {})[key] or {}
+			local st = SH.passState[key] or {}
+			local setUp = (tonumber(spec.Id) or 0) > 0
+			local free = not setUp and spec.FreeUntilSetUp == true
+			local show = setUp or SH.studio or (st.Owned == true and not free)
+			card.Button.Visible = show
+			any = any or show
+			if st.Owned and not free then
+				card.Price.Text = st.Given and "GIFTED ✓" or "OWNED ✓"
+				card.Price.BackgroundColor3 = Color3.fromRGB(46, 46, 52)
+			elseif not setUp then
+				card.Price.Text = free and "FREE (NO ID)" or "NO ID YET"
+				card.Price.BackgroundColor3 = Color3.fromRGB(120, 120, 130)
+			else
+				card.Price.Text = "R$ " .. tostring(st.Price or spec.Price or "?")
+				card.Price.BackgroundColor3 = Color3.fromRGB(0, 150, 96)
+			end
+		end
+		if SH.passHeader then
+			SH.passHeader.Visible = any
+		end
+	end
+
 	function HUD.SetEmotes(owned, wheel, order)
 		ownedEmotes = owned or {}
 		wheelEmotes = wheel or {}
 		SH.order = order or SH.order or {}
+		-- (round 98) more than the wheel's own slots: the EMOTE SLOTS pass's ring
+		SH.hasRing = #wheelEmotes > (Config.EmoteSlots or 4)
+		if not SH.hasRing then
+			SH.ring = 1
+		end
 		HUD.RefreshEmoteShop()
+	end
+
+	-- (round 98) the tiles' first slot: 0, or - showing the second ring - the
+	-- wheel's own count
+	function HUD.EmoteRingBase()
+		return (SH.ring == 2 and SH.hasRing) and (Config.EmoteSlots or 4) or 0
+	end
+	-- the button at the end of the row: the other ring, or the pass
+	function HUD.EmoteRingClicked()
+		if SH.hasRing then
+			SH.ring = SH.ring == 2 and 1 or 2
+			pickedSlot = nil
+			HUD.RefreshEmoteShop()
+		elseif shopCallbacks.OnPass then
+			shopCallbacks.OnPass("EmoteSlots")
+		end
 	end
 
 	local emoteById
@@ -10354,13 +10470,25 @@ do
 	end
 
 	function HUD.RefreshEmoteShop()
+		local base = HUD.EmoteRingBase() -- (round 98: on the second ring, its slots)
 		for i, s in emoteSlots do
-			local e = emoteOf(wheelEmotes[i])
+			local k = base + i
+			local e = emoteOf(wheelEmotes[k])
 			s.Icon.Text = e and (e.Icon or "★") or "＋"
 			s.Name.Text = e and (e.Name or e.Id) or "EMPTY"
 			s.Name.TextTransparency = e and 0 or 0.5
 			s.Icon.TextTransparency = e and 0 or 0.5
-			s.Button.Ring.Transparency = pickedSlot == i and 0 or 1
+			s.Button.Ring.Transparency = pickedSlot == k and 0 or 1
+			if s.Num then
+				s.Num.Text = tostring(k)
+				s.Num.Size = UDim2.fromOffset(k >= 10 and 21 or 15, 15)
+			end
+		end
+		if SH.ringButton then
+			local extra = ((Config.GamePasses or {}).EmoteSlots or {}).Extra or 8
+			SH.ringButton.Text = SH.hasRing and ("RING\n" .. (SH.ring == 2 and "◂ 2" or "1 ▸")) or ("+" .. extra .. "\nSLOTS")
+			SH.ringButton.BackgroundColor3 = SH.hasRing and Color3.fromRGB(46, 46, 52) or Color3.fromRGB(255, 206, 70)
+			SH.ringButton.TextColor3 = SH.hasRing and Color3.new(1, 1, 1) or SH.ink
 		end
 		-- newest first (as got), or A-Z; the search filters by name
 		local rank = {}
@@ -10409,6 +10537,7 @@ do
 	-- a slot: pick it (the next emote you tap goes there); tap it again to
 	-- empty it
 	function HUD.EmoteSlotClicked(i)
+		i = HUD.EmoteRingBase() + i -- (round 98: a tile of the second ring is its slot)
 		if pickedSlot == i then
 			pickedSlot = nil
 			if (wheelEmotes[i] or "") ~= "" and shopCallbacks.OnEquipEmote then
@@ -12769,7 +12898,93 @@ do
 			Parent = fitPanel,
 		})
 		fitCard(0, "", 0)
+		-- (round 98) no AWAKENING OUTFITS pass: this over the outfits
+		-- (HUD.SetOutfitLocked)
+		local lock = make("Frame", {
+			Name = "Locked",
+			Position = UDim2.fromOffset(14, 98),
+			Size = UDim2.new(1, -28, 1, -112),
+			BackgroundColor3 = Color3.fromRGB(16, 18, 30),
+			BackgroundTransparency = 0.02,
+			Visible = false,
+			ZIndex = 70,
+			Parent = fitPanel,
+		}, { corner(10), stroke(1.5) })
+		make("TextLabel", {
+			Name = "Icon",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 18),
+			Size = UDim2.fromOffset(80, 70),
+			BackgroundTransparency = 1,
+			TextScaled = true,
+			Text = "🔒",
+			ZIndex = 71,
+			Parent = lock,
+		})
+		make("TextLabel", {
+			Name = "Title",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 96),
+			Size = UDim2.new(1, -40, 0, 34),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 32,
+			TextColor3 = Color3.fromRGB(255, 212, 64),
+			Text = "AWAKENING OUTFITS",
+			ZIndex = 71,
+			Parent = lock,
+		}, { textStroke(1.5) })
+		make("TextLabel", {
+			Name = "Info",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 134),
+			Size = UDim2.new(1, -60, 0, 60),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 15,
+			TextWrapped = true,
+			TextColor3 = Color3.fromRGB(210, 214, 235),
+			Text = "Wear one of your saved Roblox outfits every time you awaken. It comes with the AWAKENING OUTFITS game pass.",
+			ZIndex = 71,
+			Parent = lock,
+		})
+		local buy = make("TextButton", {
+			Name = "Buy",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 204),
+			Size = UDim2.fromOffset(220, 46),
+			BackgroundColor3 = Color3.fromRGB(0, 150, 96),
+			Font = HEAD_FONT,
+			TextSize = 20,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "GET IT",
+			ZIndex = 72,
+			Parent = lock,
+		}, { corner(8), stroke(1.5) })
+		buy.MouseButton1Click:Connect(function()
+			if fitCbs.OnBuyPass then
+				fitCbs.OnBuyPass()
+			end
+		end)
 		HUD.MarkOutfit(fitChosen)
+	end
+
+	-- (round 98) locked: the pass over the outfits (price: what its button says)
+	function HUD.SetOutfitLocked(locked, price)
+		buildFits()
+		local lock = fitPanel and fitPanel:FindFirstChild("Locked")
+		if not lock then
+			return
+		end
+		lock.Visible = locked == true
+		local buy = lock:FindFirstChild("Buy")
+		if buy then
+			buy.Text = price and ("GET IT  ·  R$ " .. tostring(price)) or "GET IT"
+		end
+	end
+	function HUD.OutfitLocked()
+		local lock = fitPanel and fitPanel:FindFirstChild("Locked")
+		return lock ~= nil and lock.Visible
 	end
 
 	function HUD.ToggleOutfits(force)
@@ -15067,7 +15282,7 @@ do
 				end
 			end
 		end)
-		HUD.SetConsoleOwner(CS.owner)
+		HUD.SetConsoleOwner(CS.owner, CS.role)
 		for _, line in CS.lines do
 			HUD.ConsoleLine(line, true)
 		end
@@ -15098,16 +15313,19 @@ do
 		HUD.ConsoleHint()
 	end
 
-	function HUD.SetConsoleOwner(isOwner)
+	-- (round 98) role: "OWNER", or staff's "MOD" / "ADMIN" (a tag's powers)
+	function HUD.SetConsoleOwner(isOwner, role)
 		CS.owner = isOwner == true
+		CS.role = CS.owner and (role or CS.role or "OWNER") or nil
 		if not CS.box then
 			return
 		end
 		CS.box.TextEditable = CS.owner
 		CS.box.PlaceholderText = CS.owner and "Type a command ('help' lists them) - Enter runs it, Up/Down for the last ones, Tab finishes the word"
 			or "View only - only the owner of this game can run commands"
-		CS.badge.Text = CS.owner and "OWNER" or "VIEW ONLY"
-		CS.badge.BackgroundColor3 = CS.owner and Color3.fromRGB(50, 170, 90) or Color3.fromRGB(80, 80, 92)
+		CS.badge.Text = CS.owner and CS.role or "VIEW ONLY"
+		CS.badge.BackgroundColor3 = not CS.owner and Color3.fromRGB(80, 80, 92) or (CS.role == "ADMIN" and Color3.fromRGB(200, 60, 60))
+			or (CS.role == "MOD" and Color3.fromRGB(50, 120, 210)) or Color3.fromRGB(50, 170, 90)
 		HUD.ConsoleHint()
 	end
 
@@ -16975,6 +17193,91 @@ do
 		end
 		LH.reticle.Visible = true
 	end
+end
+
+---------------------------------------------------------------------------
+-- (round 98) A WARNING FROM THE MODERATORS (the console's warn): a red card
+-- in the middle of the screen - what they said, who from - and I
+-- UNDERSTAND to put it away (it's gone by itself after a minute)
+---------------------------------------------------------------------------
+function HUD.ModWarning(text, by)
+	if not gui then
+		return nil
+	end
+	local old = gui:FindFirstChild("ModWarning")
+	if old then
+		old:Destroy()
+	end
+	local card = make("Frame", {
+		Name = "ModWarning",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.42),
+		Size = UDim2.fromOffset(480, 230),
+		BackgroundColor3 = Color3.fromRGB(28, 10, 14),
+		BackgroundTransparency = 0.04,
+		ZIndex = 90,
+		Parent = gui,
+	}, { corner(14), make("UIStroke", { Color = Color3.fromRGB(255, 72, 72), Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+	autoScale(card)
+	make("TextLabel", {
+		Name = "Title",
+		Position = UDim2.fromOffset(0, 14),
+		Size = UDim2.new(1, 0, 0, 44),
+		BackgroundTransparency = 1,
+		Font = COMIC_FONT,
+		TextSize = 42,
+		TextColor3 = Color3.fromRGB(255, 84, 84),
+		Text = "⚠ WARNING",
+		ZIndex = 91,
+		Parent = card,
+	}, { textStroke(2) })
+	make("TextLabel", {
+		Name = "Text",
+		Position = UDim2.fromOffset(24, 64),
+		Size = UDim2.new(1, -48, 0, 84),
+		BackgroundTransparency = 1,
+		Font = UI_FONT,
+		TextSize = 19,
+		TextWrapped = true,
+		TextColor3 = Color3.new(1, 1, 1),
+		Text = tostring(text or ""),
+		ZIndex = 91,
+		Parent = card,
+	})
+	make("TextLabel", {
+		Name = "From",
+		Position = UDim2.fromOffset(24, 148),
+		Size = UDim2.new(1, -48, 0, 18),
+		BackgroundTransparency = 1,
+		Font = UI_FONT,
+		TextSize = 13,
+		TextColor3 = Color3.fromRGB(230, 170, 170),
+		Text = "From the moderators" .. ((by and by ~= "") and (" (" .. tostring(by) .. ")") or "") .. ". Keep it up and it's a kick or a ban.",
+		ZIndex = 91,
+		Parent = card,
+	})
+	local ok = make("TextButton", {
+		Name = "Ok",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -14),
+		Size = UDim2.fromOffset(200, 40),
+		BackgroundColor3 = Color3.fromRGB(200, 50, 50),
+		Font = HEAD_FONT,
+		TextSize = 18,
+		TextColor3 = Color3.new(1, 1, 1),
+		Text = "I UNDERSTAND",
+		ZIndex = 92,
+		Parent = card,
+	}, { corner(8) })
+	ok.MouseButton1Click:Connect(function()
+		card:Destroy()
+	end)
+	task.delay(60, function()
+		if card.Parent then
+			card:Destroy()
+		end
+	end)
+	return card
 end
 
 return HUD

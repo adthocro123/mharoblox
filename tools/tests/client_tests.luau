@@ -12013,6 +12013,309 @@ if not ok97 then
 end
 end
 
+print("== round 98: NAME TAGS, GAME PASSES (shop, emote ring, outfits), A MODERATOR'S WARNING, THE CONSOLE FOR STAFF")
+do
+local ok98, err98 = pcall(function()
+	local hud98 = playerGui:FindFirstChild("QuirkHUD")
+	-- (what this section changes on you, put back at the end: the later
+	-- sections play emotes and use the console)
+	local keep98 = {}
+	for _, k in { "EmotesOwned", "EmoteWheel", "EmoteWheel2", "Pass_EmoteSlots", "Pass_VIP", "PassGiven_VIP", "Pass_AwakeningOutfits", "Tag", "ConsoleOwner", "ConsoleRole" } do
+		keep98[k] = { localPlayer:GetAttribute(k) }
+	end
+	function restore98() -- (a global: the suite is at its local limit)
+		for k, v in keep98 do
+			if localPlayer:GetAttribute(k) ~= v[1] then
+				setAttr(localPlayer, k, v[1])
+			end
+		end
+	end
+	local function textOnScreen(needle)
+		for _, d in hud98 and hud98:GetDescendants() or {} do
+			if (d:IsA("TextLabel") or d:IsA("TextButton")) and string.find(d.Text, needle, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+
+	-- (the harness: a part's LocalTransparencyModifier - the engine's, not saved
+	-- in a place, so Lune has no default for it)
+	local ltm98 = setmetatable({}, { __mode = "k" })
+	for _, cls in { "Part", "MeshPart" } do
+		r.implementProperty(cls, "LocalTransparencyModifier", function(self)
+			return ltm98[self] or 0
+		end, function(self, v)
+			ltm98[self] = v
+		end)
+	end
+	-- NAME TAGS: over the head (the harness keeps only your own body, so it's
+	-- yours - with ShowOwn on - that wears one here)
+	local NT = HUD.NameTags
+	if not NT then
+		problem("TAGS 98: the name tags are there (HUD.NameTags)")
+		return
+	end
+	local TGC = Config.Tags
+	local head = myChar:FindFirstChild("Head")
+	local shownWas = myHum.DisplayDistanceType
+	TGC.ShowOwn = true
+	setAttr(localPlayer, "Tag", "Mod")
+	NT.tick()
+	local board = playerGui:FindFirstChild("NameTag_" .. localPlayer.Name)
+	local label = board and board:FindFirstChild("Tag")
+	if not (board and board.Enabled and label and string.find(label.Text, "MOD", 1, true) and board.Adornee == head) then
+		problem("TAGS 98: someone with the MOD tag has it over their head (" .. tostring(label and label.Text) .. ")")
+	end
+	if label and label.TextColor3 ~= Config.TagSpec("Mod").Color then
+		problem("TAGS 98: ...in the tag's colour")
+	end
+	if board and (board.MaxDistance ~= TGC.Distance or not board.AlwaysOnTop) then
+		problem("TAGS 98: ...out to Distance studs, like a name")
+	end
+	myHum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	NT.tick()
+	if board and board.Enabled then
+		problem("TAGS 98: ...hidden while their name is (an invisible body)")
+	end
+	myHum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+	NT.tick()
+	if board and not board.Enabled then
+		problem("TAGS 98: ...and back with it")
+	end
+	head.LocalTransparencyModifier = 1
+	NT.tick()
+	if board and board.Enabled then
+		problem("TAGS 98: ...hidden with a see-through head (first person)")
+	end
+	head.LocalTransparencyModifier = 0
+	setAttr(localPlayer, "Tag", "Tester")
+	NT.tick()
+	if not (label and string.find(label.Text, "TESTER", 1, true) and board.Enabled) then
+		problem("TAGS 98: a different tag: the new one shows (" .. tostring(label and label.Text) .. ")")
+	end
+	-- in chat
+	local props = NT.onChat({ TextSource = { UserId = localPlayer.UserId }, PrefixText = "Tester:" })
+	if not (props and string.find(props.PrefixText, "[TESTER]", 1, true) and string.find(props.PrefixText, "Tester:", 1, true)) then
+		problem("TAGS 98: in chat, [TESTER] before the name (" .. tostring(props and props.PrefixText) .. ")")
+	end
+	if NT.onChat({ TextSource = { UserId = 424242 }, PrefixText = "x:" }) ~= nil then
+		problem("TAGS 98: ...no tag: chat as it was")
+	end
+	-- your own: not over your own head unless ShowOwn (Roblox doesn't show you your name)
+	TGC.ShowOwn = false
+	NT.tick()
+	if board and board.Enabled then
+		problem("TAGS 98: your own isn't over your own head (ShowOwn off, as shipped)")
+	end
+	TGC.ShowOwn = true
+	setAttr(localPlayer, "Tag", nil)
+	NT.tick()
+	if board and board.Enabled then
+		problem("TAGS 98: tag taken back: gone")
+	end
+	TGC.ShowOwn = false
+	myHum.DisplayDistanceType = shownWas
+
+	-- GAME PASSES in the shop
+	local banners = hud98 and hud98:FindFirstChild("Banners", true)
+	local vip = banners and banners:FindFirstChild("Pass_VIP")
+	local slots = banners and banners:FindFirstChild("Pass_EmoteSlots")
+	local db = banners and banners:FindFirstChild("Pass_DoubleBucks")
+	if not (vip and slots and db) then
+		problem("PASSES 98: the shop has a banner for each game pass")
+	else
+		local function price(b)
+			local p = b:FindFirstChild("Price")
+			return p and p.Text or ""
+		end
+		if not (slots.Visible and string.find(price(slots), "NO ID", 1, true)) then
+			problem("PASSES 98: (Studio) one with no pass Id yet shows, marked (" .. price(slots) .. ")")
+		end
+		setAttr(localPlayer, "Pass_VIP", true)
+		task.wait()
+		if not string.find(price(vip), "OWNED", 1, true) then
+			problem("PASSES 98: one that's yours says OWNED (" .. price(vip) .. ")")
+		end
+		setAttr(localPlayer, "PassGiven_VIP", true)
+		task.wait()
+		if not string.find(price(vip), "GIFTED", 1, true) then
+			problem("PASSES 98: ...given by the owner: GIFTED (" .. price(vip) .. ")")
+		end
+		setAttr(localPlayer, "Pass_VIP", nil)
+		setAttr(localPlayer, "PassGiven_VIP", nil)
+		Config.GamePasses.DoubleBucks.Id = 4243
+		HUD.RefreshPasses()
+		if not string.find(price(db), "R$ 249", 1, true) then
+			problem("PASSES 98: set up: its price in Robux (" .. price(db) .. ")")
+		end
+		Config.GamePasses.DoubleBucks.Id = 0
+		HUD.RefreshPasses()
+		signalOf(slots, "MouseButton1Click"):Fire()
+		task.wait()
+		if not textOnScreen("isn't on sale yet") then
+			problem("PASSES 98: buying one that isn't set up: said so")
+		end
+	end
+
+	-- THE EMOTE WHEEL'S SECOND RING
+	local ids = {}
+	for _, e in Config.Emotes do
+		if not e.Exclusive and #ids < 10 then
+			table.insert(ids, e.Id)
+		end
+	end
+	setAttr(localPlayer, "EmotesOwned", table.concat(ids, ","))
+	setAttr(localPlayer, "EmoteWheel", table.concat(ids, ",", 1, 8))
+	setAttr(localPlayer, "EmoteWheel2", ids[9] .. ",,,,,,,")
+	task.wait()
+	local function wheelCount()
+		local wheel = hud98:FindFirstChild("EmoteWheel", true)
+		local n = 0
+		for _, d in wheel and wheel:GetDescendants() or {} do
+			if d:IsA("TextButton") and string.sub(d.Name, 1, 6) == "Emote_" then
+				n += 1
+			end
+		end
+		return n, wheel
+	end
+	local n8 = wheelCount()
+	if n8 ~= 8 then
+		problem("RING 98: without the pass the wheel has its 8 (" .. n8 .. ")")
+	end
+	local ringBtn = hud98:FindFirstChild("RingButton", true)
+	if not (ringBtn and string.find(ringBtn.Text, "SLOTS", 1, true)) then
+		problem("RING 98: ...and the end of the shop's emote row offers +8 SLOTS (" .. tostring(ringBtn and ringBtn.Text) .. ")")
+	end
+	setAttr(localPlayer, "Pass_EmoteSlots", true)
+	task.wait()
+	local n16, wheel = wheelCount()
+	if n16 ~= 16 or not (wheel and wheel:FindFirstChild("Emote_" .. ids[9], true)) then
+		problem("RING 98: with the EMOTE SLOTS pass, 16 round the wheel - the second ring's on it (" .. n16 .. ")")
+	end
+	if not (ringBtn and string.find(ringBtn.Text, "RING", 1, true)) then
+		problem("RING 98: ...the row's button switches rings (" .. tostring(ringBtn and ringBtn.Text) .. ")")
+	end
+	if ringBtn then
+		signalOf(ringBtn, "MouseButton1Click"):Fire()
+		task.wait()
+	end
+	local shopPage = hud98:FindFirstChild("EmoteShop", true)
+	local row = shopPage and shopPage:FindFirstChild("Wheel")
+	local slot1 = row and row:FindFirstChild("Slot1")
+	local num = slot1 and slot1:FindFirstChild("Num")
+	if not (num and num.Text == "9") then
+		problem("RING 98: RING 2: the tiles are slots 9 to 16 (" .. tostring(num and num.Text) .. ")")
+	end
+	table.clear(fired)
+	HUD.EmoteSlotClicked(2)
+	HUD.EmoteCardClicked(ids[1])
+	local sent = false
+	for _, f in fired do
+		if f[1] == "Shop" and f[2] == "EquipEmote" and f[3] == 10 and f[4] == ids[1] then
+			sent = true
+		end
+	end
+	if not sent then
+		problem("RING 98: ...a tile there puts an emote in its slot (10)")
+	end
+	if ringBtn then
+		signalOf(ringBtn, "MouseButton1Click"):Fire()
+	end
+	setAttr(localPlayer, "Pass_EmoteSlots", nil)
+	setAttr(localPlayer, "EmoteWheel2", nil)
+	task.wait()
+
+	-- THE OUTFIT APP: the AWAKENING OUTFITS pass
+	HUD.OpenOutfits()
+	task.wait()
+	if HUD.OutfitLocked() then
+		problem("OUTFITS 98: no pass Id yet: free, as before")
+	end
+	HUD.ToggleOutfits(false)
+	Config.GamePasses.AwakeningOutfits.Id = 4241
+	HUD.OpenOutfits()
+	task.wait()
+	if not HUD.OutfitLocked() then
+		problem("OUTFITS 98: set up, without the pass: the app shows the pass")
+	end
+	setAttr(localPlayer, "Pass_AwakeningOutfits", true)
+	task.wait()
+	if HUD.OutfitLocked() then
+		problem("OUTFITS 98: ...with it, the outfits")
+	end
+	HUD.ToggleOutfits(false)
+	Config.GamePasses.AwakeningOutfits.Id = 0
+	setAttr(localPlayer, "Pass_AwakeningOutfits", nil)
+
+	-- A MODERATOR'S WARNING; A PASS GIVEN
+	PlayVFX.OnClientEvent:Fire("ModWarn", nil, { Text = "stop spamming the chat", By = "Bravo" })
+	task.wait()
+	local card = hud98:FindFirstChild("ModWarning")
+	local txt = card and card:FindFirstChild("Text")
+	local from = card and card:FindFirstChild("From")
+	if not (txt and txt.Text == "stop spamming the chat" and from and string.find(from.Text, "Bravo", 1, true)) then
+		problem("WARN 98: a moderator's warning, in the middle of the screen")
+	end
+	local okb = card and card:FindFirstChild("Ok")
+	if okb then
+		signalOf(okb, "MouseButton1Click"):Fire()
+		task.wait()
+	end
+	if hud98:FindFirstChild("ModWarning") then
+		problem("WARN 98: ...I UNDERSTAND puts it away")
+	end
+	PlayVFX.OnClientEvent:Fire("PassBought", nil, { Key = "VIP", Gift = "Alpha" })
+	task.wait()
+	if not textOnScreen("gift from Alpha") then
+		problem("PASSES 98: a pass given: who it's from")
+	end
+
+	-- THE CONSOLE: staff type commands too
+	local cg = playerGui:FindFirstChild("QuirkConsole")
+	local croot = cg and cg:FindFirstChild("Console")
+	local box = croot and croot:FindFirstChild("Input") and croot.Input:FindFirstChildOfClass("TextBox")
+	local CR = remotes:FindFirstChild("Console")
+	if not (croot and box and CR) then
+		problem("CONSOLE 98: the console's there")
+	else
+		setAttr(localPlayer, "ConsoleOwner", nil) -- (not the owner here: an owner's badge says OWNER)
+		local function badge(word)
+			for _, d in croot:GetDescendants() do
+				if d:IsA("TextLabel") and d.Text == word then
+					return true
+				end
+			end
+			return false
+		end
+		signalOf(CR, "OnClientEvent"):Fire("Sync", { Log = {}, Commands = { { Name = "ban", Usage = "ban <who>", Help = "Ban" } }, Owner = true, Role = "MOD" })
+		task.wait()
+		if not (box.TextEditable == true and badge("MOD")) then
+			problem("CONSOLE 98: a mod can type, and the console says MOD")
+		end
+		setAttr(localPlayer, "ConsoleRole", "Admin")
+		task.wait()
+		if not (box.TextEditable == true and badge("ADMIN")) then
+			problem("CONSOLE 98: ...an admin (ConsoleRole): ADMIN")
+		end
+		setAttr(localPlayer, "ConsoleRole", nil)
+		task.wait()
+		if box.TextEditable ~= false then
+			problem("CONSOLE 98: ...not staff any more: read-only again")
+		end
+		signalOf(CR, "OnClientEvent"):Fire("Sync", { Log = {}, Commands = {}, Owner = false })
+		task.wait()
+	end
+end)
+if not ok98 then
+	problem("ROUND 98: errored: " .. tostring(err98))
+end
+if restore98 then
+	restore98()
+	task.wait()
+end
+end
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")

@@ -13613,6 +13613,411 @@ end)
 	C9.Parent = nil
 end)
 
+---------------------------------------------------------------------------
+-- Round 98: MODERATION (ban / unban / bans / warn / kick, staff powers),
+-- NAME TAGS (given, saved, the owner's own), GAME PASSES (given, bought,
+-- the emote wheel's second ring, the outfit pass, Bucks) - Kit.MOD as
+-- Destruction.Moderation
+---------------------------------------------------------------------------
+;M.section(function()
+	print("== round 98: MODERATION, NAME TAGS, GAME PASSES")
+	local MOD = dx.Moderation
+	check(MOD ~= nil and MOD.TG ~= nil and MOD.GP ~= nil and type(MOD.ban) == "function", "moderation, tags and passes are there (Kit.MOD / TG / GP)")
+	if not MOD then
+		return
+	end
+	local TG, GP = MOD.TG, MOD.GP
+	local Con = MOD.Console
+	check(Con ~= nil and type(Con.level) == "function", "...and the console knows staff (Console.level)")
+	local MC, PC = Config.Moderation, Config.GamePasses
+	check(MC.RobloxBans == true and MC.ModMaxBan == 3 * 86400 and #Config.Tags.List >= 6 and PC.EmoteSlots.Id == 0, "it's all set up in Config (bans on Roblox's list too; a mod bans 3 days at most; the tags; passes with no Id yet)")
+	local consoleRemote = remotes:FindFirstChild("Console")
+	local ShopRemote = remotes:FindFirstChild("Shop")
+	local function run(p, text)
+		task.wait(0.07)
+		consoleRemote.OnServerEvent:Fire(p, "Run", text)
+		task.wait()
+	end
+	local function lines(to)
+		local out = {}
+		for _, s in M.sent do
+			if s.Args[1] == "Line" and s.To == to then
+				table.insert(out, tostring(s.Args[2].Text))
+			end
+		end
+		return out
+	end
+	local function said(to, needle)
+		for _, t in lines(to) do
+			if string.find(t, needle, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+	local function join(name, id)
+		local p = M.new("Player", name)
+		p.DisplayName = name
+		p.UserId = id
+		rawset(p, "Kick", function(self, msg)
+			rawset(self, "_kicked", msg or "")
+		end)
+		function p.LoadCharacter() end
+		Con.owners[p] = false -- (not an owner: in Studio the harness's would all be)
+		table.insert(playerList, p)
+		p.Parent = Players
+		Players.PlayerAdded:Fire(p)
+		task.wait(0.1)
+		return p
+	end
+	local function leave(p)
+		p.Parent = nil
+		Players.PlayerRemoving:Fire(p)
+		local at = table.find(playerList, p)
+		if at then
+			table.remove(playerList, at)
+		end
+		task.wait(0.2)
+	end
+	local function kickedWith(p)
+		return rawget(p, "_kicked")
+	end
+
+	-- THE OWNER'S TAG
+	check(A:GetAttribute("Tag") == "Owner" and string.find(A:GetAttribute("Tags") or "", "Owner", 1, true) and Con.level(A) == 3, "the owner wears OWNER, always (and is level 3 at the console)")
+	-- (Bravo stops being an owner - in Studio everyone the harness makes is)
+	local bWasOwner, bCached = Con.isOwner(B), Con.owners[B]
+	Con.owners[B] = false
+	TG.apply(B, true)
+	check(B:GetAttribute("Tag") == nil and B:GetAttribute("StaffLevel") == nil and Con.level(B) == 0, "someone else: no tag, no powers")
+	clearSent()
+	run(B, "kick Alpha")
+	check(said(B, "Read-only"), "...the console's read-only for them")
+
+	-- TAGS: given by the owner, saved
+	local C = join("Charlie98", 98003)
+	local D = join("Delta98", 98004)
+	clearSent()
+	run(A, "tag Bravo mod")
+	check(B:GetAttribute("Tag") == "Mod" and B:GetAttribute("StaffLevel") == 1 and B:GetAttribute("ConsoleRole") == "Mod" and Con.level(B) == 1,
+		"`tag Bravo mod`: the MOD tag, and a mod's powers (" .. tostring(B:GetAttribute("Tag")) .. ")")
+	check(MOD.records[B.UserId] and MOD.records[B.UserId].Tags.Mod ~= nil and MOD.records[B.UserId].Tags.Mod.By == "Alpha", "...it's in their record (who gave it)")
+	local toasted = false
+	for _, n in sentTo(B, "Notice") do
+		if string.find(tostring(n.Text), "MOD", 1, true) then
+			toasted = true
+		end
+	end
+	check(toasted, "...and they're told")
+	run(A, "tag Bravo tester")
+	check(B:GetAttribute("Tag") == "Mod" and B:GetAttribute("Tags") == "Mod,Tester", "a second tag: both are theirs, the first in the list shows (" .. tostring(B:GetAttribute("Tags")) .. ")")
+	clearSent()
+	run(A, "tag me owner")
+	check(said(A, "can't be given"), "the OWNER tag can't be given")
+	run(A, "tag Bravo bogus")
+	check(said(A, "No tag"), "...nor one that doesn't exist")
+
+	-- STAFF AT THE CONSOLE
+	clearSent()
+	run(B, "help")
+	local help = table.concat(lines(B), " ")
+	check(string.find(help, "ban", 1, true) and string.find(help, "warn", 1, true) and string.find(help, "kick", 1, true) and not string.find(help, "bucks", 1, true),
+		"a mod's `help` lists theirs (ban, warn, kick) and not the owner's (bucks)")
+	clearSent()
+	run(B, "bucks 500")
+	check(said(B, "owner's") and B:GetAttribute("Bucks") ~= 500, "...and the owner's commands are refused")
+	local echoed = false
+	for _, s in M.sent do
+		if s.Args[1] == "Line" and s.To == "all" and string.find(tostring(s.Args[2].Text), "Bravo>", 1, true) then
+			echoed = true
+		end
+	end
+	check(not echoed, "...what staff type stays between them and the console")
+	Con.lastSync[B] = nil
+	clearSent()
+	consoleRemote.OnServerEvent:Fire(B, "Sync")
+	task.wait()
+	local sync
+	for _, s in M.sent do
+		if s.To == B and s.Args[1] == "Sync" then
+			sync = s.Args[2]
+		end
+	end
+	local hasBucks, hasBan = false, false
+	for _, c in sync and sync.Commands or {} do
+		hasBucks = hasBucks or c.Name == "bucks"
+		hasBan = hasBan or c.Name == "ban"
+	end
+	check(sync and sync.Owner == true and sync.Role == "MOD" and hasBan and not hasBucks, "...their console: the box to type in, MOD, and only their commands")
+	Con.lastSync[D] = nil
+	clearSent()
+	consoleRemote.OnServerEvent:Fire(D, "Sync")
+	task.wait()
+	local viewer
+	for _, s in M.sent do
+		if s.To == D and s.Args[1] == "Sync" then
+			viewer = s.Args[2]
+		end
+	end
+	local seesBucks = false
+	for _, c in viewer and viewer.Commands or {} do
+		seesBucks = seesBucks or c.Name == "bucks"
+	end
+	check(viewer and viewer.Owner == false and viewer.Role == nil and seesBucks, "...someone who only watches still sees every command, read-only (as before)")
+
+	-- WARN
+	clearSent()
+	run(B, "warn Charlie98 stop spamming the chat")
+	local warned = sentTo(C, "ModWarn")[1]
+	check(warned and warned.Text == "stop spamming the chat" and warned.By == "Bravo", "`warn`: a warning on their screen, and who from")
+
+	-- KICK
+	clearSent()
+	run(B, "kick all")
+	check(said(B, "Name one person") and kickedWith(C) == nil, "a mod can't `kick all`")
+	run(B, "kick Alpha")
+	check(said(B, "No one kicked"), "...nor kick the owner")
+	run(B, "kick Charlie98 being rude")
+	check(kickedWith(C) == "being rude", "`kick Charlie98 being rude`: out, with the reason")
+	check(said(A, "kicked Charlie98"), "...and the owner's console hears of it")
+	rawset(C, "_kicked", nil)
+
+	-- BAN
+	clearSent()
+	run(B, "ban Alpha")
+	check(said(B, "owner"), "nobody can ban the owner")
+	run(B, "ban Bravo")
+	check(said(B, "yourself"), "...nor themselves")
+	run(A, "tag Delta98 mod")
+	run(B, "ban Delta98")
+	check(said(B, "as high as you") and kickedWith(D) == nil, "...nor a mod ban a mod")
+	run(A, "untag Delta98 all")
+	check(D:GetAttribute("StaffLevel") == nil and D:GetAttribute("Tag") == nil, "`untag <who> all`: tags and powers gone")
+	clearSent()
+	local t0 = os.time()
+	run(B, "ban Charlie98 perm griefing the spawn")
+	local rec = MOD.records[C.UserId]
+	check(rec and rec.Ban and rec.Ban.Reason == "griefing the spawn" and rec.Ban.ByName == "Bravo", "`ban Charlie98 perm griefing the spawn`: banned, with the reason and who")
+	check(rec and rec.Ban and math.abs(rec.Ban.Until - (t0 + MC.ModMaxBan)) <= 2, "...a mod's ban is 3 days at most, even asked for perm")
+	check(kickedWith(C) ~= nil and string.find(kickedWith(C), "griefing the spawn", 1, true) and string.find(kickedWith(C), "ends in", 1, true), "...out now, told why and for how long (" .. tostring(kickedWith(C)) .. ")")
+	check(said(B, "longest a mod can") and said(A, "Banned Charlie98"), "...the mod is told it was cut down; the owner hears of it")
+	check(MOD.index.Ban[tostring(C.UserId)] ~= nil, "...it's on the ban list")
+	leave(C)
+	local C2 = join("Charlie98", 98003)
+	check(kickedWith(C2) ~= nil, "coming back while banned: straight back out")
+	leave(C2)
+
+	-- OFFLINE, BY USERID; THE LIST; UNBAN
+	clearSent()
+	run(A, "ban 55555 7d alt account")
+	local r5 = MOD.records[55555]
+	check(r5 and r5.Ban and math.abs(r5.Ban.Until - (os.time() + 7 * 86400)) <= 2 and r5.Ban.Reason == "alt account", "`ban 55555 7d alt account`: someone who isn't here, by UserId")
+	run(A, "ban 55556 2h")
+	check(MOD.records[55556] and MOD.records[55556].Ban and math.abs(MOD.records[55556].Ban.Until - (os.time() + 7200)) <= 2, "...2h is two hours")
+	run(A, "ban 55557 griefing")
+	check(MOD.records[55557] and MOD.records[55557].Ban and MOD.records[55557].Ban.Until == 0 and MOD.records[55557].Ban.Reason == "griefing", "...no time: the owner's ban is for good")
+	clearSent()
+	run(B, "bans")
+	check(said(B, "55555") and said(B, "alt account") and said(B, "Charlie98"), "`bans`: the bans in force")
+	run(B, "unban 55555")
+	check(said(B, "Only Alpha") and MOD.banned(MOD.records[55555].Ban), "a mod can't lift someone else's ban")
+	run(B, "unban 98003")
+	check(not MOD.banned(MOD.records[98003].Ban) and MOD.index.Ban["98003"] == nil, "...but can lift their own")
+	run(A, "unban 55555")
+	check(MOD.records[55555].Ban == nil, "the owner lifts anyone's")
+	clearSent()
+	run(A, "ban @nobodyAtAll98 1d")
+	check(said(A, "No one called"), "a name that's nobody's: said so")
+	run(A, "ban all 1d")
+	check(said(A, "Name one person"), "`ban all` is never allowed")
+	local C3 = join("Charlie98", 98003)
+	check(kickedWith(C3) == nil, "lifted: they can come back in")
+	-- (an old ban that's run out)
+	MOD.records[98003].Ban = { Until = os.time() - 5, Reason = "old", By = 1, ByName = "Alpha", At = os.time() - 100 }
+	MOD.enforce(C3)
+	check(kickedWith(C3) == nil, "...and a ban that's run out keeps nobody out")
+
+	-- ANOTHER SERVER'S BAN (MessagingService)
+	MOD.pending[98003], MOD.pending[D.UserId] = nil, nil -- (Studio never saved this server's own)
+	MOD.onMessage({ Data = { Op = "Ban", Id = C3.UserId, From = "another-server", Rec = { Name = "Charlie98", Ban = { Until = 0, Reason = "from elsewhere", By = 1, ByName = "Alpha", At = os.time() } } } })
+	check(kickedWith(C3) ~= nil and string.find(kickedWith(C3), "from elsewhere", 1, true), "banned on another server: kicked from this one too")
+	MOD.onMessage({ Data = { Op = "Rec", Id = D.UserId, From = "another-server", Rec = { Name = "Delta98", Tags = { OG = { By = "Alpha", At = os.time() } } } } })
+	check(D:GetAttribute("Tag") == "OG", "...a tag given on another server shows here at once")
+	leave(C3)
+
+	-- SAVED (DataStore) - and Roblox's own ban list on a live server
+	local DSS = service("DataStoreService")
+	local getWas = DSS.GetDataStore
+	DSS.GetDataStore = function(_, name)
+		local st = getWas(_, name)
+		st.UpdateAsync = function(_, k, f)
+			local v = f(DS.data[k])
+			DS.data[k] = v
+			return v
+		end
+		return st
+	end
+	MOD.ds = nil
+	MC.StudioSaves = true
+	run(A, "ban 66666 1d saved one")
+	task.wait(0.1)
+	local stored = DS.data["staff_66666"]
+	check(stored and stored.Ban and stored.Ban.Reason == "saved one" and DS.data["BanIndex"] and DS.data["BanIndex"]["66666"] ~= nil, "bans are saved (DataStore: the record and the list)")
+	MOD.records[66666], MOD.readAt[66666] = nil, nil
+	local E = join("Echo98", 66666)
+	check(kickedWith(E) ~= nil and string.find(kickedWith(E), "saved one", 1, true), "...a new server reads it: they're kept out")
+	leave(E)
+	run(A, "tag 66667 dev")
+	task.wait(0.1)
+	check(DS.data["staff_66667"] and DS.data["staff_66667"].Tags.Dev ~= nil and DS.data["StaffIndex"]["66667"] ~= nil, "tags are saved too (and on the staff list)")
+	MOD.records[66667], MOD.readAt[66667] = nil, nil
+	local F = join("Fox98", 66667)
+	check(F:GetAttribute("Tag") == "Dev", "...and worn when they come in")
+	leave(F)
+	local banned, unbanned
+	local banWas, unbanWas = Players.BanAsync, Players.UnbanAsync
+	Players.BanAsync = function(_, cfg)
+		banned = cfg
+	end
+	Players.UnbanAsync = function(_, cfg)
+		unbanned = cfg
+	end
+	local TS = service("TextService")
+	TS.FilterStringAsync = function(_, text)
+		return {
+			GetNonChatStringForBroadcastAsync = function()
+				return text
+			end,
+			GetNonChatStringForUserAsync = function()
+				return text
+			end,
+		}
+	end
+	studioMode = false
+	run(A, "ban 77777 1d live one")
+	task.wait(0.1)
+	check(banned and banned.UserIds[1] == 77777 and banned.Duration == 86400 and banned.ApplyToUniverse == true and banned.ExcludeAltAccounts == false and banned.DisplayReason == "live one",
+		"a live server also puts the ban on Roblox's list (BanAsync: 1 day, alt accounts too)")
+	run(A, "ban 77778 perm")
+	task.wait(0.1)
+	check(banned and banned.UserIds[1] == 77778 and banned.Duration == -1, "...for good: Duration -1")
+	run(A, "unban 77777")
+	task.wait(0.1)
+	check(unbanned and unbanned.UserIds[1] == 77777, "...and unban lifts that too (UnbanAsync)")
+	studioMode = true
+	TS.FilterStringAsync = nil
+	Players.BanAsync, Players.UnbanAsync = banWas, unbanWas
+	MC.StudioSaves = false
+	DSS.GetDataStore = getWas
+	MOD.ds = nil
+
+	-- GAME PASSES: given
+	clearSent()
+	run(A, "givepass Bravo emoteslots")
+	check(B:GetAttribute("Pass_EmoteSlots") == true and B:GetAttribute("PassGiven_EmoteSlots") == true, "`givepass Bravo emoteslots`: theirs (given)")
+	check(sentTo(B, "PassBought")[1] and sentTo(B, "PassBought")[1].Gift == "Alpha", "...and they're told who from")
+	-- the second ring
+	local ids = {}
+	for _, e in Config.Emotes do
+		if not e.Exclusive and #ids < 10 then
+			table.insert(ids, e.Id)
+		end
+	end
+	B:SetAttribute("EmotesOwned", table.concat(ids, ",", 1, 9))
+	B:SetAttribute("EmoteWheel", table.concat({ ids[1], ids[2], ids[3], ids[4], ids[5], ids[6], ids[7], ids[8] }, ","))
+	B:SetAttribute("EmoteWheel2", nil)
+	task.wait(0.1)
+	fire(ShopRemote, B, "EquipEmote", 9, ids[9])
+	check(string.sub(B:GetAttribute("EmoteWheel2") or "", 1, #ids[9]) == ids[9], "the EMOTE SLOTS pass: slot 9 is on the second ring (" .. tostring(B:GetAttribute("EmoteWheel2")) .. ")")
+	task.wait(0.1)
+	fire(ShopRemote, B, "EquipEmote", 12, ids[1])
+	local ring1 = string.split(B:GetAttribute("EmoteWheel") or "", ",")
+	local ring2 = string.split(B:GetAttribute("EmoteWheel2") or "", ",")
+	check(ring1[1] == "" and ring2[4] == ids[1], "...moving one there takes it off the first ring")
+	B:SetAttribute("EmotePicks", 1)
+	B:SetAttribute("EmoteWheel", table.concat({ ids[2], ids[3], ids[4], ids[5], ids[6], ids[7], ids[8], ids[1] }, ","))
+	B:SetAttribute("EmoteWheel2", nil)
+	task.wait(0.1)
+	fire(ShopRemote, B, "PickEmote", ids[10])
+	check(string.sub(B:GetAttribute("EmoteWheel2") or "", 1, #ids[10]) == ids[10], "...a new emote with the first ring full goes on the second")
+	local G = join("Golf98", 98007)
+	G:SetAttribute("EmotesOwned", ids[1])
+	task.wait(0.1)
+	fire(ShopRemote, G, "EquipEmote", 9, ids[1])
+	check(G:GetAttribute("EmoteWheel2") == nil, "without the pass, slot 9 isn't there")
+	-- saved, and back
+	run(A, "givepass 98008 emoteslots")
+	local H = join("Hotel98", 98008)
+	task.wait(0.3)
+	H:SetAttribute("EmotesOwned", ids[1] .. "," .. ids[2])
+	task.wait(0.1)
+	fire(ShopRemote, H, "EquipEmote", 10, ids[2])
+	leave(H)
+	check(DS.data["u_98008"] and type(DS.data["u_98008"].Wheel2) == "string" and string.find(DS.data["u_98008"].Wheel2, ids[2], 1, true), "the second ring is saved (Wheel2)")
+	local H2 = join("Hotel98", 98008)
+	task.wait(0.3)
+	local r2 = string.split(H2:GetAttribute("EmoteWheel2") or "", ",")
+	check(H2:GetAttribute("Pass_EmoteSlots") == true and r2[2] == ids[2], "...and back when they come back (" .. tostring(H2:GetAttribute("EmoteWheel2")) .. ")")
+	leave(H2)
+	run(A, "takepass Bravo emoteslots")
+	check(B:GetAttribute("Pass_EmoteSlots") == nil, "`takepass`: a given pass taken back")
+	clearSent()
+	run(A, "givepass Bravo nothing")
+	check(said(A, "No pass"), "...a pass that doesn't exist: said so")
+
+	-- AWAKENING OUTFITS: free till it's set up; then the pass
+	Players.GetHumanoidDescriptionFromOutfitIdAsync = function()
+		return M.new("HumanoidDescription", "Desc")
+	end
+	G:SetAttribute("AwakenOutfit", 0)
+	task.wait(0.5)
+	fire(ShopRemote, G, "AwakenOutfit", 777)
+	check(G:GetAttribute("AwakenOutfit") == 777, "AWAKENING OUTFITS: no pass Id yet - free for everyone, as before")
+	PC.AwakeningOutfits.Id = 4241
+	GP.apply(G)
+	task.wait(0.5)
+	clearSent()
+	fire(ShopRemote, G, "AwakenOutfit", 778)
+	check(G:GetAttribute("AwakenOutfit") == 777 and sentTo(G, "Notice")[1] and string.find(sentTo(G, "Notice")[1].Text, "pass", 1, true), "...set up: picking one takes the pass (they're told)")
+	run(A, "givepass Golf98 awakening")
+	task.wait(0.5)
+	fire(ShopRemote, G, "AwakenOutfit", 778)
+	check(G:GetAttribute("AwakenOutfit") == 778, "...with it, they pick")
+	PC.AwakeningOutfits.Id = 0
+	Players.GetHumanoidDescriptionFromOutfitIdAsync = nil
+
+	-- BOUGHT: Roblox says so (at join, and just now)
+	PC.VIP.Id, PC.DoubleBucks.Id = 4242, 4243
+	local MPS = service("MarketplaceService")
+	MPS.UserOwnsGamePassAsync = function(_, uid, pid)
+		return uid == G.UserId and pid == 4243
+	end
+	GP.check(G)
+	check(G:GetAttribute("Pass_DoubleBucks") == true and G:GetAttribute("Pass_VIP") == nil, "a pass bought on the website: theirs when they join (UserOwnsGamePassAsync)")
+	clearSent()
+	GP.purchased(G, 4242, true)
+	check(G:GetAttribute("Pass_VIP") == true and G:GetAttribute("Tag") == "VIP" and sentTo(G, "PassBought")[1] ~= nil, "bought in the game: VIP at once - the VIP tag too")
+	check(GP.bucks(G, 10) == 25 and GP.bucks(D, 10) == 10, "2x BUCKS with VIP: 10 Bucks earned are 25 (and 10 without)")
+	MPS.UserOwnsGamePassAsync = nil
+	PC.VIP.Id, PC.DoubleBucks.Id = 0, 0
+	clearSent()
+	run(A, "passes")
+	check(said(A, "EmoteSlots") and said(A, "Golf98"), "`passes`: every pass, and who has it here")
+	clearSent()
+	run(A, "tags")
+	check(said(A, "Bravo") and said(A, "MOD"), "`tags`: who has which tag")
+
+	-- tidy up: Bravo's an owner again (as the harness has him)
+	run(A, "untag Bravo all")
+	check(B:GetAttribute("Tag") == nil and Con.level(B) == 0, "untagged: no powers left")
+	Con.owners[B] = bCached
+	TG.apply(B, true)
+	check((B:GetAttribute("Tag") == "Owner") == bWasOwner, "(Bravo's back as the harness had him)")
+	leave(G)
+	leave(D)
+	MOD.records[A.UserId], MOD.records[B.UserId] = nil, nil
+end)
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}

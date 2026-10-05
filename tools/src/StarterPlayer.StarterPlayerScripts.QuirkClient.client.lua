@@ -3891,6 +3891,25 @@ do
 			wheel[k] = wheel[k] or ""
 			list[k] = byId[wheel[k]] or { Empty = true, Slot = k }
 		end
+		-- (round 98) the EMOTE SLOTS pass (Config.GamePasses.EmoteSlots): a second
+		-- ring of slots after the first - EmoteWheel2 (the wheel draws 9+ as an
+		-- outer ring; the controller's menu, a third row)
+		if player:GetAttribute("Pass_EmoteSlots") == true then
+			local base = Config.EmoteSlots or 4
+			local extra = ((Config.GamePasses or {}).EmoteSlots or {}).Extra or 8
+			local j = 0
+			for id in string.gmatch((player:GetAttribute("EmoteWheel2") or "") .. ",", "([^,]*),") do
+				j += 1
+				if j > extra then
+					break
+				end
+				wheel[base + j] = (byId[id] and owned[id]) and id or ""
+			end
+			for k = base + 1, base + extra do
+				wheel[k] = wheel[k] or ""
+				list[k] = byId[wheel[k]] or { Empty = true, Slot = k }
+			end
+		end
 		HUD.BuildEmoteWheel(list, pick)
 		-- (a controller gets the menu: cards to move between, A plays, B closes)
 		HUD.BuildEmoteMenu(list)
@@ -3905,6 +3924,8 @@ do
 	picks()
 	player:GetAttributeChangedSignal("EmotePicks"):Connect(picks)
 	player:GetAttributeChangedSignal("EmoteWheel"):Connect(rebuild)
+	player:GetAttributeChangedSignal("EmoteWheel2"):Connect(rebuild) -- (round 98: the pass's ring)
+	player:GetAttributeChangedSignal("Pass_EmoteSlots"):Connect(rebuild)
 	local function closeMenu()
 		HUD.ShowEmoteMenu(false)
 		selectGui(nil)
@@ -4402,6 +4423,12 @@ HUD.BuildShop({
 	OnEquipEmote = function(slot, id)
 		ShopRemote:FireServer("EquipEmote", slot, id)
 	end,
+	-- (round 98) a game pass's banner (and the emote row's +8 SLOTS)
+	OnPass = function(key)
+		if HUD.BuyPass then
+			HUD.BuyPass(key)
+		end
+	end,
 	OnUse = useItem,
 	OnToggle = function(open)
 		if inputMode == "Gamepad" then
@@ -4576,8 +4603,26 @@ do
 			show()
 		end)
 	end
+	-- (round 98) the AWAKENING OUTFITS pass (Config.GamePasses): without it the
+	-- app shows the pass, not the outfits (free till it's set up)
+	local function hasPass()
+		local spec = (Config.GamePasses or {}).AwakeningOutfits
+		if type(spec) ~= "table" or ((tonumber(spec.Id) or 0) == 0 and spec.FreeUntilSetUp ~= false) then
+			return true
+		end
+		return player:GetAttribute("Pass_AwakeningOutfits") == true
+	end
+	local function lockIf()
+		local spec = (Config.GamePasses or {}).AwakeningOutfits or {}
+		HUD.SetOutfitLocked(not hasPass(), HUD.PassPrice and HUD.PassPrice("AwakeningOutfits") or spec.Price)
+		return hasPass()
+	end
 	HUD.SetOutfitCallbacks({
-		OnOpen = load,
+		OnOpen = function()
+			if lockIf() then
+				load()
+			end
+		end,
 		OnRetry = function()
 			fits = nil
 			load()
@@ -4585,7 +4630,17 @@ do
 		OnPick = function(id)
 			ShopRemote:FireServer("AwakenOutfit", id)
 		end,
+		OnBuyPass = function()
+			if HUD.BuyPass then
+				HUD.BuyPass("AwakeningOutfits")
+			end
+		end,
 	})
+	player:GetAttributeChangedSignal("Pass_AwakeningOutfits"):Connect(function()
+		if lockIf() and HUD.OutfitsVisible() then
+			load()
+		end
+	end)
 	-- the one you'll wear, as the server has it
 	local function mark()
 		HUD.MarkOutfit(tonumber(player:GetAttribute("AwakenOutfit")) or 0)
@@ -13997,6 +14052,207 @@ PlayVFX.OnClientEvent:Connect(function(effectId, char)
 end)
 
 ---------------------------------------------------------------------------
+-- (round 98) GAME PASSES on this screen (Config.GamePasses; the server's
+-- Kit.GP says who has what: Pass_<key>, PassGiven_<key>): the shop's
+-- banners - owned, and the real price from Roblox - and HUD.BuyPass, the
+-- purchase window, for the banners, the emote row's +8 SLOTS and the outfit
+-- app. Bought: the server hears it (PromptGamePassPurchaseFinished) and the
+-- perks are on at once.
+---------------------------------------------------------------------------
+do
+	local GPP = { prices = {} }
+	function HUD.PassPrice(key)
+		return GPP.prices[key] or ((Config.GamePasses or {})[key] or {}).Price
+	end
+	function GPP.refresh()
+		local state = {}
+		for _, key in (Config.GamePasses or {}).Order or {} do
+			state[key] = { Owned = player:GetAttribute("Pass_" .. key) == true, Given = player:GetAttribute("PassGiven_" .. key) == true, Price = GPP.prices[key] }
+		end
+		HUD.RefreshPasses(state)
+	end
+	function HUD.BuyPass(key)
+		local spec = (Config.GamePasses or {})[key]
+		local id = spec and tonumber(spec.Id) or 0
+		if not spec then
+			return
+		end
+		if player:GetAttribute("Pass_" .. key) == true then
+			HUD.Notice("You have " .. (spec.Name or key) .. " already", Color3.fromRGB(150, 255, 160))
+		elseif id <= 0 then
+			HUD.Notice((spec.Name or key) .. " isn't on sale yet", Color3.fromRGB(255, 212, 64))
+			VFX.PlaySound("ShopNo")
+		else
+			pcall(function()
+				game:GetService("MarketplaceService"):PromptGamePassPurchase(player, id)
+			end)
+		end
+	end
+	for _, key in (Config.GamePasses or {}).Order or {} do
+		player:GetAttributeChangedSignal("Pass_" .. key):Connect(GPP.refresh)
+		player:GetAttributeChangedSignal("PassGiven_" .. key):Connect(GPP.refresh)
+	end
+	GPP.refresh()
+	task.spawn(function()
+		for _, key in (Config.GamePasses or {}).Order or {} do
+			local id = tonumber(((Config.GamePasses or {})[key] or {}).Id) or 0
+			if id > 0 then
+				local ok, info = pcall(function()
+					return game:GetService("MarketplaceService"):GetProductInfo(id, Enum.InfoType.GamePass)
+				end)
+				if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
+					GPP.prices[key] = tonumber(info.PriceInRobux)
+				end
+			end
+		end
+		GPP.refresh()
+	end)
+	UI_EVENTS.PassBought = function(data)
+		local spec = (Config.GamePasses or {})[data.Key or ""]
+		local name = spec and spec.Name or tostring(data.Key)
+		HUD.Notice((spec and spec.Icon or "🎉") .. " " .. name .. (data.Gift and (" - a gift from " .. tostring(data.Gift) .. "!") or " is yours - thanks!"), Color3.fromRGB(150, 255, 160))
+		VFX.PlaySound("Purchase")
+	end
+	-- (the console's warn)
+	UI_EVENTS.ModWarn = function(data)
+		HUD.ModWarning(tostring(data.Text or ""), tostring(data.By or ""))
+		VFX.PlaySound("ShopNo")
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 98) NAME TAGS (Config.Tags; the server's Kit.TG puts the one to
+-- show on each player: Tag). Over everyone's name, a pill - the tag's icon
+-- and word in its colour - out to Distance studs, hidden whenever their
+-- name is: Roblox's name switched off (DisplayDistanceType None - an
+-- invisible body), a see-through head (first person), a body that's down,
+-- the director's camera; your own only with ShowOwn. And in chat, before
+-- the name (TextChatService.OnIncomingMessage).
+---------------------------------------------------------------------------
+do
+	local TGC = Config.Tags or {}
+	local NT = { boards = {}, last = 0 }
+	HUD.NameTags = NT -- (the tests)
+	function NT.hex(c)
+		return string.format("%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+	end
+	function NT.drop(plr)
+		local b = NT.boards[plr]
+		NT.boards[plr] = nil
+		if b and b.Gui then
+			b.Gui:Destroy()
+		end
+	end
+	-- whether their tag shows now (and which)
+	function NT.wanted(plr)
+		local spec = Config.TagSpec(plr:GetAttribute("Tag") or "")
+		local char = plr.Character
+		local head = char and char:FindFirstChild("Head")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if TGC.Enabled == false or TGC.Overhead == false or not spec or not head or not hum or hum.Health <= 0 then
+			return nil
+		end
+		if hum.DisplayDistanceType == Enum.HumanoidDisplayDistanceType.None or head.Transparency >= 0.9 or head.LocalTransparencyModifier >= 0.9 then
+			return nil
+		end
+		if (plr == player and TGC.ShowOwn ~= true) or FreeCam.directing then
+			return nil
+		end
+		return spec, head
+	end
+	function NT.update(plr)
+		local spec, head = NT.wanted(plr)
+		local b = NT.boards[plr]
+		if not spec then
+			if b then
+				b.Gui.Enabled = false
+			end
+			return
+		end
+		if not b or b.Head ~= head or not b.Gui.Parent then
+			NT.drop(plr)
+			local lift = TGC.Lift or 22
+			local gui = Instance.new("BillboardGui")
+			gui.Name = "NameTag_" .. plr.Name
+			gui.Size = UDim2.fromOffset(240, 2 * (lift + 30))
+			gui.StudsOffsetWorldSpace = Vector3.new(0, TGC.Height or 2.2, 0)
+			gui.AlwaysOnTop = true
+			gui.LightInfluence = 0
+			gui.MaxDistance = TGC.Distance or 100
+			gui.ResetOnSpawn = false
+			gui.Adornee = head
+			local label = Instance.new("TextLabel")
+			label.Name = "Tag"
+			label.AnchorPoint = Vector2.new(0.5, 1)
+			label.Position = UDim2.new(0.5, 0, 0.5, -lift)
+			label.Size = UDim2.fromOffset(0, 22)
+			label.AutomaticSize = Enum.AutomaticSize.X
+			label.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
+			label.BackgroundTransparency = 0.18
+			label.Font = Enum.Font.GothamBlack
+			label.TextSize = 14
+			label.TextStrokeTransparency = 0.55
+			label.Parent = gui
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, 11)
+			corner.Parent = label
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft = UDim.new(0, 9)
+			pad.PaddingRight = UDim.new(0, 9)
+			pad.Parent = label
+			local edge = Instance.new("UIStroke")
+			edge.Thickness = 1.5
+			edge.Transparency = 0.15
+			edge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			edge.Parent = label
+			gui.Parent = player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 5)
+			b = { Gui = gui, Label = label, Edge = edge, Head = head }
+			NT.boards[plr] = b
+		end
+		if b.Id ~= spec.Id then
+			b.Id = spec.Id
+			b.Label.Text = ((spec.Icon and spec.Icon ~= "") and (spec.Icon .. " ") or "") .. (spec.Text or spec.Id)
+			b.Label.TextColor3 = spec.Color or Color3.new(1, 1, 1)
+			b.Edge.Color = spec.Color or Color3.new(1, 1, 1)
+		end
+		b.Gui.Enabled = true
+	end
+	function NT.tick()
+		for _, plr in Players:GetPlayers() do
+			NT.update(plr)
+		end
+	end
+	RunService.Heartbeat:Connect(function()
+		local now = os.clock()
+		if now - NT.last >= 0.15 then
+			NT.last = now
+			NT.tick()
+		end
+	end)
+	Players.PlayerRemoving:Connect(NT.drop)
+	-- chat: [TAG] before the name, in its colour
+	function NT.onChat(message)
+		local src = message.TextSource
+		local plr
+		for _, p in Players:GetPlayers() do
+			if src and p.UserId == src.UserId then
+				plr = p
+			end
+		end
+		local spec = plr and Config.TagSpec(plr:GetAttribute("Tag") or "")
+		if not spec or TGC.Enabled == false or TGC.Chat == false then
+			return nil
+		end
+		local props = Instance.new("TextChatMessageProperties")
+		props.PrefixText = string.format('<font color="#%s">[%s]</font> %s', NT.hex(spec.Color or Color3.new(1, 1, 1)), spec.Text or spec.Id, tostring(message.PrefixText or ""))
+		return props
+	end
+	pcall(function()
+		game:GetService("TextChatService").OnIncomingMessage = NT.onChat
+	end)
+end
+
+---------------------------------------------------------------------------
 -- (round 66) THE CONSOLE (F2): anyone can open it and watch the server's
 -- log; the owner (the server decides who: Config.Console) types commands
 -- into it. A few words it handles itself: clear (your view), freecam (the
@@ -14032,13 +14288,22 @@ do
 			elseif kind == "Sync" and type(data) == "table" then
 				HUD.ConsoleReset(data.Log)
 				HUD.SetConsoleCommands(data.Commands)
-				HUD.SetConsoleOwner(data.Owner == true)
+				HUD.SetConsoleOwner(data.Owner == true, data.Role)
 			end
 		end)
+		-- (round 98) staff (a MOD / ADMIN tag: ConsoleRole) type commands too;
+		-- when that changes, the server's list of what's theirs is asked again
 		local function owner()
-			HUD.SetConsoleOwner(player:GetAttribute("ConsoleOwner") == true)
+			local isOwner, role = player:GetAttribute("ConsoleOwner") == true, player:GetAttribute("ConsoleRole")
+			HUD.SetConsoleOwner(isOwner or role ~= nil, isOwner and "OWNER" or (role and string.upper(tostring(role))) or nil)
 		end
 		player:GetAttributeChangedSignal("ConsoleOwner"):Connect(owner)
+		player:GetAttributeChangedSignal("ConsoleRole"):Connect(function()
+			owner()
+			task.delay(1.2, function()
+				remote:FireServer("Sync")
+			end)
+		end)
 		owner()
 		remote:FireServer("Sync")
 		ConsoleUI.ready = true

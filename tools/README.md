@@ -5,7 +5,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 97, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 98, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
@@ -15,7 +15,122 @@ videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tool
 
 ---
 
-## Where things stand (Round 97)
+## Where things stand (Round 98)
+
+Round 98 is built on Round 97. It changed four scripts (`QuirkConfig`,
+`HUD`, `QuirkClient`, `QuirkServer`); nothing else in the place changed.
+Not playtested in Studio yet.
+
+The owner: "Give me some ban commands or kick too. Also make some
+gamepasses, more emote slots. Awakening outfits, and make some badges that
+peoples names. Like mod, tester, etc one for me too. Make them so I can
+give them out".
+
+**Moderation** (`Config.Moderation`, the server's `Kit.MOD`). New F2
+console commands:
+- `kick <who> [reason]`: out of this server; they can rejoin.
+- `ban <who> [time] [reason]`: out of every server now, and turned away
+  every time they come back until it runs out. The time is `30m`, `12h`,
+  `7d`, `2w`, `1y` or `perm`; a bare number means days. With no time the
+  owner's ban is permanent.
+- `unban <who>`, `bans [who]` (the bans in force, or one person's) and
+  `warn <who> <text>` (a red warning card on their screen).
+- `<who>` is someone in the server (their name or the start of it),
+  `@username` or a UserId. The last two reach people who aren't in the
+  server. `all` / `others` / `random` are never allowed here, and a name
+  start that fits two people is refused.
+- Nobody can kick or ban the owner, themselves, or staff as high as they
+  are.
+- Bans are saved in a DataStore (a record per person plus a list for
+  `bans`), and every other server is told over MessagingService, so a ban
+  kicks them wherever they are. On a live server a ban also goes on
+  Roblox's own ban list (`Players:BanAsync`, `RobloxBans`), which also
+  catches the alt accounts Roblox links to them (`BanAlts`). `unban` lifts
+  both.
+- Studio keeps its bans, tags and given passes to itself
+  (`StudioSaves = true` saves them).
+- Reasons and warnings typed by one person for another go through
+  Roblox's text filter.
+
+**Staff.** A MOD or ADMIN tag gives console powers too:
+- **Mod:** `kick`, `ban` (one day if no time is given, three days at most,
+  even if they type `perm`), `unban` (only their own bans), `bans`,
+  `warn`, `players`, `tp`, `flags`, `tags`, `help`. One person at a time.
+- **Admin:** the same with no ban cap, lifting anyone's ban, plus
+  `announce`, `bring` and `respawn`.
+- Everything else stays the owner's. What staff type stays between them
+  and the console, and the owner's console hears about every kick, ban and
+  warning.
+
+**Name tags** (`Config.Tags`, the server's `Kit.TG`). A coloured pill over
+the name (everyone sees it, out to 100 studs) and `[TAG]` before the name
+in chat (TextChatService).
+- Tags: OWNER (always the game's owner; nobody can give or take it),
+  ADMIN, DEV, MOD, TESTER, CREATOR, VIP (also comes with the VIP pass) and
+  OG. Add more by copying a line in `Config.Tags.List`.
+- `tag <who> <tag>`, `untag <who> <tag|all>`, `tags [who|tag]`. Saved:
+  every server, every visit. The owner's commands only (`tags` is staff's
+  too).
+- Someone with several shows the first in the list.
+- It hides whenever their name does: an invisible body, a see-through head
+  (first person), down, the director's camera. Your own isn't drawn over
+  your own head (`ShowOwn`), the way Roblox doesn't show you your name.
+- `BadgeId`: put a Roblox badge's ID on a tag and whoever has it is
+  awarded that badge.
+
+**Game passes** (`Config.GamePasses`, the server's `Kit.GP`). Roblox
+makes the passes: on the Creator Hub (your experience → Monetization →
+Passes) create each one, set its picture and price, put it on sale and
+paste its ID into `Id`. Until then a pass isn't sold (Studio shows its
+banner anyway, marked "NO ID YET").
+- **+8 EMOTE SLOTS:** a second ring of 8 on the emote wheel (16 in all).
+  In the shop's EMOTES tab, the button at the end of the slot row offers
+  the pass, and with it switches between RING 1 and RING 2. New emotes go
+  on the second ring once the first is full. It's saved as `Wheel2`, and
+  losing the pass hides the ring without emptying it.
+- **AWAKENING OUTFITS:** the phone's OUTFIT app (round 59). It stays free
+  for everyone until its `Id` is set (`FreeUntilSetUp`); after that the
+  app shows the pass instead of the outfits, and a saved pick is only worn
+  with the pass.
+- **VIP:** the VIP name tag, and 25% more Bucks earned.
+- **2x BUCKS:** double Bucks earned from KOs, raids, UNO wins and money
+  rain (not codes, refunds or what the owner gives). With VIP too it's
+  x2.5.
+- They're under "Game passes" on the shop's SHOP tab, showing Roblox's
+  real price, or OWNED / GIFTED.
+- Bought in the game: on at once. Bought on the website: from their next
+  join.
+- `givepass <who> <pass>`, `takepass <who> <pass>` (only a given one: a
+  bought pass is theirs) and `passes [who]`.
+
+**Known gaps.**
+- The tag's height over the name (`Height`, `Lift`) is a guess until
+  someone looks at it in Studio.
+- A record whose save failed is tried 3 times, then again with that
+  person's next change.
+
+**Tests (round 98).**
+- **New checks:** 73 server checks and a client section. They cover:
+  - bans, kicks and warnings, and the limits on mods;
+  - the staff console;
+  - saving, other servers, and Roblox's ban list;
+  - tags and passes;
+  - the emote ring and its save, the outfit pass, and Bucks;
+  - on the client: tags over heads and in chat, the pass banners, the
+    emote ring, the outfit lock, the warning card, and the console badge.
+
+  Both fail on round 97's sources and pass now.
+- **Full server suite:** 1,996 passed, 41 failed. That's round 94's 40
+  plus "deflating: the bangs go with the costume". That check waits 0.2 s
+  after a move; it passed in round 97 and in two earlier round 98 runs on
+  the same game code. The snack machine's check passed this time.
+- **Destruction suite:** unchanged (36 passed).
+- **Full client suite** (run on its own): the same problems as round 97
+  up to the round 17 stall, apart from the timing checks that flip:
+  - failed this time: BACK DASH 66;
+  - passed this time: M1Brawler4, RADIO 84 and SMASH 77.
+
+### Round 97
 
 Round 97 is built on Round 96. It changed three scripts (`QuirkConfig`,
 `HUD`, `QuirkServer`); nothing else in the place changed. Not playtested in
@@ -523,6 +638,22 @@ Found in round 95:
 - On the client, a method can be implemented only once
   (`r.implementMethod`), so `UnbindAction` stays a no-op. The tests check
   what the code tracks instead.
+
+Found in round 98:
+- Moderation, tags and passes are reached through `Destruction.Moderation`
+  (`Kit.MOD`, with `.TG`, `.GP` and `.Console`).
+- In Studio everyone the server harness makes is an owner, so the round 98
+  tests mark their players as not owners (`Console.owners[p] = false`)
+  before they join.
+- The tests give the DataStore mock an `UpdateAsync` and switch
+  `StudioSaves` on to check what's saved. They stub `Players.BanAsync` /
+  `UnbanAsync` and the text filter, and flip `studioMode` off for the live
+  ban.
+- On the client, `SetAttribute` doesn't fire the change signal; the
+  harness's `setAttr` does. The client keeps only your own `Character`, so
+  the name tag tests use your own body with `ShowOwn` on. Lune's parts
+  have no `LocalTransparencyModifier`, so the tests implement it for
+  `Part` and `MeshPart`.
 
 Found in round 97:
 - In Studio everyone is a tester, so the watchdog and the farming limits
