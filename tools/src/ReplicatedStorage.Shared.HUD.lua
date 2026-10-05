@@ -508,7 +508,7 @@ function HUD.Init(player, config, cbs)
 		TextSize = 11,
 		TextColor3 = Color3.new(1, 1, 1),
 		TextTransparency = 0.4,
-		Text = "CLICK Punch · 1/2/3/4 Moves · R Special · G Ult · Q Dash · F Block · CTRL Sprint · T Lock-on · B Emotes · H Shop · M Quirk",
+		Text = "CLICK Punch · 1/2/3/4 Moves · R Special · G Ult · Q Dash · F Block · CTRL Sprint · B Emotes · H Shop · M Quirk",
 		Parent = gui,
 	}, { make("UIStroke", { Thickness = 1, Transparency = 0.6 }) })
 
@@ -631,6 +631,11 @@ function HUD.SetQuirk(quirkName, alt, resetCooldowns, ult, pick)
 	local view = Config.GetView(quirkName, alt, ult, pick)
 	local quirk = quirkName and Config.Quirks[quirkName]
 	ultName = quirk and quirk.Ult and quirk.Ult.Name or "ULT"
+	-- (round 88) the bar's words now, not at the meter's next change (a
+	-- switch at 0% kept the last hero's ult name)
+	if HUD.ultLast then
+		HUD.SetUltMeter(HUD.ultLast[1], HUD.ultLast[2])
+	end
 	if view then
 		accent = view.Color:Lerp(Color3.new(1, 1, 1), 0.15)
 		badgeName.Text = view.DisplayName
@@ -700,6 +705,9 @@ function HUD.SetQuirk(quirkName, alt, resetCooldowns, ult, pick)
 	end
 	if resetCooldowns then
 		HUD.ResetCooldowns()
+	end
+	if HUD.HawksBar then
+		HUD.HawksBar(quirkName, alt, ult) -- (round 92, hawksair: Hawks flying - R says LAND; carrying - 1-4 are the follow-ups)
 	end
 end
 
@@ -860,6 +868,145 @@ function HUD.SetHeat(value, overheated)
 	ht.Text.TextColor3 = (overheated or value >= 75) and Color3.fromRGB(255, 170, 130) or Color3.new(1, 1, 1)
 end
 
+-- (round 86) HAWKS' feathers (nil hides it): a bar over the health bar -
+-- his wings ARE his ammo. A crimson fill (out of max: 150 in the ult), ten
+-- ticks along it, a pale chip that shows what he just spent draining away,
+-- and the state: "RUNNING THIN" under Low, "PLUCKED - REGROWING" at 0, an
+-- orange flash when fire burns them. state = { Plucked, Flying, Storm, Low,
+-- Burned } (Storm: the Thousand-Feather Storm has every one of them out -
+-- "ALL OUT", not plucked, and no flash: round 86 review)
+function HUD.SetFeathers(value, max, state)
+	local fb = HUD.Feathers
+	if not fb then
+		if value == nil or not vitals then
+			return
+		end
+		fb = { shown = nil, token = 0 }
+		HUD.Feathers = fb
+		fb.Bar = make("Frame", {
+			Name = "Feathers",
+			Position = UDim2.fromOffset(0, -18),
+			Size = UDim2.fromOffset(270, 12),
+			BackgroundColor3 = GLASS.Color,
+			BackgroundTransparency = GLASS.T,
+			ClipsDescendants = true,
+			Parent = vitals,
+		}, { edge(0.7), corner(2) })
+		fb.Chip = make("Frame", {
+			Name = "Chip",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(255, 226, 214),
+			BackgroundTransparency = 0.15,
+			BorderSizePixel = 0,
+			Parent = fb.Bar,
+		}, { corner(2) })
+		fb.Fill = make("Frame", {
+			Name = "Fill",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(220, 50, 50),
+			BorderSizePixel = 0,
+			ZIndex = 2,
+			Parent = fb.Bar,
+		}, { corner(2), gradient(Color3.fromRGB(255, 120, 100), Color3.fromRGB(170, 20, 30)) })
+		-- (a sheen along the top of the fill: glossy feathers)
+		make("Frame", {
+			Name = "Sheen",
+			Size = UDim2.new(1, 0, 0.4, 0),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BackgroundTransparency = 0.78,
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = fb.Fill,
+		}, { corner(2) })
+		for i = 1, 9 do
+			make("Frame", {
+				Name = "Tick" .. i,
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.new(i / 10, 0, 0, 0),
+				Size = UDim2.new(0, 1, 1, 0),
+				BackgroundColor3 = Color3.fromRGB(12, 10, 14),
+				BackgroundTransparency = 0.45,
+				BorderSizePixel = 0,
+				ZIndex = 4,
+				Parent = fb.Bar,
+			})
+		end
+		fb.Flash = make("Frame", {
+			Name = "Flash",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ZIndex = 5,
+			Parent = fb.Bar,
+		})
+		fb.Text = make("TextLabel", {
+			Size = UDim2.new(1, -12, 1, 0),
+			Position = UDim2.fromOffset(6, 0),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 10,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "FEATHERS",
+			ZIndex = 6,
+			Parent = fb.Bar,
+		}, { textStroke(1.5) })
+		fb.State = make("TextLabel", {
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -6, 0, 0),
+			Size = UDim2.new(0.6, 0, 1, 0),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 10,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = Color3.fromRGB(255, 170, 150),
+			Text = "",
+			ZIndex = 6,
+			Parent = fb.Bar,
+		}, { textStroke(1.5) })
+	end
+	fb.Bar.Visible = value ~= nil
+	if value == nil then
+		fb.shown = nil
+		return
+	end
+	state = state or {}
+	max = math.max(tonumber(max) or 100, 1)
+	value = math.clamp(value, 0, max)
+	local ratio = value / max
+	local before = fb.shown
+	fb.shown = value
+	tween(fb.Fill, 0.12, { Size = UDim2.fromScale(ratio, 1) })
+	-- the chip: what he just spent stays pale a moment, then drains after it
+	fb.token += 1
+	local token = fb.token
+	if before == nil or value >= before then
+		fb.Chip.Size = UDim2.fromScale(ratio, 1)
+	else
+		task.delay(0.35, function()
+			if fb.token == token then
+				tween(fb.Chip, 0.3, { Size = UDim2.fromScale(ratio, 1) })
+			end
+		end)
+	end
+	local storm = state.Storm == true and state.Plucked ~= true
+	local plucked = not storm and (state.Plucked == true or value <= 0)
+	local low = not plucked and not storm and value < (state.Low or 20)
+	local over = max > 100 and value > 100
+	fb.Fill.BackgroundColor3 = plucked and Color3.fromRGB(110, 20, 26) or over and Color3.fromRGB(255, 196, 120) or Color3.fromRGB(220, 50, 50)
+	fb.Text.Text = string.format("FEATHERS %d", math.floor(value + 0.5))
+	fb.State.Text = storm and "ALL OUT" or plucked and "PLUCKED - REGROWING" or low and "RUNNING THIN" or over and "OVERGROWTH" or state.Flying and "FLYING" or ""
+	fb.State.TextColor3 = (plucked or low) and Color3.fromRGB(255, 150, 130) or (over or storm) and Color3.fromRGB(255, 232, 150) or Color3.fromRGB(235, 235, 240)
+	fb.Text.TextColor3 = (plucked or low) and Color3.fromRGB(255, 170, 150) or Color3.new(1, 1, 1)
+	-- a flash: orange as fire burns them, white as they run out
+	if state.Burned or (plucked and before and before > 0) then
+		fb.Flash.BackgroundColor3 = state.Burned and Color3.fromRGB(255, 140, 40) or Color3.new(1, 1, 1)
+		fb.Flash.BackgroundTransparency = 0.25
+		tween(fb.Flash, 0.45, { BackgroundTransparency = 1 })
+	end
+end
+
 -- (round 73) BAKUGO's sweat (nil hides it): a bar over the health bar - what
 -- his explosion flight runs on (hold the dash key); it fills back up on the
 -- ground
@@ -936,6 +1083,7 @@ end
 
 function HUD.SetUltMeter(value, active)
 	value = math.clamp(value or 0, 0, 100)
+	HUD.ultLast = { value, active }
 	tween(ultFill, 0.2, { Size = UDim2.fromScale(active and 1 or value / 100, 1) })
 	local ready = value >= 100 and not active
 	if active then
@@ -1980,21 +2128,38 @@ function HUD.BuildMenu()
 			ZIndex = 64,
 			Parent = row,
 		})
-		if q.DevOnly then
-			row.Visible = devAccess
-			make("TextLabel", {
-				AnchorPoint = Vector2.new(1, 0),
-				Position = UDim2.new(1, -30, 0, 6),
-				Size = UDim2.fromOffset(30, 14),
-				BackgroundColor3 = Color3.fromRGB(255, 212, 64),
-				Font = UI_FONT,
-				TextSize = 9,
-				TextColor3 = Color3.new(0, 0, 0),
-				Text = "DEV",
-				ZIndex = 65,
-				Parent = row,
-			}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
-		end
+		-- (round 86) every row has both pills: the roster switch can make any
+		-- hero DEV ONLY, or release one (NEW), live - HUD.SetDevAccess shows them
+		local dev = Config.IsDevOnly(quirkName)
+		row.Visible = devAccess or not dev
+		make("TextLabel", {
+			Name = "DevPill",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -30, 0, 4),
+			Size = UDim2.fromOffset(30, 14),
+			BackgroundColor3 = Color3.fromRGB(255, 212, 64),
+			Font = UI_FONT,
+			TextSize = 9,
+			TextColor3 = Color3.new(0, 0, 0),
+			Text = "DEV",
+			Visible = dev,
+			ZIndex = 65,
+			Parent = row,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		make("TextLabel", {
+			Name = "NewPill",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -30, 0, 4),
+			Size = UDim2.fromOffset(32, 14),
+			BackgroundColor3 = Color3.fromRGB(60, 200, 110),
+			Font = UI_FONT,
+			TextSize = 9,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "NEW",
+			Visible = not dev and Config.RosterNew(quirkName),
+			ZIndex = 65,
+			Parent = row,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), make("UIStroke", { Thickness = 1, Color = Color3.fromRGB(190, 255, 210), Transparency = 0.4, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
 		row.Activated:Connect(function()
 			if callbacks.OnSelect then
 				callbacks.OnSelect(quirkName)
@@ -2335,18 +2500,27 @@ function HUD.BuildMenu()
 	HUD.PlaceTopBar()
 end
 
--- Dev-only quirks (Config DevOnly = true) only show for testers
+-- Dev-only quirks only show for testers (round 86: DEV ONLY as the live
+-- roster has it, Config.IsDevOnly - so this is called again when it changes)
 function HUD.SetDevAccess(on)
 	devAccess = on == true
 	if not menuGrid then
 		return
 	end
 	local shown = 0
+	local now = os.time()
 	for _, button in menuGrid:GetChildren() do
 		if button:IsA("TextButton") then
-			local q = Config.Quirks[button.Name]
-			if q and q.DevOnly then
-				button.Visible = devAccess
+			if Config.Quirks[button.Name] then
+				local dev = Config.IsDevOnly(button.Name)
+				button.Visible = devAccess or not dev
+				local devPill, newPill = button:FindFirstChild("DevPill"), button:FindFirstChild("NewPill")
+				if devPill then
+					devPill.Visible = dev
+				end
+				if newPill then
+					newPill.Visible = not dev and Config.RosterNew(button.Name, now)
+				end
 			end
 			if button.Visible then
 				shown += 1
@@ -2751,6 +2925,16 @@ function HUD.ToggleTestMenu(force)
 		HUD.ToggleDummyPanel(false)
 		HUD.ToggleFunPanel(false)
 		HUD.ToggleServerPanel(false)
+		HUD.ToggleRosterPanel(false) -- (round 86)
+		if HUD.ToggleEventsPanel then
+			HUD.ToggleEventsPanel(false) -- (round 87)
+		end
+		if HUD.TogglePossessPanel then
+			HUD.TogglePossessPanel(false) -- (round 87)
+		end
+		if HUD.ToggleFlightGrantPanel then
+			HUD.ToggleFlightGrantPanel(false) -- (round 92: GIVE FLIGHT)
+		end
 	end
 end
 
@@ -2765,6 +2949,481 @@ function HUD.SetTestToggle(id, on)
 	end
 	row.Button.BackgroundColor3 = on and Color3.fromRGB(34, 64, 48) or Color3.fromRGB(42, 44, 62)
 	row.Button:SetAttribute("On", on == true)
+end
+
+---------------------------------------------------------------------------
+-- (round 86) DEV FLIGHT on the screen (Config.DevFlight; the flight itself
+-- is in QuirkClient). Speed lines that stay up while he's fast - streaming
+-- in from the sides at FAST, a ring of focus lines boiling at HYPERSONIC
+-- (hand-drawn: redrawn 12 times a second); the flight meter over the dock
+-- (the tier, the speed, the Mach number, the boom's mark on the bar); the
+-- white rush of the mach burst; the crash's dust swallowing the camera; and
+-- the test menu's DEV FLIGHT row - shown only to those who fly - with its
+-- controls on a card beside the menu.
+---------------------------------------------------------------------------
+do
+	local FL = { lines = {}, k = 0, mode = "stream", at = 0, dustToken = 0, infoToken = 0 }
+	HUD.Flight = FL
+
+	-- k: 0 (none) .. 1; mode: "stream" (FAST) or "focus" (HYPERSONIC)
+	-- (round 90: or "light" - LIGHTSPEED: longer, thinner, in threes of
+	-- colour - red, white, cyan - the light split at the edges)
+	FL.LIGHT_COLORS = { Color3.fromRGB(255, 96, 150), Color3.new(1, 1, 1), Color3.fromRGB(96, 220, 255) }
+	function HUD.FlightLines(k, mode)
+		k = math.clamp(tonumber(k) or 0, 0, 1)
+		FL.k = k
+		FL.mode = mode or FL.mode
+		if k <= 0.01 then
+			if FL.frame then
+				FL.frame.Visible = false
+			end
+			return
+		end
+		if not FL.frame then
+			FL.frame = make("Frame", {
+				Name = "FlightLines",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				ZIndex = 0,
+				Parent = gui,
+			})
+			for i = 1, 40 do
+				FL.lines[i] = make("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					BackgroundColor3 = Color3.new(1, 1, 1),
+					BackgroundTransparency = 1,
+					BorderSizePixel = 0,
+					ZIndex = 0,
+					Parent = FL.frame,
+				})
+			end
+			FL.conn = RunService.RenderStepped:Connect(function()
+				FL.boil(false)
+			end)
+		end
+		FL.frame.Visible = true
+	end
+	function FL.boil(now)
+		if not (FL.frame and FL.frame.Visible) then
+			return
+		end
+		local t = os.clock()
+		if not now and t - FL.at < 1 / 12 then
+			return
+		end
+		FL.at = t
+		local size = gui.AbsoluteSize
+		local maxDim = math.max(size.X, size.Y, 1)
+		local light = FL.mode == "light"
+		local focus = FL.mode == "focus" or light
+		local count = math.floor((focus and 40 or 22) * FL.k + 0.5)
+		for i, line in FL.lines do
+			if i > count then
+				line.BackgroundTransparency = 1
+				continue
+			end
+			local angle
+			if focus then
+				angle = rng:NextNumber(0, math.pi * 2)
+			else
+				-- (from the sides: the world rushing past either side of him)
+				angle = (rng:NextNumber() < 0.5 and 0 or math.pi) + rng:NextNumber(-0.6, 0.6)
+			end
+			local len = maxDim * (focus and rng:NextNumber(0.16, 0.36) or rng:NextNumber(0.1, 0.26)) * (0.55 + 0.45 * FL.k)
+			local r = maxDim * (focus and rng:NextNumber(0.3, 0.42) or rng:NextNumber(0.36, 0.5)) + len / 2
+			if light then
+				-- (round 90) LIGHTSPEED: a third red, a third white, a third cyan
+				-- - each colour a little farther out than the last
+				local c = (i - 1) % 3 + 1
+				len = maxDim * rng:NextNumber(0.22, 0.46)
+				r = maxDim * (0.26 + 0.035 * c + rng:NextNumber(0, 0.12)) + len / 2
+				line.BackgroundColor3 = FL.LIGHT_COLORS[c]
+			elseif line.BackgroundColor3 ~= Color3.new(1, 1, 1) then
+				line.BackgroundColor3 = Color3.new(1, 1, 1)
+			end
+			line.Position = UDim2.new(0.5, math.cos(angle) * r, 0.5, math.sin(angle) * r)
+			line.Size = UDim2.fromOffset(len, rng:NextInteger(focus and 2 or 1, (focus and not light) and 5 or 3))
+			line.Rotation = math.deg(angle)
+			line.BackgroundTransparency = 1 - (light and 0.62 or (focus and 0.7 or 0.8)) * FL.k * rng:NextNumber(0.35, 1)
+		end
+	end
+
+	-- the tiers' colours on the meter
+	FL.COLOR = {
+		HOVER = Color3.fromRGB(226, 232, 244), CRUISE = Color3.fromRGB(150, 206, 255), FAST = Color3.fromRGB(110, 236, 255),
+		HYPERSONIC = Color3.fromRGB(255, 214, 150), ["MACH BURST"] = Color3.new(1, 1, 1), BRAKING = Color3.fromRGB(255, 170, 120),
+		["DIVE SLAM"] = Color3.fromRGB(255, 110, 90), LAUNCH = Color3.fromRGB(255, 236, 170),
+		LIGHTSPEED = Color3.new(1, 1, 1), ["HOVER LOCK"] = Color3.fromRGB(120, 255, 200), -- (round 90)
+	}
+	-- (round 90) LIGHTSPEED's prism (the tier's name, the light barrier's strip)
+	FL.PRISM = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 96, 150)), ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 214, 110)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(130, 255, 180)), ColorSequenceKeypoint.new(0.75, Color3.fromRGB(96, 200, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(196, 130, 255)),
+	})
+	FL.TOP = 980 -- (the bar's end: the mach burst's cap)
+	-- info: { Tier = "CRUISE", Speed = studs/s, Mach = n, Boom = studs/s (the mark), Hot = true while the burst runs }; nil hides it
+	-- (round 90: Charge = the light barrier's charge 0..1, Light = at
+	-- LIGHTSPEED, Hint = the key that gets there ("HOLD Q") - a prismatic
+	-- strip under the bar fills with the charge and shimmers at LIGHTSPEED,
+	-- the tier's name in the prism, the caption saying what's happening)
+	function HUD.FlightMeter(info)
+		-- (round 92) the phone's LOCK (the hover-lock) is up exactly while this is
+		if HUD.SetTouchHoverLock then
+			HUD.SetTouchHoverLock(info ~= nil)
+		end
+		if not info then
+			if FL.meter then
+				FL.meter.Visible = false
+			end
+			return
+		end
+		if not FL.meter then
+			local dock = gui:FindFirstChild("Dock")
+			local m = make("Frame", {
+				Name = "FlightMeter",
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = dock and UDim2.new(0.5, 0, 0, -10) or UDim2.new(0.5, 0, 1, -244),
+				Size = UDim2.fromOffset(300, 46),
+				BackgroundColor3 = GLASS.Color,
+				BackgroundTransparency = GLASS.T,
+				Parent = dock or gui,
+			}, { corner(6), edge(0.65) })
+			FL.caption = make("TextLabel", {
+				Name = "Caption",
+				Position = UDim2.fromOffset(10, 3),
+				Size = UDim2.fromOffset(212, 11), -- (round 90: 120 -> 212, room for the light barrier's words)
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 9,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = Color3.fromRGB(170, 176, 196),
+				Text = "DEV FLIGHT",
+				Parent = m,
+			})
+			FL.tier = make("TextLabel", {
+				Name = "Tier",
+				Position = UDim2.fromOffset(10, 11),
+				Size = UDim2.fromOffset(150, 22),
+				BackgroundTransparency = 1,
+				Font = COMIC_FONT,
+				TextSize = 22,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = Color3.new(1, 1, 1),
+				Text = "HOVER",
+				Parent = m,
+			}, { textStroke(1.5), make("UIGradient", { Name = "Prism", Color = FL.PRISM, Enabled = false }) })
+			FL.speed = make("TextLabel", {
+				Name = "Speed",
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -10, 0, 6),
+				Size = UDim2.fromOffset(120, 20),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 20,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				TextColor3 = Color3.new(1, 1, 1),
+				Text = "0",
+				Parent = m,
+			}, { textStroke(1) })
+			FL.mach = make("TextLabel", {
+				Name = "Mach",
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -10, 0, 25),
+				Size = UDim2.fromOffset(150, 10),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 9,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				TextColor3 = Color3.fromRGB(190, 196, 214),
+				Text = "STUDS/S  ·  MACH 0.00",
+				Parent = m,
+			})
+			local bar = make("Frame", {
+				Name = "Bar",
+				Position = UDim2.new(0, 10, 1, -8),
+				Size = UDim2.new(1, -20, 0, 3),
+				BackgroundColor3 = Color3.fromRGB(60, 62, 78),
+				BorderSizePixel = 0,
+				Parent = m,
+			}, { corner(2) })
+			FL.fill = make("Frame", {
+				Name = "Fill",
+				Size = UDim2.fromScale(0, 1),
+				BackgroundColor3 = Color3.new(1, 1, 1),
+				BorderSizePixel = 0,
+				Parent = bar,
+			}, { corner(2), gradient(Color3.fromRGB(150, 206, 255), Color3.new(1, 1, 1), 0) })
+			-- the tiers' marks, and the boom's (brighter, taller)
+			for _, mark in { 90, 220, 420, 520 } do
+				local boom = mark == 420
+				make("Frame", {
+					Name = boom and "BoomMark" or "Mark",
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.new(mark / FL.TOP, 0, 0.5, 0),
+					Size = UDim2.fromOffset(boom and 2 or 1, boom and 9 or 6),
+					BackgroundColor3 = boom and Color3.fromRGB(255, 200, 120) or Color3.fromRGB(200, 204, 220),
+					BorderSizePixel = 0,
+					ZIndex = 2,
+					Parent = bar,
+				})
+			end
+			-- (round 90) the light barrier's strip, under the bar
+			local lightBar = make("Frame", {
+				Name = "LightBar",
+				Position = UDim2.new(0, 10, 1, -3),
+				Size = UDim2.new(1, -20, 0, 2),
+				BackgroundColor3 = Color3.fromRGB(44, 46, 62),
+				BackgroundTransparency = 0.3,
+				BorderSizePixel = 0,
+				Visible = false,
+				Parent = m,
+			}, { corner(1) })
+			FL.lightFill = make("Frame", {
+				Name = "Fill",
+				Size = UDim2.fromScale(0, 1),
+				BackgroundColor3 = Color3.new(1, 1, 1),
+				BorderSizePixel = 0,
+				Parent = lightBar,
+			}, { corner(1), make("UIGradient", { Name = "Prism", Color = FL.PRISM }) })
+			FL.lightBar = lightBar
+			FL.meter = m
+		end
+		-- (a phone: a touch to the left, clear of the ULT button's corner)
+		if FL.meter.Parent ~= gui then
+			FL.meter.Position = UDim2.new(0.5, gui.AbsoluteSize.Y < 520 and -40 or 0, 0, -10)
+		end
+		local name = tostring(info.Tier or "HOVER")
+		local color = FL.COLOR[name] or Color3.new(1, 1, 1)
+		local speed = math.max(tonumber(info.Speed) or 0, 0)
+		FL.meter.Visible = true
+		FL.tier.Text = name
+		FL.tier.TextColor3 = color
+		FL.speed.Text = tostring(math.floor(speed + 0.5))
+		FL.mach.Text = string.format("STUDS/S  ·  MACH %.2f", tonumber(info.Mach) or speed / FL.TOP)
+		FL.fill.Size = UDim2.fromScale(math.clamp(speed / FL.TOP, 0, 1), 1)
+		FL.fill.BackgroundColor3 = info.Hot and Color3.new(1, 1, 1) or color
+		-- (round 90) the light barrier: charging, broken (LIGHTSPEED), or how
+		-- to get there (at HYPERSONIC)
+		local charge = math.clamp(tonumber(info.Charge) or 0, 0, 1)
+		local lit = info.Light == true
+		local prism = FL.tier:FindFirstChild("Prism")
+		if prism then
+			prism.Enabled = lit
+			prism.Offset = Vector2.new(lit and math.sin(os.clock() * 2.2) * 0.3 or 0, 0)
+		end
+		if FL.lightBar then
+			FL.lightBar.Visible = lit or charge > 0
+			FL.lightFill.Size = UDim2.fromScale(lit and 1 or charge, 1)
+			local g = FL.lightFill:FindFirstChild("Prism")
+			if g then
+				g.Offset = Vector2.new(lit and (os.clock() * 0.8) % 1 - 0.5 or 0, 0)
+			end
+		end
+		if FL.caption then
+			FL.caption.Text = lit and "LIGHT BARRIER BROKEN" or (charge > 0 and string.format("LIGHT BARRIER  %d%%", math.floor(charge * 100))
+				or (info.Hint and ("DEV FLIGHT  ·  " .. tostring(info.Hint) .. ": LIGHTSPEED") or "DEV FLIGHT"))
+			FL.caption.TextColor3 = (lit or charge > 0) and Color3.fromRGB(214, 226, 255) or Color3.fromRGB(170, 176, 196)
+		end
+	end
+
+	-- the mach burst on his screen: thick white streaks rushing in from the
+	-- edges for a blink (the anime's radial smear)
+	function HUD.FlightBurst(t)
+		t = tonumber(t) or 0.3
+		local size = gui.AbsoluteSize
+		local maxDim = math.max(size.X, size.Y, 1)
+		local holder = make("Frame", {
+			Name = "FlightBurst",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			ZIndex = 31,
+			Parent = gui,
+		})
+		for i = 1, 26 do
+			local angle = i / 26 * math.pi * 2 + rng:NextNumber(-0.08, 0.08)
+			local len = maxDim * rng:NextNumber(0.25, 0.45)
+			local r = maxDim * rng:NextNumber(0.34, 0.5) + len / 2
+			local line = make("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, math.cos(angle) * r, 0.5, math.sin(angle) * r),
+				Size = UDim2.fromOffset(len, rng:NextInteger(5, 14)),
+				Rotation = math.deg(angle),
+				BackgroundColor3 = Color3.new(1, 1, 1),
+				BackgroundTransparency = rng:NextNumber(0.55, 0.75),
+				BorderSizePixel = 0,
+				ZIndex = 31,
+				Parent = holder,
+			})
+			tween(line, t, { BackgroundTransparency = 1, Position = UDim2.new(0.5, math.cos(angle) * r * 0.82, 0.5, math.sin(angle) * r * 0.82) })
+		end
+		task.delay(t + 0.05, function()
+			holder:Destroy()
+		end)
+	end
+
+	-- the crash's dust over the camera: the screen goes the dust's colour,
+	-- big soft billows rolling across, the world blurred, then it clears
+	function HUD.FlightDust(t, color)
+		t = tonumber(t) or 0.9
+		color = typeof(color) == "Color3" and color or Color3.fromRGB(176, 164, 148)
+		FL.dustToken += 1
+		local token = FL.dustToken
+		local veil = make("Frame", {
+			Name = "FlightDust",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = color,
+			BackgroundTransparency = 0.12,
+			BorderSizePixel = 0,
+			Parent = overlayGui,
+		})
+		for _ = 1, 9 do
+			local s = rng:NextNumber(0.35, 0.7)
+			local x, y = rng:NextNumber(-0.1, 1.1), rng:NextNumber(-0.1, 1.1)
+			local puff = make("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(x, y),
+				Size = UDim2.fromScale(s, s),
+				SizeConstraint = Enum.SizeConstraint.RelativeYY,
+				BackgroundColor3 = color:Lerp(Color3.new(1, 1, 1), rng:NextNumber(0, 0.25)):Lerp(Color3.new(0, 0, 0), rng:NextNumber(0, 0.15)),
+				BackgroundTransparency = 0.25,
+				BorderSizePixel = 0,
+				Parent = veil,
+			}, { make("UICorner", { CornerRadius = UDim.new(0.5, 0) }) })
+			tween(puff, t, { Position = UDim2.fromScale(x + rng:NextNumber(-0.25, 0.25), y - rng:NextNumber(0.05, 0.2)), BackgroundTransparency = 1, Size = UDim2.fromScale(s * 1.4, s * 1.4) })
+		end
+		local blur = Instance.new("BlurEffect")
+		blur.Name = "FlightDust"
+		blur.Size = 10
+		blur.Parent = game:GetService("Lighting")
+		task.delay(t * 0.3, function()
+			tween(veil, t * 0.7, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			tween(blur, t * 0.7, { Size = 0 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		end)
+		task.delay(t + 0.05, function()
+			veil:Destroy()
+			blur:Destroy()
+		end)
+		return token
+	end
+
+	-- the test menu's DEV FLIGHT row: only for those who fly (a group with
+	-- nothing left showing hides, header and all)
+	function HUD.ShowTestRow(id, on)
+		local row = testRows[id]
+		if not row then
+			return
+		end
+		row.Button.Visible = on == true
+		local grid = row.Button.Parent
+		local any = false
+		for _, b in grid and grid:GetChildren() or {} do
+			if b:IsA("GuiButton") and b.Visible then
+				any = true
+			end
+		end
+		if grid then
+			grid.Visible = any
+			local header = grid.Parent and grid.Parent:FindFirstChild("Group_" .. tostring(row.Item.Group or "More"))
+			if header then
+				header.Visible = any
+			end
+		end
+	end
+
+	-- a card of notes beside the test menu for one row: up while the mouse
+	-- is on it, and for a few seconds after it's pressed (a phone has no hover)
+	function HUD.SetTestInfo(id, title, lines)
+		local row = testRows[id]
+		if not row or row.Info then
+			return
+		end
+		local card = make("Frame", {
+			Name = "TestInfo_" .. id,
+			Position = UDim2.new(0, 12 + TEST_W + 10, 0, 108),
+			Size = UDim2.fromOffset(330, 40 + #lines * 17),
+			BackgroundColor3 = Color3.fromRGB(17, 18, 27),
+			BackgroundTransparency = 0.04,
+			Visible = false,
+			ZIndex = 40,
+			Parent = gui,
+		}, {
+			corner(10),
+			make("UIStroke", { Thickness = 1.5, Color = Color3.fromRGB(255, 212, 64), Transparency = 0.55, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		make("TextLabel", {
+			Position = UDim2.fromOffset(14, 8),
+			Size = UDim2.new(1, -28, 0, 22),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 22,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(255, 212, 64),
+			Text = title,
+			ZIndex = 41,
+			Parent = card,
+		}, { textStroke(1.2) })
+		for i, text in lines do
+			make("TextLabel", {
+				Position = UDim2.fromOffset(14, 32 + (i - 1) * 17),
+				Size = UDim2.new(1, -28, 0, 16),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.GothamMedium,
+				TextSize = 11,
+				RichText = true,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = Color3.fromRGB(214, 218, 232),
+				Text = text,
+				ZIndex = 41,
+				Parent = card,
+			})
+		end
+		row.Info = card
+		-- (a "?" on the row: there's more to it)
+		make("TextLabel", {
+			Name = "InfoMark",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, row.Track and -46 or -10, 0.5, 0),
+			Size = UDim2.fromOffset(14, 14),
+			BackgroundColor3 = Color3.fromRGB(255, 212, 64),
+			Font = UI_FONT,
+			TextSize = 10,
+			TextColor3 = Color3.new(0, 0, 0),
+			Text = "?",
+			ZIndex = 24,
+			Parent = row.Button,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		row.Label.Size = UDim2.new(1, row.Track and -68 or -40, 1, 0)
+		local function show(on, hold)
+			FL.infoToken += 1
+			local token = FL.infoToken
+			-- (round 86 review: not over a side panel - DEV ACCESS, DUMMIES,
+			-- FUN, SERVER open at the same spot beside the menu)
+			for _, name in { "DevAccess", "DummySpawner", "FunStuff", "ServerSettings", "AdminEvents", "FlightGrants" } do -- (round 87: ADMIN EVENTS too; round 92: GIVE FLIGHT)
+				local panel = gui:FindFirstChild(name)
+				if panel and panel:IsA("GuiObject") and panel.Visible then
+					on = false
+				end
+			end
+			card.Visible = on and testPanel ~= nil and testPanel.Visible
+			if on and hold then
+				task.delay(hold, function()
+					if FL.infoToken == token then
+						card.Visible = false
+					end
+				end)
+			end
+		end
+		row.Button.MouseEnter:Connect(function()
+			show(true)
+		end)
+		row.Button.MouseLeave:Connect(function()
+			show(false)
+		end)
+		row.Button.MouseButton1Click:Connect(function()
+			show(true, 5)
+		end)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -3103,6 +3762,7 @@ end
 -- You landed a KO. data: { Victim, Streak, Counted, Callout, Heal, Finisher }
 function HUD.KOPopup(data)
 	local holder = make("Frame", {
+		Name = "KOPopup", -- (round 86: a NEW HERO banner waits for it to go)
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.22),
 		Size = UDim2.fromOffset(460, 130),
@@ -3468,6 +4128,4498 @@ function HUD.ToggleDevPanel(force)
 		devPanel.Visible = not devPanel.Visible
 	end
 	return devPanel.Visible
+end
+
+---------------------------------------------------------------------------
+-- (round 86) HERO ROSTER (a test menu side panel): every hero with a
+-- PUBLIC / DEV ONLY switch. The server's roster switch (Kit.Roster) does
+-- the switching - saved, and live on every server - and this follows the
+-- live roster (Config.IsDevOnly) whoever switched it, wherever. A click
+-- moves the switch at once (dimmed till the server's state agrees, or back
+-- after 5 s). cb = { Set(quirk, "public" | "dev"), Reset(), Editor() -> bool:
+-- may this player switch (view only if not) }.
+-- And the NEW HERO banner (HUD.RosterBanner) for a hero just released.
+---------------------------------------------------------------------------
+do
+	local RP = { rows = {}, pending = {}, drawn = {}, chips = {}, banners = {}, cb = {} }
+	HUD.Roster = RP
+	local W = 384
+	local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
+	local GREEN = Color3.fromRGB(60, 200, 110)
+	local GOLD = Color3.fromRGB(255, 212, 64)
+	local AMBER = Color3.fromRGB(255, 166, 64)
+	local DIM = Color3.fromRGB(150, 154, 180)
+	local TRACK = Color3.fromRGB(18, 19, 28)
+	local ROW = Color3.fromRGB(38, 40, 57)
+	local SYNC = {
+		Live = { "LIVE ON EVERY SERVER", GREEN },
+		Saving = { "SAVING...", GOLD },
+		Local = { "THIS SERVER ONLY", AMBER },
+		Studio = { "STUDIO SESSION ONLY", Color3.fromRGB(110, 190, 255) }, -- (review: Studio never writes the live roster)
+		Loading = { "LOADING...", DIM },
+	}
+	local function hexOf(c)
+		return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+	end
+	local function ago(t)
+		local s = math.max(0, os.time() - (tonumber(t) or os.time()))
+		if s < 60 then
+			return "just now"
+		elseif s < 3600 then
+			return math.floor(s / 60) .. " min ago"
+		elseif s < 86400 then
+			return math.floor(s / 3600) .. " h ago"
+		end
+		return math.floor(s / 86400) .. " d ago"
+	end
+	-- the round initials badge in the hero's colour (as on the phone)
+	local function badge(parent, q, size, textSize, font)
+		local b = make("Frame", {
+			Name = "Avatar",
+			Size = UDim2.fromOffset(size, size),
+			BackgroundColor3 = q.Color,
+			ZIndex = 23,
+			Parent = parent,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			gradient(WHITE, Color3.fromRGB(150, 150, 150), 90),
+			make("UIStroke", { Thickness = 1.5, Color = q.Color:Lerp(WHITE, 0.5), Transparency = 0.3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		make("TextLabel", {
+			Name = "Initials",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Font = font or HEAD_FONT,
+			TextSize = textSize,
+			TextColor3 = WHITE,
+			Text = initials(q.DisplayName),
+			ZIndex = 24,
+			Parent = b,
+		}, { textStroke(1) })
+		return b
+	end
+
+	local function makeRow(order, name)
+		local q = Config.Quirks[name]
+		local row = make("Frame", {
+			Name = name,
+			LayoutOrder = order,
+			Size = UDim2.new(1, 0, 0, 44),
+			BackgroundColor3 = ROW,
+			ZIndex = 22,
+			Parent = RP.list,
+		}, { corner(7) })
+		local flash = make("Frame", {
+			Name = "Flash",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 1,
+			ZIndex = 22,
+			Parent = row,
+		}, { corner(7) })
+		make("Frame", {
+			Name = "Stripe",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 0, 0.5, 0),
+			Size = UDim2.new(0, 3, 1, -16),
+			BackgroundColor3 = q.Color,
+			BorderSizePixel = 0,
+			ZIndex = 23,
+			Parent = row,
+		}, { corner(2) })
+		local avatar = badge(row, q, 30, 12)
+		avatar.Position = UDim2.fromOffset(11, 7)
+		local title = make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(50, 5),
+			Size = UDim2.new(1, -200, 0, 18),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = q.DisplayName or name,
+			ZIndex = 23,
+			Parent = row,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 8 }) })
+		local sub = make("TextLabel", {
+			Name = "Sub",
+			Position = UDim2.fromOffset(50, 24),
+			Size = UDim2.new(1, -198, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 10,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = DIM,
+			Text = q.ModeName or "",
+			ZIndex = 23,
+			Parent = row,
+		})
+		-- the switch: PUBLIC on the left (green), DEV ONLY on the right (gold)
+		local sw = make("Frame", {
+			Name = "Switch",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -8, 0.5, 0),
+			Size = UDim2.fromOffset(140, 26),
+			BackgroundColor3 = TRACK,
+			ZIndex = 23,
+			Parent = row,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			make("UIStroke", { Thickness = 1, Color = WHITE, Transparency = 0.86, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		local knob = make("Frame", {
+			Name = "Knob",
+			Position = UDim2.new(0, 2, 0, 2),
+			Size = UDim2.new(0.5, -2, 1, -4),
+			BackgroundColor3 = GREEN,
+			ZIndex = 24,
+			Parent = sw,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), gradient(WHITE, Color3.fromRGB(205, 205, 205), 90) })
+		local function half(id, x, text)
+			return make("TextButton", {
+				Name = id,
+				Position = UDim2.fromScale(x, 0),
+				Size = UDim2.fromScale(0.5, 1),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 11,
+				TextColor3 = DIM,
+				Text = text,
+				ZIndex = 25,
+				Parent = sw,
+			})
+		end
+		local pub, dev = half("Public", 0, "PUBLIC"), half("Dev", 0.5, "DEV ONLY")
+		RP.rows[name] = { Row = row, Flash = flash, Title = title, Sub = sub, Switch = sw, Knob = knob, Public = pub, Dev = dev, Quirk = q }
+		pub.MouseButton1Click:Connect(function()
+			RP.press(name, "public")
+		end)
+		dev.MouseButton1Click:Connect(function()
+			RP.press(name, "dev")
+		end)
+	end
+
+	-- cb: see above
+	function HUD.BuildRosterPanel(cb)
+		RP.cb = cb or {}
+		if RP.frame or not gui then
+			return
+		end
+		local frame = make("Frame", {
+			Name = "Roster",
+			Position = UDim2.new(0, 22 + TEST_W, 0, 108),
+			Size = UDim2.fromOffset(W, 520),
+			BackgroundColor3 = Color3.fromRGB(24, 24, 34),
+			BackgroundTransparency = 0.04,
+			Visible = false,
+			ZIndex = 20,
+			Parent = gui,
+		}, { stroke(3), corner(8) })
+		RP.frame = frame
+		-- a little of the gold light from the top
+		make("Frame", {
+			Name = "Glow",
+			Size = UDim2.new(1, 0, 0, 96),
+			BackgroundColor3 = GOLD,
+			BackgroundTransparency = 0.86,
+			BorderSizePixel = 0,
+			ZIndex = 20,
+			Parent = frame,
+		}, { corner(8), make("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(0.35, 1) }) })
+		make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(14, 5),
+			Size = UDim2.new(1, -190, 0, 32),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 27,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = GOLD,
+			Text = "HERO ROSTER",
+			ZIndex = 21,
+			Parent = frame,
+		}, { textStroke(1.5) })
+		-- how it stands: live everywhere, saving, or this server only
+		RP.sync = make("Frame", {
+			Name = "Sync",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 12),
+			Size = UDim2.fromOffset(164, 22),
+			BackgroundColor3 = TRACK,
+			ZIndex = 21,
+			Parent = frame,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), make("UIStroke", { Name = "Edge", Thickness = 1, Color = GREEN, Transparency = 0.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+		RP.syncDot = make("Frame", {
+			Name = "Dot",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 9, 0.5, 0),
+			Size = UDim2.fromOffset(8, 8),
+			BackgroundColor3 = GREEN,
+			ZIndex = 22,
+			Parent = RP.sync,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		RP.syncText = make("TextLabel", {
+			Name = "Text",
+			Position = UDim2.fromOffset(22, 0),
+			Size = UDim2.new(1, -28, 1, 0),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = "LOADING...",
+			ZIndex = 22,
+			Parent = RP.sync,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 10, MinTextSize = 7 }) })
+		RP.sub = make("TextLabel", {
+			Name = "Info",
+			Position = UDim2.fromOffset(14, 37),
+			Size = UDim2.new(1, -28, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 11,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(190, 194, 220),
+			Text = "Who can pick each hero. Saved, and live on every server.", -- (review: fits its 356 px line)
+			ZIndex = 21,
+			Parent = frame,
+		})
+		-- the counts
+		for i, def in { { "Public", "PUBLIC", GREEN }, { "Dev", "DEV ONLY", GOLD }, { "Changed", "SWITCHED", AMBER } } do
+			local chip = make("Frame", {
+				Name = def[1],
+				Position = UDim2.fromOffset(14 + (i - 1) * 120, 58),
+				Size = UDim2.fromOffset(112, 22),
+				BackgroundColor3 = def[3]:Lerp(BLACK, 0.74),
+				ZIndex = 21,
+				Parent = frame,
+			}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), make("UIStroke", { Thickness = 1, Color = def[3], Transparency = 0.45, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+			RP.chips[def[1]] = {
+				Frame = chip,
+				Word = def[2],
+				Color = def[3],
+				Label = make("TextLabel", {
+					Name = "Text",
+					Size = UDim2.fromScale(1, 1),
+					BackgroundTransparency = 1,
+					Font = UI_FONT,
+					TextSize = 11,
+					RichText = true,
+					TextColor3 = WHITE,
+					Text = def[2],
+					ZIndex = 22,
+					Parent = chip,
+				}),
+			}
+		end
+		RP.topLine = make("Frame", {
+			Name = "Line",
+			Position = UDim2.fromOffset(12, 88),
+			Size = UDim2.new(1, -24, 0, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 0.86,
+			BorderSizePixel = 0,
+			ZIndex = 21,
+			Parent = frame,
+		})
+		RP.list = make("ScrollingFrame", {
+			Name = "List",
+			Position = UDim2.fromOffset(8, 94),
+			Size = UDim2.new(1, -12, 1, -94 - 74),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 4,
+			ScrollBarImageColor3 = WHITE,
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			CanvasSize = UDim2.new(),
+			ZIndex = 21,
+			Parent = frame,
+		}, {
+			make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
+			make("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 4) }),
+		})
+		for order, name in Config.QuirkOrder do
+			if Config.Quirks[name] then
+				makeRow(order, name)
+			end
+		end
+		RP.footLine = make("Frame", {
+			Name = "FootLine",
+			Position = UDim2.new(0, 12, 1, -72),
+			Size = UDim2.new(1, -24, 0, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 0.86,
+			BorderSizePixel = 0,
+			ZIndex = 21,
+			Parent = frame,
+		})
+		RP.info = make("TextLabel", {
+			Name = "Last",
+			Position = UDim2.new(0, 14, 1, -66),
+			Size = UDim2.new(1, -28, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 10,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = DIM,
+			Text = "",
+			ZIndex = 21,
+			Parent = frame,
+		})
+		RP.reset = make("TextButton", {
+			Name = "Reset",
+			Position = UDim2.new(0, 12, 1, -44),
+			Size = UDim2.new(1, -24, 0, 32),
+			BackgroundColor3 = Color3.fromRGB(170, 60, 60),
+			Font = UI_FONT,
+			TextSize = 13,
+			TextColor3 = WHITE,
+			Text = "RESET EVERY HERO TO DEFAULT",
+			ZIndex = 22,
+			Parent = frame,
+		}, { corner(6), stroke(1.5) })
+		-- (two clicks: the first arms it for 3 s)
+		RP.reset.MouseButton1Click:Connect(function()
+			if not RP.canReset then
+				return
+			end
+			if RP.armed and os.clock() - RP.armed < 3 then
+				RP.armed = nil
+				if RP.cb.Reset then
+					RP.cb.Reset()
+				end
+			else
+				RP.armed = os.clock()
+				local at = RP.armed
+				task.delay(3, function()
+					if RP.armed == at then
+						RP.armed = nil
+						HUD.RefreshRosterPanel()
+					end
+				end)
+			end
+			HUD.RefreshRosterPanel()
+		end)
+		-- (a phone turned round, a window resized: it fits itself again)
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+				if RP.frame.Visible then
+					RP.layout()
+				end
+			end)
+		end
+		HUD.RefreshRosterPanel()
+	end
+
+	-- a switch clicked: moved at once, dimmed till the server agrees
+	function RP.press(name, state)
+		if not (RP.cb.Editor and RP.cb.Editor()) then
+			return
+		end
+		local live = Config.IsDevOnly(name) and "dev" or "public"
+		local pend = RP.pending[name]
+		if ((pend and pend.State) or live) == state then
+			return
+		end
+		local token = os.clock()
+		RP.pending[name] = { State = state, At = token }
+		if RP.cb.Set then
+			RP.cb.Set(name, state)
+		end
+		HUD.RefreshRosterPanel()
+		task.delay(5, function()
+			local p = RP.pending[name]
+			if p and p.At == token then
+				RP.pending[name] = nil -- (the server never agreed: back to how it is)
+				HUD.RefreshRosterPanel()
+			end
+		end)
+	end
+
+	-- fits the screen: on a short one (a phone) it starts just under the top
+	-- bar, and the header and footer shrink
+	function RP.layout()
+		local cam = workspace.CurrentCamera
+		local vpY = (cam and cam.ViewportSize.Y) or 720
+		local y0 = vpY < 500 and 52 or 108
+		local h = math.clamp(vpY - y0 - 12, 200, 540)
+		local compact = h < 340
+		RP.frame.Position = UDim2.new(0, 22 + TEST_W, 0, y0)
+		RP.frame.Size = UDim2.fromOffset(W, h)
+		RP.sub.Visible = not compact
+		RP.info.Visible = not compact
+		local chipY = compact and 38 or 58
+		for _, chip in RP.chips do
+			chip.Frame.Position = UDim2.fromOffset(chip.Frame.Position.X.Offset, chipY)
+		end
+		local top, bottom = chipY + 36, compact and 50 or 74
+		RP.topLine.Position = UDim2.fromOffset(12, top - 6)
+		RP.list.Position = UDim2.fromOffset(8, top)
+		RP.list.Size = UDim2.new(1, -12, 1, -top - bottom)
+		RP.footLine.Position = UDim2.new(0, 12, 1, -bottom + 2)
+	end
+
+	-- re-read the live roster (a switch here or on another server, the
+	-- sync state, who may switch)
+	function HUD.RefreshRosterPanel()
+		if not RP.frame then
+			return
+		end
+		local editor = RP.cb.Editor and RP.cb.Editor() == true
+		local counts = { Public = 0, Dev = 0, Changed = 0 }
+		for _, name in Config.QuirkOrder do
+			local r = RP.rows[name]
+			local live = Config.IsDevOnly(name) and "dev" or "public"
+			local pend = RP.pending[name]
+			if pend and pend.State == live then
+				RP.pending[name] = nil
+				pend = nil
+			end
+			local o = Config.RosterOverride(name)
+			counts[live == "dev" and "Dev" or "Public"] += 1
+			if o then
+				counts.Changed += 1
+			end
+			if r then
+				local dev = ((pend and pend.State) or live) == "dev"
+				tween(r.Knob, 0.2, {
+					Position = dev and UDim2.new(0.5, 0, 0, 2) or UDim2.new(0, 2, 0, 2),
+					BackgroundColor3 = dev and GOLD or GREEN,
+					BackgroundTransparency = pend and 0.5 or editor and 0 or 0.4,
+				}, Enum.EasingStyle.Quint)
+				r.Public.TextColor3 = dev and DIM or WHITE
+				r.Dev.TextColor3 = dev and BLACK or DIM
+				r.Public.TextTransparency = editor and 0 or 0.35
+				r.Dev.TextTransparency = editor and 0 or 0.35
+				r.Public.AutoButtonColor = editor
+				r.Dev.AutoButtonColor = editor
+				r.Switch.BackgroundTransparency = editor and 0 or 0.45
+				if o == "public" then
+					r.Sub.Text = "RELEASED · was DEV ONLY" -- (review: fits its 162 px label)
+					r.Sub.TextColor3 = Color3.fromRGB(130, 236, 160)
+				elseif o == "dev" then
+					r.Sub.Text = "PULLED · was PUBLIC"
+					r.Sub.TextColor3 = AMBER
+				else
+					r.Sub.Text = r.Quirk.ModeName or ""
+					r.Sub.TextColor3 = DIM
+				end
+				-- (no second line: the name sits in the middle of the row)
+				r.Title.Position = UDim2.fromOffset(50, r.Sub.Text == "" and 13 or 5)
+				-- its state changed (here or anywhere): a flash across the row
+				if RP.drawn[name] ~= nil and RP.drawn[name] ~= live then
+					r.Flash.BackgroundColor3 = live == "dev" and GOLD or GREEN
+					r.Flash.BackgroundTransparency = 0.55
+					tween(r.Flash, 0.7, { BackgroundTransparency = 1 })
+				end
+				RP.drawn[name] = live
+			end
+		end
+		for key, chip in RP.chips do
+			chip.Label.Text = string.format('<font color="%s"><b>%d</b></font>  %s', hexOf(chip.Color:Lerp(WHITE, 0.2)), counts[key], chip.Word)
+		end
+		local sync = SYNC[workspace:GetAttribute("RosterSync") or "Loading"] or SYNC.Loading
+		RP.syncText.Text = sync[1]
+		RP.syncDot.BackgroundColor3 = sync[2]
+		RP.sync.Edge.Color = sync[2]
+		local by, at = workspace:GetAttribute("RosterBy"), workspace:GetAttribute("RosterAt")
+		local state = workspace:GetAttribute("RosterSync")
+		if state == "Local" then
+			RP.info.Text = "Not saved yet: this server only (the store isn't answering)"
+			RP.info.TextColor3 = AMBER
+		elseif state == "Studio" then
+			RP.info.Text = "Studio: switches stay in this session (StudioSaves is off)"
+			RP.info.TextColor3 = SYNC.Studio[2]
+		elseif by and at then
+			RP.info.Text = string.format("Last switch: %s, %s", tostring(by), ago(at))
+			RP.info.TextColor3 = DIM
+		else
+			RP.info.Text = "Every hero is on the default"
+			RP.info.TextColor3 = DIM
+		end
+		-- reset: only with something switched, and only for an editor
+		RP.canReset = editor and counts.Changed > 0
+		RP.reset.Visible = editor
+		if not editor then
+			RP.info.Text = "VIEW ONLY: the owner and listed testers switch heroes"
+			RP.info.TextColor3 = AMBER
+			RP.info.Visible = true
+		end
+		local armed = RP.armed ~= nil and RP.canReset
+		RP.reset.AutoButtonColor = RP.canReset
+		RP.reset.BackgroundColor3 = armed and Color3.fromRGB(226, 92, 48) or RP.canReset and Color3.fromRGB(170, 60, 60) or Color3.fromRGB(58, 60, 78)
+		RP.reset.TextColor3 = RP.canReset and WHITE or DIM
+		RP.reset.Text = armed and string.format("SURE? CLICK AGAIN: %d HERO%s BACK", counts.Changed, counts.Changed == 1 and "" or "ES")
+			or RP.canReset and "RESET EVERY HERO TO DEFAULT" or "EVERY HERO IS ON THE DEFAULT"
+	end
+
+	function HUD.ToggleRosterPanel(force)
+		local frame = RP.frame
+		if not frame then
+			return false
+		end
+		if force ~= nil then
+			frame.Visible = force
+		else
+			frame.Visible = not frame.Visible
+		end
+		if frame.Visible then
+			RP.layout()
+			HUD.RefreshRosterPanel()
+		end
+		return frame.Visible
+	end
+
+	-- fade a whole banner out (its text, frames and strokes)
+	local function fadeAll(root, t)
+		for _, d in root:GetDescendants() do
+			if d:IsA("TextLabel") then
+				tween(d, t, { TextTransparency = 1 })
+			elseif d:IsA("Frame") then
+				tween(d, t, { BackgroundTransparency = 1 })
+			elseif d:IsA("UIStroke") then
+				tween(d, t, { Transparency = 1 })
+			end
+		end
+	end
+
+	-- (review) a line's width at a text size, as the engine lays it out (in
+	-- offsets: no UIScale in it). nil where it can't say.
+	function RP.textWidth(text, size, font)
+		local ok, v = pcall(function()
+			return game:GetService("TextService"):GetTextSize(text, size, font, Vector2.new(4000, 1000))
+		end)
+		return (ok and typeof(v) == "Vector2") and v.X or nil
+	end
+
+	-- the banner's move line: his first two moves and his ult (just the first
+	-- and the ult when that's too long for the line: ~58 letters at 12 px)
+	function RP.headline(q, accent)
+		local plain, rich = {}, {}
+		for i, a in q.Abilities or {} do
+			if i > 2 then
+				break
+			end
+			if type(a) == "table" and type(a.Name) == "string" then
+				table.insert(plain, a.Name)
+				table.insert(rich, a.Name)
+			end
+		end
+		if type(q.Ult) == "table" and type(q.Ult.Name) == "string" then
+			table.insert(plain, "ULT " .. q.Ult.Name)
+			table.insert(rich, string.format('<font color="%s">ULT</font> %s', accent, q.Ult.Name))
+		end
+		local line = table.concat(plain, "  ·  ")
+		if #plain == 3 and (utf8.len(line) or #line) > 58 then
+			table.remove(plain, 2)
+			table.remove(rich, 2)
+		end
+		return table.concat(plain, "  ·  "), table.concat(rich, string.format('  <font color="%s">·</font>  ', accent))
+	end
+
+	-- the phone opened from the banner (a tap): his row scrolled to and lit
+	function RP.focusRow(name)
+		local row = menuGrid and menuGrid:FindFirstChild(name)
+		if not (row and row:IsA("GuiObject")) then
+			return
+		end
+		local y = 2
+		for _, other in menuGrid:GetChildren() do
+			if other:IsA("GuiObject") and other.Visible and Config.Quirks[other.Name] and other.LayoutOrder < row.LayoutOrder then
+				y += other.Size.Y.Offset + 6
+			end
+		end
+		pcall(function()
+			menuGrid.CanvasPosition = Vector2.new(0, math.max(0, y - 12))
+		end)
+		local was = row.BackgroundTransparency
+		row.BackgroundTransparency = math.max(0, was - 0.35)
+		tween(row, 1, { BackgroundTransparency = was })
+	end
+
+	-- a camera-flash off the top and bottom of the screen, a little of his colour in it
+	function RP.edgeFlash(color)
+		local flash = make("Frame", {
+			Name = "RosterFlash",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			ZIndex = 69,
+			Parent = gui,
+		})
+		for _, y in { 0, 1 } do
+			local edgeGlow = make("Frame", {
+				AnchorPoint = Vector2.new(0, y),
+				Position = UDim2.fromScale(0, y),
+				Size = UDim2.fromScale(1, 0.2),
+				BackgroundColor3 = color:Lerp(WHITE, 0.55),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ZIndex = 69,
+				Parent = flash,
+			}, {
+				make("UIGradient", { Rotation = y == 0 and 90 or -90, Transparency = NumberSequence.new(0, 1) }),
+			})
+			tween(edgeGlow, 0.08, { BackgroundTransparency = 0.45 })
+			task.delay(0.1, function()
+				tween(edgeGlow, 0.75, { BackgroundTransparency = 1 })
+			end)
+		end
+		task.delay(0.95, function()
+			flash:Destroy()
+		end)
+	end
+
+	-- NEW HERO: the band (640x150) pops in over a sunburst of his colour - his
+	-- badge with a burst ring and sparks, his name, his headline moves ticking
+	-- in, how to play him on a pill, his name again huge and faint drifting
+	-- behind - and a camera-flash off the screen's edges. Held 3.8 s (cut
+	-- short if the phone comes out). Returns true if it was cut short.
+	function RP.showBanner(b)
+		local q = Config.Quirks[b.Quirk]
+		local color = q.Color
+		local bright = color:Lerp(WHITE, 0.18)
+		-- (the holder follows the screen size; the banner inside it pops. A
+		-- tap on it, on a touch screen, opens the phone on his row)
+		local holder = make(b.Tap and "TextButton" or "Frame", {
+			Name = "RosterBanner",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.24),
+			Size = UDim2.fromOffset(640, 150),
+			BackgroundTransparency = 1,
+			ZIndex = 70,
+			Parent = gui,
+		})
+		if b.Tap then
+			holder.Text = ""
+			holder.AutoButtonColor = false
+			holder.Activated:Connect(function()
+				if HUD.ToggleShop then
+					HUD.ToggleShop(false)
+				end
+				HUD.ShowMenu(true)
+				RP.focusRow(b.Quirk)
+			end)
+		end
+		autoScale(holder)
+		local banner = make("Frame", {
+			Name = "Banner",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(10, 10, 14),
+			BackgroundTransparency = 0.18,
+			ZIndex = 70,
+			Parent = holder,
+		}, {
+			make("UIGradient", {
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(0.14, 0),
+					NumberSequenceKeypoint.new(0.86, 0),
+					NumberSequenceKeypoint.new(1, 1),
+				}),
+			}),
+		})
+		local pop = make("UIScale", { Scale = 1.5, Parent = banner })
+		-- his colour washing in from behind his badge
+		make("Frame", {
+			Name = "Tint",
+			Size = UDim2.fromScale(0.6, 1),
+			BackgroundColor3 = color,
+			BackgroundTransparency = 0.12,
+			BorderSizePixel = 0,
+			ZIndex = 70,
+			Parent = banner,
+		}, {
+			make("UIGradient", {
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(0.14, 0.3),
+					NumberSequenceKeypoint.new(0.42, 0.72),
+					NumberSequenceKeypoint.new(1, 1),
+				}),
+			}),
+		})
+		-- (review) his name again, huge and faint, drifting behind the right of
+		-- the band (clipped to it, fading off both ways)
+		local ghostClip = make("Frame", {
+			Name = "Ghost",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			ClipsDescendants = true,
+			ZIndex = 70,
+			Parent = banner,
+		})
+		local ghost = make("TextLabel", {
+			Name = "GhostName",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, 40, 0.5, 6),
+			Size = UDim2.fromOffset(640, 150),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 150,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = bright,
+			TextTransparency = 0.84,
+			Text = string.upper(q.DisplayName or b.Quirk),
+			ZIndex = 70,
+			Parent = ghostClip,
+		}, {
+			make("UIGradient", {
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(0.45, 0.2),
+					NumberSequenceKeypoint.new(0.78, 0),
+					NumberSequenceKeypoint.new(1, 1),
+				}),
+			}),
+		})
+		-- a sunburst turning slowly behind the badge (it breaks out of the band)
+		local rays = {}
+		for k = 0, 5 do
+			table.insert(rays, make("Frame", {
+				Name = "Ray",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(110, 75),
+				Size = UDim2.fromOffset(k % 2 == 0 and 7 or 4, k % 2 == 0 and 230 or 180),
+				Rotation = k * 30 + 15,
+				BackgroundColor3 = bright,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ZIndex = 70,
+				Parent = banner,
+			}, {
+				make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+				make("UIGradient", {
+					Rotation = 90,
+					Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, 1),
+						NumberSequenceKeypoint.new(0.3, 0.3),
+						NumberSequenceKeypoint.new(0.5, 0),
+						NumberSequenceKeypoint.new(0.7, 0.3),
+						NumberSequenceKeypoint.new(1, 1),
+					}),
+				}),
+			}))
+		end
+		-- the hero's colour along the top and the bottom
+		for _, y in { 0, 1 } do
+			make("Frame", {
+				Name = "Edge",
+				AnchorPoint = Vector2.new(0, y),
+				Position = UDim2.fromScale(0, y),
+				Size = UDim2.new(1, 0, 0, 3),
+				BackgroundColor3 = bright,
+				BorderSizePixel = 0,
+				ZIndex = 71,
+				Parent = banner,
+			}, {
+				make("UIGradient", {
+					Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, 1),
+						NumberSequenceKeypoint.new(0.2, 0),
+						NumberSequenceKeypoint.new(0.8, 0),
+						NumberSequenceKeypoint.new(1, 1),
+					}),
+				}),
+			})
+		end
+		-- a ring bursting off his badge
+		local ring = make("Frame", {
+			Name = "Ring",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(110, 75),
+			Size = UDim2.fromOffset(92, 92),
+			BackgroundTransparency = 1,
+			ZIndex = 71,
+			Parent = banner,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			make("UIStroke", { Thickness = 4, Color = bright, Transparency = 0.1 }),
+		})
+		local avatar = badge(banner, q, 92, 42, COMIC_FONT)
+		avatar.AnchorPoint = Vector2.new(0.5, 0.5)
+		avatar.Position = UDim2.fromOffset(110, 75)
+		avatar.ZIndex = 72
+		avatar.Initials.ZIndex = 73
+		avatar:FindFirstChildOfClass("UIStroke").Thickness = 3
+		local avatarPop = make("UIScale", { Scale = 0.01, Parent = avatar })
+		make("TextLabel", {
+			Name = "Kicker",
+			Position = UDim2.fromOffset(176, 11),
+			Size = UDim2.fromOffset(440, 18),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 16,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = "N E W   H E R O",
+			ZIndex = 72,
+			Parent = banner,
+		}, { textStroke(2) })
+		-- (the news, on the same line at the right: big enough on a phone)
+		make("TextLabel", {
+			Name = "OutNow",
+			Position = UDim2.fromOffset(176, 12),
+			Size = UDim2.fromOffset(440, 16),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = bright:Lerp(WHITE, 0.4),
+			Text = "OUT NOW FOR EVERYONE",
+			ZIndex = 72,
+			Parent = banner,
+		}, { textStroke(1.5) })
+		-- his name, sized to fit by measuring it (TextService: the same in any
+		-- UIScale, so the underline under it is right on a phone too)
+		local NAME_W, NAME_H = 440, 50
+		local nameText = string.upper(q.DisplayName or b.Quirk)
+		local nameSize, nameWide = NAME_H, RP.textWidth(nameText, NAME_H, COMIC_FONT)
+		if nameWide and nameWide > NAME_W then
+			nameSize = math.max(20, math.floor(NAME_H * NAME_W / nameWide))
+			nameWide = RP.textWidth(nameText, nameSize, COMIC_FONT) or NAME_W
+		end
+		local title = make("TextLabel", {
+			Name = "HeroName",
+			Position = UDim2.fromOffset(174, 29),
+			Size = UDim2.fromOffset(NAME_W, NAME_H),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = nameSize,
+			TextScaled = nameWide == nil, -- (nothing to measure with: it fits itself)
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = bright,
+			Text = nameText,
+			ZIndex = 72,
+			Parent = banner,
+		}, { textStroke(3), make("UITextSizeConstraint", { MaxTextSize = NAME_H, MinTextSize = 20 }) })
+		local underline = make("Frame", {
+			Name = "Underline",
+			Position = UDim2.fromOffset(176, 81),
+			Size = UDim2.fromOffset(0, 3),
+			BackgroundColor3 = bright,
+			BorderSizePixel = 0,
+			ZIndex = 72,
+			Parent = banner,
+		}, { corner(2) })
+		-- his headline moves, ticking in
+		local movesPlain, movesRich = RP.headline(q, hexOf(bright:Lerp(WHITE, 0.25)))
+		local moves = make("TextLabel", {
+			Name = "Moves",
+			Position = UDim2.fromOffset(176, 89),
+			Size = UDim2.fromOffset(NAME_W, 16),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 12,
+			RichText = true,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(232, 234, 244),
+			Text = movesRich,
+			MaxVisibleGraphemes = 0,
+			ZIndex = 72,
+			Parent = banner,
+		}, { textStroke(1) })
+		-- his other mode (left), how to play him on a pill (right)
+		local pillW = b.Hint and 200 or 0
+		make("TextLabel", {
+			Name = "Info",
+			Position = UDim2.fromOffset(176, 112),
+			Size = UDim2.fromOffset(NAME_W - pillW - (b.Hint and 12 or 0), 26),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextScaled = true,
+			RichText = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(214, 217, 236),
+			Text = (q.ModeName and q.ModeName ~= "") and string.format('<font color="%s">MODE</font>  %s', hexOf(bright:Lerp(WHITE, 0.25)), q.ModeName) or "",
+			ZIndex = 72,
+			Parent = banner,
+		}, { textStroke(1), make("UITextSizeConstraint", { MaxTextSize = 12, MinTextSize = 8 }) })
+		local glow
+		if b.Hint then
+			glow = make("Frame", {
+				Name = "PlayGlow",
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, -20, 0, 125),
+				Size = UDim2.fromOffset(pillW + 8, 36),
+				BackgroundColor3 = bright,
+				BackgroundTransparency = 1,
+				ZIndex = 71,
+				Parent = banner,
+			}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+			make("Frame", {
+				Name = "Play",
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, -24, 0, 125),
+				Size = UDim2.fromOffset(pillW, 28),
+				BackgroundColor3 = color,
+				ZIndex = 72,
+				Parent = banner,
+			}, {
+				make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+				gradient(WHITE, Color3.fromRGB(190, 190, 190), 90),
+				make("UIStroke", { Thickness = 2, Color = BLACK, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+				make("TextLabel", {
+					Name = "Hint",
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.5),
+					Size = UDim2.new(1, -18, 1, -8),
+					BackgroundTransparency = 1,
+					Font = HEAD_FONT,
+					TextScaled = true,
+					TextColor3 = WHITE,
+					Text = b.Hint,
+					ZIndex = 73,
+				}, { textStroke(1.5), make("UITextSizeConstraint", { MaxTextSize = 16, MinTextSize = 10 }) }),
+			})
+		end
+		-- sparks thrown off the badge as it lands
+		local sparks = {}
+		for i = 1, 14 do
+			local a = (i / 14) * math.pi * 2 + rng:NextNumber(-0.2, 0.2)
+			local spark = make("Frame", {
+				Name = "Spark",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(110, 75),
+				Size = UDim2.fromOffset(i % 3 == 0 and 7 or 5, i % 3 == 0 and 7 or 5),
+				Rotation = 45,
+				BackgroundColor3 = i % 2 == 0 and WHITE or bright,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ZIndex = 73,
+				Parent = banner,
+			})
+			table.insert(sparks, { spark, a, rng:NextNumber(70, 128) })
+		end
+		-- a glint across it
+		local shine = make("Frame", {
+			Name = "Shine",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 0.55,
+			BorderSizePixel = 0,
+			ZIndex = 74,
+			Parent = banner,
+		}, {
+			make("UIGradient", {
+				Rotation = 20,
+				Offset = Vector2.new(-1.2, 0),
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(0.45, 1),
+					NumberSequenceKeypoint.new(0.5, 0.2),
+					NumberSequenceKeypoint.new(0.55, 1),
+					NumberSequenceKeypoint.new(1, 1),
+				}),
+			}),
+		})
+		if b.OnShow then
+			task.spawn(b.OnShow)
+		end
+		tween(pop, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+		task.delay(0.08, function()
+			tween(avatarPop, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+			tween(ring, 0.65, { Size = UDim2.fromOffset(170, 170) }, Enum.EasingStyle.Quart)
+			tween(ring.UIStroke, 0.65, { Transparency = 1, Thickness = 1 })
+			for i, ray in rays do
+				tween(ray, 0.3, { BackgroundTransparency = i % 2 == 0 and 0.2 or 0.05 })
+				tween(ray, 4.2, { Rotation = ray.Rotation + 40 }, Enum.EasingStyle.Linear)
+			end
+			for _, s in sparks do
+				local spark, a, dist = s[1], s[2], s[3]
+				spark.BackgroundTransparency = 0
+				tween(spark, 0.55, {
+					Position = UDim2.fromOffset(110 + math.cos(a) * dist, 75 + math.sin(a) * dist * 0.75),
+					Rotation = 45 + rng:NextNumber(-160, 160),
+					BackgroundTransparency = 1,
+				}, Enum.EasingStyle.Quart)
+			end
+		end)
+		RP.edgeFlash(color)
+		task.delay(0.16, function()
+			local wide = nameWide
+			if not wide then
+				-- (nothing measured it: what the label laid out, over its width, in offsets)
+				local ok, w = pcall(function()
+					return title.TextBounds.X / math.max(1, title.AbsoluteSize.X) * NAME_W
+				end)
+				wide = (ok and w == w and w > 0) and w or 240
+			end
+			tween(underline, 0.5, { Size = UDim2.fromOffset(math.min(wide, NAME_W) + 6, 3) }, Enum.EasingStyle.Quint)
+		end)
+		task.delay(0.22, function()
+			tween(shine.UIGradient, 0.75, { Offset = Vector2.new(1.2, 0) }, Enum.EasingStyle.Sine)
+		end)
+		-- (the moves tick in, a letter or two a frame)
+		task.delay(0.3, function()
+			local n = utf8.len(movesPlain) or #movesPlain
+			for i = 2, n, 2 do
+				if not moves.Parent then
+					return
+				end
+				moves.MaxVisibleGraphemes = i
+				task.wait(1 / 60)
+			end
+			moves.MaxVisibleGraphemes = -1
+		end)
+		tween(ghost, 4.3, { Position = UDim2.new(1, -10, 0.5, 6) }, Enum.EasingStyle.Linear)
+		-- held, the pill breathing - cut short if the phone comes out (it says the rest)
+		local t0, cut = os.clock(), false
+		while holder.Parent and os.clock() - t0 < 3.8 do
+			if HUD.MenuVisible and HUD.MenuVisible() then
+				cut = true
+				break
+			end
+			if glow then
+				glow.BackgroundTransparency = 0.55 + 0.35 * (0.5 + 0.5 * math.cos((os.clock() - t0) * 5))
+			end
+			task.wait(0.05)
+		end
+		if holder.Parent then
+			local out = cut and 0.2 or 0.45
+			fadeAll(banner, out)
+			tween(banner, out, { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, -18) })
+			task.wait(out + 0.03)
+			holder:Destroy()
+		end
+		return cut
+	end
+
+	-- NEW HERO: a hero just released to everyone (one at a time; a reset
+	-- releasing lots shows the first four). hint: how to play him (the pill).
+	-- onShow runs as it comes up (its sound). opts: { Still = fn -> is it
+	-- still news (checked as it comes up), Tap = true: a tap on it opens the
+	-- phone on his row (touch) }.
+	-- (review) Each waits for the phone, a rank-up or a K.O. to go first; one
+	-- whose hero's been pulled back meanwhile is dropped; and the phone coming
+	-- out ends it and drops the rest (the phone shows them, NEW).
+	function HUD.RosterBanner(quirkName, hint, onShow, opts)
+		if not gui or not Config.Quirks[quirkName or ""] or #RP.banners >= 4 then
+			return
+		end
+		for _, b in RP.banners do
+			if b.Quirk == quirkName then
+				return -- (already waiting)
+			end
+		end
+		opts = type(opts) == "table" and opts or {}
+		table.insert(RP.banners, { Quirk = quirkName, Hint = hint, OnShow = onShow, Still = opts.Still, Tap = opts.Tap == true })
+		if RP.showing then
+			return
+		end
+		RP.showing = true
+		task.spawn(function()
+			local function phoneOut()
+				return HUD.MenuVisible ~= nil and HUD.MenuVisible()
+			end
+			while #RP.banners > 0 do
+				local b = table.remove(RP.banners, 1)
+				local t = os.clock()
+				while os.clock() - t < 12 and (phoneOut() or gui:FindFirstChild("RankUp") or gui:FindFirstChild("KOPopup")) do
+					task.wait(0.2)
+				end
+				-- (still news? Not with his hero pulled back meanwhile, or with the
+				-- phone still out: it's showing him, NEW)
+				if not (Config.IsDevOnly(b.Quirk) or phoneOut() or (b.Still and not b.Still())) then
+					local ok, cut = pcall(RP.showBanner, b)
+					if not ok then
+						warn("[HUD] roster banner: " .. tostring(cut))
+					elseif cut then
+						table.clear(RP.banners)
+					end
+				end
+			end
+			RP.showing = false
+		end)
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 87) ADMIN EVENTS on the screen (Config.AdminEvents; the server's
+-- Kit.AE runs them, QuirkClient reads what's running off workspace):
+--  HUD.BuildEventsPanel(cb) / HUD.RefreshEventsPanel() / HUD.ToggleEventsPanel
+--   (force): the devs' ADMIN EVENTS side panel off the test menu - a card
+--   per event (its icon and colour, its name, one line about it, START;
+--   running: its time left, a bar running down, STOP), THIS SERVER | ALL
+--   SERVERS, how long (AUTO: each event's own), STOP EVERY EVENT (two
+--   clicks). cb = { Start(id, seconds | nil, all), Stop(id | "*", all) }.
+--  HUD.EventBanner(spec): ADMIN ABUSE - the full-width band as one starts.
+--  HUD.EventOver(list): EVENT OVER, stamped.
+--  HUD.SetEventChips(list) / HUD.SetEventChipNote(id, text): a countdown
+--   chip each, top centre.
+--  HUD.ShuffleReel(hero, spin, opts): HERO SHUFFLE's slot machine.
+---------------------------------------------------------------------------
+do
+	local EP = { cards = {}, chips = {}, notes = {}, queue = {}, pending = {}, cb = {}, all = false, seconds = nil }
+	HUD.AE = EP
+	local W = 384
+	local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
+	local HOT = Color3.fromRGB(255, 92, 60)
+	local GREEN = Color3.fromRGB(60, 200, 110)
+	local GOLD = Color3.fromRGB(255, 212, 64)
+	local AMBER = Color3.fromRGB(255, 166, 64)
+	local BLUE = Color3.fromRGB(110, 190, 255)
+	local DIM = Color3.fromRGB(150, 154, 180)
+	local TRACK = Color3.fromRGB(18, 19, 28)
+	local ROW = Color3.fromRGB(38, 40, 57)
+	local STOPRED = Color3.fromRGB(214, 58, 58)
+	EP.SYNC = {
+		Live = { "ALL SERVERS READY", GREEN },
+		Local = { "MESSAGING DOWN", AMBER },
+		Studio = { "STUDIO SESSION ONLY", BLUE },
+		Loading = { "CONNECTING...", DIM },
+	}
+	local function AEC()
+		return (Config and Config.AdminEvents) or {}
+	end
+	local function def(id)
+		return AEC().Events and AEC().Events[id] or nil
+	end
+	local function clock(s)
+		s = math.max(0, math.ceil((tonumber(s) or 0) - 0.05))
+		return string.format("%d:%02d", s // 60, s % 60)
+	end
+	local function now()
+		return workspace:GetServerTimeNow()
+	end
+	local function running()
+		return Config.AdminEventsRunning and Config.AdminEventsRunning() or {}
+	end
+	EP.clock = clock
+
+	-- an event's icon in a circle of its colour
+	local function iconDisc(parent, d, size, textSize, z)
+		local disc = make("Frame", {
+			Name = "Icon",
+			Size = UDim2.fromOffset(size, size),
+			BackgroundColor3 = d.Color:Lerp(BLACK, 0.5),
+			ZIndex = z,
+			Parent = parent,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			make("UIStroke", { Thickness = 1.5, Color = d.Color, Transparency = 0.15, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		make("TextLabel", {
+			Name = "Glyph",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = textSize,
+			TextColor3 = WHITE,
+			Text = d.Icon or "★",
+			ZIndex = z + 1,
+			Parent = disc,
+		})
+		return disc
+	end
+
+	---------------------------------------------------------------- the panel
+	local function makeCard(order, id)
+		local d = def(id)
+		local card = make("Frame", {
+			Name = id,
+			LayoutOrder = order,
+			Size = UDim2.new(1, 0, 0, 58),
+			BackgroundColor3 = ROW,
+			ZIndex = 22,
+			Parent = EP.list,
+		}, { corner(8), make("UIStroke", { Name = "Edge", Thickness = 1.5, Color = d.Color, Transparency = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+		local flash = make("Frame", {
+			Name = "Flash",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = d.Color,
+			BackgroundTransparency = 1,
+			ZIndex = 22,
+			Parent = card,
+		}, { corner(8) })
+		make("Frame", {
+			Name = "Stripe",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 0, 0.5, 0),
+			Size = UDim2.new(0, 3, 1, -16),
+			BackgroundColor3 = d.Color,
+			BorderSizePixel = 0,
+			ZIndex = 23,
+			Parent = card,
+		}, { corner(2) })
+		local icon = iconDisc(card, d, 36, 20, 23)
+		icon.Position = UDim2.fromOffset(11, 11)
+		local title = make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(56, 6),
+			Size = UDim2.new(1, -150, 0, 17),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = d.Name,
+			ZIndex = 23,
+			Parent = card,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 8 }) })
+		local blurb = make("TextLabel", {
+			Name = "Blurb",
+			Position = UDim2.fromOffset(56, 23),
+			Size = UDim2.new(1, -150, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 10,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(196, 199, 220),
+			Text = d.Blurb or "",
+			ZIndex = 23,
+			Parent = card,
+		})
+		local meta = make("TextLabel", {
+			Name = "Meta",
+			Position = UDim2.fromOffset(56, 38),
+			Size = UDim2.new(1, -150, 0, 13),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 10,
+			RichText = true,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = DIM,
+			Text = "",
+			ZIndex = 23,
+			Parent = card,
+		})
+		local button = make("TextButton", {
+			Name = "Go",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -10, 0.5, 0),
+			Size = UDim2.fromOffset(80, 32),
+			BackgroundColor3 = d.Color,
+			AutoButtonColor = true,
+			Font = HEAD_FONT,
+			TextSize = 13,
+			TextColor3 = WHITE,
+			Text = "START",
+			ZIndex = 24,
+			Parent = card,
+		}, { corner(7), gradient(WHITE, Color3.fromRGB(196, 196, 196), 90), make("UIStroke", { Thickness = 1.5, Color = BLACK, Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }), make("UIStroke", { Name = "TextEdge", Thickness = 1.2, Color = BLACK, ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual }) })
+		local barBack = make("Frame", {
+			Name = "BarBack",
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 10, 1, -4),
+			Size = UDim2.new(1, -110, 0, 3),
+			BackgroundColor3 = TRACK,
+			BorderSizePixel = 0,
+			Visible = false,
+			ZIndex = 23,
+			Parent = card,
+		}, { corner(2) })
+		local bar = make("Frame", {
+			Name = "Bar",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = d.Color,
+			BorderSizePixel = 0,
+			ZIndex = 24,
+			Parent = barBack,
+		}, { corner(2) })
+		EP.cards[id] = { Card = card, Flash = flash, Title = title, Blurb = blurb, Meta = meta, Go = button, BarBack = barBack, Bar = bar, Def = d }
+		button.MouseButton1Click:Connect(function()
+			EP.press(id)
+		end)
+	end
+
+	-- a pill switch: THIS SERVER | ALL SERVERS
+	local function scopeSwitch(parent)
+		local sw = make("Frame", {
+			Name = "Scope",
+			Position = UDim2.fromOffset(14, 58),
+			Size = UDim2.fromOffset(156, 26),
+			BackgroundColor3 = TRACK,
+			ZIndex = 21,
+			Parent = parent,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			make("UIStroke", { Thickness = 1, Color = WHITE, Transparency = 0.86, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		local knob = make("Frame", {
+			Name = "Knob",
+			Position = UDim2.new(0, 2, 0, 2),
+			Size = UDim2.new(0.5, -2, 1, -4),
+			BackgroundColor3 = GOLD,
+			ZIndex = 22,
+			Parent = sw,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), gradient(WHITE, Color3.fromRGB(205, 205, 205), 90) })
+		local function half(name, x, text, all)
+			local b = make("TextButton", {
+				Name = name,
+				Position = UDim2.fromScale(x, 0),
+				Size = UDim2.fromScale(0.5, 1),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 10,
+				TextColor3 = DIM,
+				Text = text,
+				ZIndex = 23,
+				Parent = sw,
+			})
+			b.MouseButton1Click:Connect(function()
+				if EP.all ~= all then
+					EP.all = all
+					if EP.cb.Tick then
+						EP.cb.Tick()
+					end
+					HUD.RefreshEventsPanel()
+				end
+			end)
+			return b
+		end
+		EP.scope = { Frame = sw, Knob = knob, This = half("This", 0, "THIS SERVER", false), All = half("All", 0.5, "ALL SERVERS", true) }
+	end
+
+	-- how long: AUTO (each event's own) or a set time
+	local function durationChips(parent)
+		EP.durs = {}
+		local list = { false }
+		for _, s in AEC().Durations or { 60, 120, 180, 300 } do
+			table.insert(list, s)
+		end
+		local w = 34 -- (5 of them: 186 px, clear of the scope switch's 156)
+		for i, s in list do
+			local b = make("TextButton", {
+				Name = "Dur" .. i,
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -14 - (#list - i) * (w + 4), 0, 58),
+				Size = UDim2.fromOffset(w, 26),
+				BackgroundColor3 = TRACK,
+				AutoButtonColor = true,
+				Font = UI_FONT,
+				TextSize = 10,
+				TextColor3 = DIM,
+				Text = s and (s % 60 == 0 and (s // 60 .. "m") or clock(s)) or "AUTO",
+				ZIndex = 21,
+				Parent = parent,
+			}, { corner(7), make("UIStroke", { Name = "Edge", Thickness = 1, Color = WHITE, Transparency = 0.86, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+			b:SetAttribute("Seconds", s or 0)
+			b.MouseButton1Click:Connect(function()
+				EP.seconds = s or nil
+				if EP.cb.Tick then
+					EP.cb.Tick()
+				end
+				HUD.RefreshEventsPanel()
+			end)
+			table.insert(EP.durs, { Button = b, Seconds = s or nil })
+		end
+	end
+
+	function HUD.BuildEventsPanel(cb)
+		EP.cb = cb or {}
+		if EP.frame or not gui then
+			return
+		end
+		local frame = make("Frame", {
+			Name = "AdminEvents",
+			Position = UDim2.new(0, 22 + TEST_W, 0, 108),
+			Size = UDim2.fromOffset(W, 540),
+			BackgroundColor3 = Color3.fromRGB(24, 22, 30),
+			BackgroundTransparency = 0.04,
+			Visible = false,
+			ZIndex = 20,
+			Parent = gui,
+		}, { stroke(3), corner(8) })
+		EP.frame = frame
+		-- a little of the red light from the top
+		make("Frame", {
+			Name = "Glow",
+			Size = UDim2.new(1, 0, 0, 96),
+			BackgroundColor3 = HOT,
+			BackgroundTransparency = 0.84,
+			BorderSizePixel = 0,
+			ZIndex = 20,
+			Parent = frame,
+		}, { corner(8), make("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(0.3, 1) }) })
+		make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(14, 5),
+			Size = UDim2.new(1, -190, 0, 32),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 27,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = HOT,
+			Text = "ADMIN EVENTS",
+			ZIndex = 21,
+			Parent = frame,
+		}, { textStroke(1.5) })
+		EP.sync = make("Frame", {
+			Name = "Sync",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 12),
+			Size = UDim2.fromOffset(164, 22),
+			BackgroundColor3 = TRACK,
+			ZIndex = 21,
+			Parent = frame,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), make("UIStroke", { Name = "Edge", Thickness = 1, Color = GREEN, Transparency = 0.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+		EP.syncDot = make("Frame", {
+			Name = "Dot",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 9, 0.5, 0),
+			Size = UDim2.fromOffset(8, 8),
+			BackgroundColor3 = GREEN,
+			ZIndex = 22,
+			Parent = EP.sync,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		EP.syncText = make("TextLabel", {
+			Name = "Text",
+			Position = UDim2.fromOffset(22, 0),
+			Size = UDim2.new(1, -28, 1, 0),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = "CONNECTING...",
+			ZIndex = 22,
+			Parent = EP.sync,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 10, MinTextSize = 7 }) })
+		EP.sub = make("TextLabel", {
+			Name = "Info",
+			Position = UDim2.fromOffset(14, 37),
+			Size = UDim2.new(1, -28, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 11,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(196, 190, 214),
+			Text = "Server-wide events. Everyone plays them.",
+			ZIndex = 21,
+			Parent = frame,
+		})
+		scopeSwitch(frame)
+		durationChips(frame)
+		EP.topLine = make("Frame", {
+			Name = "Line",
+			Position = UDim2.fromOffset(12, 92),
+			Size = UDim2.new(1, -24, 0, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 0.86,
+			BorderSizePixel = 0,
+			ZIndex = 21,
+			Parent = frame,
+		})
+		EP.list = make("ScrollingFrame", {
+			Name = "List",
+			Position = UDim2.fromOffset(8, 98),
+			Size = UDim2.new(1, -12, 1, -98 - 74),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 4,
+			ScrollBarImageColor3 = WHITE,
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			CanvasSize = UDim2.new(),
+			ZIndex = 21,
+			Parent = frame,
+		}, {
+			make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
+			make("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 4) }),
+		})
+		for order, id in AEC().Order or {} do
+			if def(id) then
+				makeCard(order, id)
+			end
+		end
+		EP.footLine = make("Frame", {
+			Name = "FootLine",
+			Position = UDim2.new(0, 12, 1, -72),
+			Size = UDim2.new(1, -24, 0, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 0.86,
+			BorderSizePixel = 0,
+			ZIndex = 21,
+			Parent = frame,
+		})
+		EP.info = make("TextLabel", {
+			Name = "Last",
+			Position = UDim2.new(0, 14, 1, -66),
+			Size = UDim2.new(1, -28, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 10,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = DIM,
+			Text = "",
+			ZIndex = 21,
+			Parent = frame,
+		})
+		EP.stopAll = make("TextButton", {
+			Name = "StopAll",
+			Position = UDim2.new(0, 12, 1, -44),
+			Size = UDim2.new(1, -24, 0, 32),
+			BackgroundColor3 = STOPRED,
+			Font = UI_FONT,
+			TextSize = 13,
+			TextColor3 = WHITE,
+			Text = "STOP EVERY EVENT",
+			ZIndex = 22,
+			Parent = frame,
+		}, { corner(6), stroke(1.5) })
+		-- (two clicks: the first arms it for 3 s)
+		EP.stopAll.MouseButton1Click:Connect(function()
+			if not EP.canStopAll then
+				return
+			end
+			if EP.armed and os.clock() - EP.armed < 3 then
+				EP.armed = nil
+				if EP.cb.Stop then
+					EP.cb.Stop("*", EP.all)
+				end
+			else
+				EP.armed = os.clock()
+				local at = EP.armed
+				task.delay(3, function()
+					if EP.armed == at then
+						EP.armed = nil
+						HUD.RefreshEventsPanel()
+					end
+				end)
+			end
+			HUD.RefreshEventsPanel()
+		end)
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+				if EP.frame.Visible then
+					EP.layout()
+				end
+			end)
+		end
+		HUD.RefreshEventsPanel()
+	end
+
+	-- a card's button: START (or, running, STOP); dimmed till the server's state changes
+	function EP.press(id)
+		if EP.pending[id] then
+			return
+		end
+		local live = running()[id] ~= nil
+		local token = os.clock()
+		EP.pending[id] = { At = token, Was = live }
+		if live then
+			if EP.cb.Stop then
+				EP.cb.Stop(id, EP.all)
+			end
+		elseif EP.cb.Start then
+			EP.cb.Start(id, EP.seconds, EP.all)
+		end
+		HUD.RefreshEventsPanel()
+		task.delay(4, function()
+			local p = EP.pending[id]
+			if p and p.At == token then
+				EP.pending[id] = nil -- (the server didn't do it: back as it is)
+				HUD.RefreshEventsPanel()
+			end
+		end)
+	end
+
+	-- fits the screen: on a short one (a phone) it starts just under the top
+	-- bar, and the line under the title goes
+	function EP.layout()
+		local cam = workspace.CurrentCamera
+		local vpY = (cam and cam.ViewportSize.Y) or 720
+		local y0 = vpY < 500 and 52 or 108
+		local h = math.clamp(vpY - y0 - 12, 200, 540)
+		local compact = h < 340
+		EP.frame.Position = UDim2.new(0, 22 + TEST_W, 0, y0)
+		EP.frame.Size = UDim2.fromOffset(W, h)
+		EP.sub.Visible = not compact
+		EP.info.Visible = not compact
+		local rowY = compact and 38 or 58
+		EP.scope.Frame.Position = UDim2.fromOffset(14, rowY)
+		for _, d in EP.durs do
+			d.Button.Position = UDim2.new(d.Button.Position.X.Scale, d.Button.Position.X.Offset, 0, rowY)
+		end
+		local top, bottom = rowY + 40, compact and 50 or 74
+		EP.topLine.Position = UDim2.fromOffset(12, top - 6)
+		EP.list.Position = UDim2.fromOffset(8, top)
+		EP.list.Size = UDim2.new(1, -12, 1, -top - bottom)
+		EP.footLine.Position = UDim2.new(0, 12, 1, -bottom + 2)
+	end
+
+	-- what's running, the scope, the time picked, the sync
+	function HUD.RefreshEventsPanel()
+		if not EP.frame then
+			return
+		end
+		local map = running()
+		local t = now()
+		local n = 0
+		for _ in map do
+			n += 1
+		end
+		for id, c in EP.cards do
+			local e = map[id]
+			local p = EP.pending[id]
+			if p and p.Was ~= (e ~= nil) then
+				EP.pending[id] = nil
+				p = nil
+			end
+			local d = c.Def
+			if e then
+				local left = math.max(0, e.Ends - t)
+				local bits = { string.format('<font color="#FFFFFF">%s LEFT</font>', clock(left)) }
+				if e.Global then
+					table.insert(bits, "EVERY SERVER")
+				end
+				if e.By then
+					table.insert(bits, "BY " .. string.upper(e.By))
+				end
+				c.Meta.Text = table.concat(bits, "  ·  ")
+				c.Meta.TextColor3 = d.Color:Lerp(WHITE, 0.35)
+				c.Go.Text = p and "..." or "STOP"
+				c.Go.BackgroundColor3 = STOPRED
+				c.Card:FindFirstChild("Edge").Transparency = 0.15
+				c.Card.BackgroundColor3 = ROW:Lerp(d.Color, 0.14)
+				c.BarBack.Visible = true
+				c.Bar.Size = UDim2.fromScale(math.clamp(left / math.max(e.Length or 1, 1), 0, 1), 1)
+			else
+				local clash
+				for _, other in (AEC().Clash or {})[id] or {} do
+					if map[other] then
+						clash = def(other).Name
+					end
+				end
+				local secs = EP.seconds or d.Duration or 90
+				c.Meta.Text = clash and string.format('<font color="#FFA640">ENDS %s</font>  ·  %s', clash, clock(secs)) or (EP.seconds and clock(secs) or ("AUTO " .. clock(secs)))
+				c.Meta.TextColor3 = DIM
+				c.Go.Text = p and "..." or "START"
+				c.Go.BackgroundColor3 = d.Color
+				c.Card:FindFirstChild("Edge").Transparency = 1
+				c.Card.BackgroundColor3 = ROW
+				c.BarBack.Visible = false
+			end
+			c.Go.AutoButtonColor = p == nil
+			c.Go.BackgroundTransparency = p and 0.45 or 0
+			-- (it changed, here or on another server: a flash across the card)
+			local state = e ~= nil
+			if EP.drawn and EP.drawn[id] ~= nil and EP.drawn[id] ~= state then
+				c.Flash.BackgroundTransparency = 0.5
+				tween(c.Flash, 0.7, { BackgroundTransparency = 1 })
+			end
+			EP.drawn = EP.drawn or {}
+			EP.drawn[id] = state
+		end
+		-- the scope switch and the time picked
+		local s = EP.scope
+		tween(s.Knob, 0.2, { Position = EP.all and UDim2.new(0.5, 0, 0, 2) or UDim2.new(0, 2, 0, 2), BackgroundColor3 = EP.all and HOT or GOLD }, Enum.EasingStyle.Quint)
+		s.This.TextColor3 = EP.all and DIM or BLACK
+		s.All.TextColor3 = EP.all and WHITE or DIM
+		for _, d in EP.durs do
+			local on = d.Seconds == EP.seconds
+			d.Button.BackgroundColor3 = on and GOLD or TRACK
+			d.Button.TextColor3 = on and BLACK or DIM
+		end
+		local syncKey = workspace:GetAttribute("AdminEventsSync") or "Loading"
+		local sync = EP.SYNC[syncKey] or EP.SYNC.Loading
+		EP.syncText.Text = sync[1]
+		EP.syncDot.BackgroundColor3 = sync[2]
+		EP.sync.Edge.Color = sync[2]
+		if EP.all and syncKey == "Studio" then
+			EP.info.Text = "Studio: ALL SERVERS stays in this session (StudioSends is off)"
+			EP.info.TextColor3 = BLUE
+		elseif EP.all and syncKey ~= "Live" then
+			EP.info.Text = "Messaging isn't answering: ALL SERVERS reaches this server only"
+			EP.info.TextColor3 = AMBER
+		else
+			EP.info.Text = string.format("%d running (%d at most)  ·  %s", n, AEC().MaxRunning or 4, EP.all and "START reaches every server" or "START: this server")
+			EP.info.TextColor3 = DIM
+		end
+		EP.canStopAll = n > 0
+		local armed = EP.armed ~= nil and EP.canStopAll
+		EP.stopAll.AutoButtonColor = EP.canStopAll
+		EP.stopAll.BackgroundColor3 = armed and Color3.fromRGB(226, 92, 48) or EP.canStopAll and STOPRED or Color3.fromRGB(58, 60, 78)
+		EP.stopAll.TextColor3 = EP.canStopAll and WHITE or DIM
+		EP.stopAll.Text = armed and string.format("SURE? CLICK AGAIN: STOP %d EVENT%s%s", n, n == 1 and "" or "S", EP.all and " EVERYWHERE" or "")
+			or EP.canStopAll and (EP.all and "STOP EVERY EVENT, EVERY SERVER" or "STOP EVERY EVENT") or "NOTHING'S RUNNING"
+	end
+
+	function HUD.ToggleEventsPanel(force)
+		local frame = EP.frame
+		if not frame then
+			return false
+		end
+		if force ~= nil then
+			frame.Visible = force
+		else
+			frame.Visible = not frame.Visible
+		end
+		if frame.Visible then
+			EP.layout()
+			HUD.RefreshEventsPanel()
+			-- (the countdowns run while it's open)
+			EP.tickToken = (EP.tickToken or 0) + 1
+			local token = EP.tickToken
+			task.spawn(function()
+				while EP.tickToken == token and frame.Visible do
+					task.wait(0.25)
+					if next(running()) ~= nil then
+						HUD.RefreshEventsPanel()
+					end
+				end
+			end)
+		end
+		return frame.Visible
+	end
+
+	---------------------------------------------------------------- the banner
+	-- a camera-flash off the screen's top and bottom, in the event's colour
+	function EP.edgeFlash(color)
+		local holder = make("Frame", { Name = "AdminEventFlash", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 74, Parent = gui })
+		for _, y in { 0, 1 } do
+			local glow = make("Frame", {
+				AnchorPoint = Vector2.new(0, y),
+				Position = UDim2.fromScale(0, y),
+				Size = UDim2.fromScale(1, 0.24),
+				BackgroundColor3 = color:Lerp(WHITE, 0.35),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ZIndex = 74,
+				Parent = holder,
+			}, { make("UIGradient", { Rotation = y == 0 and 90 or -90, Transparency = NumberSequence.new(0, 1) }) })
+			tween(glow, 0.06, { BackgroundTransparency = 0.3 })
+			task.delay(0.08, function()
+				tween(glow, 0.8, { BackgroundTransparency = 1 })
+			end)
+		end
+		task.delay(1, function()
+			holder:Destroy()
+		end)
+	end
+	-- a strip of hazard stripes (the event's colour and black), scrolling
+	local function hazard(parent, y, color, z)
+		local strip = make("Frame", {
+			Name = "Hazard",
+			AnchorPoint = Vector2.new(0, y),
+			Position = UDim2.fromScale(0, y),
+			Size = UDim2.new(1, 0, 0, 12),
+			BackgroundColor3 = Color3.fromRGB(14, 12, 14),
+			BorderSizePixel = 0,
+			ClipsDescendants = true,
+			ZIndex = z,
+			Parent = parent,
+		})
+		local slide = make("Frame", {
+			Name = "Slide",
+			Size = UDim2.new(1, 64, 1, 0),
+			Position = UDim2.fromOffset(-64, 0),
+			BackgroundTransparency = 1,
+			ZIndex = z,
+			Parent = strip,
+		})
+		for i = 0, 70 do
+			make("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0, i * 32, 0.5, 0),
+				Size = UDim2.fromOffset(14, 34),
+				Rotation = 35,
+				BackgroundColor3 = color,
+				BorderSizePixel = 0,
+				ZIndex = z,
+				Parent = slide,
+			})
+		end
+		return strip, slide
+	end
+	-- spec: { Id, Name, Icon, Color, Blurb, Length, Global, By }. Returns when it's gone.
+	function EP.showBanner(spec)
+		local color = spec.Color or HOT
+		local bright = color:Lerp(WHITE, 0.25)
+		-- (the band as tall as the words in it: they follow the screen size)
+		local cam = workspace.CurrentCamera
+		local k = math.clamp(((cam and cam.ViewportSize.Y) or 720) / 720, 0.75, 1.5)
+		local holder = make("Frame", {
+			Name = "AdminEventBanner",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.3),
+			Size = UDim2.new(1, 0, 0, math.floor(196 * k)),
+			BackgroundTransparency = 1,
+			ZIndex = 75,
+			Parent = gui,
+		})
+		local band = make("Frame", {
+			Name = "Band",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(12, 10, 14),
+			BackgroundTransparency = 0.1,
+			BorderSizePixel = 0,
+			ZIndex = 75,
+			Parent = holder,
+		})
+		local squash = make("UIScale", { Scale = 1, Parent = band })
+		-- the colour washing in at the middle
+		make("Frame", {
+			Name = "Tint",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = color,
+			BackgroundTransparency = 0.25,
+			BorderSizePixel = 0,
+			ZIndex = 75,
+			Parent = band,
+		}, {
+			make("UIGradient", {
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(0.3, 0.55),
+					NumberSequenceKeypoint.new(0.5, 0.25),
+					NumberSequenceKeypoint.new(0.7, 0.55),
+					NumberSequenceKeypoint.new(1, 1),
+				}),
+			}),
+		})
+		local _, slideTop = hazard(band, 0, color, 76)
+		local _, slideBottom = hazard(band, 1, color, 76)
+		local flash = make("Frame", {
+			Name = "Flash",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ZIndex = 79,
+			Parent = band,
+		})
+		-- the words, in a block that follows the screen size
+		local content = make("Frame", {
+			Name = "Content",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(1000, 196),
+			BackgroundTransparency = 1,
+			ZIndex = 77,
+			Parent = band,
+		})
+		autoScale(content)
+		local kicker = make("TextLabel", {
+			Name = "Kicker",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 18),
+			Size = UDim2.fromOffset(800, 26),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 22,
+			TextColor3 = Color3.fromRGB(255, 226, 90),
+			Text = "⚠   A D M I N   A B U S E   ⚠",
+			TextTransparency = 1,
+			ZIndex = 78,
+			Parent = content,
+		}, { textStroke(2) })
+		local nameText = string.format("%s  %s  %s", spec.Icon or "", string.upper(spec.Name or "EVENT"), spec.Icon or "")
+		local nameHolder = make("Frame", {
+			Name = "NameHolder",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0, 90),
+			Size = UDim2.fromOffset(960, 84),
+			BackgroundTransparency = 1,
+			ZIndex = 78,
+			Parent = content,
+		})
+		local slam = make("UIScale", { Scale = 2.4, Parent = nameHolder })
+		make("TextLabel", {
+			Name = "Shadow",
+			Position = UDim2.fromOffset(5, 5),
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextScaled = true,
+			TextColor3 = color:Lerp(BLACK, 0.35),
+			Text = nameText,
+			TextTransparency = 1,
+			ZIndex = 78,
+			Parent = nameHolder,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 86, MinTextSize = 30 }) })
+		local name = make("TextLabel", {
+			Name = "EventName",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextScaled = true,
+			TextColor3 = WHITE,
+			Text = nameText,
+			TextTransparency = 1,
+			ZIndex = 79,
+			Parent = nameHolder,
+		}, { make("UIStroke", { Thickness = 3.5, Color = BLACK }), make("UITextSizeConstraint", { MaxTextSize = 86, MinTextSize = 30 }), gradient(WHITE, bright:Lerp(WHITE, 0.45), 90) })
+		local blurb = make("TextLabel", {
+			Name = "Blurb",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 134),
+			Size = UDim2.fromOffset(900, 20),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 17,
+			TextColor3 = WHITE,
+			Text = spec.Blurb or "",
+			TextTransparency = 1,
+			ZIndex = 78,
+			Parent = content,
+		}, { textStroke(1.5) })
+		-- the pills: how long, every server, who
+		local pills = make("Frame", {
+			Name = "Pills",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 160),
+			Size = UDim2.fromOffset(700, 20),
+			BackgroundTransparency = 1,
+			ZIndex = 78,
+			Parent = content,
+		}, { make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }) })
+		local function pillOf(order, text, bg, fg)
+			local p = make("TextLabel", {
+				Name = "Pill",
+				LayoutOrder = order,
+				AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.fromOffset(0, 20),
+				BackgroundColor3 = bg,
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 12,
+				TextColor3 = fg,
+				TextTransparency = 1,
+				Text = text,
+				ZIndex = 78,
+				Parent = pills,
+			}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), make("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }) })
+			return p
+		end
+		local pillList = { pillOf(1, "⏱ " .. clock(spec.Length or 0), color, WHITE) }
+		if spec.Global then
+			table.insert(pillList, pillOf(2, "ON EVERY SERVER", GOLD, BLACK))
+		end
+		if spec.By then
+			table.insert(pillList, pillOf(3, "BY " .. string.upper(spec.By), Color3.fromRGB(40, 40, 52), Color3.fromRGB(220, 222, 236)))
+		end
+		-- sparks thrown off the name as it lands
+		local sparks = {}
+		for i = 1, 18 do
+			local spark = make("Frame", {
+				Name = "Spark",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, 0, 0, 90),
+				Size = UDim2.fromOffset(i % 3 == 0 and 9 or 6, i % 3 == 0 and 9 or 6),
+				Rotation = 45,
+				BackgroundColor3 = i % 2 == 0 and WHITE or bright,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ZIndex = 79,
+				Parent = content,
+			})
+			table.insert(sparks, { spark, (i / 18) * math.pi * 2 + rng:NextNumber(-0.2, 0.2), rng:NextNumber(160, 420) })
+		end
+		if spec.OnShow then
+			task.spawn(spec.OnShow)
+		end
+		-- in: the band opens from a line, the kicker, then the name slams down
+		band.Size = UDim2.new(1, 0, 0, 6)
+		band.Position = UDim2.new(0, 0, 0.5, -3)
+		tween(band, 0.18, { Size = UDim2.fromScale(1, 1), Position = UDim2.fromScale(0, 0) }, Enum.EasingStyle.Quart)
+		tween(kicker, 0.2, { TextTransparency = 0 })
+		task.spawn(function()
+			-- (the stripes crawl)
+			local t0 = os.clock()
+			while holder.Parent do
+				local x = -64 + ((os.clock() - t0) * 90) % 32
+				slideTop.Position = UDim2.fromOffset(x, 0)
+				slideBottom.Position = UDim2.fromOffset(-64 + 32 - ((os.clock() - t0) * 90) % 32, 0)
+				task.wait(1 / 30)
+			end
+		end)
+		task.delay(0.3, function()
+			for _, l in { name, nameHolder.Shadow } do
+				tween(l, 0.12, { TextTransparency = 0 })
+			end
+			tween(slam, 0.28, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		end)
+		-- THE SLAM (on the sting's hit): a flash, the band jolts, sparks, the edges flash
+		task.delay(0.58, function()
+			if not holder.Parent then
+				return
+			end
+			flash.BackgroundTransparency = 0.35
+			tween(flash, 0.35, { BackgroundTransparency = 1 })
+			squash.Scale = 1.06
+			tween(squash, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+			EP.edgeFlash(color)
+			for _, s in sparks do
+				local spark, a, dist = s[1], s[2], s[3]
+				spark.BackgroundTransparency = 0
+				tween(spark, 0.6, {
+					Position = UDim2.new(0.5, math.cos(a) * dist, 0, 90 + math.sin(a) * dist * 0.28),
+					Rotation = 45 + rng:NextNumber(-180, 180),
+					BackgroundTransparency = 1,
+				}, Enum.EasingStyle.Quart)
+			end
+			tween(blurb, 0.25, { TextTransparency = 0 })
+			for _, p in pillList do
+				tween(p, 0.25, { TextTransparency = 0, BackgroundTransparency = 0 })
+			end
+			-- (the shake)
+			local t0 = os.clock()
+			while os.clock() - t0 < 0.32 and holder.Parent do
+				local k = 1 - (os.clock() - t0) / 0.32
+				holder.Position = UDim2.new(0.5, rng:NextNumber(-10, 10) * k, 0.3, rng:NextNumber(-6, 6) * k)
+				task.wait(1 / 30)
+			end
+			holder.Position = UDim2.fromScale(0.5, 0.3)
+		end)
+		-- held, then out to the side
+		local hold = (AEC().Banner and AEC().Banner.Hold) or 3.2
+		task.wait(0.6 + hold)
+		if holder.Parent then
+			tween(holder, 0.32, { Position = UDim2.fromScale(-0.55, 0.3) }, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+			task.wait(0.34)
+			holder:Destroy()
+		end
+	end
+	-- queued: one at a time (a burst of starts shows the first four)
+	function HUD.EventBanner(spec)
+		if not gui or type(spec) ~= "table" or #EP.queue >= 4 then
+			return
+		end
+		table.insert(EP.queue, spec)
+		if EP.showing then
+			return
+		end
+		EP.showing = true
+		task.spawn(function()
+			while #EP.queue > 0 do
+				local s = table.remove(EP.queue, 1)
+				if not s.Still or s.Still() then
+					local ok, err = pcall(EP.showBanner, s)
+					if not ok then
+						warn("[HUD] event banner: " .. tostring(err))
+					end
+				end
+			end
+			EP.showing = false
+		end)
+	end
+
+	-- EVENT OVER: list = { { Name, Color, Icon } } (one band, however many ended)
+	function HUD.EventOver(list)
+		if not gui or type(list) ~= "table" or #list == 0 then
+			return
+		end
+		local first = list[1]
+		local color = (first.Color or HOT):Lerp(Color3.fromRGB(150, 150, 160), 0.4)
+		local holder = make("Frame", {
+			Name = "AdminEventOver",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.3),
+			Size = UDim2.fromOffset(640, 96),
+			BackgroundTransparency = 1,
+			ZIndex = 74,
+			Parent = gui,
+		})
+		autoScale(holder)
+		local band = make("Frame", {
+			Name = "Band",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(12, 12, 16),
+			BackgroundTransparency = 0.2,
+			ZIndex = 74,
+			Parent = holder,
+		}, {
+			make("UIGradient", {
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(0.15, 0),
+					NumberSequenceKeypoint.new(0.85, 0),
+					NumberSequenceKeypoint.new(1, 1),
+				}),
+			}),
+		})
+		local names = {}
+		for _, e in list do
+			table.insert(names, string.upper(e.Name or "EVENT"))
+		end
+		local nameText = table.concat(names, "  ·  ")
+		local label = make("TextLabel", {
+			Name = "Names",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.36),
+			Size = UDim2.fromOffset(560, 34),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextScaled = true,
+			TextColor3 = color,
+			Text = nameText,
+			ZIndex = 75,
+			Parent = band,
+		}, { textStroke(1.5), make("UITextSizeConstraint", { MaxTextSize = 26, MinTextSize = 10 }) })
+		-- struck through
+		local strike = make("Frame", {
+			Name = "Strike",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0.5, -230, 0.36, 0),
+			Size = UDim2.fromOffset(0, 4),
+			Rotation = -2,
+			BackgroundColor3 = Color3.fromRGB(255, 70, 60),
+			BorderSizePixel = 0,
+			ZIndex = 76,
+			Parent = band,
+		}, { corner(2) })
+		local stamp = make("TextLabel", {
+			Name = "Stamp",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.74),
+			Size = UDim2.fromOffset(300, 40),
+			Rotation = -5,
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 38,
+			TextColor3 = Color3.fromRGB(255, 76, 64),
+			TextTransparency = 1,
+			Text = #list > 1 and "EVENTS OVER" or "EVENT OVER",
+			ZIndex = 77,
+			Parent = band,
+		}, { make("UIStroke", { Thickness = 2.5, Color = WHITE, Transparency = 1 }) })
+		local stampScale = make("UIScale", { Scale = 1.9, Parent = stamp })
+		tween(strike, 0.32, { Size = UDim2.fromOffset(460, 4) }, Enum.EasingStyle.Quint)
+		task.delay(0.16, function()
+			tween(stamp, 0.1, { TextTransparency = 0 })
+			tween(stamp.UIStroke, 0.1, { Transparency = 0 })
+			tween(stampScale, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
+		end)
+		task.delay(2.2, function()
+			for _, d in holder:GetDescendants() do
+				if d:IsA("TextLabel") then
+					tween(d, 0.4, { TextTransparency = 1 })
+				elseif d:IsA("Frame") then
+					tween(d, 0.4, { BackgroundTransparency = 1 })
+				elseif d:IsA("UIStroke") then
+					tween(d, 0.4, { Transparency = 1 })
+				end
+			end
+			tween(holder, 0.4, { Position = UDim2.new(0.5, 0, 0.3, -16) })
+			task.wait(0.42)
+			holder:Destroy()
+		end)
+	end
+
+	---------------------------------------------------------------- the chips
+	-- top centre, one per event running: its icon, name, time left (red and
+	-- pulsing the last 10 s), a bar running down, a note (EVERY SERVER, your
+	-- bills...). Under the raid boss's bar while a Nomu's in the city; on a
+	-- narrow screen in two rows (clear of the rank card on the right).
+	EP.CHIP_W, EP.CHIP_H, EP.CHIP_GAP = 190, 36, 6
+	local function chipRow()
+		if EP.row or not gui then
+			return EP.row
+		end
+		EP.row = make("Frame", {
+			Name = "AdminEventChips",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 46),
+			Size = UDim2.fromOffset(EP.CHIP_W, EP.CHIP_H),
+			BackgroundTransparency = 1,
+			ZIndex = 15,
+			Parent = gui,
+		})
+		EP.rowScale = autoScale(EP.row)
+		return EP.row
+	end
+	local function makeChip(order, id, d)
+		local chip = make("Frame", {
+			Name = id,
+			LayoutOrder = order,
+			Size = UDim2.fromOffset(EP.CHIP_W, EP.CHIP_H),
+			BackgroundColor3 = GLASS.Color,
+			BackgroundTransparency = GLASS.T,
+			ZIndex = 15,
+			Parent = EP.row,
+		}, { corner(6), make("UIStroke", { Name = "Edge", Thickness = 1, Color = d.Color, Transparency = 0.35, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+		local icon = iconDisc(chip, d, 26, 15, 16)
+		icon.Position = UDim2.fromOffset(5, 5)
+		local name = make("TextLabel", {
+			Name = "EventName",
+			Position = UDim2.fromOffset(36, 4),
+			Size = UDim2.new(1, -86, 0, 14),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = d.Name,
+			ZIndex = 16,
+			Parent = chip,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 11, MinTextSize = 7 }) })
+		local note = make("TextLabel", {
+			Name = "Note",
+			Position = UDim2.fromOffset(36, 18),
+			Size = UDim2.new(1, -86, 0, 11),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 9,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = d.Color:Lerp(WHITE, 0.4),
+			Text = "",
+			ZIndex = 16,
+			Parent = chip,
+		})
+		local time = make("TextLabel", {
+			Name = "Time",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -8, 0.5, -1),
+			Size = UDim2.fromOffset(48, 20),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 16,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = WHITE,
+			Text = "",
+			ZIndex = 16,
+			Parent = chip,
+		}, { textStroke(1) })
+		local bar = make("Frame", {
+			Name = "Bar",
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 4, 1, -2),
+			Size = UDim2.new(1, -8, 0, 2),
+			BackgroundColor3 = d.Color,
+			BorderSizePixel = 0,
+			ZIndex = 16,
+			Parent = chip,
+		})
+		local pop = make("UIScale", { Scale = 0.4, Parent = chip })
+		tween(pop, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+		EP.chips[id] = { Chip = chip, Name = name, Note = note, Time = time, Bar = bar, Def = d, Pop = pop }
+	end
+	-- list: { { Id, Ends, Length, Global } } in Order (empty: none)
+	function HUD.SetEventChips(list)
+		if not gui then
+			return
+		end
+		local row = chipRow()
+		local keep = {}
+		for order, e in list do
+			local d = def(e.Id)
+			if d then
+				keep[e.Id] = true
+				if not EP.chips[e.Id] then
+					makeChip(order, e.Id, d)
+				end
+				local c = EP.chips[e.Id]
+				c.Chip.LayoutOrder = order
+				c.Ends, c.Length, c.Global = e.Ends, e.Length, e.Global
+			end
+		end
+		for id, c in EP.chips do
+			if not keep[id] then
+				EP.chips[id] = nil
+				local chip = c.Chip
+				tween(c.Pop, 0.2, { Scale = 0.3 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				task.delay(0.21, function()
+					chip:Destroy()
+				end)
+			end
+		end
+		EP.drawChips()
+		if next(EP.chips) ~= nil and not EP.chipsTicking then
+			EP.chipsTicking = true
+			task.spawn(function()
+				while next(EP.chips) ~= nil do
+					EP.drawChips()
+					task.wait(0.1)
+				end
+				EP.chipsTicking = false
+			end)
+		end
+		return row
+	end
+	function HUD.SetEventChipNote(id, text)
+		EP.notes[id] = text
+		EP.drawChips()
+	end
+	function EP.drawChips()
+		if not EP.row then
+			return
+		end
+		-- (a Nomu raid's boss bar is up there: under it)
+		local raid = gui.Parent and gui.Parent:FindFirstChild("NomuRaidGui")
+		local boss = raid and raid:FindFirstChild("Boss", true)
+		EP.row.Position = UDim2.new(0.5, 0, 0, (boss and boss:IsA("GuiObject") and boss.Visible) and 100 or 46)
+		-- (as many to a row as fit between the rank card's column and its twin on the left)
+		local cam = workspace.CurrentCamera
+		local vpX = (cam and cam.ViewportSize.X) or 1280
+		local k = (EP.rowScale and EP.rowScale.Scale) or 1
+		local step = EP.CHIP_W + EP.CHIP_GAP
+		local perRow = math.max(1, math.floor(((vpX - 352) / k + EP.CHIP_GAP) / step))
+		local list = {}
+		for _, c in EP.chips do
+			table.insert(list, c)
+		end
+		table.sort(list, function(a, b)
+			return a.Chip.LayoutOrder < b.Chip.LayoutOrder
+		end)
+		local n = #list
+		local wide = math.max(math.min(n, perRow) * step - EP.CHIP_GAP, EP.CHIP_W)
+		EP.row.Size = UDim2.fromOffset(wide, math.max(1, math.ceil(n / perRow)) * (EP.CHIP_H + EP.CHIP_GAP) - EP.CHIP_GAP)
+		for i, c in list do
+			local r, col = (i - 1) // perRow, (i - 1) % perRow
+			local m = math.min(perRow, n - r * perRow)
+			c.Chip.Position = UDim2.fromOffset((wide - (m * step - EP.CHIP_GAP)) / 2 + col * step, r * (EP.CHIP_H + EP.CHIP_GAP))
+		end
+		local t = now()
+		for id, c in EP.chips do
+			local left = math.max(0, (c.Ends or t) - t)
+			c.Time.Text = clock(left)
+			local hurry = left <= 10
+			c.Time.TextColor3 = hurry and Color3.fromRGB(255, 90 + 80 * (0.5 + 0.5 * math.cos(os.clock() * 8)), 80) or WHITE
+			c.Bar.Size = UDim2.new(math.clamp(left / math.max(c.Length or 1, 1), 0, 1), -8, 0, 2)
+			c.Note.Text = EP.notes[id] or (c.Global and "EVERY SERVER" or "")
+		end
+	end
+
+	---------------------------------------------------------------- the reel
+	-- HERO SHUFFLE's slot machine: heroes rolling past, slowing, landing on
+	-- yours at spin s. opts: { Pool = { ids }, OnTick = fn (a hero going by),
+	-- OnLand = fn }
+	function HUD.ShuffleReel(hero, spin, opts)
+		opts = type(opts) == "table" and opts or {}
+		local q = Config.Quirks[hero or ""]
+		if not gui or not q then
+			return
+		end
+		local old = gui:FindFirstChild("AdminShuffleReel")
+		if old then
+			old:Destroy()
+		end
+		spin = math.clamp(tonumber(spin) or 2.6, 0.5, 6)
+		local CELL = 40
+		local holder = make("Frame", {
+			Name = "AdminShuffleReel",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.42),
+			Size = UDim2.fromOffset(380, 212),
+			BackgroundColor3 = Color3.fromRGB(20, 16, 12),
+			BackgroundTransparency = 0.08,
+			ZIndex = 72,
+			Parent = gui,
+		}, { corner(14), make("UIStroke", { Thickness = 3, Color = GOLD, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+		autoScale(holder)
+		local pop = make("UIScale", { Scale = 0.6, Parent = holder })
+		tween(pop, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+		make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(0, 6),
+			Size = UDim2.new(1, 0, 0, 34),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 32,
+			TextColor3 = GOLD,
+			Text = "🎰  HERO SHUFFLE  🎰",
+			ZIndex = 73,
+			Parent = holder,
+		}, { textStroke(2) })
+		local window = make("Frame", {
+			Name = "Window",
+			Position = UDim2.fromOffset(20, 44),
+			Size = UDim2.new(1, -40, 0, CELL * 3),
+			BackgroundColor3 = Color3.fromRGB(8, 8, 12),
+			ClipsDescendants = true,
+			ZIndex = 73,
+			Parent = holder,
+		}, { corner(8) })
+		local strip = make("Frame", {
+			Name = "Strip",
+			Size = UDim2.new(1, 0, 0, 0),
+			BackgroundTransparency = 1,
+			ZIndex = 74,
+			Parent = window,
+		})
+		-- the heroes going by: the pool shuffled, three times round, ending on his
+		local pool = type(opts.Pool) == "table" and opts.Pool or Config.QuirkOrder
+		local seq = {}
+		for _ = 1, 3 do
+			local round = table.clone(pool)
+			for i = #round, 2, -1 do
+				local j = rng:NextInteger(1, i)
+				round[i], round[j] = round[j], round[i]
+			end
+			for _, h in round do
+				if Config.Quirks[h] then
+					table.insert(seq, h)
+				end
+			end
+		end
+		table.insert(seq, hero)
+		table.insert(seq, pool[1] or hero) -- (one under it, so the window's full)
+		local cells = {}
+		for i, h in seq do
+			local hq = Config.Quirks[h]
+			local cell = make("Frame", {
+				Name = "Cell",
+				Position = UDim2.fromOffset(0, (i - 1) * CELL),
+				Size = UDim2.new(1, 0, 0, CELL),
+				BackgroundTransparency = 1,
+				ZIndex = 74,
+				Parent = strip,
+			})
+			local b = make("Frame", {
+				Name = "Badge",
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 70, 0.5, 0),
+				Size = UDim2.fromOffset(30, 30),
+				BackgroundColor3 = hq.Color,
+				ZIndex = 75,
+				Parent = cell,
+			}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), gradient(WHITE, Color3.fromRGB(150, 150, 150), 90) })
+			make("TextLabel", {
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 12,
+				TextColor3 = WHITE,
+				Text = initials(hq.DisplayName),
+				ZIndex = 76,
+				Parent = b,
+			}, { textStroke(1) })
+			make("TextLabel", {
+				Name = "HeroName",
+				Position = UDim2.fromOffset(110, 0),
+				Size = UDim2.new(1, -120, 1, 0),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 17,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = WHITE,
+				Text = string.upper(hq.DisplayName or h),
+				ZIndex = 75,
+				Parent = cell,
+			}, { textStroke(1) })
+			cells[i] = cell
+		end
+		-- the payline across the middle
+		local line = make("Frame", {
+			Name = "Payline",
+			Position = UDim2.fromOffset(0, CELL),
+			Size = UDim2.new(1, 0, 0, CELL),
+			BackgroundTransparency = 1,
+			ZIndex = 77,
+			Parent = window,
+		}, { make("UIStroke", { Thickness = 2, Color = GOLD, Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+		for _, y in { 0, 1 } do
+			make("Frame", {
+				AnchorPoint = Vector2.new(0, y),
+				Position = UDim2.fromScale(0, y),
+				Size = UDim2.new(1, 0, 0, CELL),
+				BackgroundColor3 = Color3.fromRGB(8, 8, 12),
+				BorderSizePixel = 0,
+				ZIndex = 77,
+				Parent = window,
+			}, { make("UIGradient", { Rotation = y == 0 and 90 or -90, Transparency = NumberSequence.new(0.1, 1) }) })
+		end
+		local result = make("TextLabel", {
+			Name = "Result",
+			Position = UDim2.new(0, 0, 1, -44),
+			Size = UDim2.new(1, 0, 0, 30),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 19,
+			TextColor3 = q.Color:Lerp(WHITE, 0.3),
+			TextTransparency = 1,
+			Text = (opts.Back and "BACK TO " or "YOU'RE ") .. string.upper(q.DisplayName or hero) .. "!",
+			ZIndex = 73,
+			Parent = holder,
+		}, { textStroke(1.5) })
+		-- the roll: fast, then slowing onto his row (cubic ease out)
+		local final = (#seq - 3) * CELL -- (his cell, #seq - 1, in the middle row: its top at CELL)
+		local t0, lastCell = os.clock(), 0
+		while holder.Parent do
+			local a = math.clamp((os.clock() - t0) / spin, 0, 1)
+			local y = final * (1 - (1 - a) ^ 3)
+			strip.Position = UDim2.fromOffset(0, -y)
+			local passing = math.floor(y / CELL + 0.5)
+			if passing ~= lastCell then
+				lastCell = passing
+				if opts.OnTick then
+					task.spawn(opts.OnTick)
+				end
+			end
+			if a >= 1 then
+				break
+			end
+			task.wait()
+		end
+		if not holder.Parent then
+			return
+		end
+		-- (the shuffle ended while it rolled: the server deals nothing)
+		if opts.Still and not opts.Still() then
+			result.Text = "HERO SHUFFLE'S OVER"
+			result.TextColor3 = DIM
+			tween(result, 0.15, { TextTransparency = 0 })
+			task.wait(0.8)
+			if holder.Parent then
+				holder:Destroy()
+			end
+			return
+		end
+		-- landed: the payline lights in his colour, his row jumps, the result
+		line.BackgroundColor3 = q.Color
+		line.BackgroundTransparency = 0.5
+		tween(line, 0.6, { BackgroundTransparency = 0.85 })
+		line.UIStroke.Color = q.Color:Lerp(WHITE, 0.3)
+		local mine = cells[#seq - 1]
+		if mine then
+			local s = make("UIScale", { Scale = 1.25, Parent = mine })
+			tween(s, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+		end
+		tween(result, 0.15, { TextTransparency = 0 })
+		if opts.OnLand then
+			task.spawn(opts.OnLand)
+		end
+		task.wait(0.95)
+		if holder.Parent then
+			tween(pop, 0.25, { Scale = 0.7 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			for _, d in holder:GetDescendants() do
+				if d:IsA("TextLabel") then
+					tween(d, 0.25, { TextTransparency = 1 })
+				elseif d:IsA("Frame") then
+					tween(d, 0.25, { BackgroundTransparency = 1 })
+				end
+			end
+			tween(holder, 0.25, { BackgroundTransparency = 1 })
+			task.wait(0.27)
+			holder:Destroy()
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 87) THE DIRECTOR CAMERA on the screen (Config.Director; the camera
+-- itself is in QuirkClient). Two screens of its own over everything (the
+-- game's HUD is off while it runs):
+--  THE FRAME (DirectorFrame): the letterbox - 2.39:1 bars top and bottom,
+--   or a 9:16 frame for TikTok (dimmed outside while the overlay's up, black
+--   when it isn't: crop the recording to it). It slides in and out.
+--  THE OVERLAY (DirectorOverlay) - one key hides all of it (and the mouse),
+--   so the frame is clean for recording: a viewfinder's corners and centre;
+--   the slate (top left: the shot - its chips click -, the target, the
+--   speed, zoom, roll, time and how it moves; what's on: focus, grade,
+--   shake, frame, grid, body, cutscenes; a running time code, an exit); the
+--   keys for the shot you're in (bottom left: a controller's on a
+--   controller, buttons on a phone); slow motion or the freeze frame big at
+--   the top right; the dolly's keys and its progress (bottom middle); the
+--   rule-of-thirds grid; a marker round the target; a word on each switch;
+--   the shutter's flash. In the 9:16 frame the slate and the keys stand
+--   outside it, where they're not in the shot.
+---------------------------------------------------------------------------
+do
+	local HD = { cb = {}, frameMode = "Off", overlay = true, grid = false, toastToken = 0, keysText = "" }
+	HUD.Director = HD
+	local WHITE = Color3.new(1, 1, 1)
+	local ACC = Color3.fromRGB(255, 196, 64)
+	local REC = Color3.fromRGB(255, 64, 64)
+	local DIM = Color3.fromRGB(150, 156, 180)
+	local TXT = Color3.fromRGB(226, 230, 242)
+	local CHIP = Color3.fromRGB(38, 40, 57)
+	local SLOWC = Color3.fromRGB(110, 190, 255)
+	local MODES = { "FREE", "ORBIT", "TRACK", "FOLLOW", "DOLLY" }
+	local PILLS = { "FOCUS", "GRADE", "SHAKE", "FRAME", "GRID", "BODY", "CUTS" }
+
+	local function label(props, children)
+		props.BackgroundTransparency = 1
+		props.TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left
+		props.TextColor3 = props.TextColor3 or TXT
+		return make("TextLabel", props, children)
+	end
+	-- a thin line (the viewfinder, the grid, the marker)
+	local function line(parent, name, transparency, color)
+		return make("Frame", {
+			Name = name,
+			BackgroundColor3 = color or WHITE,
+			BackgroundTransparency = transparency or 0.3,
+			BorderSizePixel = 0,
+			Parent = parent,
+		})
+	end
+	-- the part of the screen that's in the shot: x, y, w, h
+	function HD.frameRect(mode, W, H)
+		local FR = (Config and Config.Director or {}).Frame or {}
+		if mode == "Scope" then
+			local h = math.min(H, W / (FR.Scope or 2.39))
+			return 0, (H - h) / 2, W, h
+		elseif mode == "Vertical" then
+			local w = math.min(W, H * (FR.Vertical or 9 / 16))
+			return (W - w) / 2, 0, w, H
+		end
+		return 0, 0, W, H
+	end
+	function HD.size()
+		local s = HD.frame and HD.frame.AbsoluteSize
+		if s and s.X > 0 and s.Y > 0 then
+			return s.X, s.Y
+		end
+		local cam = workspace.CurrentCamera
+		local vp = cam and cam.ViewportSize
+		return vp and vp.X > 0 and vp.X or 1280, vp and vp.Y > 0 and vp.Y or 720
+	end
+
+	-- a piece that grows with the screen (its own scale: layout sets it)
+	function HD.scaled(frame)
+		local sc = make("UIScale", { Name = "DirectorScale", Parent = frame })
+		table.insert(HD.scales, sc)
+		return sc
+	end
+
+	function HD.build()
+		local parent = gui.Parent
+		HD.scales = {}
+		HD.frame = make("ScreenGui", { Name = "DirectorFrame", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 57, Parent = parent })
+		HD.bars = {}
+		for _, name in { "Top", "Bottom", "Left", "Right" } do
+			HD.bars[name] = make("Frame", {
+				Name = name,
+				Size = UDim2.fromOffset(0, 0),
+				BackgroundColor3 = Color3.new(0, 0, 0),
+				BorderSizePixel = 0,
+				Parent = HD.frame,
+			})
+		end
+		HD.bars.Bottom.AnchorPoint = Vector2.new(0, 1)
+		HD.bars.Bottom.Position = UDim2.fromScale(0, 1)
+		HD.bars.Right.AnchorPoint = Vector2.new(1, 0)
+		HD.bars.Right.Position = UDim2.fromScale(1, 0)
+		-- (round 87 review) a phone has no H: with the overlay hidden for
+		-- the recording, a tap anywhere on the screen brings it back (this
+		-- invisible button is all there is - nothing shows in the shot)
+		HD.reveal = make("TextButton", {
+			Name = "Reveal", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, AutoButtonColor = false, Font = UI_FONT, TextSize = 1, Text = "",
+			ZIndex = 5, Visible = false, Parent = HD.frame,
+		})
+		HD.reveal.Activated:Connect(function()
+			if HD.cb.Reveal then
+				HD.cb.Reveal()
+			end
+		end)
+
+		local ov = make("ScreenGui", { Name = "DirectorOverlay", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 58, Parent = parent })
+		HD.gui = ov
+		-- the shutter's flash
+		HD.flash = make("Frame", { Name = "Flash", Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1, Parent = ov })
+		-- the viewfinder: four corners, the centre
+		HD.corners = {}
+		for i = 1, 4 do
+			HD.corners[i] = { h = line(ov, "CornerH" .. i, 0.25), v = line(ov, "CornerV" .. i, 0.25) }
+		end
+		HD.cross = { h = line(ov, "CrossH", 0.55), v = line(ov, "CrossV", 0.55) }
+		-- the rule of thirds
+		HD.gridLines = {}
+		for i = 1, 4 do
+			HD.gridLines[i] = line(ov, "Third" .. i, 0.55)
+			HD.gridLines[i].Visible = false
+		end
+		-- the marker round the target
+		HD.marker = make("Frame", { Name = "Marker", BackgroundTransparency = 1, Size = UDim2.fromOffset(60, 60), AnchorPoint = Vector2.new(0.5, 0.5), Visible = false, Parent = ov })
+		for i = 1, 4 do
+			local sx, sy = (i == 1 or i == 3) and 0 or 1, (i <= 2) and 0 or 1
+			local h = line(HD.marker, "MarkH" .. i, 0, ACC)
+			h.AnchorPoint = Vector2.new(sx, sy)
+			h.Position = UDim2.fromScale(sx, sy)
+			h.Size = UDim2.new(0.28, 0, 0, 2)
+			local v = line(HD.marker, "MarkV" .. i, 0, ACC)
+			v.AnchorPoint = Vector2.new(sx, sy)
+			v.Position = UDim2.fromScale(sx, sy)
+			v.Size = UDim2.new(0, 2, 0.28, 0)
+		end
+		HD.markerName = label({
+			Name = "Name", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -4), Size = UDim2.fromOffset(200, 16),
+			Font = HEAD_FONT, TextSize = 12, TextColor3 = ACC, TextXAlignment = Enum.TextXAlignment.Center, Text = "", Parent = HD.marker,
+		}, { textStroke(1) })
+
+		-- THE SLATE (top left)
+		local slate = make("Frame", {
+			Name = "Slate", Size = UDim2.fromOffset(300, 152), BackgroundColor3 = GLASS.Color, BackgroundTransparency = 0.18, Parent = ov,
+		}, { corner(10), edge(0.82) })
+		HD.scaled(slate)
+		HD.slate = slate
+		HD.rec = make("Frame", { Name = "Rec", Position = UDim2.fromOffset(12, 12), Size = UDim2.fromOffset(9, 9), BackgroundColor3 = REC, Parent = slate }, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+		})
+		label({ Name = "Title", Position = UDim2.fromOffset(26, 3), Size = UDim2.fromOffset(150, 24), Font = COMIC_FONT, TextSize = 24, TextColor3 = WHITE, Text = "DIRECTOR", Parent = slate }, { textStroke(1) })
+		HD.tc = label({
+			Name = "Timecode", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -40, 0, 9), Size = UDim2.fromOffset(90, 14),
+			Font = UI_FONT, TextSize = 12, TextColor3 = DIM, TextXAlignment = Enum.TextXAlignment.Right, Text = "00:00.0", Parent = slate,
+		})
+		HD.exit = make("TextButton", {
+			Name = "Exit", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -9, 0, 6), Size = UDim2.fromOffset(22, 22),
+			BackgroundColor3 = CHIP, AutoButtonColor = true, Font = UI_FONT, TextSize = 12, TextColor3 = WHITE, Text = "X", Parent = slate,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		HD.exit.Activated:Connect(function()
+			if HD.cb.Exit then
+				HD.cb.Exit()
+			end
+		end)
+		HD.chips = {}
+		for i, name in MODES do
+			local chip = make("TextButton", {
+				Name = "Chip_" .. name, Position = UDim2.fromOffset(10 + (i - 1) * 57, 33), Size = UDim2.fromOffset(53, 21),
+				BackgroundColor3 = CHIP, AutoButtonColor = false, Font = HEAD_FONT, TextSize = 10, TextColor3 = TXT, Text = name, Parent = slate,
+			}, { corner(5) })
+			chip.Activated:Connect(function()
+				if HD.cb.Mode then
+					HD.cb.Mode(name)
+				end
+			end)
+			HD.chips[name] = chip
+		end
+		label({ Name = "TargetLabel", Position = UDim2.fromOffset(12, 63), Size = UDim2.fromOffset(52, 12), Font = UI_FONT, TextSize = 9, TextColor3 = DIM, Text = "TARGET", Parent = slate })
+		HD.target = label({ Name = "Target", Position = UDim2.fromOffset(62, 59), Size = UDim2.fromOffset(226, 18), Font = HEAD_FONT, TextSize = 13, RichText = true, TextTruncate = Enum.TextTruncate.AtEnd, Text = "", Parent = slate })
+		HD.stats = {}
+		for i, key in { "Speed", "Fov", "Roll", "Time", "Move" } do
+			local x = 12 + (i - 1) * 57
+			HD.stats[key] = {
+				name = label({ Name = key .. "Label", Position = UDim2.fromOffset(x, 84), Size = UDim2.fromOffset(56, 11), Font = UI_FONT, TextSize = 9, TextColor3 = DIM, Text = "", Parent = slate }),
+				value = label({ Name = key, Position = UDim2.fromOffset(x, 95), Size = UDim2.fromOffset(54, 18), Font = HEAD_FONT, TextScaled = true, TextColor3 = WHITE, Text = "", Parent = slate },
+					{ make("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 8 }) }),
+			}
+		end
+		HD.pills = {}
+		for i, name in PILLS do
+			HD.pills[name] = make("TextLabel", {
+				Name = "Pill_" .. name, Position = UDim2.fromOffset(10 + (i - 1) * 41.5, 123), Size = UDim2.fromOffset(39, 17),
+				BackgroundColor3 = CHIP, Font = HEAD_FONT, TextScaled = true, TextColor3 = DIM, Text = name, Parent = slate,
+			}, { corner(4), make("UITextSizeConstraint", { MaxTextSize = 9, MinTextSize = 6 }), make("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3) }) })
+		end
+
+		-- THE KEYS (bottom left)
+		HD.keys = make("Frame", {
+			Name = "Keys", AnchorPoint = Vector2.new(0, 1), Size = UDim2.fromOffset(300, 60), BackgroundColor3 = GLASS.Color, BackgroundTransparency = 0.25, Parent = ov,
+		}, { corner(10), edge(0.85) })
+		HD.scaled(HD.keys)
+		HD.keysTitle = label({ Name = "Title", Position = UDim2.fromOffset(12, 7), Size = UDim2.fromOffset(276, 13), Font = HEAD_FONT, TextSize = 10, TextColor3 = ACC, Text = "KEYS", Parent = HD.keys })
+		HD.keyLines = {}
+
+		-- a phone: buttons for what a thumb can do
+		HD.touch = make("Frame", { Name = "Touch", AnchorPoint = Vector2.new(0, 1), Size = UDim2.fromOffset(330, 34), BackgroundTransparency = 1, Visible = false, Parent = ov })
+		HD.scaled(HD.touch)
+		-- (round 87 review: each as wide as its word - NEXT TARGET ran out of
+		-- its button on a phone; HIDE takes the overlay off for the recording;
+		-- layout puts them in rows that fit)
+		HD.touchButtons = {}
+		for i, spec in { { "Next", "NEXT TARGET", 100 }, { "Slow", "SLOW-MO", 80 }, { "Freeze", "FREEZE", 74 }, { "Frame", "FRAME", 68 }, { "Hide", "HIDE", 62 } } do
+			local b = make("TextButton", {
+				Name = spec[1], Position = UDim2.fromOffset((i - 1) * 84, 0), Size = UDim2.fromOffset(spec[3], 32), BackgroundColor3 = GLASS.Color,
+				BackgroundTransparency = 0.15, Font = HEAD_FONT, TextSize = 11, TextColor3 = WHITE, Text = spec[2], Parent = HD.touch,
+			}, { corner(8), edge(0.7) })
+			table.insert(HD.touchButtons, b)
+			b.Activated:Connect(function()
+				local fn = HD.cb[spec[1]]
+				if fn then
+					fn()
+				end
+			end)
+		end
+
+		-- slow motion / the freeze frame (top right)
+		HD.badge = make("Frame", {
+			Name = "Time", AnchorPoint = Vector2.new(1, 0), Size = UDim2.fromOffset(176, 62), BackgroundColor3 = GLASS.Color, BackgroundTransparency = 0.2, Visible = false, Parent = ov,
+		}, { corner(10), edge(0.8) })
+		HD.scaled(HD.badge)
+		HD.badgeLabel = label({ Name = "Label", Position = UDim2.fromOffset(12, 7), Size = UDim2.fromOffset(152, 12), Font = HEAD_FONT, TextSize = 10, TextColor3 = DIM, Text = "SLOW MOTION", Parent = HD.badge })
+		HD.badgeValue = label({ Name = "Value", Position = UDim2.fromOffset(12, 18), Size = UDim2.fromOffset(152, 38), Font = COMIC_FONT, TextSize = 38, TextColor3 = SLOWC, Text = "", Parent = HD.badge }, { textStroke(1.5) })
+
+		-- the dolly (bottom middle)
+		HD.dolly = make("Frame", {
+			Name = "Dolly", AnchorPoint = Vector2.new(0.5, 1), Size = UDim2.fromOffset(380, 50), BackgroundColor3 = GLASS.Color, BackgroundTransparency = 0.2, Visible = false, Parent = ov,
+		}, { corner(10), edge(0.82) })
+		HD.scaled(HD.dolly)
+		label({ Name = "Title", Position = UDim2.fromOffset(12, 6), Size = UDim2.fromOffset(60, 14), Font = HEAD_FONT, TextSize = 11, TextColor3 = ACC, Text = "DOLLY", Parent = HD.dolly })
+		-- (round 87 review: sized by the bar, which layout narrows to the
+		-- margin beside a phone's 9:16 frame - it used to stick into the shot)
+		HD.dollyInfo = label({ Name = "Info", Position = UDim2.fromOffset(66, 6), Size = UDim2.new(1, -78, 0, 14), Font = UI_FONT, TextSize = 12, TextScaled = true, TextColor3 = TXT, Text = "", Parent = HD.dolly },
+			{ make("UITextSizeConstraint", { MaxTextSize = 12, MinTextSize = 7 }) })
+		HD.dollyTrack = make("Frame", { Name = "Track", Position = UDim2.fromOffset(12, 30), Size = UDim2.new(1, -24, 0, 6), BackgroundColor3 = CHIP, BorderSizePixel = 0, Parent = HD.dolly }, { corner(3) })
+		HD.dollyFill = make("Frame", { Name = "Fill", Size = UDim2.fromScale(0, 1), BackgroundColor3 = ACC, BorderSizePixel = 0, Parent = HD.dollyTrack }, { corner(3) })
+		HD.dollyTicks = {}
+
+		-- a word on each switch
+		HD.toast = label({
+			Name = "Toast", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(700, 40), Font = COMIC_FONT, TextSize = 32,
+			TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, TextTransparency = 1, Text = "", Parent = ov,
+		}, { textStroke(2) })
+		HD.toastStroke = HD.toast:FindFirstChildOfClass("UIStroke")
+	end
+
+	-- where everything goes, for the screen and the frame it's in
+	function HD.layout()
+		if not HD.gui then
+			return
+		end
+		local W, H = HD.size()
+		local fx, fy, fw, fh = HD.frameRect(HD.frameMode, W, H)
+		HD.rect = { fx, fy, fw, fh }
+		-- the viewfinder, inset from the frame
+		local inset, arm = 8, 30
+		for i, c in HD.corners do
+			local right, bottom = i == 2 or i == 4, i >= 3
+			local x = right and (fx + fw - inset) or (fx + inset)
+			local y = bottom and (fy + fh - inset) or (fy + inset)
+			c.h.AnchorPoint = Vector2.new(right and 1 or 0, bottom and 1 or 0)
+			c.h.Position = UDim2.fromOffset(x, y)
+			c.h.Size = UDim2.fromOffset(arm, 2)
+			c.v.AnchorPoint = c.h.AnchorPoint
+			c.v.Position = UDim2.fromOffset(x, y)
+			c.v.Size = UDim2.fromOffset(2, arm)
+		end
+		HD.cross.h.AnchorPoint, HD.cross.v.AnchorPoint = Vector2.new(0.5, 0.5), Vector2.new(0.5, 0.5)
+		HD.cross.h.Position = UDim2.fromOffset(fx + fw / 2, fy + fh / 2)
+		HD.cross.v.Position = HD.cross.h.Position
+		HD.cross.h.Size, HD.cross.v.Size = UDim2.fromOffset(14, 1), UDim2.fromOffset(1, 14)
+		for i, g in HD.gridLines do
+			if i <= 2 then
+				g.Position = UDim2.fromOffset(fx + fw * i / 3, fy)
+				g.Size = UDim2.fromOffset(1, fh)
+			else
+				g.Position = UDim2.fromOffset(fx, fy + fh * (i - 2) / 3)
+				g.Size = UDim2.fromOffset(fw, 1)
+			end
+			g.Visible = HD.grid
+		end
+		-- the slate and the keys: in the frame's corners - or, in the 9:16
+		-- frame, beside it (where there's room)
+		local side = HD.frameMode == "Vertical" and fx >= 160
+		local lx = side and 18 or fx + 18
+		local top = side and 18 or fy + 18
+		local bottom = side and (H - 18) or (fy + fh - 18)
+		HD.slate.Position = UDim2.fromOffset(lx, top)
+		HD.keys.Position = UDim2.fromOffset(lx, bottom)
+		HD.touch.Position = UDim2.fromOffset(lx, bottom)
+		HD.badge.Position = UDim2.fromOffset(side and (W - 18) or (fx + fw - 18), top)
+		-- (its own size on the screen: a phone's still readable)
+		local k = math.clamp(H / 720, 0.8, 1.4)
+		for _, sc in HD.scales do
+			sc.Scale = k
+		end
+		-- (the dolly's bar under the frame; beside it in the 9:16, right; on a
+		-- narrow screen in the right corner, clear of the keys)
+		local right = side or fw < 1000
+		HD.dolly.Size = UDim2.fromOffset(side and math.clamp((W - fx - fw - 36) / k, 220, 380) or 380, 50)
+		HD.dolly.AnchorPoint = right and Vector2.new(1, 1) or Vector2.new(0.5, 1)
+		HD.dolly.Position = side and UDim2.fromOffset(W - 18, H - 18)
+			or (right and UDim2.fromOffset(fx + fw - 18, bottom) or UDim2.fromOffset(fx + fw / 2, bottom))
+		HD.toast.Position = UDim2.fromOffset(fx + fw / 2, fy + fh * 0.82) -- (under a centred subject)
+		-- (round 87 review) a phone's buttons in rows that fit where they
+		-- stand (beside the 9:16 frame there's only its margin)
+		local avail = math.max(((side and fx or fw) - 36) / k, 120)
+		local x, y, widest = 0, 0, 0
+		for _, b in HD.touchButtons or {} do
+			local w = b.Size.X.Offset
+			if x > 0 and x + w > avail then
+				x, y = 0, y + 38
+			end
+			b.Position = UDim2.fromOffset(x, y)
+			x += w + 6
+			widest = math.max(widest, x - 6)
+		end
+		HD.touch.Size = UDim2.fromOffset(widest, y + 32)
+		-- (with the overlay hidden on a phone, a tap anywhere brings it back)
+		if HD.reveal then
+			HD.reveal.Visible = not HD.overlay and HD.input == "Touch"
+		end
+		-- (round 87 review) the screen changed size (a window resized, full
+		-- screen, a phone turned): the letterbox's bars follow at once
+		if HD.frame and HD.barsFor and (HD.barsFor.X ~= W or HD.barsFor.Y ~= H) then
+			HD.setBars(0)
+		end
+	end
+
+	-- on: build it (cb: what its buttons do - Mode(name), Exit, Next, Slow,
+	-- Freeze, Frame); off: every piece of it gone
+	function HUD.DirectorShow(on, cb)
+		if on then
+			HD.cb = cb or HD.cb
+			if not HD.gui then
+				HD.build()
+			end
+			HD.frameMode, HD.overlay, HD.grid = HD.frameMode or "Off", true, HD.grid == true
+			HD.gui.Enabled = true
+			HD.layout()
+			return
+		end
+		for _, key in { "frame", "gui" } do
+			if HD[key] then
+				HD[key]:Destroy()
+				HD[key] = nil
+			end
+		end
+		HD.cb = {}
+		table.clear(HD.keyLines)
+		table.clear(HD.dollyTicks)
+		HD.keysText = ""
+		HD.toastToken += 1
+		HD.barsFor, HD.reveal = nil, nil
+	end
+
+	-- the letterbox: Off, Scope (2.39:1), Vertical (9:16) - sliding in
+	function HUD.DirectorFrame(mode)
+		HD.frameMode = mode or "Off"
+		if not HD.frame then
+			return
+		end
+		HD.setBars(((Config and Config.Director or {}).Frame or {}).Slide or 0.35)
+		HD.layout()
+	end
+	-- the bars for the frame as the screen is now, over t s (0: at once - a
+	-- new tween on them takes over from one still sliding)
+	function HD.setBars(t)
+		local FR = (Config and Config.Director or {}).Frame or {}
+		local W, H = HD.size()
+		local fx, fy, fw, fh = HD.frameRect(HD.frameMode, W, H)
+		HD.barsFor = Vector2.new(W, H)
+		local dim = (HD.overlay and HD.frameMode == "Vertical") and (FR.Dim or 0.45) or 0
+		tween(HD.bars.Top, t, { Size = UDim2.fromOffset(W, fy) }, Enum.EasingStyle.Quint)
+		tween(HD.bars.Bottom, t, { Size = UDim2.fromOffset(W, H - fy - fh) }, Enum.EasingStyle.Quint)
+		tween(HD.bars.Left, t, { Size = UDim2.fromOffset(fx, H), BackgroundTransparency = dim }, Enum.EasingStyle.Quint)
+		tween(HD.bars.Right, t, { Size = UDim2.fromOffset(W - fx - fw, H), BackgroundTransparency = dim }, Enum.EasingStyle.Quint)
+	end
+
+	-- the overlay up / hidden (hidden: only the frame is left on the screen)
+	function HUD.DirectorOverlay(on)
+		HD.overlay = on == true
+		if HD.gui then
+			HD.gui.Enabled = HD.overlay
+		end
+		if HD.frame then
+			HUD.DirectorFrame(HD.frameMode) -- (the 9:16 frame's outside goes black for the recording)
+		end
+	end
+
+	function HUD.DirectorGrid(on)
+		HD.grid = on == true
+		HD.layout()
+	end
+
+	-- the target marker: at screen point p (nil: none), size px, its name
+	function HUD.DirectorMarker(p, size, name)
+		if not HD.marker then
+			return
+		end
+		HD.marker.Visible = p ~= nil
+		if p then
+			HD.marker.Position = UDim2.fromOffset(p.X, p.Y)
+			HD.marker.Size = UDim2.fromOffset(size, size * 1.4) -- (a body's about 4 studs wide, 5.5 tall)
+			HD.markerName.Text = name or ""
+		end
+	end
+
+	-- a word on a switch: up, held, gone
+	function HUD.DirectorToast(text, color)
+		if not HD.toast then
+			return
+		end
+		HD.toastToken += 1
+		local token = HD.toastToken
+		HD.toast.Text = text
+		HD.toast.TextColor3 = color or WHITE
+		HD.toast.TextTransparency = 0
+		if HD.toastStroke then
+			HD.toastStroke.Transparency = 0
+		end
+		task.delay(0.9, function()
+			if HD.toastToken == token and HD.toast then
+				tween(HD.toast, 0.35, { TextTransparency = 1 })
+				if HD.toastStroke then
+					tween(HD.toastStroke, 0.35, { Transparency = 1 })
+				end
+			end
+		end)
+	end
+
+	-- the shutter's flash (the freeze frame)
+	function HUD.DirectorFlash()
+		if HD.flash then
+			HD.flash.BackgroundTransparency = 0.3
+			tween(HD.flash, 0.3, { BackgroundTransparency = 1 })
+		end
+	end
+
+	-- the keys card: its title and lines (rich text: <b>keys</b>)
+	function HD.setKeys(title, lines)
+		local text = title .. "\n" .. table.concat(lines, "\n")
+		if text == HD.keysText then
+			return
+		end
+		HD.keysText = text
+		HD.keysTitle.Text = title
+		for i, s in lines do
+			local l = HD.keyLines[i]
+			if not l then
+				l = label({ Name = "Line" .. i, Position = UDim2.fromOffset(12, 23 + (i - 1) * 15), Size = UDim2.fromOffset(280, 15), Font = Enum.Font.GothamMedium, TextSize = 11, RichText = true, Text = "", Parent = HD.keys })
+				HD.keyLines[i] = l
+			end
+			l.Text = s
+			l.Visible = true
+		end
+		for i = #lines + 1, #HD.keyLines do
+			HD.keyLines[i].Visible = false
+		end
+		HD.keys.Size = UDim2.fromOffset(300, 30 + #lines * 15)
+	end
+
+	-- st: { mode, target, speedName, speed, fov, roll, time, timeName, move,
+	--   pills = { [name] = text or false }, tc (s), input, keysTitle, keys = { lines },
+	--   slow = nil | "0.25x" | "FREEZE", dolly = nil | { info, progress, marks = { 0..1 } } }
+	function HUD.DirectorUpdate(st)
+		if not HD.gui then
+			return
+		end
+		for name, chip in HD.chips do
+			local on = name == st.mode
+			chip.BackgroundColor3 = on and ACC or CHIP
+			chip.TextColor3 = on and Color3.new(0, 0, 0) or TXT
+		end
+		HD.target.Text = st.target or ""
+		local stats = HD.stats
+		stats.Speed.name.Text, stats.Speed.value.Text = st.speedName or "SPEED", st.speed or ""
+		stats.Fov.name.Text, stats.Fov.value.Text = "ZOOM", st.fov or ""
+		stats.Roll.name.Text, stats.Roll.value.Text = "ROLL", st.roll or ""
+		stats.Time.name.Text, stats.Time.value.Text = "TIME", st.time or ""
+		stats.Time.value.TextColor3 = (st.slow and st.slow ~= "") and SLOWC or WHITE
+		stats.Move.name.Text, stats.Move.value.Text = "MOVES", st.move or ""
+		for name, pill in HD.pills do
+			local v = st.pills and st.pills[name]
+			pill.Text = type(v) == "string" and v or name
+			pill.BackgroundColor3 = v and ACC or CHIP
+			pill.TextColor3 = v and Color3.new(0, 0, 0) or DIM
+		end
+		HD.tc.Text = string.format("%02d:%04.1f", math.floor((st.tc or 0) / 60), (st.tc or 0) % 60)
+		HD.rec.BackgroundTransparency = (math.floor((st.tc or 0) * 2) % 2 == 0) and 0 or 0.6
+		local touch = st.input == "Touch"
+		HD.input = st.input
+		HD.keys.Visible = not touch
+		HD.touch.Visible = touch
+		if not touch then
+			HD.setKeys(st.keysTitle or "KEYS", st.keys or {})
+		end
+		HD.badge.Visible = st.slow ~= nil
+		if st.slow then
+			local frozen = st.slow == "FREEZE"
+			HD.badgeLabel.Text = frozen and "FREEZE FRAME" or "SLOW MOTION"
+			HD.badgeValue.Text = st.slow
+			HD.badgeValue.TextColor3 = frozen and WHITE or SLOWC
+		end
+		local d = st.dolly
+		HD.dolly.Visible = d ~= nil
+		if d then
+			HD.dollyInfo.Text = d.info or ""
+			HD.dollyFill.Size = UDim2.fromScale(math.clamp(d.progress or 0, 0, 1), 1)
+			for i, m in d.marks or {} do
+				local tick = HD.dollyTicks[i]
+				if not tick then
+					tick = make("Frame", { Name = "Key" .. i, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(8, 8), Rotation = 45, BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 2, Parent = HD.dollyTrack })
+					HD.dollyTicks[i] = tick
+				end
+				tick.Position = UDim2.fromScale(m, 0.5)
+				tick.Visible = true
+			end
+			for i = #(d.marks or {}) + 1, #HD.dollyTicks do
+				HD.dollyTicks[i].Visible = false
+			end
+		end
+		HD.layout()
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 87) POSSESS on the screen (Config.Possess; the possession itself
+-- is QuirkClient's DevFly.PS and the server's Kit.PS). While a dev's in a
+-- body: a chip over the health bar - POSSESSING <its name>, K to leave -
+-- and the body's own keys in place of the hero's move boxes, each with its
+-- cooldown (the body's PossessCd_<act>: when it's ready, server time); the
+-- health bar is the body's (HUD.BindHumanoid). On a phone the round buttons
+-- say what they do in the body. And the test menu's POSSESS panel: every
+-- body there is to take (the dummies, the raid's Nomu), how far off, who's
+-- in it - TAKE one, or LEAVE the one you're in.
+---------------------------------------------------------------------------
+do
+	local PH = { boxes = {}, rows = {}, cb = {}, cdLen = {}, cdAt = {} }
+	HUD.PossessHud = PH
+	local PW = 360
+	local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
+	local INK = Color3.fromRGB(20, 12, 34)
+	local DIM = Color3.fromRGB(160, 154, 186)
+	-- (read when used: Config arrives with HUD.Init)
+	local function violet()
+		return (Config and Config.Possess and Config.Possess.Color) or Color3.fromRGB(150, 70, 255)
+	end
+	local function light(c)
+		return c:Lerp(WHITE, 0.55)
+	end
+	function PH.width(text, size, font)
+		local ok, w = pcall(function()
+			return HUD.Roster.textWidth(text, size, font)
+		end)
+		if ok and type(w) == "number" and w > 0 then
+			return w
+		end
+		-- (nothing to measure with: a generous guess - Gotham Black's capitals
+		-- run ~0.74 of its size)
+		return #text * size * (font == HEAD_FONT and 0.76 or 0.64)
+	end
+
+	-- the chip over the health bar (it rides with the bar, a phone's too)
+	function PH.chip()
+		if PH.chipFrame and PH.chipFrame.Parent then
+			return PH.chipFrame
+		end
+		if not vitals then
+			return nil
+		end
+		local v = violet()
+		local chip = make("Frame", {
+			Name = "PossessChip",
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 0, -8),
+			Size = UDim2.fromOffset(PW, 26),
+			BackgroundColor3 = INK,
+			BackgroundTransparency = 0.1,
+			Visible = false,
+			ZIndex = 5,
+			Parent = vitals,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			make("UIStroke", { Name = "Edge", Thickness = 1.5, Color = v, Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+			make("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 140, 170)), Rotation = 90 }),
+		})
+		-- (a heartbeat: the soul in the body)
+		make("Frame", {
+			Name = "Ring",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0, 16, 0.5, 0),
+			Size = UDim2.fromOffset(10, 10),
+			BackgroundTransparency = 1,
+			ZIndex = 6,
+			Parent = chip,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), make("UIStroke", { Thickness = 1.5, Color = v, Transparency = 0.2 }) })
+		make("Frame", {
+			Name = "Pulse",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0, 16, 0.5, 0),
+			Size = UDim2.fromOffset(8, 8),
+			BackgroundColor3 = light(v),
+			ZIndex = 7,
+			Parent = chip,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		make("TextLabel", {
+			Name = "Kicker",
+			Position = UDim2.fromOffset(28, 0),
+			Size = UDim2.new(0, 84, 1, 0),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = light(v),
+			Text = "POSSESSING",
+			ZIndex = 6,
+			Parent = chip,
+		})
+		make("TextLabel", {
+			Name = "Body",
+			Position = UDim2.fromOffset(106, 0),
+			Size = UDim2.new(1, -196, 1, 0),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 14,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = WHITE,
+			Text = "",
+			ZIndex = 6,
+			Parent = chip,
+		}, { textStroke(1) })
+		make("TextLabel", {
+			Name = "Key",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -54, 0.5, 0),
+			Size = UDim2.fromOffset(20, 18),
+			BackgroundColor3 = WHITE,
+			Font = HEAD_FONT,
+			TextSize = 12,
+			TextColor3 = BLACK,
+			Text = "K",
+			ZIndex = 6,
+			Parent = chip,
+		}, { corner(4) })
+		make("TextLabel", {
+			Name = "Leave",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -12, 0.5, 0),
+			Size = UDim2.fromOffset(38, 18),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = Color3.fromRGB(214, 206, 232),
+			Text = "LEAVE",
+			ZIndex = 6,
+			Parent = chip,
+		})
+		PH.chipFrame = chip
+		return chip
+	end
+
+	-- the body's keys, where the hero's move boxes were
+	function PH.dock()
+		if PH.dockFrame and PH.dockFrame.Parent then
+			return PH.dockFrame
+		end
+		local dock = vitals and vitals.Parent
+		if not dock then
+			return nil
+		end
+		local f = make("Frame", {
+			Name = "PossessMoves",
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -26),
+			Size = UDim2.fromOffset(560, 70),
+			BackgroundTransparency = 1,
+			Visible = false,
+			Parent = dock,
+		}, {
+			make("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				Padding = UDim.new(0, 8),
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		for i = 1, 4 do
+			local box = make("Frame", {
+				Name = "Move" .. i,
+				Size = UDim2.fromOffset(104, 70),
+				BackgroundColor3 = GLASS.Color,
+				BackgroundTransparency = GLASS.T,
+				ClipsDescendants = true,
+				LayoutOrder = i,
+				Parent = f,
+			}, { edge(), corner(3) })
+			local key = make("TextLabel", {
+				Name = "Key",
+				Position = UDim2.fromOffset(6, 5),
+				Size = UDim2.fromOffset(70, 16),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = WHITE,
+				TextTransparency = 0.3,
+				Text = "",
+				ZIndex = 3,
+				Parent = box,
+			})
+			local name = make("TextLabel", {
+				Name = "MoveName",
+				Position = UDim2.new(0, 5, 1, -40),
+				Size = UDim2.new(1, -10, 0, 32),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextScaled = true,
+				TextColor3 = WHITE,
+				Text = "",
+				ZIndex = 2,
+				Parent = box,
+			}, { make("UITextSizeConstraint", { MaxTextSize = 15 }) })
+			local strip = make("Frame", {
+				Name = "Accent",
+				Size = UDim2.new(1, 0, 0, 3),
+				BackgroundColor3 = violet(),
+				BorderSizePixel = 0,
+				ZIndex = 2,
+				Parent = box,
+			})
+			local cover = make("Frame", {
+				Name = "Cover",
+				AnchorPoint = Vector2.new(0, 1),
+				Position = UDim2.fromScale(0, 1),
+				Size = UDim2.fromScale(1, 0),
+				BackgroundColor3 = BLACK,
+				BackgroundTransparency = 0.4,
+				BorderSizePixel = 0,
+				ZIndex = 4,
+				Parent = box,
+			})
+			local cd = make("TextLabel", {
+				Name = "Cd",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 20,
+				TextColor3 = WHITE,
+				Text = "",
+				ZIndex = 5,
+				Parent = box,
+			}, { textStroke(1) })
+			PH.boxes[i] = { Frame = box, Key = key, Name = name, Cover = cover, Cd = cd, Accent = strip }
+		end
+		PH.dockFrame = f
+		return f
+	end
+
+	-- every frame while it's up: the heartbeat, the cooldowns, the guard
+	function PH.tick()
+		local info = PH.info
+		local chip = PH.chipFrame
+		if not info or not chip then
+			return
+		end
+		for _, bar2 in PH.heroBars or {} do
+			if bar2 and bar2.Visible then
+				bar2.Visible = false
+			end
+		end
+		local now = os.clock()
+		local k = (math.sin(now * 5.2) + 1) / 2
+		local ring = chip:FindFirstChild("Ring")
+		if ring then
+			local s = 8 + 10 * ((now * 1.3) % 1)
+			ring.Size = UDim2.fromOffset(s, s)
+			local st = ring:FindFirstChildOfClass("UIStroke")
+			if st then
+				st.Transparency = 0.15 + 0.85 * ((now * 1.3) % 1)
+			end
+		end
+		local edgeStroke = chip:FindFirstChild("Edge")
+		if edgeStroke then
+			edgeStroke.Transparency = 0.1 + 0.35 * k
+		end
+		local body = info.Body
+		local serverNow = workspace:GetServerTimeNow()
+		local busy = body and body:GetAttribute("PossessBusy") == true
+		for i, box in PH.boxes do
+			local m = info.Moves and info.Moves[i]
+			if m and box.Frame.Visible then
+				local ready = body and tonumber(body:GetAttribute("PossessCd_" .. (m.Act or ""))) or nil
+				local left = ready and ready - serverNow or 0
+				-- (how long it was, from when this cooldown was first seen)
+				if ready and PH.cdAt[m.Act] ~= ready then
+					PH.cdAt[m.Act] = ready
+					PH.cdLen[m.Act] = math.max(left, 0.05)
+				end
+				if left > 0.02 then
+					box.Cover.Size = UDim2.fromScale(1, math.clamp(left / (PH.cdLen[m.Act] or left), 0, 1))
+					box.Cd.Text = left >= 1 and string.format("%d", math.ceil(left)) or string.format("%.1f", left)
+				else
+					box.Cover.Size = UDim2.fromScale(1, busy and 1 or 0)
+					box.Cd.Text = ""
+				end
+				local guard = m.Act == "Block" and body and body:GetAttribute("Blocking") == true
+				box.Accent.Size = UDim2.new(1, 0, 0, guard and 6 or 3)
+				box.Accent.BackgroundColor3 = guard and Color3.fromRGB(120, 210, 255) or violet()
+			end
+		end
+	end
+
+	-- info: { Name, Body (the model), Moves (Config.Possess.Moves[kind]),
+	-- Mode ("Keyboard" / "Gamepad" / "Touch") } - nil: back to the hero's
+	function HUD.Possess(info)
+		PH.info = info
+		local chip, dockF = PH.chip(), PH.dock()
+		local touch = HUD.Touch ~= nil and HUD.Touch.on == true
+		local bar = vitals and vitals.Parent and vitals.Parent:FindFirstChild("Abilities")
+		if not info then
+			if chip then
+				chip.Visible = false
+			end
+			if dockF then
+				dockF.Visible = false
+			end
+			if bar then
+				bar.Visible = not touch
+			end
+			-- (the name row and the phone's button names as they were)
+			for s, text in PH.savedSlots or {} do
+				s.Name.Text = text
+			end
+			PH.savedSlots = nil
+			if PH.savedName and HUD.NameLabel then
+				HUD.NameLabel.Text = PH.savedName
+			end
+			PH.savedName = nil
+			for bar2, shown in PH.savedBars or {} do
+				bar2.Visible = shown
+			end
+			PH.savedBars = nil
+			PH.heroBars = nil
+			if PH.conn then
+				PH.conn:Disconnect()
+				PH.conn = nil
+			end
+			table.clear(PH.cdLen)
+			table.clear(PH.cdAt)
+			return
+		end
+		if not chip or not dockF then
+			return
+		end
+		local mode = info.Mode or "Keyboard"
+		local name = string.upper(tostring(info.Name or ""))
+		chip.Body.Text = name
+		local keyed = mode == "Keyboard"
+		chip.Key.Visible = keyed
+		chip.Leave.Text = keyed and "LEAVE" or "TEST MENU › LEAVE"
+		chip.Leave.Size = UDim2.fromOffset(keyed and 38 or 112, 18)
+		-- (as wide as its words need: a long name, the pad's longer hint)
+		-- (the name starts where POSSESSING ends, measured: Gotham Black runs wide)
+		local kick = math.ceil(PH.width(chip.Kicker.Text, 11, HEAD_FONT)) + 10
+		chip.Kicker.Size = UDim2.new(0, kick, 1, 0)
+		chip.Body.Position = UDim2.fromOffset(28 + kick, 0)
+		local w = 28 + kick + PH.width(name, 14, HEAD_FONT) + 14 + (keyed and 92 or 124)
+		chip.Size = UDim2.fromOffset(math.clamp(math.ceil(w), 280, 520), 26)
+		chip.Body.Size = UDim2.new(1, -(28 + kick + (keyed and 82 or 128)), 1, 0)
+		chip.Visible = true
+		local bySlot = {}
+		for i, box in PH.boxes do
+			local m = info.Moves and info.Moves[i]
+			box.Frame.Visible = m ~= nil
+			if m then
+				box.Key.Text = (mode == "Gamepad" and m.Pad) or (mode == "Touch" and m.Touch) or m.Key or ""
+				box.Name.Text = m.Name or ""
+				if m.Slot then
+					bySlot[m.Slot] = m.Name
+				end
+			end
+		end
+		dockF.Visible = not touch
+		if bar then
+			bar.Visible = false
+		end
+		-- (a phone's round buttons wear the move boxes: they say what they do
+		-- in the body now; all put back as they were after)
+		PH.savedSlots = PH.savedSlots or {}
+		for i, slotName in { "Ability1", "Ability2", "Ability3", "Special", "Dash", "Extra" } do
+			local s = slots[i]
+			if s and s.Name then
+				if PH.savedSlots[s] == nil then
+					PH.savedSlots[s] = s.Name.Text
+				end
+				s.Name.Text = bySlot[slotName] or "—"
+			end
+		end
+		-- (a body with no guard - the raid's Nomu - shows neither the guard
+		-- nor the ragdoll cancel's meter: they'd be his parked body's)
+		PH.savedBars = PH.savedBars or {}
+		for _, bar2 in { guardBar, HUD.Evasive and HUD.Evasive.Bar } do
+			if bar2 then
+				if PH.savedBars[bar2] == nil then
+					PH.savedBars[bar2] = bar2.Visible
+				end
+				bar2.Visible = info.Guard ~= false and PH.savedBars[bar2]
+			end
+		end
+		-- (round 87, in Studio) nor the hero's own meters - the ult, Bakugo's
+		-- sweat, Endeavor's heat, Hawks' feathers: they're his parked body's
+		-- (PH.tick keeps them down: their setters show them on every update)
+		PH.heroBars = { ultBar, HUD.Sweat and HUD.Sweat.Bar, HUD.Heat and HUD.Heat.Bar, HUD.Feathers and HUD.Feathers.Bar }
+		for _, bar2 in PH.heroBars do
+			if bar2 then
+				if PH.savedBars[bar2] == nil then
+					PH.savedBars[bar2] = bar2.Visible
+				end
+				bar2.Visible = false
+			end
+		end
+		-- (the key line along the bottom: the body's keys - HUD.SetInputMode
+		-- puts the hero's back)
+		if hintLabel then
+			local bits = {}
+			for _, m in info.Moves or {} do
+				local word = string.upper(string.sub(m.Name or "", 1, 1)) .. string.lower(string.sub(m.Name or "", 2))
+				table.insert(bits, (m.Key == "M1" and "CLICK" or m.Key or "") .. " " .. word)
+			end
+			if info.Run then
+				table.insert(bits, "CTRL Run")
+			end
+			table.insert(bits, "K Leave") -- ((round 92) no "T Lock-on": gone)
+			hintLabel.Text = table.concat(bits, " · ")
+		end
+		-- (the name over the health bar: the body's - it's its health)
+		if HUD.NameLabel then
+			if PH.savedName == nil then
+				PH.savedName = HUD.NameLabel.Text
+			end
+			local v = violet():Lerp(WHITE, 0.4)
+			HUD.NameLabel.Text = string.format('%s  <font size="11" color="#%02X%02X%02X">POSSESSED</font>', name,
+				math.floor(v.R * 255), math.floor(v.G * 255), math.floor(v.B * 255))
+		end
+		if not PH.conn then
+			PH.conn = RunService.RenderStepped:Connect(function()
+				local ok, err = pcall(PH.tick)
+				if not ok then
+					warn("[HUD] possess: " .. tostring(err))
+				end
+			end)
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- the test menu's POSSESS panel. cb = { List() -> { { Model, Name, Sub,
+	-- Color, State = "Free" | "Mine" | "Taken" } }, Pick(model), Leave(),
+	-- In() -> the name of the body you're in (nil: your own) }
+	---------------------------------------------------------------------------
+	function HUD.BuildPossessPanel(cb)
+		if PH.frame then
+			return
+		end
+		PH.cb = cb or {}
+		local v = violet()
+		local frame = make("Frame", {
+			Name = "PossessBodies",
+			Position = UDim2.new(0, 22 + TEST_W, 0, 108),
+			Size = UDim2.fromOffset(PW, 430),
+			BackgroundColor3 = Color3.fromRGB(17, 18, 27),
+			BackgroundTransparency = 0.04,
+			Visible = false,
+			ZIndex = 20,
+			Parent = gui,
+		}, {
+			corner(12),
+			make("UIStroke", { Thickness = 1.5, Color = v, Transparency = 0.4, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(16, 6),
+			Size = UDim2.new(1, -60, 0, 30),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 28,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = light(v),
+			Text = "POSSESS",
+			ZIndex = 21,
+			Parent = frame,
+		}, { textStroke(1.5) })
+		PH.sub = make("TextLabel", {
+			Name = "Sub",
+			Position = UDim2.fromOffset(16, 36),
+			Size = UDim2.new(1, -32, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(190, 194, 214),
+			Text = "Take over a body. K aims at one, K again to leave.",
+			ZIndex = 21,
+			Parent = frame,
+		})
+		local close = make("TextButton", {
+			Name = "Close",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 10),
+			Size = UDim2.fromOffset(28, 28),
+			BackgroundColor3 = Color3.fromRGB(46, 48, 66),
+			Font = UI_FONT,
+			TextSize = 13,
+			TextColor3 = WHITE,
+			Text = "X",
+			ZIndex = 22,
+			Parent = frame,
+		}, { corner(14) })
+		close.MouseButton1Click:Connect(function()
+			HUD.TogglePossessPanel(false)
+		end)
+		-- where you are: in your own body, or in one (and the way out)
+		PH.status = make("Frame", {
+			Name = "Status",
+			Position = UDim2.fromOffset(12, 58),
+			Size = UDim2.new(1, -24, 0, 36),
+			BackgroundColor3 = Color3.fromRGB(30, 31, 44),
+			ZIndex = 21,
+			Parent = frame,
+		}, { corner(8) })
+		PH.statusText = make("TextLabel", {
+			Name = "Where",
+			Position = UDim2.fromOffset(12, 0),
+			Size = UDim2.new(1, -130, 1, 0),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 12,
+			RichText = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = WHITE,
+			Text = "",
+			ZIndex = 22,
+			Parent = PH.status,
+		})
+		PH.leave = make("TextButton", {
+			Name = "Leave",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
+			Size = UDim2.fromOffset(112, 26),
+			BackgroundColor3 = Color3.fromRGB(190, 60, 96),
+			AutoButtonColor = true,
+			Font = HEAD_FONT,
+			TextSize = 12,
+			TextColor3 = WHITE,
+			Text = "LEAVE BODY",
+			Visible = false,
+			ZIndex = 22,
+			Parent = PH.status,
+		}, { corner(6) })
+		PH.leave.MouseButton1Click:Connect(function()
+			if PH.cb.Leave then
+				PH.cb.Leave()
+			end
+		end)
+		PH.list = make("ScrollingFrame", {
+			Name = "List",
+			Position = UDim2.fromOffset(8, 102),
+			Size = UDim2.new(1, -12, 1, -160),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 4,
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			CanvasSize = UDim2.new(),
+			ZIndex = 21,
+			Parent = frame,
+		}, {
+			make("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }),
+			make("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 4) }),
+		})
+		PH.empty = make("TextLabel", {
+			Name = "Empty",
+			Size = UDim2.new(1, 0, 0, 40),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 12,
+			TextWrapped = true,
+			TextColor3 = DIM,
+			Text = "No bodies about - spawn a dummy (TEST > Spawn Dummies...)",
+			LayoutOrder = 9999,
+			Visible = false,
+			ZIndex = 22,
+			Parent = PH.list,
+		})
+		PH.foot = make("TextLabel", {
+			Name = "Keys",
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 14, 1, -8),
+			Size = UDim2.new(1, -28, 0, 44),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 11,
+			RichText = true,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Bottom,
+			TextColor3 = Color3.fromRGB(196, 190, 220),
+			-- ((round 92 review) no "· T locks on": the lock-on's gone)
+			Text = "<b>DUMMY</b>  M1 punch · F guard · Q dash (down: cancel)\n<b>NOMU</b>  M1 swipe · 1 slam · 2 charge · 3 roar\nWalk, run, jump as yourself",
+			ZIndex = 21,
+			Parent = frame,
+		})
+		PH.frame = frame
+		PH.layout()
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(PH.layout)
+		end
+	end
+	-- fits the screen: beside the menu at 720p; under the top bar, compact, on a phone
+	function PH.layout()
+		if not PH.frame then
+			return
+		end
+		local cam = workspace.CurrentCamera
+		local vpY = (cam and cam.ViewportSize.Y) or 720
+		local y0 = vpY < 500 and 52 or 108
+		local h = math.clamp(vpY - y0 - 12, 220, 430)
+		local compact = h < 340
+		PH.frame.Position = UDim2.new(0, 22 + TEST_W, 0, y0)
+		PH.frame.Size = UDim2.fromOffset(PW, h)
+		PH.sub.Visible = not compact
+		PH.foot.Visible = not compact
+		local top = compact and 40 or 58
+		PH.status.Position = UDim2.fromOffset(12, top)
+		PH.list.Position = UDim2.fromOffset(8, top + 44)
+		PH.list.Size = UDim2.new(1, -12, 1, -(top + 44) - (compact and 8 or 58))
+	end
+
+	local function makeRow(i)
+		local row = make("Frame", {
+			Name = "Body" .. i,
+			LayoutOrder = i,
+			Size = UDim2.new(1, 0, 0, 42),
+			BackgroundColor3 = Color3.fromRGB(38, 40, 57),
+			ZIndex = 22,
+			Parent = PH.list,
+		}, { corner(7) })
+		local stripe = make("Frame", {
+			Name = "Stripe",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 0, 0.5, 0),
+			Size = UDim2.new(0, 3, 1, -14),
+			BorderSizePixel = 0,
+			ZIndex = 23,
+			Parent = row,
+		})
+		local name = make("TextLabel", {
+			Name = "BodyName",
+			Position = UDim2.fromOffset(12, 4),
+			Size = UDim2.new(1, -120, 0, 18),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 14,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = WHITE,
+			Text = "",
+			ZIndex = 23,
+			Parent = row,
+		})
+		local sub = make("TextLabel", {
+			Name = "Info",
+			Position = UDim2.fromOffset(12, 22),
+			Size = UDim2.new(1, -120, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = DIM,
+			Text = "",
+			ZIndex = 23,
+			Parent = row,
+		})
+		local take = make("TextButton", {
+			Name = "Take",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -8, 0.5, 0),
+			Size = UDim2.fromOffset(92, 26),
+			BackgroundColor3 = violet(),
+			AutoButtonColor = true,
+			Font = HEAD_FONT,
+			TextSize = 12,
+			TextColor3 = WHITE,
+			Text = "TAKE",
+			ZIndex = 23,
+			Parent = row,
+		}, { corner(6) })
+		local r = { Frame = row, Stripe = stripe, Name = name, Sub = sub, Take = take }
+		take.MouseButton1Click:Connect(function()
+			local e = r.Entry
+			if e and e.State == "Free" and PH.cb.Pick then
+				PH.cb.Pick(e.Model)
+				take.Text = "..."
+			end
+		end)
+		return r
+	end
+	function HUD.RefreshPossessPanel()
+		if not PH.frame then
+			return
+		end
+		local inName = PH.cb.In and PH.cb.In() or nil
+		local v = violet()
+		if inName then
+			PH.statusText.Text = string.format('<font color="#%02X%02X%02X">IN</font>  %s', math.floor(light(v).R * 255), math.floor(light(v).G * 255), math.floor(light(v).B * 255), string.upper(inName))
+		else
+			PH.statusText.Text = '<font color="#A0A0B4">YOU\'RE IN YOUR OWN BODY</font>'
+		end
+		PH.leave.Visible = inName ~= nil
+		local list = PH.cb.List and PH.cb.List() or {}
+		for i, e in list do
+			local r = PH.rows[i]
+			if not r then
+				r = makeRow(i)
+				PH.rows[i] = r
+			end
+			r.Entry = e
+			r.Frame.Visible = true
+			r.Name.Text = e.Name or ""
+			r.Sub.Text = e.Sub or ""
+			r.Stripe.BackgroundColor3 = e.Color or WHITE
+			local mine, taken = e.State == "Mine", e.State == "Taken"
+			r.Take.Text = mine and "YOU'RE IN" or (taken and "TAKEN" or "TAKE")
+			r.Take.Active = not (mine or taken)
+			r.Take.AutoButtonColor = not (mine or taken)
+			r.Take.BackgroundColor3 = mine and Color3.fromRGB(60, 150, 100) or (taken and Color3.fromRGB(70, 72, 90) or v)
+			r.Take.TextColor3 = taken and DIM or WHITE
+			r.Frame.BackgroundColor3 = mine and Color3.fromRGB(44, 36, 66) or Color3.fromRGB(38, 40, 57)
+		end
+		for i = #list + 1, #PH.rows do
+			PH.rows[i].Frame.Visible = false
+			PH.rows[i].Entry = nil
+		end
+		PH.empty.Visible = #list == 0
+	end
+	-- (open: it keeps itself current - bodies come and go, people move)
+	function HUD.TogglePossessPanel(force)
+		if not PH.frame then
+			return false
+		end
+		if force ~= nil then
+			PH.frame.Visible = force
+		else
+			PH.frame.Visible = not PH.frame.Visible
+		end
+		if PH.frame.Visible then
+			HUD.RefreshPossessPanel()
+			if not PH.loop then
+				local token = {}
+				PH.loop = token
+				task.spawn(function()
+					while PH.loop == token and PH.frame and PH.frame.Visible do
+						task.wait(0.5)
+						if PH.loop == token and PH.frame.Visible then
+							pcall(HUD.RefreshPossessPanel)
+						end
+					end
+					if PH.loop == token then
+						PH.loop = nil
+					end
+				end)
+			end
+		else
+			PH.loop = nil
+		end
+		return PH.frame.Visible
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 88) THE CARRY on the screen (Config.DevFlight.Carry; the carry
+-- itself is QuirkClient's DevFly.CR and the server's Kit.CR). While he
+-- flies: his hero's move boxes as ever plus a 5th, GRAB (its key, the
+-- flight's cyan, a slow glow so it's the one you see), and the dash box
+-- says BURST (it's the mach burst up there). Holding someone: the boxes are
+-- the carry's - SLAM / THROW / RAM / DROP, each its key and colour, the one
+-- going lit - and a chip over the health bar: CARRYING <who>, the time left
+-- before he lets go by himself draining under it. On a phone: a round GRAB
+-- button by the others (DROP while he holds someone), the 1 / 2 / 3
+-- buttons say SLAM / THROW / RAM and his other moves' buttons dim (HIT, 4,
+-- the extra, ULT: his hands are full). The one being carried gets a chip of his
+-- own: HELD BY <who>, and how long. HUD.Carry(nil) / HUD.CarryHeld(nil)
+-- put back exactly what was there.
+---------------------------------------------------------------------------
+do
+	local CH = { boxes = {}, saved = nil }
+	HUD.CarryHud = CH
+	local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
+	local INK = Color3.fromRGB(10, 22, 30)
+	local function cfg()
+		return (Config and Config.DevFlight and Config.DevFlight.Carry) or {}
+	end
+	local function cyan()
+		return cfg().Color or Color3.fromRGB(120, 220, 255)
+	end
+	function CH.bar()
+		local dock = vitals and vitals.Parent
+		return dock and dock:FindFirstChild("Abilities"), dock
+	end
+	-- the words as wide as they'll be (the possession chip's measure)
+	function CH.width(text, size, font)
+		if HUD.PossessHud and HUD.PossessHud.width then
+			return HUD.PossessHud.width(text, size, font)
+		end
+		return #text * size * 0.72
+	end
+
+	-- the 5th box: GRAB, in the move bar after the others
+	function CH.grabSlot()
+		if CH.slot and CH.slot.Frame.Parent then
+			return CH.slot
+		end
+		local bar = CH.bar()
+		if not bar then
+			return nil
+		end
+		local c = cyan()
+		local f = make("Frame", {
+			Name = "SlotGrab",
+			Size = UDim2.fromOffset(96, 70),
+			BackgroundColor3 = GLASS.Color:Lerp(c, 0.16),
+			BackgroundTransparency = GLASS.T,
+			ClipsDescendants = true,
+			LayoutOrder = 6,
+			Visible = false,
+			Parent = bar,
+		}, { corner(3) })
+		local glow = make("UIStroke", { Name = "Glow", Thickness = 1.5, Color = c, Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = f })
+		local key = make("TextLabel", {
+			Name = "Key",
+			Size = UDim2.fromOffset(40, 16),
+			Position = UDim2.fromOffset(6, 5),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 14,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			TextTransparency = 0.2,
+			Text = "Z",
+			ZIndex = 3,
+			Parent = f,
+		})
+		make("TextLabel", {
+			Name = "Tag",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -5, 0, 6),
+			Size = UDim2.fromOffset(44, 12),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 9,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = c:Lerp(WHITE, 0.35),
+			Text = "FLIGHT",
+			ZIndex = 3,
+			Parent = f,
+		})
+		local name = make("TextLabel", {
+			Name = "MoveName",
+			Size = UDim2.new(1, -10, 0, 38),
+			Position = UDim2.new(0, 5, 1, -44),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextScaled = true,
+			TextColor3 = WHITE,
+			Text = "GRAB",
+			ZIndex = 2,
+			Parent = f,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 16 }), textStroke(1) })
+		make("Frame", {
+			Name = "Accent",
+			Size = UDim2.new(1, 0, 0, 3),
+			BackgroundColor3 = c,
+			BorderSizePixel = 0,
+			ZIndex = 2,
+			Parent = f,
+		})
+		CH.slot = { Frame = f, Key = key, Name = name, Glow = glow }
+		return CH.slot
+	end
+
+	-- the carry's own boxes, where the move bar was
+	function CH.dock()
+		if CH.dockFrame and CH.dockFrame.Parent then
+			return CH.dockFrame
+		end
+		local _, dock = CH.bar()
+		if not dock then
+			return nil
+		end
+		local f = make("Frame", {
+			Name = "CarryMoves",
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -26),
+			Size = UDim2.fromOffset(560, 70),
+			BackgroundTransparency = 1,
+			Visible = false,
+			Parent = dock,
+		}, {
+			make("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				Padding = UDim.new(0, 8),
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		for i = 1, 4 do
+			local box = make("Frame", {
+				Name = "Move" .. i,
+				Size = UDim2.fromOffset(110, 70),
+				BackgroundColor3 = GLASS.Color,
+				BackgroundTransparency = GLASS.T,
+				ClipsDescendants = true,
+				LayoutOrder = i,
+				Parent = f,
+			}, { corner(3) })
+			local st = make("UIStroke", { Thickness = 1, Color = WHITE, Transparency = GLASS.Edge, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = box })
+			local key = make("TextLabel", {
+				Name = "Key",
+				Position = UDim2.fromOffset(6, 5),
+				Size = UDim2.fromOffset(70, 16),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 14,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = WHITE,
+				TextTransparency = 0.25,
+				Text = "",
+				ZIndex = 3,
+				Parent = box,
+			})
+			local alt = make("TextLabel", {
+				Name = "Alt",
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -6, 0, 6),
+				Size = UDim2.fromOffset(60, 12),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 9,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				TextColor3 = WHITE,
+				TextTransparency = 0.45,
+				Text = "",
+				ZIndex = 3,
+				Parent = box,
+			})
+			local name = make("TextLabel", {
+				Name = "MoveName",
+				Position = UDim2.new(0, 5, 1, -42),
+				Size = UDim2.new(1, -10, 0, 34),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextScaled = true,
+				TextColor3 = WHITE,
+				Text = "",
+				ZIndex = 2,
+				Parent = box,
+			}, { make("UITextSizeConstraint", { MaxTextSize = 18 }), textStroke(1) })
+			local strip = make("Frame", {
+				Name = "Accent",
+				Size = UDim2.new(1, 0, 0, 3),
+				BackgroundColor3 = cyan(),
+				BorderSizePixel = 0,
+				ZIndex = 2,
+				Parent = box,
+			})
+			CH.boxes[i] = { Frame = box, Stroke = st, Key = key, Alt = alt, Name = name, Accent = strip }
+		end
+		CH.dockFrame = f
+		return f
+	end
+
+	-- a pill over the health bar: CARRYING <who> (or, his own: HELD BY <who>),
+	-- the time he's got left draining under it
+	function CH.pill(name, kicker, color)
+		local frame = CH[name]
+		if frame and frame.Parent then
+			return frame
+		end
+		if not vitals then
+			return nil
+		end
+		local chip = make("Frame", {
+			Name = name,
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 0, -8),
+			Size = UDim2.fromOffset(320, 26),
+			BackgroundColor3 = INK,
+			BackgroundTransparency = 0.1,
+			ClipsDescendants = true,
+			Visible = false,
+			ZIndex = 5,
+			Parent = vitals,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			make("UIStroke", { Name = "Edge", Thickness = 1.5, Color = color, Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		make("TextLabel", {
+			Name = "Kicker",
+			Position = UDim2.fromOffset(14, 0),
+			Size = UDim2.new(0, 84, 1, -3),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = color:Lerp(WHITE, 0.45),
+			Text = kicker,
+			ZIndex = 6,
+			Parent = chip,
+		})
+		make("TextLabel", {
+			Name = "Who",
+			Position = UDim2.fromOffset(100, 0),
+			Size = UDim2.new(1, -190, 1, -3),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 14,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = WHITE,
+			Text = "",
+			ZIndex = 6,
+			Parent = chip,
+		}, { textStroke(1) })
+		make("TextLabel", {
+			Name = "Left",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 0),
+			Size = UDim2.fromOffset(80, 23),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = Color3.fromRGB(210, 222, 232),
+			Text = "",
+			ZIndex = 6,
+			Parent = chip,
+		})
+		-- (the time left: a thin bar along the bottom, draining)
+		make("Frame", {
+			Name = "Time",
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 0, 1, 0),
+			Size = UDim2.new(1, 0, 0, 3),
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+			ZIndex = 7,
+			Parent = chip,
+		})
+		CH[name] = chip
+		return chip
+	end
+	-- (over whatever else sits on the health bar - a hero's own meter, at
+	-- -18 like Bakugo's SWEAT - never on top of it)
+	function CH.lift(chip)
+		if not (chip and vitals) then
+			return
+		end
+		local top = 0
+		for _, c in vitals:GetChildren() do
+			if c ~= chip and c:IsA("GuiObject") and c.Visible and c.Name ~= "CarryChip" and c.Name ~= "HeldChip" and c.Name ~= "PossessChip"
+				and c.Position.Y.Scale == 0 and c.Position.Y.Offset < 0 then
+				top = math.min(top, c.Position.Y.Offset - c.AnchorPoint.Y * c.Size.Y.Offset)
+			end
+		end
+		local want = UDim2.new(0.5, 0, 0, top - 8)
+		if chip.Position ~= want then
+			chip.Position = want
+		end
+	end
+
+	-- the phone's round GRAB / DROP button (beside the others, over DASH)
+	function CH.touchButton()
+		local T = HUD.Touch
+		if CH.button and CH.button.Parent then
+			return CH.button
+		end
+		if not (T and T.pad and T.wire) then
+			return nil
+		end
+		local b = make("TextButton", {
+			Name = "TouchGRAB",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = GLASS.Color:Lerp(cyan(), 0.35),
+			BackgroundTransparency = 0.2,
+			AutoButtonColor = true,
+			Font = HEAD_FONT,
+			TextScaled = true,
+			TextColor3 = WHITE,
+			Text = "GRAB",
+			Visible = false,
+			Parent = T.pad,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(0.5, 0) }),
+			make("UIStroke", { Name = "Glow", Thickness = 2.5, Color = cyan(), Transparency = 0.1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+			make("UIPadding", { PaddingLeft = UDim.new(0.14, 0), PaddingRight = UDim.new(0.14, 0), PaddingTop = UDim.new(0.3, 0), PaddingBottom = UDim.new(0.3, 0) }),
+		})
+		T.wire(b, "QuirkCarryGrab")
+		CH.button = b
+		return b
+	end
+	-- (where: off the jump button like the rest - over RUN, left of FINISH:
+	-- clear of the wallet and rank tucked in a phone's top-right corner)
+	CH.SPOT = { -172, -244, 56 }
+	function CH.placeButton()
+		local T = HUD.Touch
+		local b = CH.button
+		if not (b and T and T.metrics) then
+			return
+		end
+		local jx, jy, k = T.metrics()
+		b.Position = UDim2.new(1, jx + CH.SPOT[1] * k, 1, jy + CH.SPOT[2] * k)
+		b.Size = UDim2.fromOffset(CH.SPOT[3] * k, CH.SPOT[3] * k)
+	end
+
+	-- (a phone, holding someone: his own moves' buttons - HIT, 4, the extra,
+	-- ULT - stay where they are but dimmed, his hands are full; a cover over
+	-- each, so nothing of theirs is changed and taking it off is exact)
+	function CH.dim(on)
+		local T = HUD.Touch
+		local list = {}
+		if T and T.buttons then
+			table.insert(list, T.buttons.QuirkPunch)
+			table.insert(list, T.buttons.QuirkUlt)
+		end
+		for _, i in { 4, 6 } do
+			if slots[i] and slots[i].Frame then
+				table.insert(list, slots[i].Frame)
+			end
+		end
+		for _, f in list do
+			local cover = f:FindFirstChild("CarryDim")
+			if on and not cover then
+				cover = make("Frame", {
+					Name = "CarryDim",
+					Size = UDim2.fromScale(1, 1),
+					BackgroundColor3 = BLACK,
+					BackgroundTransparency = 0.45,
+					BorderSizePixel = 0,
+					ZIndex = 9,
+					Parent = f,
+				}, { make("UICorner", { CornerRadius = UDim.new(0.5, 0) }) })
+			end
+			if cover then
+				cover.Visible = on == true
+			end
+		end
+	end
+
+	-- the key a move is on, the way this device shows it
+	function CH.cap(m, mode)
+		if mode == "Gamepad" then
+			for _, k in m.Keys or {} do
+				if string.sub(k.Name, 1, 6) == "Button" or string.sub(k.Name, 1, 4) == "DPad" then
+					local g = HUD.PadGlyph and HUD.PadGlyph({ k }) or ""
+					return g ~= "" and g or (m.Pad or "")
+				end
+			end
+			return m.Pad or ""
+		end
+		return mode == "Touch" and (m.Touch or "") or (m.Cap or "")
+	end
+
+	-- every frame while it's up: GRAB's glow, the time left, the move going
+	function CH.tick()
+		local info = CH.info
+		local now = os.clock()
+		-- (the phone's layout switched on or off meanwhile: drawn for it again)
+		local touch = HUD.Touch ~= nil and HUD.Touch.on == true
+		if info and touch ~= CH.touchWas then
+			CH.touchWas = touch
+			HUD.Carry(info)
+		end
+		local k = (math.sin(now * 4.2) + 1) / 2
+		if info and info.Mode == "Flight" and CH.slot then
+			CH.slot.Glow.Transparency = 0.05 + 0.5 * k
+			CH.slot.Glow.Thickness = 1.5 + 1.5 * k
+		end
+		if CH.button and CH.button.Visible then
+			local g = CH.button:FindFirstChild("Glow")
+			if g then
+				g.Transparency = 0.05 + 0.45 * k
+			end
+		end
+		local serverNow = workspace:GetServerTimeNow()
+		for _, spec in { { "CarryChip", info }, { "HeldChip", CH.held } } do
+			local chip, data = CH[spec[1]], spec[2]
+			if chip and chip.Visible then
+				CH.lift(chip)
+			end
+			-- (after round 88: no time limit - no clock on the chip)
+			if chip and chip.Visible and data then
+				chip.Time.Visible = data.Ends ~= nil
+				chip.Left.Visible = data.Ends ~= nil
+			end
+			if chip and chip.Visible and data and data.Ends then
+				local left = math.max(data.Ends - serverNow, 0)
+				local frac = math.clamp(left / math.max(data.Max or 6, 0.1), 0, 1)
+				chip.Time.Size = UDim2.new(frac, 0, 0, 3)
+				chip.Left.Text = string.format("%.1fs", left)
+				chip.Time.BackgroundColor3 = (left < 1.5 and (now * 6) % 1 < 0.5) and Color3.fromRGB(255, 90, 80) or (spec[1] == "HeldChip" and Color3.fromRGB(255, 120, 90) or cyan())
+			end
+		end
+		if info and info.Mode == "Carry" then
+			for i, box in CH.boxes do
+				local m = info.Moves and info.Moves[i]
+				local on = m and info.Busy == m.Act
+				box.Accent.Size = UDim2.new(1, 0, 0, on and 6 or 3)
+				box.Stroke.Transparency = on and 0 or GLASS.Edge
+				box.Stroke.Color = on and (m.Color or WHITE) or WHITE
+				box.Frame.BackgroundTransparency = (info.Busy and not on) and 0.45 or GLASS.T
+			end
+		end
+	end
+	function CH.loop(on)
+		if on and not CH.conn then
+			CH.conn = RunService.RenderStepped:Connect(function()
+				local ok, err = pcall(CH.tick)
+				if not ok then
+					warn("[HUD] carry: " .. tostring(err))
+				end
+			end)
+		elseif not on and CH.conn and not CH.info and not CH.held then
+			CH.conn:Disconnect()
+			CH.conn = nil
+		end
+	end
+
+	-- what was on the bar before (put back as it was; the move boxes' own
+	-- names are the hero's - the client has HUD.SetQuirk write them again
+	-- when the carry's are taken off a phone's buttons)
+	function CH.save()
+		if CH.saved then
+			return CH.saved
+		end
+		CH.saved = { Dash = slots[5] and slots[5].Name.Text }
+		return CH.saved
+	end
+
+	-- info: { Mode = "Flight" | "Carry", Input = "Keyboard" | "Gamepad" |
+	-- "Touch", Name (who he holds), Ends (server time he lets go), Max,
+	-- Busy (the move going), Moves (Config.DevFlight.Carry.Moves) } - nil:
+	-- back to exactly what was there
+	function HUD.Carry(info)
+		local touch = HUD.Touch ~= nil and HUD.Touch.on == true
+		local bar = CH.bar()
+		local saved = CH.saved
+		if not info then
+			CH.info = nil
+			if CH.slot then
+				CH.slot.Frame.Visible = false
+			end
+			if CH.dockFrame then
+				CH.dockFrame.Visible = false
+			end
+			if CH.CarryChip then
+				CH.CarryChip.Visible = false
+			end
+			if CH.button then
+				CH.button.Visible = false
+			end
+			CH.dim(false)
+			if saved then
+				if bar then
+					bar.Visible = not touch
+				end
+				if slots[5] and saved.Dash then
+					slots[5].Name.Text = saved.Dash
+				end
+			end
+			CH.saved = nil
+			CH.loop(false)
+			return
+		end
+		saved = CH.save()
+		CH.info = info
+		local mode = info.Input or "Keyboard"
+		local slot = CH.grabSlot()
+		local dockF = CH.dock()
+		local chip = CH.pill("CarryChip", "CARRYING", cyan())
+		if touch then
+			CH.touchButton()
+			CH.placeButton()
+		end
+		if info.Mode == "Flight" then
+			if slot then
+				slot.Frame.Visible = true
+				slot.Key.Text = mode == "Gamepad" and (HUD.PadGlyph and HUD.PadGlyph({ cfg().PadKey or Enum.KeyCode.ButtonR3 }) or "R3")
+					or (cfg().Key and cfg().Key.Name or "Z")
+				slot.Key.Visible = mode ~= "Touch"
+			end
+			if dockF then
+				dockF.Visible = false
+			end
+			if bar then
+				bar.Visible = not touch
+			end
+			if slots[5] then
+				slots[5].Name.Text = "BURST" -- (the dash key is the mach burst up here)
+			end
+			if chip then
+				chip.Visible = false
+			end
+			if CH.button then
+				CH.button.Visible = touch
+				CH.button.Text = "GRAB"
+			end
+			CH.dim(false)
+			if hintLabel and mode == "Keyboard" then
+				-- ((round 92) T: the hover-lock - its keys are the flight's own now)
+				hintLabel.Text = "CLICK Punch · 1/2/3/4 Moves · Z Grab · Q Burst · X Dive · F Brake · T Lock · CTRL Fast · SPACE / C Up / Down · V Land"
+			end
+		else
+			if slot then
+				slot.Frame.Visible = false
+			end
+			if bar then
+				bar.Visible = false
+			end
+			if dockF then
+				dockF.Visible = not touch
+			end
+			for i, box in CH.boxes do
+				local m = info.Moves and info.Moves[i]
+				box.Frame.Visible = m ~= nil
+				if m then
+					box.Name.Text = m.Name or ""
+					box.Key.Text = CH.cap(m, mode)
+					box.Accent.BackgroundColor3 = m.Color or cyan()
+					-- (the flight's own key that means the same, small)
+					local alt = ""
+					if mode == "Keyboard" then
+						local names = {}
+						for j, key in m.Keys or {} do
+							if j > 1 and string.sub(key.Name, 1, 6) ~= "Button" then
+								table.insert(names, key.Name)
+							end
+						end
+						alt = #names > 0 and ("or " .. table.concat(names, " / ")) or ""
+					end
+					box.Alt.Text = alt
+				end
+			end
+			-- (a phone's 1 / 2 / 3 say what they do now; GRAB is DROP)
+			if touch then
+				for i = 1, 3 do
+					local m = info.Moves and info.Moves[i]
+					if slots[i] and m then
+						slots[i].Name.Text = m.Touch or m.Name
+					end
+				end
+			end
+			if CH.button then
+				CH.button.Visible = touch
+				CH.button.Text = "DROP"
+			end
+			CH.dim(touch)
+			if chip then
+				local who = string.upper(tostring(info.Name or ""))
+				chip.Who.Text = who
+				local kick = math.ceil(CH.width("CARRYING", 11, HEAD_FONT)) + 10
+				chip.Kicker.Size = UDim2.new(0, kick, 1, -3)
+				chip.Who.Position = UDim2.fromOffset(14 + kick, 0)
+				local w = 14 + kick + CH.width(who, 14, HEAD_FONT) + 16 + 70
+				chip.Size = UDim2.fromOffset(math.clamp(math.ceil(w), 240, 460), 26)
+				chip.Who.Size = UDim2.new(1, -(14 + kick + 76), 1, -3)
+				chip.Visible = true
+				CH.lift(chip)
+			end
+			if hintLabel and mode == "Keyboard" then
+				hintLabel.Text = "1 Slam · 2 Throw · 3 Ram · 4 / Z Drop · F Brake · CTRL Fast · SPACE / C Up / Down"
+			end
+		end
+		CH.loop(true)
+	end
+
+	-- the one being carried: HELD BY <who> and the time left (nil: gone)
+	function HUD.CarryHeld(info)
+		CH.held = info
+		local chip = CH.pill("HeldChip", "HELD BY", Color3.fromRGB(255, 120, 90))
+		if not chip then
+			return
+		end
+		if not info then
+			chip.Visible = false
+			CH.loop(false)
+			return
+		end
+		local who = string.upper(tostring(info.By or ""))
+		chip.Who.Text = who
+		local kick = math.ceil(CH.width("HELD BY", 11, HEAD_FONT)) + 10
+		chip.Kicker.Size = UDim2.new(0, kick, 1, -3)
+		chip.Who.Position = UDim2.fromOffset(14 + kick, 0)
+		chip.Size = UDim2.fromOffset(math.clamp(math.ceil(14 + kick + CH.width(who, 14, HEAD_FONT) + 16 + 70), 220, 420), 26)
+		chip.Who.Size = UDim2.new(1, -(14 + kick + 76), 1, -3)
+		chip.Visible = true
+		CH.lift(chip)
+		CH.loop(true)
+	end
 end
 
 -- Test menu: pick a kind of training dummy to spawn in front of you.
@@ -4283,7 +9435,7 @@ do
 		end
 
 		-- EMOTES: the ones you've got (newest first, or A-Z; a search), and
-		-- the four on your wheel
+		-- the ones on your wheel
 		emoteTab = page("EmoteShop")
 		emoteSlotRow = make("Frame", {
 			Name = "Wheel",
@@ -4292,14 +9444,18 @@ do
 			ZIndex = 52,
 			Parent = emoteTab,
 		}, {
-			make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+			make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 		})
+		-- (round 92) every slot of the wheel (8 now) in the one row, so the
+		-- list below keeps its room on a phone: a tile each - its number, the
+		-- emote's icon and its name under it, shrunk to fit (the list's ON
+		-- WHEEL · n says which slot each one's in)
 		local slotsN = Config.EmoteSlots or 4
 		for i = 1, slotsN do
 			local slot = make("TextButton", {
 				Name = "Slot" .. i,
 				LayoutOrder = i,
-				Size = UDim2.new(1 / slotsN, -8 * (slotsN - 1) / slotsN, 1, 0),
+				Size = UDim2.new(1 / slotsN, -6 * (slotsN - 1) / slotsN, 1, 0),
 				BackgroundColor3 = WHITE,
 				BackgroundTransparency = 0.15,
 				AutoButtonColor = true,
@@ -4312,20 +9468,20 @@ do
 				make("UIStroke", { Name = "Ring", Thickness = 3, Color = Color3.fromRGB(78, 226, 240), Transparency = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
 			})
 			make("TextLabel", {
-				Position = UDim2.fromOffset(4, 3),
-				Size = UDim2.fromOffset(18, 16),
+				Position = UDim2.fromOffset(3, 3),
+				Size = UDim2.fromOffset(15, 15),
 				BackgroundColor3 = Color3.fromRGB(46, 46, 52),
 				Font = SH.font,
-				TextSize = 16,
+				TextSize = 14,
 				TextColor3 = Color3.new(1, 1, 1),
 				Text = tostring(i),
 				ZIndex = 55,
 				Parent = slot,
 			}, { corner(3) })
 			local icon = make("TextLabel", {
-				AnchorPoint = Vector2.new(0, 0.5),
-				Position = UDim2.new(0, 24, 0.5, 0),
-				Size = UDim2.fromOffset(32, 32),
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.new(0.5, 4, 0, 3), -- (a little right: clear of the number on a phone's narrow tile)
+				Size = UDim2.fromOffset(26, 28),
 				BackgroundTransparency = 1,
 				TextScaled = true,
 				Text = "＋",
@@ -4334,18 +9490,17 @@ do
 				Parent = slot,
 			})
 			local name = make("TextLabel", {
-				Position = UDim2.new(0, 60, 0, 0),
-				Size = UDim2.new(1, -64, 1, 0),
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 1, -2),
+				Size = UDim2.new(1, -6, 0, 17),
 				BackgroundTransparency = 1,
 				Font = SH.font,
 				TextScaled = true,
-				TextWrapped = true,
-				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = SH.ink,
 				Text = "EMPTY",
 				ZIndex = 54,
 				Parent = slot,
-			}, { make("UITextSizeConstraint", { MaxTextSize = 20 }) })
+			}, { make("UITextSizeConstraint", { MaxTextSize = 16 }) })
 			emoteSlots[i] = { Button = slot, Icon = icon, Name = name }
 			slot.MouseButton1Click:Connect(function()
 				HUD.EmoteSlotClicked(i)
@@ -4476,18 +9631,25 @@ do
 				ZIndex = 54,
 				Parent = row,
 			})
+			-- (round 85) the name shrinks to fit (26 at most) in the room up to
+			-- the rarity pill, so a long one still fits on a phone. 30 tall, not
+			-- the row's 44: TextScaled wraps too, and two lines in 30 are 15 at
+			-- most, so a long name stays on one line (16+) instead of going to
+			-- two 22s that fill the row
 			make("TextLabel", {
-				Position = UDim2.fromOffset(48, 0),
-				Size = UDim2.new(0.45, 0, 1, 0),
+				Name = "RowName",
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 48, 0.5, 0),
+				Size = UDim2.new(0.5, -56, 0, 30),
 				BackgroundTransparency = 1,
 				Font = SH.font,
-				TextSize = 26,
+				TextScaled = true,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = SH.ink,
 				Text = e.Name or e.Id,
 				ZIndex = 54,
 				Parent = row,
-			})
+			}, { make("UITextSizeConstraint", { MaxTextSize = 26 }) })
 			local rarity = HUD.EmoteRarity(e)
 			make("TextLabel", {
 				Name = "Rarity",
@@ -4502,11 +9664,13 @@ do
 				ZIndex = 54,
 				Parent = row,
 			}, { corner(5) })
+			-- (round 85) from 8 px after the rarity pill to 8 px from the end
+			-- (it was 0.3 wide, which ran 6 px over the rarity pill on a phone)
 			local pillLabel = make("TextLabel", {
 				Name = "Pill",
 				AnchorPoint = Vector2.new(1, 0.5),
 				Position = UDim2.new(1, -8, 0.5, 0),
-				Size = UDim2.new(0.3, 0, 0, 30),
+				Size = UDim2.new(0.5, -112, 0, 30),
 				BackgroundColor3 = Color3.fromRGB(46, 46, 52),
 				Font = SH.font,
 				TextScaled = true,
@@ -5645,9 +10809,10 @@ do
 		HUD.ShowPadLegend(pad)
 		if hintLabel then
 			hintLabel.Visible = mode == "Keyboard"
+			-- ((round 92) no "T Lock-on" / "L3 Lock-on" any more: the lock-on's gone)
 			hintLabel.Text = pad
-					and "B Punch · LB/LT/RT Moves · RB Finish/Extra · ◀ Special · ▲ Ult · Y Dash · X Block · L3 Lock-on · ▼ Shift Lock · ▶ Item · SELECT Shop"
-				or "CLICK Punch · 1/2/3/4 Moves · R Special · G Ult · Q Dash · F Block · CTRL Sprint · T Lock-on · B Emotes · H Shop · M Quirk"
+					and "B Punch · LB/LT/RT Moves · RB Finish/Extra · ◀ Special · ▲ Ult · Y Dash · X Block · ▼ Shift Lock · ▶ Item · SELECT Shop"
+				or "CLICK Punch · 1/2/3/4 Moves · R Special · G Ult · Q Dash · F Block · CTRL Sprint · B Emotes · H Shop · M Quirk"
 		end
 		if changeLabel then
 			changeLabel.Text = pad and "SELECT: QUIRKS & SHOP" or mode == "Touch" and "TAP: CHANGE" or "[M] CHANGE"
@@ -6261,6 +11426,10 @@ do
 			b.BackgroundColor3 = on and accent or GLASS.Color
 			b.BackgroundTransparency = on and 0.05 or GLASS.T
 			b.TextColor3 = on and Color3.new(0.05, 0.05, 0.07) or Color3.new(1, 1, 1)
+			local label = b:FindFirstChild("Label") -- (round 92: the name under the icon)
+			if label then
+				label.TextColor3 = b.TextColor3
+			end
 		end
 		if centerLabel then
 			centerLabel.Text = i and buttons[i] and buttons[i]:GetAttribute("Label") or "EMOTES"
@@ -6276,7 +11445,11 @@ do
 		hover = nil
 		layout.inner = #list > 10 and 8 or #list
 		layout.outer = #list - layout.inner
-		layout.size = layout.outer > 0 and 560 or 380
+		-- (round 92) the wheel holds 8 now (Config.EmoteSlots): one ring of 8
+		-- buttons, each the emote's icon over its name (88 x 64), 138 out -
+		-- just far enough that neighbours don't touch - in a 400 ring, about
+		-- the size the 4 were
+		layout.size = layout.outer > 0 and 560 or (layout.inner > 4 and 400 or 380)
 		wheel = make("TextButton", {
 			Name = "EmoteWheel",
 			Size = UDim2.fromScale(1, 1),
@@ -6300,11 +11473,12 @@ do
 			Parent = wheel,
 		}, { corner(layout.size / 2), edge(0.6) })
 		autoScale(ring)
+		local mid = (layout.outer == 0 and layout.inner > 4) and 116 or 132 -- (round 92: 8 round it - a little smaller)
 		centerLabel = make("TextLabel", {
 			Name = "Center",
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromOffset(132, 132),
+			Size = UDim2.fromOffset(mid, mid),
 			BackgroundColor3 = GLASS.Color,
 			BackgroundTransparency = 0.1,
 			Font = HEAD_FONT,
@@ -6314,7 +11488,7 @@ do
 			Text = "EMOTES",
 			ZIndex = 43,
 			Parent = ring,
-		}, { corner(66), edge(0.5), textStroke(1) })
+		}, { corner(mid / 2), edge(0.5), textStroke(1), make("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }) })
 		make("TextLabel", {
 			Name = "Hint",
 			AnchorPoint = Vector2.new(0.5, 0),
@@ -6334,28 +11508,54 @@ do
 			local n = math.max(outer and layout.outer or layout.inner, 1)
 			local k = outer and i - layout.inner or i
 			local a = (k - 1 + (outer and 0.5 or 0)) / n * math.pi * 2 - math.pi / 2
-			local r = outer and 222 or (layout.outer > 0 and 130 or 132)
+			local r = outer and 222 or (layout.outer > 0 and 130 or (layout.inner > 4 and 138 or 132))
+			-- (round 92) the icon over the name (it was the name alone): with 8
+			-- round the ring the picture is what the eye finds first
 			local b = make("TextButton", {
 				Name = e.Empty and ("Emote_Empty" .. i) or ("Emote_" .. tostring(e.Id)),
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.new(0.5, math.cos(a) * r, 0.5, math.sin(a) * r),
-				Size = UDim2.fromOffset(100, 54),
+				Size = UDim2.fromOffset(88, 64),
 				BackgroundColor3 = GLASS.Color,
 				BackgroundTransparency = GLASS.T,
 				Font = HEAD_FONT,
 				TextSize = 13,
-				TextWrapped = true,
 				TextColor3 = Color3.new(1, 1, 1),
-				Text = e.Empty and "EMPTY\n+ SHOP" or (e.Name or e.Id),
+				Text = "",
 				AutoButtonColor = false,
 				ZIndex = 42,
 				Parent = ring,
-			}, { corner(8), edge(0.5), make("UITextSizeConstraint", { MaxTextSize = 13 }) })
+			}, { corner(8), edge(0.5) })
+			make("TextLabel", {
+				Name = "Icon",
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.new(0.5, 0, 0, 5),
+				Size = UDim2.fromOffset(32, 28),
+				BackgroundTransparency = 1,
+				TextScaled = true,
+				Text = e.Empty and "＋" or (e.Icon or "★"),
+				TextColor3 = Color3.new(1, 1, 1),
+				TextTransparency = e.Empty and 0.4 or 0,
+				ZIndex = 43,
+				Parent = b,
+			})
+			make("TextLabel", {
+				Name = "Label",
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 1, -4),
+				Size = UDim2.new(1, -8, 0, 24),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextScaled = true,
+				TextWrapped = true,
+				TextColor3 = Color3.new(1, 1, 1),
+				TextTransparency = e.Empty and 0.4 or 0,
+				Text = e.Empty and "EMPTY" or (e.Name or e.Id),
+				ZIndex = 43,
+				Parent = b,
+			}, { make("UITextSizeConstraint", { MaxTextSize = 13 }) })
 			b:SetAttribute("Label", e.Empty and "GET EMOTES IN THE SHOP" or (e.Name or e.Id))
 			b:SetAttribute("EmoteId", e.Id)
-			if e.Empty then
-				b.TextTransparency = 0.4
-			end
 			b.MouseEnter:Connect(function()
 				setHover(i)
 			end)
@@ -6702,7 +11902,7 @@ do
 		local rows = {
 			{ C.M1Keys, "PUNCH" }, { C.BlockKeys, "BLOCK" }, { C.DashKeys, "DASH" },
 			{ { Enum.KeyCode.ButtonA }, "JUMP" }, { C.SpecialKeys, "SPECIAL" }, { C.UltKeys, "AWAKEN" },
-			{ C.ShiftLockKeys, "SHIFT LOCK" }, { C.UseItemKeys, "ITEM" }, { C.LockOnKeys, "LOCK ON" },
+			{ C.ShiftLockKeys, "SHIFT LOCK" }, { C.UseItemKeys, "ITEM" }, -- ((round 92) no LOCK ON row: gone)
 			{ C.EmoteKeys, "EMOTES" }, { C.ShopKeys, "SHOP" }, { C.ContextKeys, "FINISH" },
 		}
 		legend = make("Frame", {
@@ -6791,6 +11991,8 @@ do
 			Steps = { 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3 }, Default = 1,
 		},
 		{ Key = "RobloxCamera", Label = "ROBLOX CAMERA", Info = "Controller: Roblox's own camera and its sensitivity setting", Default = false },
+		-- (round 86) Hawks' wings can fill your own view: hide yours (only on your screen)
+		{ Key = "HideMyWings", Label = "HIDE MY WINGS", Info = "Hawks: your own wings hidden on your screen (everyone else still sees them)", Default = false },
 	}
 
 	local function hex(c)
@@ -8286,7 +13488,9 @@ do
 		{ "QuirkSprint", "RUN", -138, -178, 46 },
 		{ "QuirkFinish", "FINISH", -104, -250, 64 },
 		{ "QuirkEmote", "EMOTE", -236, 24, 40 },
-		{ "QuirkLockOn", "LOCK", -206, -166, 40 },
+		-- ((round 92) the lock-on's LOCK is gone: this one's the DEV FLIGHT's
+		-- HOVER-LOCK, shown only while he flies - HUD.SetTouchHoverLock)
+		{ "QuirkHoverLock", "LOCK", -206, -166, 40 },
 	}
 
 	-- how far the HUD shrinks on this screen
@@ -8579,7 +13783,7 @@ do
 					TextScaled = true,
 					TextColor3 = Color3.new(1, 1, 1),
 					Text = spec[2],
-					Visible = spec[2] ~= "FINISH",
+					Visible = spec[2] ~= "FINISH" and spec[1] ~= "QuirkHoverLock",
 					Parent = TOUCH.pad,
 				}, {
 					make("UICorner", { CornerRadius = UDim.new(0.5, 0) }),
@@ -8838,6 +14042,15 @@ do
 	function HUD.SetTouchFinish(visible)
 		local b = TOUCH.buttons.QuirkFinish
 		if b then
+			b.Visible = visible == true
+		end
+	end
+
+	-- (round 92) LOCK: the dev flight's hover-lock - up while he flies
+	-- (HUD.FlightMeter shows / hides it with the meter), never on foot
+	function HUD.SetTouchHoverLock(visible)
+		local b = TOUCH.buttons.QuirkHoverLock
+		if b and b.Visible ~= (visible == true) then
 			b.Visible = visible == true
 		end
 	end
@@ -9206,6 +14419,1763 @@ do
 
 	function HUD.ConsoleVisible()
 		return CS.root ~= nil and CS.root.Visible
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 89) THE JOIN THE DISCORD CARD (Config.Discord; QuirkClient's
+-- DiscordClient opens it from the kiosk's prompt, and says which words):
+-- the HUD's glass with a blurple pill along the top, a chat badge, the
+-- title and a line. For a player Roblox allows Discord links: the invite in
+-- a box to select and copy (a TextBox nobody can type in, kept when it's
+-- clicked - clicking it selects all of it, SELECT does the same), what to
+-- press on this device, and CLOSE. Anyone else gets the neutral title and
+-- line, no invite (not even hidden). It grows with the screen and always
+-- fits (a phone's too); B, CLOSE, the X or walking off closes it.
+---------------------------------------------------------------------------
+do
+	local DC = { invite = "", mode = "Keyboard", words = {} }
+	HUD.DiscordCard = DC
+	local W, TALL, SHORT = 460, 248, 150
+	local BLURPLE = Color3.fromRGB(88, 101, 242)
+	local DIM = Color3.fromRGB(190, 194, 220)
+	local HINT = Color3.fromRGB(150, 156, 190)
+	local HOT = Color3.fromRGB(170, 180, 255)
+
+	function DC.build()
+		if DC.root and DC.root.Parent then
+			return DC.root
+		end
+		if not gui then
+			return nil
+		end
+		local root = make("Frame", {
+			Name = "DiscordCard",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(W, TALL),
+			BackgroundColor3 = GLASS.Color,
+			BackgroundTransparency = 0.04,
+			Active = true, -- (clicks on it don't throw punches)
+			Visible = false,
+			ZIndex = 55,
+			Parent = gui,
+		}, { corner(12), edge(0.72) })
+		DC.scale = make("UIScale", { Name = "Fit", Parent = root })
+		-- (a Modal button frees a shift-locked mouse while it's open)
+		make("TextButton", { Name = "Modal", Size = UDim2.fromOffset(1, 1), BackgroundTransparency = 1, Text = "", Modal = true, ZIndex = 55, Parent = root })
+		DC.pill = make("Frame", {
+			Name = "Pill",
+			Position = UDim2.fromOffset(16, 0),
+			Size = UDim2.new(1, -32, 0, 4),
+			BackgroundColor3 = BLURPLE,
+			BorderSizePixel = 0,
+			ZIndex = 56,
+			Parent = root,
+		}, { corner(2), gradient(Color3.new(1, 1, 1), Color3.fromRGB(190, 196, 255), 0) })
+		DC.badge = make("Frame", {
+			Name = "Badge",
+			Position = UDim2.fromOffset(18, 22),
+			Size = UDim2.fromOffset(44, 44),
+			BackgroundColor3 = BLURPLE,
+			ZIndex = 56,
+			Parent = root,
+		}, { corner(12), gradient(Color3.new(1, 1, 1), Color3.fromRGB(200, 204, 230), 90) })
+		make("TextLabel", {
+			Name = "Icon",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.52),
+			Size = UDim2.fromOffset(28, 28),
+			BackgroundTransparency = 1,
+			TextScaled = true,
+			Font = UI_FONT,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "💬",
+			ZIndex = 57,
+			Parent = DC.badge,
+		})
+		DC.title = make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(74, 20),
+			Size = UDim2.new(1, -120, 0, 26),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 22,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "",
+			ZIndex = 56,
+			Parent = root,
+		})
+		DC.line = make("TextLabel", {
+			Name = "Line",
+			Position = UDim2.fromOffset(74, 48),
+			Size = UDim2.new(1, -92, 0, 34),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 13,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			TextColor3 = DIM,
+			Text = "",
+			ZIndex = 56,
+			Parent = root,
+		})
+		local x = make("TextButton", {
+			Name = "X",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 14),
+			Size = UDim2.fromOffset(28, 28),
+			BackgroundColor3 = Color3.fromRGB(36, 37, 48),
+			BackgroundTransparency = 0.2,
+			Font = HEAD_FONT,
+			TextSize = 14,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "✕",
+			ZIndex = 57,
+			Parent = root,
+		}, { corner(8) })
+		x.Activated:Connect(function()
+			HUD.HideDiscord()
+		end)
+		-- the invite: in a box you can select (and copy) but not type in
+		DC.row = make("Frame", {
+			Name = "InviteRow",
+			Position = UDim2.fromOffset(18, 92),
+			Size = UDim2.new(1, -36, 0, 50),
+			BackgroundColor3 = Color3.fromRGB(6, 6, 10),
+			ZIndex = 56,
+			Parent = root,
+		}, {
+			corner(10),
+			make("UIStroke", { Name = "Edge", Thickness = 1.5, Color = BLURPLE, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		DC.box = make("TextBox", {
+			Name = "Invite",
+			Position = UDim2.fromOffset(14, 0),
+			Size = UDim2.new(1, -132, 1, 0),
+			BackgroundTransparency = 1,
+			ClearTextOnFocus = false,
+			TextEditable = false,
+			Font = Enum.Font.Code,
+			TextSize = 22,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.new(1, 1, 1),
+			PlaceholderText = "",
+			Text = "",
+			ZIndex = 57,
+			Parent = DC.row,
+		})
+		DC.box.Focused:Connect(function()
+			DC.selectAll()
+		end)
+		DC.box.FocusLost:Connect(function()
+			DC.hintFor(false)
+		end)
+		-- (nothing can change it: it's always the invite, or nothing)
+		DC.box:GetPropertyChangedSignal("Text"):Connect(function()
+			if DC.box.Text ~= DC.invite then
+				DC.box.Text = DC.invite
+			end
+		end)
+		DC.select = make("TextButton", {
+			Name = "Select",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -7, 0.5, 0),
+			Size = UDim2.fromOffset(104, 36),
+			BackgroundColor3 = BLURPLE,
+			Font = HEAD_FONT,
+			TextSize = 14,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "SELECT",
+			ZIndex = 57,
+			Parent = DC.row,
+		}, { corner(8) })
+		DC.select.Activated:Connect(function()
+			if DC.box and DC.invite ~= "" then
+				pcall(function()
+					DC.box:CaptureFocus()
+				end)
+				DC.selectAll()
+			end
+		end)
+		DC.hint = make("TextLabel", {
+			Name = "Hint",
+			Position = UDim2.fromOffset(20, 150),
+			Size = UDim2.new(1, -40, 0, 32),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 13,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			TextColor3 = HINT,
+			Text = "",
+			ZIndex = 56,
+			Parent = root,
+		})
+		DC.close = make("TextButton", {
+			Name = "Close",
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -14),
+			Size = UDim2.fromOffset(150, 36),
+			BackgroundColor3 = Color3.fromRGB(36, 38, 52),
+			Font = HEAD_FONT,
+			TextSize = 14,
+			TextColor3 = Color3.new(1, 1, 1),
+			Text = "CLOSE",
+			ZIndex = 57,
+			Parent = root,
+		}, { corner(8), edge(0.8) })
+		DC.close.Activated:Connect(function()
+			HUD.HideDiscord()
+		end)
+		DC.root = root
+		return root
+	end
+
+	-- all of the invite selected (after the click that focused it has put
+	-- its cursor down), and the hint says what's next
+	function DC.selectAll()
+		if not DC.box or DC.invite == "" then
+			return
+		end
+		DC.hintFor(true)
+		task.defer(function()
+			pcall(function()
+				DC.box.CursorPosition = #DC.box.Text + 1
+				DC.box.SelectionStart = 1
+			end)
+		end)
+	end
+
+	function DC.hintFor(selected)
+		if not DC.hint then
+			return
+		end
+		local set = selected and DC.words.Selected or DC.words.Hint
+		DC.hint.Text = type(set) == "table" and (set[DC.mode] or set.Keyboard or "") or ""
+		DC.hint.TextColor3 = selected and HOT or HINT
+	end
+
+	-- the card's size for this screen: bigger on a big one, never off a small one
+	function DC.fit()
+		local cam = workspace.CurrentCamera
+		local vp = cam and cam.ViewportSize
+		if not (DC.scale and vp and vp.X > 0 and vp.Y > 0) then
+			return
+		end
+		local h = DC.root.Size.Y.Offset
+		DC.scale.Scale = math.min(math.clamp(vp.Y / 720, 1, 1.5), (vp.X - 24) / W, (vp.Y - 24) / h)
+	end
+
+	-- spec: { Allowed, Invite (only when allowed), Words = Config.Discord's
+	-- Allowed or Neutral, Mode = "Keyboard" / "Touch" / "Gamepad", Color }
+	function HUD.ShowDiscord(spec)
+		spec = type(spec) == "table" and spec or {}
+		local root = DC.build()
+		if not root then
+			return
+		end
+		local allowed = spec.Allowed == true and type(spec.Invite) == "string" and spec.Invite ~= ""
+		DC.words = type(spec.Words) == "table" and spec.Words or {}
+		DC.mode = spec.Mode or "Keyboard"
+		DC.invite = allowed and spec.Invite or ""
+		local color = typeof(spec.Color) == "Color3" and spec.Color or BLURPLE
+		DC.pill.BackgroundColor3 = color
+		DC.badge.BackgroundColor3 = color
+		DC.select.BackgroundColor3 = color
+		DC.title.Text = DC.words.Title or ""
+		DC.line.Text = DC.words.Line or ""
+		DC.box.Text = DC.invite
+		DC.row.Visible = allowed
+		DC.hint.Visible = allowed
+		DC.select.Visible = allowed and DC.mode ~= "Gamepad"
+		root.Size = UDim2.fromOffset(W, allowed and TALL or SHORT)
+		DC.hintFor(false)
+		DC.fit()
+		HUD.HideVendor()
+		root.Visible = true
+		DC.scale.Scale = DC.scale.Scale * 0.92
+		tween(DC.scale, 0.16, { Scale = DC.scale.Scale / 0.92 }, Enum.EasingStyle.Back)
+	end
+
+	-- the device changed while it's open: the hint (and SELECT) follow
+	function HUD.SetDiscordMode(mode)
+		DC.mode = mode or DC.mode
+		if DC.root and DC.root.Visible then
+			DC.select.Visible = DC.invite ~= "" and DC.mode ~= "Gamepad"
+			DC.hintFor(DC.box:IsFocused())
+		end
+	end
+
+	function HUD.HideDiscord()
+		if DC.root then
+			if DC.box and DC.box:IsFocused() then
+				DC.box:ReleaseFocus()
+			end
+			DC.root.Visible = false
+		end
+	end
+
+	function HUD.DiscordVisible()
+		return DC.root ~= nil and DC.root.Visible
+	end
+
+	function HUD.DiscordFirstButton()
+		return DC.close
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 92) FLIGHTGRANT on the screen (Config.FlightGrant; QuirkClient's
+-- DevFly.FG feeds it, the server's Kit.FG decides everything):
+--   GIVE FLIGHT - the devs' test menu side panel (beside the menu, like
+--     HERO ROSTER): everyone else in this server with a switch each - OFF |
+--     SERVER | SAVED - and FULL POWER under it; then the saved grants of
+--     those who aren't here (SERVER can't be picked for them). A dev shows a
+--     DEV pill (he flies already). A click moves the switch at once, dimmed
+--     till the server's word agrees (or back after Pending s), and the row
+--     flashes when the server's word changes. The header: the sync chip (the
+--     saved list: LIVE ON EVERY SERVER / SAVING... / THIS SERVER ONLY /
+--     STUDIO SESSION ONLY / LOADING...) and the counts (FLYING here, SAVED,
+--     FULL POWER); the footer: who changed it last, and TAKE BACK EVERY
+--     GRANT (two clicks). cb = { State() -> { Rows, Sync, By, At },
+--     Set(userId, "off" | "server" | "perm" | "full", full), TakeAll() }.
+--   THE TOAST (HUD.FlightGrantToast) - the one given it (or whose it was
+--     taken back) is told who, which kind, full power, and how to take off
+--     on this device.
+--   FLY (HUD.SetTouchFly) - a round button on a phone's pad for whoever
+--     flies, lit while he does (Config.FlightGrant.Touch: its spot in
+--     TOUCH.LAYOUT, from the jump button; put in as the pad's first built).
+---------------------------------------------------------------------------
+do
+	local GP = {
+		rows = {}, data = {}, pendKind = {}, pendFull = {}, drawn = {}, chips = {}, cb = {},
+		fly = { show = false, on = false }, toastToken = 0,
+	}
+	HUD.FlightGrants = GP
+	local W = 420
+	local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
+	local SKY = Color3.fromRGB(120, 205, 255)
+	local GREEN = Color3.fromRGB(60, 200, 110)
+	local GOLD = Color3.fromRGB(255, 212, 64)
+	local AMBER = Color3.fromRGB(255, 166, 64)
+	local RED = Color3.fromRGB(255, 92, 76)
+	local DIM = Color3.fromRGB(150, 154, 180)
+	local TRACK = Color3.fromRGB(18, 19, 28)
+	local ROW = Color3.fromRGB(38, 40, 57)
+	local OFF = Color3.fromRGB(92, 94, 116)
+	local SYNC = {
+		Live = { "LIVE ON EVERY SERVER", GREEN },
+		Saving = { "SAVING...", GOLD },
+		Local = { "THIS SERVER ONLY", AMBER },
+		Studio = { "STUDIO SESSION ONLY", Color3.fromRGB(110, 190, 255) },
+		Loading = { "LOADING...", DIM },
+	}
+	local SEGS = { "off", "server", "perm" }
+	local SEG_TEXT = { off = "OFF", server = "SERVER", perm = "SAVED" }
+	local SEG_COLOR = { off = OFF, server = GREEN, perm = SKY }
+	local KIND = { Server = "server", Perm = "perm" }
+
+	local function cfg()
+		return (Config and Config.FlightGrant) or {}
+	end
+	local function hexOf(c)
+		return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+	end
+	local function ago(t)
+		local s = math.max(0, os.time() - (tonumber(t) or os.time()))
+		if s < 60 then
+			return "just now"
+		elseif s < 3600 then
+			return math.floor(s / 60) .. " min ago"
+		elseif s < 86400 then
+			return math.floor(s / 3600) .. " h ago"
+		end
+		return math.floor(s / 86400) .. " d ago"
+	end
+	-- a colour of his own from his name (the same on every screen)
+	local function hueOf(name)
+		local h = 0
+		for i = 1, #name do
+			h = (h * 31 + string.byte(name, i)) % 7919
+		end
+		return Color3.fromHSV((h % 360) / 360, 0.5, 0.86)
+	end
+
+	-- one player's row: his badge, name and line; the switch (OFF | SERVER |
+	-- SAVED) and FULL POWER under it; or, for a dev, the DEV pill
+	local function makeRow(id)
+		local row = make("Frame", {
+			Name = "Row_" .. tostring(id),
+			Size = UDim2.new(1, 0, 0, 50),
+			BackgroundColor3 = ROW,
+			ZIndex = 22,
+			Parent = GP.list,
+		}, { corner(7) })
+		local flash = make("Frame", {
+			Name = "Flash",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 1,
+			ZIndex = 22,
+			Parent = row,
+		}, { corner(7) })
+		local stripe = make("Frame", {
+			Name = "Stripe",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 0, 0.5, 0),
+			Size = UDim2.new(0, 3, 1, -16),
+			BackgroundColor3 = OFF,
+			BorderSizePixel = 0,
+			ZIndex = 23,
+			Parent = row,
+		}, { corner(2) })
+		local avatar = make("Frame", {
+			Name = "Avatar",
+			Position = UDim2.fromOffset(11, 10),
+			Size = UDim2.fromOffset(30, 30),
+			BackgroundColor3 = DIM,
+			ZIndex = 23,
+			Parent = row,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), gradient(WHITE, Color3.fromRGB(150, 150, 150), 90) })
+		local avEdge = make("UIStroke", { Thickness = 1.5, Color = WHITE, Transparency = 0.3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = avatar })
+		local ini = make("TextLabel", {
+			Name = "Initials",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 12,
+			TextColor3 = WHITE,
+			Text = "?",
+			ZIndex = 24,
+			Parent = avatar,
+		}, { textStroke(1) })
+		local title = make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(50, 7),
+			Size = UDim2.new(1, -238, 0, 18),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = "",
+			ZIndex = 23,
+			Parent = row,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 8 }) })
+		local sub = make("TextLabel", {
+			Name = "Sub",
+			Position = UDim2.fromOffset(50, 27),
+			Size = UDim2.new(1, -176, 0, 14), -- (under the switch's row, up to FULL POWER)
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 10,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = DIM,
+			Text = "",
+			ZIndex = 23,
+			Parent = row,
+		})
+		local sw = make("Frame", {
+			Name = "Switch",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -8, 0, 6),
+			Size = UDim2.fromOffset(168, 22),
+			BackgroundColor3 = TRACK,
+			ZIndex = 23,
+			Parent = row,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			make("UIStroke", { Thickness = 1, Color = WHITE, Transparency = 0.86, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		local knob = make("Frame", {
+			Name = "Knob",
+			Position = UDim2.new(0, 2, 0, 2),
+			Size = UDim2.new(1 / 3, -2, 1, -4),
+			BackgroundColor3 = OFF,
+			ZIndex = 24,
+			Parent = sw,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), gradient(WHITE, Color3.fromRGB(205, 205, 205), 90) })
+		local segs = {}
+		for i, k in SEGS do
+			local b = make("TextButton", {
+				Name = "Seg_" .. k,
+				Position = UDim2.fromScale((i - 1) / 3, 0),
+				Size = UDim2.fromScale(1 / 3, 1),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 10,
+				TextColor3 = DIM,
+				Text = SEG_TEXT[k],
+				ZIndex = 25,
+				Parent = sw,
+			})
+			segs[k] = b
+			b.MouseButton1Click:Connect(function()
+				GP.press(id, k)
+			end)
+		end
+		local full = make("TextButton", {
+			Name = "Full",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -8, 0, 31),
+			Size = UDim2.fromOffset(112, 16),
+			BackgroundColor3 = TRACK,
+			AutoButtonColor = true,
+			Text = "",
+			ZIndex = 23,
+			Parent = row,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		local fullEdge = make("UIStroke", { Thickness = 1, Color = WHITE, Transparency = 0.86, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = full })
+		local ftrack = make("Frame", {
+			Name = "Track",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 4, 0.5, 0),
+			Size = UDim2.fromOffset(20, 10),
+			BackgroundColor3 = Color3.fromRGB(70, 72, 92),
+			ZIndex = 24,
+			Parent = full,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		local fknob = make("Frame", {
+			Name = "Knob",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 1, 0.5, 0),
+			Size = UDim2.fromOffset(8, 8),
+			BackgroundColor3 = WHITE,
+			ZIndex = 25,
+			Parent = ftrack,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		local flabel = make("TextLabel", {
+			Name = "Label",
+			Position = UDim2.fromOffset(29, 0),
+			Size = UDim2.new(1, -33, 1, 0),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 10,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = DIM,
+			Text = "FULL POWER",
+			ZIndex = 24,
+			Parent = full,
+		})
+		full.MouseButton1Click:Connect(function()
+			GP.pressFull(id)
+		end)
+		local devPill = make("TextLabel", {
+			Name = "DevPill",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -8, 0.5, 0),
+			Size = UDim2.fromOffset(64, 20),
+			BackgroundColor3 = GOLD,
+			Font = HEAD_FONT,
+			TextSize = 11,
+			TextColor3 = BLACK,
+			Text = "DEV",
+			Visible = false,
+			ZIndex = 24,
+			Parent = row,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		local r = {
+			Row = row, Flash = flash, Stripe = stripe, Avatar = avatar, AvEdge = avEdge, Initials = ini, Title = title, Sub = sub,
+			Switch = sw, Knob = knob, Segs = segs, Full = full, FullEdge = fullEdge, FullTrack = ftrack, FullKnob = fknob, FullLabel = flabel,
+			DevPill = devPill,
+		}
+		GP.rows[id] = r
+		return r
+	end
+
+	function HUD.BuildFlightGrantPanel(cb)
+		GP.cb = cb or {}
+		if GP.frame or not gui then
+			return
+		end
+		local frame = make("Frame", {
+			Name = "FlightGrants",
+			Position = UDim2.new(0, 22 + TEST_W, 0, 108),
+			Size = UDim2.fromOffset(W, 520),
+			BackgroundColor3 = Color3.fromRGB(24, 24, 34),
+			BackgroundTransparency = 0.04,
+			Visible = false,
+			ZIndex = 20,
+			Parent = gui,
+		}, { stroke(3), corner(8) })
+		GP.frame = frame
+		-- a little of the sky from the top
+		make("Frame", {
+			Name = "Glow",
+			Size = UDim2.new(1, 0, 0, 96),
+			BackgroundColor3 = SKY,
+			BackgroundTransparency = 0.86,
+			BorderSizePixel = 0,
+			ZIndex = 20,
+			Parent = frame,
+		}, { corner(8), make("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(0.35, 1) }) })
+		make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(14, 5),
+			Size = UDim2.new(1, -190, 0, 32),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 27,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = SKY,
+			Text = "GIVE FLIGHT",
+			ZIndex = 21,
+			Parent = frame,
+		}, { textStroke(1.5) })
+		GP.sync = make("Frame", {
+			Name = "Sync",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 12),
+			Size = UDim2.fromOffset(164, 22),
+			BackgroundColor3 = TRACK,
+			ZIndex = 21,
+			Parent = frame,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		GP.syncEdge = make("UIStroke", { Thickness = 1, Color = DIM, Transparency = 0.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = GP.sync })
+		GP.syncDot = make("Frame", {
+			Name = "Dot",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 9, 0.5, 0),
+			Size = UDim2.fromOffset(8, 8),
+			BackgroundColor3 = DIM,
+			ZIndex = 22,
+			Parent = GP.sync,
+		}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+		GP.syncText = make("TextLabel", {
+			Name = "Text",
+			Position = UDim2.fromOffset(22, 0),
+			Size = UDim2.new(1, -28, 1, 0),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = "LOADING...",
+			ZIndex = 22,
+			Parent = GP.sync,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 10, MinTextSize = 7 }) })
+		GP.sub = make("TextLabel", {
+			Name = "Info",
+			Position = UDim2.fromOffset(14, 37),
+			Size = UDim2.new(1, -28, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 11,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(190, 194, 220),
+			Text = "The dev flight for anyone here: this server, or saved for good.",
+			ZIndex = 21,
+			Parent = frame,
+		})
+		-- the counts
+		for i, def in { { "Flying", "FLYING", GREEN }, { "Saved", "SAVED", SKY }, { "Full", "FULL POWER", RED } } do
+			local chip = make("Frame", {
+				Name = def[1],
+				Position = UDim2.fromOffset(14 + (i - 1) * 124, 58),
+				Size = UDim2.fromOffset(116, 22),
+				BackgroundColor3 = def[3]:Lerp(BLACK, 0.74),
+				ZIndex = 21,
+				Parent = frame,
+			}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), make("UIStroke", { Thickness = 1, Color = def[3], Transparency = 0.45, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+			GP.chips[def[1]] = {
+				Frame = chip,
+				Word = def[2],
+				Color = def[3],
+				Label = make("TextLabel", {
+					Name = "Text",
+					Size = UDim2.fromScale(1, 1),
+					BackgroundTransparency = 1,
+					Font = UI_FONT,
+					TextSize = 11,
+					RichText = true,
+					TextColor3 = WHITE,
+					Text = def[2],
+					ZIndex = 22,
+					Parent = chip,
+				}),
+			}
+		end
+		GP.topLine = make("Frame", {
+			Name = "Line",
+			Position = UDim2.fromOffset(12, 88),
+			Size = UDim2.new(1, -24, 0, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 0.86,
+			BorderSizePixel = 0,
+			ZIndex = 21,
+			Parent = frame,
+		})
+		GP.list = make("ScrollingFrame", {
+			Name = "List",
+			Position = UDim2.fromOffset(8, 94),
+			Size = UDim2.new(1, -12, 1, -94 - 74),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 4,
+			ScrollBarImageColor3 = WHITE,
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			CanvasSize = UDim2.new(),
+			ZIndex = 21,
+			Parent = frame,
+		}, {
+			make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
+			make("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 4) }),
+		})
+		local function head(name, order)
+			return make("TextLabel", {
+				Name = name,
+				LayoutOrder = order,
+				Size = UDim2.new(1, 0, 0, 18),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 10,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = SKY,
+				Text = "",
+				ZIndex = 22,
+				Parent = GP.list,
+			})
+		end
+		GP.headHere = head("HeadHere", 0)
+		GP.empty = make("TextLabel", {
+			Name = "Empty",
+			LayoutOrder = 1,
+			Size = UDim2.new(1, 0, 0, 40),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 12,
+			TextColor3 = DIM,
+			Text = "Nobody else is in this server yet",
+			Visible = false,
+			ZIndex = 22,
+			Parent = GP.list,
+		})
+		GP.headAway = head("HeadAway", 5000)
+		GP.footLine = make("Frame", {
+			Name = "FootLine",
+			Position = UDim2.new(0, 12, 1, -72),
+			Size = UDim2.new(1, -24, 0, 1),
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 0.86,
+			BorderSizePixel = 0,
+			ZIndex = 21,
+			Parent = frame,
+		})
+		GP.info = make("TextLabel", {
+			Name = "Last",
+			Position = UDim2.new(0, 14, 1, -66),
+			Size = UDim2.new(1, -28, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 10,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = DIM,
+			Text = "",
+			ZIndex = 21,
+			Parent = frame,
+		})
+		GP.takeAll = make("TextButton", {
+			Name = "TakeAll",
+			Position = UDim2.new(0, 12, 1, -44),
+			Size = UDim2.new(1, -24, 0, 32),
+			BackgroundColor3 = Color3.fromRGB(170, 60, 60),
+			Font = UI_FONT,
+			TextSize = 13,
+			TextColor3 = WHITE,
+			Text = "TAKE BACK EVERY GRANT",
+			ZIndex = 22,
+			Parent = frame,
+		}, { corner(6), stroke(1.5) })
+		-- (two clicks: the first arms it for 3 s)
+		GP.takeAll.MouseButton1Click:Connect(function()
+			if not GP.canTake then
+				return
+			end
+			if GP.armed and os.clock() - GP.armed < 3 then
+				GP.armed = nil
+				if GP.cb.TakeAll then
+					GP.cb.TakeAll()
+				end
+			else
+				GP.armed = os.clock()
+				local at = GP.armed
+				task.delay(3, function()
+					if GP.armed == at then
+						GP.armed = nil
+						HUD.RefreshFlightGrantPanel()
+					end
+				end)
+			end
+			HUD.RefreshFlightGrantPanel()
+		end)
+		-- (a phone turned round, a window resized: it fits itself again)
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+				if GP.frame.Visible then
+					GP.layout()
+				end
+			end)
+		end
+		HUD.RefreshFlightGrantPanel()
+	end
+
+	-- a click: the switch moves at once, dimmed till the server's word agrees
+	function GP.press(id, kind)
+		local d = GP.data[id]
+		if not d or d.Dev or (kind == "server" and not d.Here) then
+			return
+		end
+		local live = KIND[d.Kind or ""] or "off"
+		local pend = GP.pendKind[id]
+		if ((pend and pend.V) or live) == kind then
+			return
+		end
+		local token = os.clock()
+		GP.pendKind[id] = { V = kind, At = token }
+		if kind == "off" then
+			GP.pendFull[id] = nil
+		end
+		if GP.cb.Set then
+			GP.cb.Set(id, kind, nil)
+		end
+		HUD.RefreshFlightGrantPanel()
+		task.delay(cfg().Pending or 5, function()
+			local p = GP.pendKind[id]
+			if p and p.At == token then
+				GP.pendKind[id] = nil -- (the server never agreed: back to how it is)
+				HUD.RefreshFlightGrantPanel()
+			end
+		end)
+	end
+	-- FULL POWER on / off (only on a grant)
+	function GP.pressFull(id)
+		local d = GP.data[id]
+		if not d or d.Dev then
+			return
+		end
+		local pend = GP.pendKind[id]
+		if ((pend and pend.V) or KIND[d.Kind or ""] or "off") == "off" then
+			return -- (no flight to give full power to)
+		end
+		local pf = GP.pendFull[id]
+		local cur
+		if pf then
+			cur = pf.V
+		else
+			cur = d.Full == true
+		end
+		local token = os.clock()
+		GP.pendFull[id] = { V = not cur, At = token }
+		if GP.cb.Set then
+			GP.cb.Set(id, "full", not cur)
+		end
+		HUD.RefreshFlightGrantPanel()
+		task.delay(cfg().Pending or 5, function()
+			local p = GP.pendFull[id]
+			if p and p.At == token then
+				GP.pendFull[id] = nil
+				HUD.RefreshFlightGrantPanel()
+			end
+		end)
+	end
+
+	-- fits the screen: on a short one (a phone) it starts just under the top
+	-- bar, and the header and footer shrink (HERO ROSTER's way)
+	function GP.layout()
+		local cam = workspace.CurrentCamera
+		local vpY = (cam and cam.ViewportSize.Y) or 720
+		local y0 = vpY < 500 and 52 or 108
+		local h = math.clamp(vpY - y0 - 12, 200, 540)
+		local compact = h < 340
+		GP.frame.Position = UDim2.new(0, 22 + TEST_W, 0, y0)
+		GP.frame.Size = UDim2.fromOffset(W, h)
+		GP.sub.Visible = not compact
+		GP.info.Visible = not compact
+		local chipY = compact and 38 or 58
+		for _, chip in GP.chips do
+			chip.Frame.Position = UDim2.fromOffset(chip.Frame.Position.X.Offset, chipY)
+		end
+		local top, bottom = chipY + 36, compact and 50 or 74
+		GP.topLine.Position = UDim2.fromOffset(12, top - 6)
+		GP.list.Position = UDim2.fromOffset(8, top)
+		GP.list.Size = UDim2.new(1, -12, 1, -top - bottom)
+		GP.footLine.Position = UDim2.new(0, 12, 1, -bottom + 2)
+	end
+
+	-- one row drawn from what the server says (and a click on its way)
+	function GP.draw(d, order, counts)
+		local id = d.UserId
+		local r = GP.rows[id] or makeRow(id)
+		r.Row.LayoutOrder = order
+		local live = KIND[d.Kind or ""] or "off"
+		local pk = GP.pendKind[id]
+		if pk and pk.V == live then
+			GP.pendKind[id] = nil
+			pk = nil
+		end
+		local pf = GP.pendFull[id]
+		if pf and pf.V == (d.Full == true) then
+			GP.pendFull[id] = nil
+			pf = nil
+		end
+		local kind = (pk and pk.V) or live
+		local full
+		if pf then
+			full = pf.V
+		else
+			full = d.Full == true
+		end
+		full = full and kind ~= "off"
+		if not d.Dev and live ~= "off" then
+			counts.Any += 1
+			if d.Here then
+				counts.Flying += 1
+			end
+			if d.Full == true then
+				counts.Full += 1
+			end
+		end
+		if live == "perm" then
+			counts.Saved += 1
+		end
+		local shown = tostring(d.Display or d.Name or id)
+		local hue = hueOf(tostring(d.Name or shown))
+		r.Title.Text = shown
+		r.Initials.Text = initials(shown)
+		r.Avatar.BackgroundColor3 = hue
+		r.AvEdge.Color = hue:Lerp(WHITE, 0.5)
+		r.Stripe.BackgroundColor3 = d.Dev and GOLD or SEG_COLOR[kind]
+		r.Stripe.Visible = d.Dev == true or kind ~= "off"
+		local who = (type(d.By) == "string" and d.By ~= "") and (" · by " .. d.By .. (tonumber(d.At) and (", " .. ago(d.At)) or "")) or ""
+		if d.Dev then
+			r.Sub.Text = "@" .. tostring(d.Name) .. " · a dev: flies already"
+			r.Sub.TextColor3 = GOLD:Lerp(DIM, 0.3)
+		elseif live == "perm" then
+			r.Sub.Text = (d.Here and "SAVED" or "SAVED · not here") .. who
+			r.Sub.TextColor3 = SKY
+		elseif live == "server" then
+			r.Sub.Text = "THIS SERVER" .. who
+			r.Sub.TextColor3 = Color3.fromRGB(130, 236, 160)
+		else
+			r.Sub.Text = "@" .. tostring(d.Name) .. " · can't fly"
+			r.Sub.TextColor3 = DIM
+		end
+		r.Switch.Visible = not d.Dev
+		r.Full.Visible = not d.Dev
+		r.DevPill.Visible = d.Dev == true
+		local i = kind == "server" and 1 or kind == "perm" and 2 or 0
+		tween(r.Knob, 0.2, {
+			Position = UDim2.new(i / 3, i == 0 and 2 or (i == 1 and 1 or 0), 0, 2),
+			BackgroundColor3 = SEG_COLOR[kind],
+			BackgroundTransparency = pk and 0.5 or 0,
+		}, Enum.EasingStyle.Quint)
+		for k, b in r.Segs do
+			local can = not (k == "server" and not d.Here)
+			b.TextColor3 = (k == kind) and (k == "off" and WHITE or BLACK) or DIM
+			b.TextTransparency = can and 0 or 0.65
+			b.AutoButtonColor = can
+		end
+		local canFull = kind ~= "off"
+		r.Full.BackgroundColor3 = full and RED:Lerp(BLACK, 0.55) or TRACK
+		r.FullEdge.Color = full and RED or WHITE
+		r.FullEdge.Transparency = full and 0.3 or 0.86
+		r.FullTrack.BackgroundColor3 = full and RED or Color3.fromRGB(70, 72, 92)
+		r.FullKnob.Position = full and UDim2.new(1, -9, 0.5, 0) or UDim2.new(0, 1, 0.5, 0)
+		r.FullLabel.TextColor3 = full and WHITE or DIM
+		r.FullLabel.TextTransparency = canFull and (pf and 0.4 or 0) or 0.6
+		r.Full.AutoButtonColor = canFull
+		-- the server's word changed (here or anywhere): a flash across the row
+		local key = live .. ((d.Full == true) and "+" or "")
+		if GP.drawn[id] ~= nil and GP.drawn[id] ~= key then
+			r.Flash.BackgroundColor3 = SEG_COLOR[live] == OFF and AMBER or SEG_COLOR[live]
+			r.Flash.BackgroundTransparency = 0.55
+			tween(r.Flash, 0.7, { BackgroundTransparency = 1 })
+		end
+		GP.drawn[id] = key
+	end
+
+	-- re-read who's here and the server's word
+	function HUD.RefreshFlightGrantPanel()
+		if not GP.frame then
+			return
+		end
+		local st = (GP.cb.State and GP.cb.State()) or {}
+		local here, away, data = {}, {}, {}
+		for _, d in type(st.Rows) == "table" and st.Rows or {} do
+			if type(d) == "table" and tonumber(d.UserId) then
+				data[d.UserId] = d
+				table.insert(d.Here and here or away, d)
+			end
+		end
+		GP.data = data
+		-- (here: by name, the devs last; saved but not here: the newest first)
+		table.sort(here, function(a, b)
+			if (a.Dev == true) ~= (b.Dev == true) then
+				return not a.Dev
+			end
+			return string.lower(tostring(a.Display or a.Name)) < string.lower(tostring(b.Display or b.Name))
+		end)
+		table.sort(away, function(a, b)
+			return (tonumber(a.At) or 0) > (tonumber(b.At) or 0)
+		end)
+		for id, r in GP.rows do
+			if not data[id] then
+				r.Row:Destroy()
+				GP.rows[id], GP.drawn[id], GP.pendKind[id], GP.pendFull[id] = nil, nil, nil, nil
+			end
+		end
+		local counts = { Flying = 0, Saved = 0, Full = 0, Any = 0 }
+		for i, d in here do
+			GP.draw(d, i + 1, counts)
+		end
+		for i, d in away do
+			GP.draw(d, 5000 + i, counts)
+		end
+		GP.headHere.Text = "IN THIS SERVER  ·  " .. #here
+		GP.empty.Visible = #here == 0
+		GP.headAway.Visible = #away > 0
+		GP.headAway.Text = "SAVED  ·  NOT HERE  ·  " .. #away
+		for key, chip in GP.chips do
+			chip.Label.Text = string.format('<font color="%s"><b>%d</b></font>  %s', hexOf(chip.Color:Lerp(WHITE, 0.2)), counts[key] or 0, chip.Word)
+		end
+		local sync = SYNC[st.Sync or "Loading"] or SYNC.Loading
+		GP.syncText.Text = sync[1]
+		GP.syncDot.BackgroundColor3 = sync[2]
+		GP.syncEdge.Color = sync[2]
+		if st.Sync == "Local" then
+			GP.info.Text = "Saved grants not saved yet: this server only (the store isn't answering)"
+			GP.info.TextColor3 = AMBER
+		elseif st.Sync == "Studio" then
+			GP.info.Text = "Studio: saved grants stay in this session (StudioSaves is off)"
+			GP.info.TextColor3 = SYNC.Studio[2]
+		elseif st.By and tonumber(st.At) then
+			GP.info.Text = string.format("Last change: %s, %s", tostring(st.By), ago(st.At))
+			GP.info.TextColor3 = DIM
+		else
+			GP.info.Text = "Nobody has it yet: pick SERVER or SAVED on someone"
+			GP.info.TextColor3 = DIM
+		end
+		GP.canTake = counts.Any > 0
+		local armed = GP.armed ~= nil and GP.canTake
+		GP.takeAll.AutoButtonColor = GP.canTake
+		GP.takeAll.BackgroundColor3 = armed and Color3.fromRGB(226, 92, 48) or GP.canTake and Color3.fromRGB(170, 60, 60) or Color3.fromRGB(58, 60, 78)
+		GP.takeAll.TextColor3 = GP.canTake and WHITE or DIM
+		GP.takeAll.Text = armed and string.format("SURE? CLICK AGAIN: %d GRANT%s GO", counts.Any, counts.Any == 1 and "" or "S")
+			or GP.canTake and "TAKE BACK EVERY GRANT" or "NOBODY HAS A GRANT"
+	end
+
+	function HUD.ToggleFlightGrantPanel(force)
+		local frame = GP.frame
+		if not frame then
+			return false
+		end
+		if force ~= nil then
+			frame.Visible = force
+		else
+			frame.Visible = not frame.Visible
+		end
+		if frame.Visible then
+			GP.layout()
+			HUD.RefreshFlightGrantPanel()
+		end
+		return frame.Visible
+	end
+
+	-- THE TOAST: the one given it (or whose it was taken back). info = {
+	-- Event = Granted / Changed / Revoked / Join, By, Kind, Full, WasKind,
+	-- WasFull, Flying, Hint }
+	function HUD.FlightGrantToast(info)
+		if not gui or type(info) ~= "table" then
+			return nil
+		end
+		local T = cfg().Toast or {}
+		GP.toastToken += 1
+		local token = GP.toastToken
+		local old = gui:FindFirstChild("FlightGrantToast")
+		if old then
+			old:Destroy()
+		end
+		local ev = info.Event
+		local by = (type(info.By) == "string" and info.By ~= "") and info.By or "A dev"
+		local perm = info.Kind == "Perm"
+		local col, title, line, tag, tagCol, hint
+		if ev == "Revoked" then
+			col, title, tag, tagCol = AMBER, "FLIGHT TAKEN BACK", "TAKEN BACK", AMBER
+			line = by .. " took the dev flight back" .. (info.Flying and " - down you go" or "")
+		else
+			col = info.Full and RED or SKY
+			tag, tagCol = perm and "SAVED · EVERY SERVER" or "THIS SERVER", perm and SKY or GREEN
+			if ev == "Join" then
+				title, line, hint = "READY TO FLY", "Your saved dev flight, from " .. by, info.Hint
+			elseif ev == "Changed" and info.Full and not info.WasFull then
+				title, line = "FULL POWER!", by .. ": bombs, all the way down, the shield"
+			elseif ev == "Changed" and info.WasFull and not info.Full then
+				title, line = "FULL POWER OFF", by .. ": flight and the carry - no bombs" -- ((round 92 review) the holes and the crater are still the flight's)
+			elseif ev == "Changed" and perm then
+				title, line = "SAVED FOR GOOD", by .. " saved it: every server, every visit"
+			elseif ev == "Changed" then
+				title, line = "THIS SERVER ONLY", by .. " made it this server's only"
+			else
+				title, hint = "YOU CAN FLY!", info.Hint
+				line = by .. " gave you the dev flight" -- (FULL POWER has its own tag)
+			end
+		end
+		local hasHint = type(hint) == "string" and hint ~= ""
+		local h = hasHint and 114 or 88
+		-- (on a phone: left of the move buttons, under the top bar)
+		local touchOn = HUD.Touch ~= nil and HUD.Touch.on == true
+		local x = touchOn and (T.TouchX or 0.4) or 0.5
+		local y = touchOn and (T.TouchY or 56) or (T.Y or 64)
+		local holder = make("Frame", {
+			Name = "FlightGrantToast",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(x, 0, 0, y - 14),
+			Size = UDim2.fromOffset(420, h),
+			BackgroundTransparency = 1,
+			ZIndex = 62,
+			Parent = gui,
+		})
+		-- (its own scale, the screen's as it comes up - not an autoScale: it's
+		-- gone in seconds, and a destroyed one would sit in that shared list)
+		local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+		make("UIScale", {
+			Name = "Fit",
+			Scale = touchOn and (T.TouchScale or 0.8) or ((vp and vp.Y > 0) and math.clamp(vp.Y / 720, 0.75, 1.5) or 1),
+			Parent = holder,
+		})
+		local card = make("Frame", {
+			Name = "Card",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = GLASS.Color,
+			BackgroundTransparency = 0.08,
+			ClipsDescendants = true,
+			ZIndex = 62,
+			Parent = holder,
+		}, { corner(10), make("UIScale", { Name = "Pop", Scale = 0.86 }) })
+		make("UIStroke", { Name = "Edge", Thickness = 1.5, Color = col, Transparency = 0.25, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = card })
+		make("Frame", {
+			Name = "Glow",
+			Size = UDim2.new(1, 0, 0, 56),
+			BackgroundColor3 = col,
+			BackgroundTransparency = 0.8,
+			BorderSizePixel = 0,
+			ZIndex = 62,
+			Parent = card,
+		}, { make("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(0.2, 1) }) })
+		make("Frame", {
+			Name = "Accent",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 0, 0.5, 0),
+			Size = UDim2.new(0, 4, 1, -20),
+			BackgroundColor3 = col,
+			BorderSizePixel = 0,
+			ZIndex = 63,
+			Parent = card,
+		}, { corner(2) })
+		-- the badge: two chevrons, up (given) or down (taken back)
+		local icon = make("Frame", {
+			Name = "Icon",
+			Position = UDim2.fromOffset(16, 16),
+			Size = UDim2.fromOffset(54, 54),
+			BackgroundColor3 = col,
+			ZIndex = 63,
+			Parent = card,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			gradient(WHITE, Color3.fromRGB(140, 140, 140), 90),
+			make("UIStroke", { Thickness = 2, Color = col:Lerp(WHITE, 0.55), Transparency = 0.15, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		local down = ev == "Revoked"
+		for n, cy in { 21, 31 } do
+			for _, side in { -1, 1 } do
+				make("Frame", {
+					Name = "Chevron" .. n,
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromOffset(27 + side * 5, down and (54 - cy) or cy),
+					Size = UDim2.fromOffset(16, 4),
+					Rotation = (down and -1 or 1) * side * 45, -- (up: / \ ; down: \ /)
+					BackgroundColor3 = WHITE,
+					BackgroundTransparency = n == 1 and 0 or 0.35,
+					BorderSizePixel = 0,
+					ZIndex = 64,
+					Parent = icon,
+				}, { corner(2) })
+			end
+		end
+		make("TextLabel", {
+			Name = "Kicker",
+			Position = UDim2.fromOffset(86, 11),
+			Size = UDim2.fromOffset(120, 14),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = col,
+			Text = "DEV FLIGHT",
+			ZIndex = 63,
+			Parent = card,
+		})
+		local tagW = 18 + #tag * 6
+		local tagF = make("Frame", {
+			Name = "Tag",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 10),
+			Size = UDim2.fromOffset(tagW, 18),
+			BackgroundColor3 = tagCol:Lerp(BLACK, 0.7),
+			ZIndex = 63,
+			Parent = card,
+		}, {
+			make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+			make("UIStroke", { Thickness = 1, Color = tagCol, Transparency = 0.35, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		})
+		make("TextLabel", {
+			Name = "TagText",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Font = UI_FONT,
+			TextSize = 10,
+			TextColor3 = tagCol:Lerp(WHITE, 0.35),
+			Text = tag,
+			ZIndex = 64,
+			Parent = tagF,
+		})
+		if info.Full and ev ~= "Revoked" then
+			local fullF = make("Frame", {
+				Name = "FullTag",
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -18 - tagW, 0, 10),
+				Size = UDim2.fromOffset(84, 18),
+				BackgroundColor3 = RED:Lerp(BLACK, 0.6),
+				ZIndex = 63,
+				Parent = card,
+			}, {
+				make("UICorner", { CornerRadius = UDim.new(1, 0) }),
+				make("UIStroke", { Thickness = 1, Color = RED, Transparency = 0.3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+			})
+			make("TextLabel", {
+				Name = "FullText",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				Font = UI_FONT,
+				TextSize = 10,
+				TextColor3 = RED:Lerp(WHITE, 0.4),
+				Text = "FULL POWER",
+				ZIndex = 64,
+				Parent = fullF,
+			})
+		end
+		make("TextLabel", {
+			Name = "Title",
+			Position = UDim2.fromOffset(86, 25),
+			Size = UDim2.new(1, -98, 0, 34),
+			BackgroundTransparency = 1,
+			Font = COMIC_FONT,
+			TextSize = 31,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = WHITE,
+			Text = title,
+			ZIndex = 63,
+			Parent = card,
+		}, { textStroke(1.5) })
+		make("TextLabel", {
+			Name = "Line",
+			Position = UDim2.fromOffset(86, 60),
+			Size = UDim2.new(1, -98, 0, 16),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamMedium,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(205, 209, 230),
+			Text = line,
+			ZIndex = 63,
+			Parent = card,
+		}, { make("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 9 }) })
+		if hasHint then
+			local pillF = make("Frame", {
+				Name = "Hint",
+				Position = UDim2.fromOffset(86, 82),
+				Size = UDim2.fromOffset(212, 22),
+				BackgroundColor3 = col,
+				ZIndex = 63,
+				Parent = card,
+			}, { make("UICorner", { CornerRadius = UDim.new(1, 0) }), gradient(WHITE, Color3.fromRGB(205, 205, 205), 90) })
+			make("TextLabel", {
+				Name = "HintText",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				Font = HEAD_FONT,
+				TextSize = 12,
+				TextColor3 = BLACK,
+				Text = hint,
+				ZIndex = 64,
+				Parent = pillF,
+			})
+		end
+		-- a glint across it
+		local glint = make("Frame", {
+			Name = "Glint",
+			Position = UDim2.new(0, -90, 0, -20),
+			Size = UDim2.new(0, 46, 1, 40),
+			Rotation = 18,
+			BackgroundColor3 = WHITE,
+			BackgroundTransparency = 0.82,
+			BorderSizePixel = 0,
+			ZIndex = 65,
+			Parent = card,
+		}, { make("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) }) }) })
+		-- in: down into place with a pop, the glint across; held; out: up and away
+		tween(holder, 0.34, { Position = UDim2.new(x, 0, 0, y) }, Enum.EasingStyle.Back)
+		tween(card.Pop, 0.34, { Scale = 1 }, Enum.EasingStyle.Back)
+		task.delay(0.18, function()
+			if glint.Parent then
+				tween(glint, 0.55, { Position = UDim2.new(1, 40, 0, -20) }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+			end
+		end)
+		task.delay(T.Hold or 4.6, function()
+			if GP.toastToken ~= token or not holder.Parent then
+				return
+			end
+			for _, dsc in holder:GetDescendants() do
+				if dsc:IsA("TextLabel") then
+					tween(dsc, 0.4, { TextTransparency = 1 })
+				elseif dsc:IsA("Frame") then
+					tween(dsc, 0.4, { BackgroundTransparency = 1 })
+				elseif dsc:IsA("UIStroke") then
+					tween(dsc, 0.4, { Transparency = 1 })
+				end
+			end
+			tween(holder, 0.4, { Position = UDim2.new(x, 0, 0, y - 12) })
+			task.wait(0.45)
+			if holder.Parent then
+				holder:Destroy()
+			end
+		end)
+		return holder
+	end
+
+	-- FLY on a phone's pad: shown to whoever flies, lit while he does
+	function HUD.SetTouchFly(show, on)
+		GP.fly.show, GP.fly.on = show == true, on == true
+		local T = HUD.Touch
+		local b = T and T.buttons and T.buttons.QuirkDevFly
+		if b then
+			b.Visible = GP.fly.show
+			b.BackgroundColor3 = GP.fly.on and SKY:Lerp(BLACK, 0.2) or GLASS.Color
+			b.TextColor3 = GP.fly.on and BLACK or WHITE
+		end
+	end
+	-- (its spot goes in the pad's layout before the pad's first built - the
+	-- pad makes the button, places it and wires the finger to it; then it's
+	-- shown or hidden for who flies)
+	do
+		local apply = HUD.ApplyTouch
+		if apply then
+			HUD.ApplyTouch = function(on)
+				local T = HUD.Touch
+				if T and T.LAYOUT and not GP.flyIn then
+					GP.flyIn = true
+					local c = cfg().Touch or {}
+					table.insert(T.LAYOUT, { "QuirkDevFly", "FLY", c.X or -310, c.Y or -140, c.Size or 40 })
+				end
+				-- (shown or hidden whatever happens in there: the pad makes it visible)
+				local ok, err = pcall(apply, on)
+				HUD.SetTouchFly(GP.fly.show, GP.fly.on)
+				if not ok then
+					error(err, 0)
+				end
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 92) hawksair - HAWKS' FLYING BAR (Config.Quirks.FierceWings.Alt).
+-- Flying, his bar is his alt form's (HUD.SetQuirk draws it from
+-- Config.GetView: ON THE WING, RAZOR STRAFE / PEREGRINE STOOP / GALE BEAT /
+-- FEATHER DRILL with their own cooldowns); on top of that, here: each of
+-- those boxes gets the sky's colour along its top and a small AIR tag (so
+-- the switch reads at a glance), and R says LAND. Holding someone on his
+-- feathers (HUD.HawksCarry(info)): the boxes are the carry's follow-ups -
+-- SKY TOSS, FEATHER FLURRY, GALE THROW, LET GO - gold, tagged CARRY, no
+-- cooldown on them (one a carry), and a chip over the health bar says
+-- CARRYING <who> with the time left draining (the dev carry's chip, its
+-- look and place). The phone's buttons are these same boxes' names. Back on
+-- his feet HUD.SetQuirk writes his own bar again and this leaves it be.
+---------------------------------------------------------------------------
+do
+	local HB = { carry = nil, tags = {} }
+	HUD.HawksAirHud = HB
+	local SKY = Color3.fromRGB(150, 212, 255)
+	local GOLD = Color3.fromRGB(255, 196, 92)
+	-- the little tag in a box's top-right corner (made once a box)
+	function HB.tag(slot)
+		local t = HB.tags[slot]
+		if t and t.Parent then
+			return t
+		end
+		if not (slot and slot.Frame) then
+			return nil
+		end
+		t = make("TextLabel", {
+			Name = "HawksTag",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -5, 0, 6),
+			Size = UDim2.fromOffset(44, 12),
+			BackgroundTransparency = 1,
+			Font = HEAD_FONT,
+			TextSize = 9,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = SKY,
+			Text = "AIR",
+			Visible = false,
+			ZIndex = 3,
+			Parent = slot.Frame,
+		})
+		HB.tags[slot] = t
+		return t
+	end
+	-- HUD.SetQuirk's last word: Hawks' flying bar / carry on top of his alt view
+	function HUD.HawksBar(quirkName, alt, ult)
+		HB.last = { quirkName, alt, ult }
+		local q = Config and Config.Quirks and Config.Quirks.FierceWings
+		local A = q and q.Alt
+		local flying = quirkName == "FierceWings" and alt == true and not ult and A ~= nil
+		-- (round 92 review) from the hook on, not only once he's up: 1-4 ARE
+		-- the follow-ups from the moment the server says he holds someone
+		-- (HawksFly.follow / Kit.HA.route don't wait for his lift-off) - the
+		-- bar named his ground moves until the lift-off came back, and up to
+		-- LiftWait if his flight never came up
+		local carrying = quirkName == "FierceWings" and not ult and A ~= nil and HB.carry ~= nil
+		local boxes = { slots[1], slots[2], slots[3], slots[6] }
+		-- (a phone's round buttons: the names alone - a tag over them would read as part of the name)
+		local touch = HUD.Touch ~= nil and HUD.Touch.on == true
+		for i, slot in boxes do
+			local tag = slot and HB.tag(slot)
+			if tag then
+				tag.Visible = (flying or carrying) and not touch
+				tag.Text = carrying and "CARRY" or "AIR"
+				tag.TextColor3 = carrying and GOLD or SKY
+			end
+			if slot and (flying or carrying) then
+				slot.Accent.BackgroundColor3 = carrying and GOLD or SKY
+				if carrying then
+					local m = A.Carry and A.Carry.Moves and A.Carry.Moves[i]
+					slot.Name.Text = m and m.Name or "—"
+					slot.BoundKey = nil -- (ready, all of them: one follow-up a carry)
+					slot.Frame.BackgroundColor3 = GLASS.Color:Lerp(GOLD, 0.16)
+				end
+			end
+		end
+		-- R: LAND up there; on his feet his wings' own name (the alt-form view
+		-- would name the form R switches to: ON THE WING)
+		if quirkName == "FierceWings" and not ult and A and specialSlot and specialSlot.Frame.Visible then
+			specialSlot.Name.Text = flying and (A.LandName or "LAND") or (q.Special and q.Special.Name or specialSlot.Name.Text)
+		end
+		HB.chip(carrying and HB.carry or nil)
+	end
+	-- (the client says who's on his feathers, and when he lets go; then it
+	-- has HUD.SetQuirk draw the bar again - this rides on that)
+	function HUD.HawksCarry(info)
+		HB.carry = info
+		if not info then
+			HB.chip(nil)
+		end
+	end
+	-- (a phone switched on or off: the tags follow - HUD.ApplyTouch moves the
+	-- boxes, this puts them right on top)
+	local applyTouch = HUD.ApplyTouch
+	if applyTouch then
+		function HUD.ApplyTouch(on)
+			applyTouch(on)
+			if HB.last then
+				HUD.HawksBar(HB.last[1], HB.last[2], HB.last[3])
+			end
+		end
+	end
+	-- CARRYING <who>, the time left draining under it
+	function HB.chip(info)
+		local CH = HUD.CarryHud
+		local chip = HB.chipFrame
+		if info and not (chip and chip.Parent) and CH and CH.pill then
+			chip = CH.pill("HawksCarryChip", "CARRYING", GOLD)
+			HB.chipFrame = chip
+		end
+		if not chip then
+			return
+		end
+		HB.info = info
+		chip.Visible = info ~= nil
+		if not info then
+			if HB.conn then
+				HB.conn:Disconnect()
+				HB.conn = nil
+			end
+			return
+		end
+		local who = string.upper(tostring(info.Name or ""))
+		chip.Who.Text = who
+		local width = (CH and CH.width) or function(text, size)
+			return #text * size * 0.72
+		end
+		local kick = math.ceil(width("CARRYING", 11, HEAD_FONT)) + 10
+		chip.Kicker.Size = UDim2.new(0, kick, 1, -3)
+		chip.Who.Position = UDim2.fromOffset(14 + kick, 0)
+		chip.Size = UDim2.fromOffset(math.clamp(math.ceil(14 + kick + width(who, 14, HEAD_FONT) + 16 + 70), 240, 460), 26)
+		chip.Who.Size = UDim2.new(1, -(14 + kick + 76), 1, -3)
+		HB.tick()
+		if not HB.conn then
+			HB.conn = RunService.RenderStepped:Connect(function()
+				local ok, err = pcall(HB.tick)
+				if not ok then
+					warn("[HUD] hawks carry: " .. tostring(err))
+				end
+			end)
+		end
+	end
+	function HB.tick()
+		local chip, info = HB.chipFrame, HB.info
+		if not (chip and chip.Visible and info) then
+			return
+		end
+		if HUD.CarryHud and HUD.CarryHud.lift then
+			HUD.CarryHud.lift(chip)
+		end
+		local has = type(info.Ends) == "number"
+		chip.Time.Visible = has
+		chip.Left.Visible = has
+		if has then
+			local left = math.max(info.Ends - workspace:GetServerTimeNow(), 0)
+			chip.Time.Size = UDim2.new(math.clamp(left / math.max(info.Max or 3.5, 0.1), 0, 1), 0, 0, 3)
+			chip.Left.Text = string.format("%.1fs", left)
+			chip.Time.BackgroundColor3 = (left < 1 and (os.clock() * 6) % 1 < 0.5) and Color3.fromRGB(255, 90, 80) or GOLD
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 90) DEVFLY2 - LIGHTSPEED and the hover-lock on his screen
+-- (Config.DevFlight.Light / Control.Lock; QuirkClient's DevFly drives it).
+-- Over the world and under the HUD (the overlay):
+--   THE TUNNEL - the edges darkening in toward the middle as the light
+--     barrier charges, and while he's at LIGHTSPEED;
+--   THE SPLIT - a red edge and a cyan edge inset from it round the screen:
+--     the colours coming apart at the edge of the lens;
+--   THE CHARGE - a thin ring closing in on the middle as it fills.
+-- HUD.LightBreak: the break - the ring blown out, the split rings racing to
+-- the edges (red ahead, cyan behind). HUD.LightOut: a ring let go. And the
+-- hover-lock's sight in the middle (HUD.FlightReticle). Built the first time
+-- it's wanted; HUD.FlightLight(nil) hides it.
+---------------------------------------------------------------------------
+do
+	local LH = {
+		NAVY = Color3.fromRGB(6, 8, 22), RED = Color3.fromRGB(255, 70, 130), CYAN = Color3.fromRGB(70, 210, 255),
+		MINT = Color3.fromRGB(120, 255, 200), token = 0,
+	}
+	HUD.FlightLightParts = LH
+
+	function LH.ring(parent, color, size, thickness, transp)
+		return make("Frame", {
+			Name = "Ring",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(size, size),
+			SizeConstraint = Enum.SizeConstraint.RelativeYY,
+			BackgroundTransparency = 1,
+			Parent = parent,
+		}, { make("UICorner", { CornerRadius = UDim.new(0.5, 0) }), make("UIStroke", { Color = color, Thickness = thickness, Transparency = transp }) })
+	end
+
+	function LH.build()
+		if LH.root and LH.root.Parent then
+			return
+		end
+		local root = make("Frame", {
+			Name = "FlightLight",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Visible = false,
+			Parent = overlayGui,
+		})
+		-- the tunnel: four edges, dark at the rim, clear toward the middle
+		LH.edges = {}
+		for i, spec in {
+			{ UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.3), 90 },
+			{ UDim2.fromScale(0, 0.7), UDim2.fromScale(1, 0.3), -90 },
+			{ UDim2.fromScale(0, 0), UDim2.fromScale(0.24, 1), 0 },
+			{ UDim2.fromScale(0.76, 0), UDim2.fromScale(0.24, 1), 180 },
+		} do
+			LH.edges[i] = make("Frame", {
+				Name = "Tunnel",
+				Position = spec[1],
+				Size = spec[2],
+				BackgroundColor3 = LH.NAVY,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				Parent = root,
+			}, { make("UIGradient", { Rotation = spec[3], Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.55, 0.65), NumberSequenceKeypoint.new(1, 1) }) }) })
+		end
+		-- the split: the colours coming apart at the edge of the lens - red
+		-- bleeding in off the left and the top, cyan off the right and the
+		-- bottom, each fading inward
+		LH.split = {}
+		for i, spec in {
+			{ UDim2.fromScale(0, 0), UDim2.fromScale(0.05, 1), 0, LH.RED },
+			{ UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.07), 90, LH.RED },
+			{ UDim2.fromScale(0.95, 0), UDim2.fromScale(0.05, 1), 180, LH.CYAN },
+			{ UDim2.fromScale(0, 0.93), UDim2.fromScale(1, 0.07), -90, LH.CYAN },
+		} do
+			LH.split[i] = make("Frame", {
+				Name = "Split",
+				Position = spec[1],
+				Size = spec[2],
+				BackgroundColor3 = spec[4],
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				Parent = root,
+			}, { make("UIGradient", { Rotation = spec[3], Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }) }) })
+		end
+		-- the charge's ring
+		LH.charge = LH.ring(root, Color3.fromRGB(214, 236, 255), 0.95, 2, 1)
+		LH.root = root
+	end
+
+	-- info: { K = LIGHTSPEED 0..1, Charge = the light barrier's 0..1 }; nil hides it
+	function HUD.FlightLight(info)
+		if not info then
+			if LH.root then
+				LH.root.Visible = false
+			end
+			return
+		end
+		LH.build()
+		local k = math.clamp(tonumber(info.K) or 0, 0, 1)
+		local c = math.clamp(tonumber(info.Charge) or 0, 0, 1)
+		local t = os.clock()
+		LH.root.Visible = true
+		local dark = math.max(0.55 * k, 0.42 * c)
+		for _, e in LH.edges do
+			e.BackgroundTransparency = 1 - dark
+		end
+		local pulse = 0.5 + 0.5 * math.sin(t * 9)
+		local split = math.clamp((0.3 + 0.06 * pulse) * k + 0.1 * c, 0, 0.4)
+		for _, sp in LH.split do
+			sp.BackgroundTransparency = 1 - split
+		end
+		local ring = LH.charge
+		local stroke = ring:FindFirstChildOfClass("UIStroke")
+		if c > 0 and k <= 0 then
+			local s = 0.95 + (0.14 - 0.95) * c ^ 0.8
+			ring.Size = UDim2.fromScale(s, s)
+			stroke.Thickness = 1.5 + 2.5 * c
+			stroke.Transparency = 0.62 - 0.34 * c
+			stroke.Color = Color3.fromRGB(214, 236, 255):Lerp(LH.CYAN, c)
+		else
+			stroke.Transparency = 1
+		end
+	end
+
+	-- THE BREAK on his screen: the charge's ring blown out, then three rings
+	-- racing out to the edges - red a beat ahead, white, cyan behind
+	function HUD.LightBreak()
+		LH.build()
+		LH.token += 1
+		local holder = make("Frame", {
+			Name = "LightBreak",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Parent = overlayGui,
+		})
+		for i, spec in { { LH.RED, 0, 1.75 }, { Color3.new(1, 1, 1), 0.03, 1.6 }, { LH.CYAN, 0.06, 1.45 } } do
+			local ring = LH.ring(holder, spec[1], 0.12, 10 - i * 2, 0.15)
+			task.delay(spec[2], function()
+				tween(ring, 0.45, { Size = UDim2.fromScale(spec[3], spec[3]) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+				local st = ring:FindFirstChildOfClass("UIStroke")
+				if st then
+					tween(st, 0.45, { Transparency = 1, Thickness = 2 })
+				end
+			end)
+		end
+		local blown = LH.ring(holder, Color3.fromRGB(214, 236, 255), 0.14, 4, 0)
+		tween(blown, 0.2, { Size = UDim2.fromScale(0.6, 0.6) })
+		local bs = blown:FindFirstChildOfClass("UIStroke")
+		if bs then
+			tween(bs, 0.2, { Transparency = 1 })
+		end
+		task.delay(0.6, function()
+			holder:Destroy()
+		end)
+	end
+	-- out of LIGHTSPEED: one faint ring let go outward
+	function HUD.LightOut()
+		local holder = make("Frame", {
+			Name = "LightOut",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Parent = overlayGui,
+		})
+		local ring = LH.ring(holder, LH.CYAN, 0.5, 3, 0.45)
+		tween(ring, 0.35, { Size = UDim2.fromScale(1.4, 1.4) })
+		local st = ring:FindFirstChildOfClass("UIStroke")
+		if st then
+			tween(st, 0.35, { Transparency = 1 })
+		end
+		task.delay(0.45, function()
+			holder:Destroy()
+		end)
+	end
+
+	-- THE HOVER-LOCK's sight: a thin ring, a dot and four ticks in the middle
+	function HUD.FlightReticle(on)
+		if not on then
+			if LH.reticle then
+				LH.reticle.Visible = false
+			end
+			return
+		end
+		if not LH.reticle then
+			local r = make("Frame", {
+				Name = "FlightReticle",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromOffset(34, 34),
+				BackgroundTransparency = 1,
+				ZIndex = 0,
+				Parent = gui,
+			})
+			LH.ring(r, LH.MINT, 1, 1.5, 0.25).SizeConstraint = Enum.SizeConstraint.RelativeXY
+			make("Frame", {
+				Name = "Dot",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromOffset(3, 3),
+				BackgroundColor3 = LH.MINT,
+				BorderSizePixel = 0,
+				Parent = r,
+			}, { make("UICorner", { CornerRadius = UDim.new(0.5, 0) }) })
+			for _, spec in { { 0.5, -0.32, 2, 7 }, { 0.5, 1.32, 2, 7 }, { -0.32, 0.5, 7, 2 }, { 1.32, 0.5, 7, 2 } } do
+				make("Frame", {
+					Name = "Tick",
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(spec[1], spec[2]),
+					Size = UDim2.fromOffset(spec[3], spec[4]),
+					BackgroundColor3 = LH.MINT,
+					BackgroundTransparency = 0.2,
+					BorderSizePixel = 0,
+					Parent = r,
+				})
+			end
+			LH.reticle = r
+		end
+		LH.reticle.Visible = true
 	end
 end
 

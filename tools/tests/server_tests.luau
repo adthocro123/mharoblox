@@ -18,6 +18,12 @@ local function check(cond, label)
 		print("  FAIL  " .. label)
 	end
 end
+M.section = function(fn) -- (round 94: a stale section is one failure, not the end of the run)
+	local ok, err = pcall(fn)
+	if not ok then
+		check(false, "section errored: " .. tostring(err))
+	end
+end
 
 ---------------------------------------------------------------------------
 -- World
@@ -2792,6 +2798,7 @@ do
 
 	-- SCORCHED EARTH (V): grab the face, drag them along the street, blow up in their face
 	local SE = EXP.Extra
+	if SE and SE.Id == "ScorchedEarth" then
 	fresh(Vector3.new(X, 3, 6))
 	clearSent()
 	fire(UseAbility, A, Config.EXTRA_INDEX, FWD, Vector3.new(X, 3, 6), 1, aRoot.Position, false)
@@ -2810,6 +2817,7 @@ do
 	task.wait(0.3)
 	check(bChar:GetAttribute("Grabbed") == true and not bChar:GetAttribute("Blocking"), "(a raised guard doesn't stop a grab)")
 	task.wait(1)
+	end
 
 	-- STUN GRENADE: B isn't guarding and is blinded; C guards it and isn't
 	fresh(Vector3.new(X, 3, 10), Vector3.new(X, 3, -10))
@@ -3472,7 +3480,7 @@ do
 	task.wait(0.4 + 0.1)
 	check(profilesUsed.Shatter == true and bHum.Health < MAX, "BREAK: one punch shatters everything around")
 	local afterBreak = bHum.Health
-	task.wait(br.Hold + 0.3)
+	task.wait((br.Hold or 0) + 0.3)
 	check(cd.restoreCalls == restoresNow + 1 and bHum.Health < afterBreak, "...and RESTORE: it all comes flying home, through them")
 	fire(TestCommand, A, "EndUlt")
 	A:SetAttribute("NoCooldowns", nil)
@@ -3590,7 +3598,7 @@ end
 -- Round 28: ragdoll cancel, dash punch, fewer random throws, server
 -- settings, the NUKE (dev kit), a wider Heaven-Piercing wall, SUNEATER
 ---------------------------------------------------------------------------
-(function() -- (its own function: the main chunk is at Luau's 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at Luau's 200-local limit)
 	local MAX = Config.PlayerMaxHealth
 	local X = 5200
 	local FWD = Vector3.new(0, 0, 1)
@@ -4145,12 +4153,12 @@ end
 	task.wait(0.1)
 	check(aChar:GetAttribute("Stomach") == nil, "switching to someone else: no stomach meter")
 	task.wait(1.6)
-end)()
+end)
 
 ---------------------------------------------------------------------------
 -- Round 29: Overhaul's SPIKE FAN, Decay's RADIO WAVES
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local MAX = Config.PlayerMaxHealth
 	local X = 6400
 	local FWD = Vector3.new(0, 0, 1)
@@ -4260,12 +4268,12 @@ end)()
 	fire(TestCommand, A, "EndUlt")
 	fire(SelectQuirk, A, "Explosion")
 	task.wait(0.3)
-end)()
+end)
 
 ---------------------------------------------------------------------------
 -- Round 30: out-of-combat healing
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local MAX = Config.PlayerMaxHealth
 	local RG = Config.Regen
 	local X = 7600
@@ -4397,12 +4405,12 @@ end)()
 	check(worst > 0 and worst < MAX * 0.5, "every Iida move, full health: none takes even half (worst: " .. worstName .. " " .. worst .. " of " .. MAX .. ")")
 	fire(SelectQuirk, A, "Explosion")
 	task.wait(0.3)
-end)()
+end)
 
 ---------------------------------------------------------------------------
 -- Round 31: Todoroki's JET KINDLING, Lemillion's new PERMEATE
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local MAX = Config.PlayerMaxHealth
 	local X = 9000
 	local FWD = Vector3.new(0, 0, 1)
@@ -4560,12 +4568,12 @@ end)()
 	if cChar then
 		cChar.Parent = nil
 	end
-end)()
+end)
 
 ---------------------------------------------------------------------------
 -- Round 32: All Might's presence; the action lock's grace; the dash timers
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local MAX = Config.PlayerMaxHealth
 	local X = 9500
 	local FWD = Vector3.new(0, 0, 1)
@@ -4674,11 +4682,11 @@ end)()
 	fire(UseAbility, A, Config.DASH_INDEX, Vector3.new(-1, 0, 0), "Back")
 	check(#sentTo(B, "Dash") == 1, "the side/back step is back after " .. MV.MobilityDashCooldown .. "s")
 	task.wait(0.5)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 33: the emote wheel; every move on 1 2 3 4
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local X = 9800
 	print("== EMOTES (the B wheel)")
 	do
@@ -4736,12 +4744,12 @@ end)()
 	check(has(Config.EmoteKeys, Enum.KeyCode.B) and not has(Config.ShopKeys, Enum.KeyCode.B)
 		and not has(Config.ShopKeys, Config.TestMenu.Key), "B is the emote wheel; the shop's off it (and off the test menu's key)")
 	task.wait(0.3)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 34: the dash punch stun-locks; moves shove less far; a ragdoll lasts
 -- as long as the hit was hard
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local X = 10200
 	local FWD = Vector3.new(0, 0, 1)
 	local function fresh(aQuirk, bPos)
@@ -4830,12 +4838,12 @@ end)()
 	check(big <= RS.Cap + 0.1, "...but never past " .. RS.Cap .. "s")
 	A:SetAttribute("QuirkPick", 1)
 	task.wait(1)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 35: every hero's signature look (kept minimal); Overhaul's fused
 -- arms; Deku's INFINITE 100% (up into the sky, the barrage, down into the street)
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local X = 11000
 	local SKIN = M.Color3.fromRGB(240, 205, 170)
 	local function r6(p, pos)
@@ -5021,13 +5029,13 @@ end)()
 	cChar.Parent = nil
 	workspace.Raycast = rayBefore
 	task.wait(1.5)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 36: the cosmetics switches, hero ranks + Top Heroes (saved), Fa
 -- Jin's tap-to-wind-up, the Auto-Cannon's live aim, ult armour, Iida's
 -- speed, INFINITE 100%'s rain of fists
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local X = 12500
 	local MAX = Config.PlayerMaxHealth
 	local SKIN = M.Color3.fromRGB(240, 205, 170)
@@ -5302,12 +5310,12 @@ end)()
 	fire(TestCommand, A, "EndUlt")
 	workspace.Raycast = rayBefore
 	task.wait(1)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 37: Kamui Woods, the swings (his branch, Suneater's tentacle),
 -- Suneater's slower stomach, Bakugo toned down, UNO at Tony's
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local X = 14000
 	local MAX = Config.PlayerMaxHealth
 	local SKIN = M.Color3.fromRGB(240, 205, 170)
@@ -5756,12 +5764,12 @@ end)()
 
 	workspace.Raycast = rayBefore
 	task.wait(0.5)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 38: swinging made easier (chains, a wider search, Tako Snatch finds
 -- the spot on a building), Suneater's utility belt, Kamui without his helmet
 ---------------------------------------------------------------------------
-;(function() -- (its own function: the main chunk is at the 200-local limit)
+;M.section(function() -- (its own function: the main chunk is at the 200-local limit)
 	local X = 15500
 	studioMode = true
 	workspace:SetAttribute("HealthRegen", false)
@@ -5926,11 +5934,11 @@ end)()
 
 	workspace.Raycast = rayBefore
 	task.wait(0.3)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 39: Root Breaker's roots travel down the street from his arms
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 16500
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
@@ -5960,13 +5968,13 @@ end)()
 	check(bHum.Health == MAX - RB.Damage, "the roots reach the end of the line, 40 studs off (" .. (MAX - bHum.Health) .. ")")
 	check(hitAt and hitAt > 0.45, string.format("...a moment later than someone close: they travel from his arms (%.2fs)", hitAt or -1))
 	task.wait(1)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 41: Branch Swing checked from where his screen had him (and not off
 -- invisible walls), Bakugo nerfed hard, Todoroki's freeze cuts moves short,
 -- Glacier Breaker on someone frozen
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 17500
 	local MAX = Config.PlayerMaxHealth
 	local FWD = Vector3.new(0, 0, 1)
@@ -6145,12 +6153,12 @@ end)()
 	check(bHum.Health == MAX - IS.Damage - GB.Damage - GB.ShatterDamage - GB.PillarDamage and not bRoot.Anchored, "...then the pillar throws them up out of it")
 	A:SetAttribute("NoCooldowns", nil)
 	task.wait(1.5)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 42: UNO players sit on the chairs (not up by the backrest),
 -- Bakugo's EXPLOSIVE SPEED, the DAD MODE emote
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 18500
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
@@ -6289,12 +6297,12 @@ end)()
 	local seen = sentTo(B, "Emote")
 	check(#seen == 1 and seen[1].Id == "DadMode", "...and everyone sees it")
 	task.wait(1)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 43: knockdowns (moves put you on the street), KO finishers,
 -- Explosive Speed flat out, Chain Prison's cage
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 19500
 	local MAX = Config.PlayerMaxHealth
 	local FWD = Vector3.new(0, 0, 1)
@@ -6396,12 +6404,12 @@ end)()
 	check(ES.CutIn == false, "no cut-in over the walk (his last stand plays out in the fight)")
 	fire(TestCommand, A, "EndUlt")
 	task.wait(1)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 44: Shigaraki's public (Collapse without the cutscene), Bakugo's
 -- blink, MR. COMPRESS, CHARGEBOLT
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 20500
 	local MAX = Config.PlayerMaxHealth
 	local FWD = Vector3.new(0, 0, 1)
@@ -6768,12 +6776,12 @@ end)()
 	check(aChar:GetAttribute("Pointers") == nil, "someone else's quirk: the clip's gone")
 	street(false)
 	task.wait(1)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 45: Chargebolt's look pared down to one bracer on the arm; the
 -- animation fallbacks
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 21500
 	studioMode = true
 	local function r6(p, pos)
@@ -6856,13 +6864,13 @@ end)()
 
 	print("== ANIMATIONS: every move has something to play")
 	check(Config.Animations.Procedural.R6 == "auto" and Config.Animations.Strides == nil, "R6 bodies: Roblox's clips, and the built-in gait for any body playing none (round 64: round 62's loops are gone)")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 46: the Sky Coffin (the floating arena over the city: barrier,
 -- Sports Festival stage, warp gates); Bakugo upside down at the blitz's
 -- catch, and the slow motion longer
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local SCfg = Config.SkyCoffin
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
@@ -7021,12 +7029,12 @@ end)()
 	check(aRoot.CFrame.UpVector.Y > 0.99 and not aRoot.Anchored and aChar:GetAttribute("BodyLocked") == nil, "...and on his feet and free afterwards")
 	fire(TestCommand, A, "EndUlt")
 	task.wait(1)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 47: the Sky Coffin way bigger; no invisible walls round the city -
 -- off the edge is the void (a KO, for whoever knocked you off)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	local SCfg = Config.SkyCoffin
 	local MB = Config.MapBounds
@@ -7099,13 +7107,13 @@ end)()
 	task.wait(0.4)
 	check(bHum.Health > 0 and bRoot.Position.Y > 0, "punched through the street (not off its edge): still put back where you stood")
 	task.wait(0.5)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 48: Decay on the Sky Coffin (its plates fire themselves off, Total
 -- Decay takes him up into the barrier, Best Jeanist's fibers bring him back),
 -- Lemillion on the island, Bakugo's blitz body lock, Iida's muffler nuke
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	local SCfg = Config.SkyCoffin
 	local C = SCfg.Center
@@ -7292,13 +7300,13 @@ end)()
 	fire(TestCommand, A, "EndUlt")
 	task.wait(1)
 	workspace:SetAttribute("MufflerPrank", nil)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 49: Iida's prank behind the test menu's switch; All Might vs All For
 -- One in the sky; Deku's Fa Jin (squats, then out through his legs) and
 -- Gearshift (up through the gears, then Transmission)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
 	workspace:SetAttribute("HealthRegen", false)
@@ -7445,14 +7453,14 @@ end)()
 	task.wait(3)
 	check(aChar:GetAttribute("Gearshift") == nil, "(someone else's quirk: no gears)")
 	task.wait(0.5)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 50: Deku, way stronger - Delaware Smash: Air Force (three flicks),
 -- St. Louis Smash's air blade, Gearshift's harder hits a gear at a time,
 -- Transmission's Detroit Smash: Quintuple and the gear-down, Danger Sense in
 -- his ult, and the 1,000,000% Delaware Detroit Smash
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
 	workspace:SetAttribute("HealthRegen", false)
@@ -7590,14 +7598,14 @@ end)()
 	check(MAX - bHum.Health >= M.Damage, "it reaches B 200 studs down the street (" .. (MAX - bHum.Health) .. ")")
 	fire(TestCommand, A, "EndUlt")
 	task.wait(0.5)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 51: Chargebolt's Zap Trap (Live Wire's gone), the trap's live wire
 -- to a pointer, Stun Bolt ricocheting off pointers and overloading traps,
 -- the Thunder Dive; Deku's 100% Detroit Smash breaking his arms; Deku
 -- dropping into the middle of the city
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
 	workspace:SetAttribute("HealthRegen", false)
@@ -7841,14 +7849,14 @@ end)()
 	fire(TestCommand, A, "PSSet", "ResetSettings")
 	check(workspace:GetAttribute("DekuDrop") ~= true, "(back off with the rest: off until switched on)")
 	task.wait(DDC.Length)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 52: ENDEAVOR (Hellflame: heat buildup, Hell Spider, Jet Burn,
 -- Vanishing Fist, Hell's Curtain, Plus Ultra) and DABI (Blueflame: it sears
 -- him; Cremation, Hell Minefield, Hell Spider, Blue Wall, Jet Burn, the
 -- reveal) - both dev only; Deku's broken arm hanging limp; the BLOOD setting
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
 	workspace:SetAttribute("HealthRegen", false)
@@ -8160,12 +8168,12 @@ end)()
 	task.wait(0.2)
 	check(Config.Blood and Config.Blood.Enabled == true and Config.Blood.MinDamage > 0, "(on by default; only hard hits bleed)")
 	workspace.Raycast = stub
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 53: Deku's ult the way the movies animate it (the lightning blitz,
 -- GO BEYOND - PLUS ULTRA's longer charge), the new emotes
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
 	workspace:SetAttribute("HealthRegen", false)
@@ -8299,13 +8307,13 @@ end)()
 		task.wait(0.5)
 	end
 	check(passed == #want, "...every one passed on to everyone else (" .. passed .. ")")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 58: the world events off until someone switches them on; emotes
 -- bought in the shop (the only way to get one) and a four-slot wheel that
 -- starts empty; One For All's vestige realm and its hidden way in
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local ShopRemote = remotes:FindFirstChild("Shop")
 	print("== THE WORLD EVENTS: off until someone switches them on")
 	fire(TestCommand, A, "PSSet", "ResetSettings")
@@ -8503,14 +8511,14 @@ end)()
 	aChar:PivotTo(CFrame.new(VRC.Center + Vector3.new(0, -70, 0)))
 	task.wait(1.8)
 	check(A:GetAttribute("InVestige") == nil and (aRoot.Position - VRC.Center).Magnitude > 500, "off the edge: you wake up (not a fall to your death)")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 59: the ult earned by dealing damage (1.5 players' worth); nothing
 -- hits someone who's down but a downslam; Suneater's Bamboo Sweep and
 -- Urchin Spikes (in the air), his glide; Mr. Compress's Vanishing Act held;
 -- Dabi hides the avatar's own hair; awakening outfits
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local ShopRemote = remotes:FindFirstChild("Shop")
 	local X = 73500
 	local MAX = Config.PlayerMaxHealth
@@ -8751,12 +8759,12 @@ end)()
 	G2.Parent = nil
 	Players.PlayerRemoving:Fire(G2)
 	Players.GetHumanoidDescriptionFromOutfitIdAsync = nil
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 60: a KO is one Buck; Iida is a dev character; Suneater's tentacle
 -- ZIPS him to a building (Spider-Man's web zip); CREATI (Momo Yaoyorozu)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 76500
 	local MAX = Config.PlayerMaxHealth
 	local FWD = Vector3.new(0, 0, 1)
@@ -9173,11 +9181,11 @@ end)()
 	for _, w in made and made:GetChildren() or {} do
 		w:Destroy()
 	end
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 63: smoother ragdolls, easier slams, deliveries, codes
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 93000
 	local MAX = Config.PlayerMaxHealth
 	studioMode = true
@@ -9386,12 +9394,12 @@ end)()
 	Players.PlayerRemoving:Fire(P)
 	pChar.Parent = nil
 	workspace.Raycast = prevRay
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 64: EXPLOSIVE SPEED is back - Dynamight's R (4 is still FULL-BODY
 -- CLUSTER; out of the ult R is still the Stun Grenade)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	local X = 99500
 	local FWD = Vector3.new(0, 0, 1)
@@ -9498,12 +9506,12 @@ end)()
 	task.wait(0.2)
 	check(#sentTo(B, "StunGrenade") == 1 and #sentTo(B, "ExplosiveSpeed") == 0, "the ult over: R is the Stun Grenade again")
 	task.wait(1)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 65: the back dash (backflip into a handstand), dashing out of an M1,
 -- the chase dash, AUTO RUN, Crazy Diamond's new dome
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	local X = 101500
 	local FWD = Vector3.new(0, 0, 1)
@@ -9691,7 +9699,7 @@ end)()
 	end
 	check(roof == 0, "...and roofed over (" .. roof .. " holes)")
 	task.wait(0.3)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 67 (round 66's content on the user's upload, without the Hero
 -- License): the back dash (a twist in the air, a longer handstand, a
@@ -9699,7 +9707,7 @@ end)()
 -- console (the owner runs commands, everyone else watches), the Support
 -- Drop, Crazy Diamond's Stand M1s
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local serde = require("@lune/serde")
 	local MAX = Config.PlayerMaxHealth
 	local X = 103500
@@ -9923,14 +9931,14 @@ end)()
 	Players.PlayerRemoving:Fire(C)
 	cChar.Parent = nil
 	task.wait(0.3)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 68: combos for Suneater / Deku / All Might / Creati (hitstun, not
 -- knockdowns), the ragdoll cancel out of a combo, Decay Grasp on someone
 -- who's down, Zap Trap x3 and the fence between them, the M1s breaking a
 -- body-sized chunk, controller sensitivity / Roblox camera settings
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	local X = 105500
 	local FWD = Vector3.new(0, 0, 1)
@@ -10218,13 +10226,13 @@ end)()
 	task.wait(0.2)
 	fire(Settings, A, "PadSensitivity", 1)
 	task.wait(0.3)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 69: TWICE (Jin Bubaigawara) - his doubles (real bodies that fight
 -- for him and melt), Dagger Shot, Tape Dash, Measure (a double of THEM),
 -- Double Cross, Sad Man's Parade (the burst, Parade, Dagger Storm, Dogpile)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	local X = 106500
 	local FWD = Vector3.new(0, 0, 1)
@@ -10466,11 +10474,11 @@ end)()
 	check(#doubles() == 0, "...and every one of them melts")
 	fire(SelectQuirk, A, "Explosion")
 	task.wait(0.3)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 70: TWICE is a dev character (testers and players they grant)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	print("== round 70: TWICE is a dev character")
 	local TWc = Config.Quirks.Double
 	check(TWc.DevOnly == true and table.find(Config.QuirkOrder, "Double") ~= nil, "TWICE: on the list, dev only")
@@ -10495,11 +10503,11 @@ end)()
 	fire(SelectQuirk, A, "Explosion")
 	studioMode, game.CreatorId = wasStudio, wasCreator
 	task.wait(0.3)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 71: QUIRK CLASHES (Config.Clash), the JJS beam clash
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	local X = 107500
 	local CC = Config.Clash
@@ -10667,11 +10675,11 @@ end)()
 	check(#sentTo(A, "ClashStart") == 0 and (aHum.Health < MAX or bHum.Health < MAX), "server setting Clashes off: they just trade")
 	workspace:SetAttribute("Clashes", nil)
 	task.wait(1.5)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 71: NOMU RAIDS (Config.NomuRaid)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MAX = Config.PlayerMaxHealth
 	local NC = Config.NomuRaid
 	studioMode = true
@@ -10903,11 +10911,11 @@ end)()
 	check(workspace:GetAttribute("NomuRaid") == true, "...and on")
 	fire(TestCommand, A, "PSSet", "NomuRaid", false) -- (off again for the rest of the run)
 	task.wait(0.3)
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 71: DEKU'S MEMORIES in One For All (Config.DekuMemories)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local MC = Config.DekuMemories
 	local CENTER = Config.VestigeRealm.Center
 	local ROOM = CFrame.new(CENTER + MC.Classroom)
@@ -11079,11 +11087,11 @@ end)()
 	fire(TestCommand, A, "Vestige")
 	task.wait(1.5)
 	check(A:GetAttribute("InVestige") == nil and A:GetAttribute("Memory") == nil and (aRoot.Position - CENTER).Magnitude > 500, "waking up any other way ends the memory too")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 72: everyone's emotes taken away once; emote rolls for Robux too
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local ES = Config.EmoteShop
 	local MPS = service("MarketplaceService")
 	local ShopRemote = remotes:FindFirstChild("Shop")
@@ -11256,13 +11264,13 @@ end)()
 	workspace.Raycast = stubRay72
 	check(MAXH - bHum.Health == pw(air.Damage) + pw(air.ReturnDamage),
 		"from 9 studs up it sweeps along the street: B, standing under him, is hit going round and coming back (" .. (MAXH - bHum.Health) .. ")")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 73: Bakugo flies on his explosions; Deku and Iida balanced; All
 -- Might's transformation rebuilt (growing in heartbeats, the bangs with the
 -- costume)
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 76500
 	local FWD = Vector3.new(0, 0, 1)
 	local function place(aQuirk, aPos, bPos, bQuirk)
@@ -11391,12 +11399,12 @@ end)()
 	check(aChar:FindFirstChild("HeroHair") == nil and aChar:GetAttribute("HeroOutfit") == false, "deflating: the bangs go with the costume")
 	task.wait(0.3)
 	fire(TestCommand, A, "ResetCooldowns")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 74: Iida public; PRIME DEKU (the flash step), PRIME ALL MIGHT (I Am
 -- Here), DIO (ZA WARUDO); the guard's heavy recoil
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 79500
 	local FWD = Vector3.new(0, 0, 1)
 	local function place(aQuirk, aPos, bPos, bQuirk)
@@ -11621,14 +11629,14 @@ end)()
 	local blocked = sentTo(A, "Block")[1]
 	check(blocked and blocked.Heavy == true, "a Texas Smash on the guard: a HEAVY block (" .. tostring(blocked and blocked.Heavy) .. ")")
 	fire(UseAbility, B, Config.BLOCK_INDEX, false)
-end)()
+end)
 
 ---------------------------------------------------------------------------
 -- Round 75: downslams, FLOAT, the BLACKWHIP SLINGSHOT, Colorado Smash from
 -- the sky, RECIPRO EXTEND, balance, the Nomu (opt-in, killable), the flash
 -- step slowed down, Overhaul's lanes stopping at walls, GRAND FINALE, ENDGAME
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 80500
 	local FWD = Vector3.new(0, 0, 1)
 	local function place(aQuirk, aPos, bPos, bQuirk)
@@ -11973,13 +11981,13 @@ end)()
 	task.wait((NRC.LandAt or 2.6) + 0.3)
 	fin = sentTo(A, "NomuRaidEnd")[1]
 	check(#sentTo(A, "NomuIncoming") == 1 and fin and fin.Result == "Escaped" and #sentTo(A, "NomuLanded") == 0, "the panel's KILL on one still coming in: it turns back, never lands")
-end)()
+end)
 
 ---------------------------------------------------------------------------
 -- Round 76: the voice lines from the sound folders in Workspace (All Might,
 -- Bakugo, Deku) and the longer moves that fit them; WHY ARE YOU CRYING
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 81500
 	local FWD = Vector3.new(0, 0, 1)
 	local Q = Config.Quirks
@@ -12101,12 +12109,12 @@ end)()
 	fire(TestCommand, A, "EndUlt")
 	task.wait(0.5)
 	fire(TestCommand, A, "ResetCooldowns")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 77: Detroit Smash says the All Might folder's new "SMASH!"; All
 -- Might's punches get their own layered sounds from the licensed library
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local V = Config.Voice
 	print("== round 77: SMASH!, and All Might's punches")
 	local sm = V.MightSmash
@@ -12155,13 +12163,13 @@ end)()
 	-- the shared cues stay as they were for everyone else
 	check(Config.Sounds.Smash and Config.Sounds.DetroitImpact and Config.Sounds.USSImpact and Config.Sounds.Hit and Config.Sounds.HeavyHit,
 		"Deku and the rest keep the shared Smash / DetroitImpact / USSImpact / Hit sounds")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 78: United States of Smash only goes off on a hit (the decoy left
 -- has to land) - the hold, the freeze on the face, the slam; a whiff costs
 -- a short cooldown, not the ult. Its sound quieter, fading into the music.
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 83500
 	local FWD = Vector3.new(0, 0, 1)
 	local Q = Config.Quirks
@@ -12297,13 +12305,13 @@ end)()
 	fire(TestCommand, A, "EndUlt")
 	task.wait(0.5)
 	fire(TestCommand, A, "ResetCooldowns")
-end)()
+end)
 ---------------------------------------------------------------------------
 -- Round 84: the slam jump goes on the press (its tuning); Shigaraki - Rivet
 -- Stab skewers the nearest one and reels them in, Rivet Storm lifts them on
 -- the rivets and slams them down, Radio Waves jams the quirk itself
 ---------------------------------------------------------------------------
-;(function()
+;M.section(function()
 	local X = 84500
 	local FWD = Vector3.new(0, 0, 1)
 	print("== round 84: SLAM JUMP ON THE PRESS; SHIGARAKI'S RIVETS AND RADIO WAVES")
@@ -12502,7 +12510,144 @@ end)()
 	cChar.Parent = nil
 	fire(SelectQuirk, A, "Explosion")
 	task.wait(0.3)
-end)()
+end)
+---------------------------------------------------------------------------
+-- Round 94: the city comes back whole after a wipe - the server rebuilds
+-- what the blast carved (the crater, the furrows, the trench) in time with
+-- every screen's rewind (Kit.wipeRebuild -> Destruction.RestoreArea)
+---------------------------------------------------------------------------
+;M.section(function()
+	local X = 85500
+	print("== round 94: THE CITY BACK WITH THE REWIND (the light wipe's and the Serious Punch's rebuild)")
+	-- (the server's main chunk may still be on its way down when a short
+	-- run gets here)
+	local waited = os.clock()
+	while not (dx.LightWipe and dx.LightWipe.rebuild) and os.clock() - waited < 10 do
+		task.wait(0.1)
+	end
+	local LW = dx.LightWipe
+	check(LW ~= nil and type(LW.rebuild) == "function" and type(LW.style) == "function", "the wipe's rebuild is there (Destruction.LightWipe.rebuild)")
+	if not (LW and LW.rebuild) then
+		return
+	end
+	local calls = {}
+	dx.RestoreArea = function(center, radius, opts)
+		table.insert(calls, { Center = center, Radius = radius, Opts = opts })
+		return 7
+	end
+	local mapF = workspace:FindFirstChild("Map")
+	local bld = mapF:FindFirstChild("Buildings") or M.new("Folder", "Buildings")
+	bld.Parent = mapF
+	local trees = mapF:FindFirstChild("Trees") or M.new("Folder", "Trees")
+	trees.Parent = mapF
+	local W = LW.style()
+	local LWC = Config.DevFlight.LightWipe
+	check(W.Hold == LWC.World.Hold and type(W.Folders) == "table" and #W.Folders > 0, "the light wipe's numbers: its own over the punch's (Hold " .. tostring(W.Hold) .. ", " .. #(W.Folders or {}) .. " wiped folders)")
+
+	-- the plan: the rebuild halfway through every screen's empty plain, the
+	-- rest as the rewind ends
+	local origin = Vector3.new(X, 0, 0)
+	local plan = LW.rebuild(origin, Config.LightWave, LWC.Wave, nil, W, { Radius = LWC.Radius, Above = LWC.Above, Below = LWC.Below, Street = 0 })
+	local rewind = W.RewindSpan + W.RewindTime
+	check(plan.Mid > 0.5 and plan.Mid < 6.3 + W.Hold * 0.5 and math.abs(plan.End - plan.Mid - (W.Hold * 0.5 + rewind)) < 1e-6,
+		string.format("the city's put back %.1fs in (mid-hold) and the rest at %.1fs (as the rewind ends)", plan.Mid, plan.End))
+	-- a dummy and a double in the way are bodies to build round; players aren't
+	local dm = makeCharacter("Dummy85", CFrame.new(X + 20, 3, 0))
+	dm.Parent = dummies
+	check(plan.step("Mid") == 7 and #calls == 1, "MID: the wiped folders put back")
+	local c1 = calls[1]
+	local o1 = c1 and c1.Opts or {}
+	check(c1 and c1.Center == origin and c1.Radius == LWC.Radius and o1.Above == LWC.Above and o1.Below == LWC.Below,
+		"...within the blast's reach (" .. tostring(c1 and c1.Radius) .. " studs, " .. tostring(o1.Above) .. " up, not the Sky Coffin)")
+	check(type(o1.Folders) == "table" and o1.Folders[bld] and o1.Folders[trees] and o1.MinTop == W.Foundation,
+		"...only the city every screen hid, over its foundations (top over " .. tostring(o1.MinTop) .. ")")
+	local hasDummy, hasPlayer = false, false
+	for _, m in o1.Bodies or {} do
+		hasDummy = hasDummy or m == dm
+		hasPlayer = hasPlayer or m == aChar or m == bChar
+	end
+	check(hasDummy and not hasPlayer, "...nothing rebuilt on a dummy (a player's own screen moves him out)")
+	-- someone still limp is a body to build round too
+	bChar:SetAttribute("Ragdolled", true)
+	local pl = LW.rebuild(origin, Config.LightWave, LWC.Wave, nil, W, { Radius = LWC.Radius, Street = 0 })
+	pl.step("Mid")
+	local limp = false
+	for _, m in (calls[2] and calls[2].Opts.Bodies) or {} do
+		limp = limp or m == bChar
+	end
+	bChar:SetAttribute("Ragdolled", nil)
+	check(limp, "...nor on someone still limp")
+	table.remove(calls, 2)
+	plan = LW.rebuild(origin, Config.LightWave, LWC.Wave, nil, W, { Radius = LWC.Radius, Above = LWC.Above, Below = LWC.Below, Street = 0 })
+	plan.Done.Mid = true -- (the Mid above was this plan's)
+	check((o1.Batch or 0) > 0, "...a few hundred a frame")
+	check(plan.step("Mid") == 0 and #calls == 1, "...once")
+	check(plan.step("End") == 7 and #calls == 2 and calls[2].Opts.Folders == nil and calls[2].Opts.MinTop == nil,
+		"END: the rest - the crater in the street, the low pieces")
+	dm.Parent = nil
+
+	-- a newer wipe's rebuild takes over (it puts back everything anyway)
+	local p1 = LW.rebuild(origin, Config.LightWave, LWC.Wave, nil, W, {})
+	local p2 = LW.rebuild(origin, Config.LightWave, LWC.Wave, nil, W, {})
+	check(p1.step("Mid") == 0 and #calls == 2, "an older wipe's rebuild gives way to a newer one's")
+	-- the server keeping the city broken: nothing put back
+	workspace:SetAttribute("MapRegen", false)
+	check(p2.step("Mid") == 0 and #calls == 2, "Destruction Respawns off: the city stays broken")
+	workspace:SetAttribute("MapRegen", nil)
+
+	-- THE LIGHT WIPE: its blast plans one, and it goes off on its own
+	table.clear(calls)
+	local before = LW.lastPlan
+	local at = Vector3.new(X, 0, 300)
+	LW.blast(A, aChar, at)
+	local lp = LW.lastPlan
+	check(lp ~= nil and lp ~= before and lp.Mid > 0 and lp.End > lp.Mid, "THE LIGHT WIPE plans the city's rebuild as its wave goes out")
+	if lp then
+		task.wait(lp.Mid + 0.3)
+		local got = calls[1]
+		check(got and got.Center == at and got.Opts.Folders ~= nil, "...and puts it back halfway through the empty plain (" .. #calls .. " call)")
+	end
+
+	-- THE SERIOUS PUNCH: its trench and crater come back with its city
+	fire(SelectQuirk, A, "Saitama")
+	if aChar then
+		aChar.Parent = nil
+	end
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 900), Vector3.new(X, 3, 910)))
+	task.wait(0.2)
+	fire(TestCommand, A, "ResetCooldowns")
+	fire(TestCommand, A, "FillUlt")
+	fire(UseAbility, A, Config.ULT_INDEX)
+	task.wait(0.5)
+	clearSent()
+	local planBefore = LW.lastPlan
+	local sp
+	for i, ab in Config.Quirks.Saitama.Ult.Abilities do
+		if ab.Id == "SeriousPunch" then
+			sp = i
+		end
+	end
+	fire(UseAbility, A, sp or 3, Vector3.new(0, 0, 1), aRoot.Position + Vector3.new(0, 0, 40), 1, aRoot.Position)
+	local t0 = os.clock()
+	while os.clock() - t0 < 8 and #sentTo(B, "SeriousPunchGo") == 0 do
+		task.wait(0.1)
+	end
+	local go = sentTo(B, "SeriousPunchGo")[1]
+	local pp = LW.lastPlan
+	check(go ~= nil and pp ~= nil and pp ~= planBefore, "THE SERIOUS PUNCH plans its city's rebuild too")
+	if pp then
+		local SW = Config.Saitama.Wipe
+		check(math.abs(pp.End - pp.Mid - (SW.Hold * 0.5 + SW.RewindSpan + SW.RewindTime)) < 1e-6, "...on its own wipe's hold and rewind")
+		table.clear(calls)
+		pp.step("End")
+		local got = calls[1]
+		check(got and math.abs(got.Center.Y - (aRoot.Position.Y - 3)) < 3.5 and got.Radius == Config.Quirks.Saitama.Ult.Abilities[sp or 3].Radius,
+			"...round his feet, out to the punch's reach")
+	end
+	fire(TestCommand, A, "EndUlt")
+	task.wait(0.3)
+	dx.RestoreArea = nil
+end)
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}

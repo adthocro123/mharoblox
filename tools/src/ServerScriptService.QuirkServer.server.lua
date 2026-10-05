@@ -297,7 +297,8 @@ do
 		end
 		local t = os.clock() - delay
 		for model in history do
-			if model ~= caster and not seen[model] and not (hitSet and hitSet[model]) and model.Parent then
+			-- (round 87: never a dev's parked body - it's out of every query, Kit.PS)
+			if model ~= caster and not seen[model] and not (hitSet and hitSet[model]) and model.Parent and not model:GetAttribute("Parked") then
 				local hum = model:FindFirstChildOfClass("Humanoid")
 				local p = hum and hum.Health > 0 and Rewind.PositionAt(model, t)
 				if p and inside(p) then
@@ -387,6 +388,7 @@ local function addUlt(player, amount)
 		return
 	end
 	local rate = tonumber(workspace:GetAttribute("UltRate")) or 1 -- (server settings)
+	rate *= tonumber(workspace:GetAttribute("EventUltRate")) or 1 -- (round 87: ULT FRENZY, Kit.AE - Kit isn't up here yet)
 	player:SetAttribute("Ult", math.min(100, (player:GetAttribute("Ult") or 0) + amount * studioCharge * rate))
 end
 
@@ -431,6 +433,10 @@ local Evasive = {}
 local function damage(attacker, model, amount, opts)
 	local hum = model:FindFirstChildOfClass("Humanoid")
 	if not hum or hum.Health <= 0 or Moves.stopped() then
+		return false
+	end
+	-- (round 87) a dev's own body, parked while he's in another (Kit.PS): out of every fight
+	if Reactions.parked and Reactions.parked[model] then
 		return false
 	end
 	-- (round 69) one of Twice's doubles: his own hits go through it, and
@@ -511,6 +517,7 @@ local function damage(attacker, model, amount, opts)
 		amount *= KAIJU.DamageTaken or 0.5
 	end
 	amount *= tonumber(workspace:GetAttribute("DamageMult")) or 1 -- (server settings)
+	amount *= Reactions.AE and Reactions.AE.mult("Damage") or 1 -- (round 87: BLOOD MOON - Kit.AE, hung on Reactions like the raid's and DIO's)
 	-- (down on the street: only the move that put them there hits them in full)
 	amount *= Reactions.downedScale(model, opts)
 	local armor = Reactions.armored(model)
@@ -600,9 +607,18 @@ local function knockback(model, velocity, duration, raw, noRagdoll)
 	end
 	-- (the dev menu's knockback multiplier)
 	velocity *= tonumber(workspace:GetAttribute("KnockbackMult")) or 1
+	-- (round 87) admin events (Kit.AE, as Reactions.AE): PLUS ULTRA throws harder
+	-- (not a raw push: an M1's spacing, a juggle, an uppercut are the combo's own)
+	if Reactions.AE then
+		velocity = Reactions.AE.knockback(velocity, raw)
+	end
 	-- how hard the hit was (whether it knocks them off their feet, and for how
 	-- long) is judged on the move's full force...
 	local strength = velocity.Magnitude
+	-- (round 87) LOW GRAVITY: a floatier arc, kept on the map (Kit.AE.floaty)
+	if Reactions.AE then
+		velocity = Reactions.AE.floaty(velocity)
+	end
 	-- ...but (Config.Knockback) a move shoves them less far: sideways x
 	-- MoveScale, the lift x MoveLift; a spike down keeps its full force
 	if not raw then
@@ -660,12 +676,19 @@ local function knockback(model, velocity, duration, raw, noRagdoll)
 	lv.MaxForce = limp and (RAGDOLL.MaxForce or 30000) or mass * 12000
 	lv.RelativeTo = Enum.ActuatorRelativeTo.World
 	lv.VectorVelocity = velocity
+	-- (round 87) THROUGH-THE-BUILDING KNOCKBACK (Config.Smash, Kit.Smash):
+	-- a throw this hard is watched for the walls it meets (its tier rides on
+	-- the push, for the body's own machine); a combo's held shove and the
+	-- downslam's spike never are
+	local smashing = Reactions.SM and Reactions.SM.tag(model, root, lv, velocity, held or noRagdoll)
 	lv.Parent = root
 	Debris:AddItem(lv, duration or 0.2)
 	Debris:AddItem(att, duration or 0.2)
 	-- body slam: strong knockback smashes the target through whatever it flies into
+	-- ((round 87) unless the through-the-building knockback has it: its holes
+	-- are body-sized, and the body goes on through them)
 	local slamSpeed = Config.Destruction and Config.Destruction.SlamSpeed or 110
-	if velocity.Magnitude >= slamSpeed then
+	if velocity.Magnitude >= slamSpeed and not smashing then
 		task.spawn(function()
 			local t0 = os.clock()
 			while os.clock() - t0 < 0.5 and root.Parent do
@@ -702,6 +725,7 @@ end
 function Reactions.stunProof(model)
 	local owner = Players:GetPlayerFromCharacter(model)
 	return (owner ~= nil and owner:GetAttribute("NoStun") == true) or Reactions.armored(model) ~= nil
+		or (Reactions.parked ~= nil and Reactions.parked[model] == true) -- (round 87: a dev's parked body, Kit.PS - nothing knocks it down)
 end
 
 local function stun(model, duration, walkSpeed)
@@ -1275,7 +1299,8 @@ end
 
 local function isDummy(model)
 	local folder = workspace:FindFirstChild("Dummies")
-	return folder ~= nil and model:IsDescendantOf(folder)
+	-- (round 87) a dummy a dev is in guards like a player (it can turn: frontal, and it parries)
+	return folder ~= nil and model:IsDescendantOf(folder) and not model:GetAttribute("Possessed")
 end
 
 local function guardOf(model)
@@ -1443,6 +1468,10 @@ local burnTokens = setmetatable({}, { __mode = "k" })
 local function burn(model, ticks, perTick, pal)
 	if not ticks or ticks <= 0 then
 		return
+	end
+	-- (round 86) fire burns Hawks' feathers (set with his kit: Kit.HK.burned)
+	if Reactions.featherFire and model:GetAttribute("Feathers") ~= nil then
+		Reactions.featherFire(model, pal)
 	end
 	local token = (burnTokens[model] or 0) + 1
 	burnTokens[model] = token
@@ -1909,8 +1938,12 @@ function Handlers.BlastOrbit(player, char, root, ability, dir, _pos, cast)
 		end
 		local center = groundBelow(root.Position + d * ((ability.Range or 16) * 0.55), char)
 		Destruction.Sphere(center, 9, "Explosion")
-		for _, model in queryRadius(char, center + UP * 3, ability.Radius or 10) do
-			if damage(player, model, ability.Damage, { From = center, Hitstop = 0.06 }) then
+		-- (round 92) where they were on HIS screen (Rewind: a target stepping
+		-- across it used to slip out between his press and the server's look),
+		-- and the launch never knocks them down (it hits harder now - over a
+		-- knockdown's MinDamage - and the orbit catches them up there)
+		for _, model in Rewind.QueryRadius(player, char, center + UP * 3, ability.Radius or 10) do
+			if damage(player, model, ability.Damage, { From = center, Hitstop = 0.06, NoKnockdown = true }) then
 				knockback(model, UP * (ability.Launch or 95) + d * 4, 0.22)
 				stun(model, 2.5)
 				table.insert(caught, model)
@@ -1920,7 +1953,7 @@ function Handlers.BlastOrbit(player, char, root, ability, dir, _pos, cast)
 	else
 		task.wait(0.12)
 		local model = alive(char) and Grab.nearest(char, root, d, (ability.Range or 16) * 1.5, 0.2)
-		if model and damage(player, model, ability.Damage, { Hitstop = 0.06 }) then
+		if model and damage(player, model, ability.Damage, { Hitstop = 0.06, NoKnockdown = true }) then
 			table.insert(caught, model)
 		end
 	end
@@ -1968,49 +2001,8 @@ function Handlers.BlastOrbit(player, char, root, ability, dir, _pos, cast)
 	end
 end
 
--- SCORCHED EARTH (V): he grabs the face in front of him, rockets forward
--- dragging them along the street (a trench behind them, anything in the way
--- blown through) and blows up in their face. In the air: he rockets them
--- DOWN, head first into the street.
-function Handlers.ScorchedEarth(player, char, root, ability, dir, _pos, cast)
-	local d = flatten(dir, root)
-	task.wait(0.12)
-	if not alive(char) then
-		return
-	end
-	local model = Grab.nearest(char, root, d, ability.Range or 9, 0.3)
-	local g = model and Grab.take(model, (ability.DragTime or 0.7) + 0.4)
-	broadcast("ScorchedEarthCatch", char, { Target = g and model or nil, Dir = d, Air = cast.Air })
-	if not g then
-		return
-	end
-	damage(player, model, ability.DragDamage or 4, { Hitstop = 0.05 })
-	local t0 = os.clock()
-	local dragTime = ability.DragTime or 0.7
-	local lastTick = t0
-	while os.clock() - t0 < dragTime and alive(char) and g.Root.Parent do
-		-- held out in front of his palm (his own machine flies him)
-		local ahead = cast.Air and (root.CFrame.Position - UP * 3.5 + d * 1.5) or (root.CFrame.Position + d * 3.2 - UP * 0.6)
-		Grab.place(g, CFrame.lookAt(ahead, ahead - d))
-		if os.clock() - lastTick > 0.15 then
-			lastTick = os.clock()
-			if cast.Air then
-				Destruction.Sphere(ahead - UP * 2, 5, "Impact", -UP)
-			else
-				Destruction.Sphere(ahead + d * 2, 6, "Explosion", d) -- through whatever's in the way
-				Destruction.Box(CFrame.lookAt(ahead - UP * 3, ahead - UP * 3 + d), Vector3.new(5, 3, 6), "Crater", d) -- the trench
-			end
-		end
-		task.wait(0.03)
-	end
-	local center = g.Root.Position
-	Grab.release(g, cast.Air and (UP * 60 + d * 30) or (d * 130 + UP * 55), 0.24)
-	if alive(char) and damage(player, model, ability.Damage, { Heavy = true, Hitstop = 0.1, From = center - d * 2 }) then
-		ragdoll(model, 1.6)
-		stun(model, ability.Stun or 1.5)
-	end
-	Destruction.Sphere(center, cast.Air and 16 or 13, cast.Air and "BigExplosion" or "Explosion")
-end
+-- (round 92) SCORCHED EARTH is gone: his 4th is MAX CAPACITY now
+-- (Handlers.MaxCapacity, Kit.GB - the round-92 BAKUGO block)
 
 -- ONE FOR ALL: true form
 function Handlers.TexasSmash(player, char, root, ability, dir)
@@ -2543,6 +2535,8 @@ function Handlers.ReciproBurst(player, char, root, ability)
 	local level = HoldMoves.level(ability, held)
 	broadcast("ReciproBurstRelease", char, { Level = level, Dir = hold.Dir }, player)
 	local finish = ability.Finish or { 14, 16, 24 }
+	-- (round 85) the freeze on a hit grows with the gear (Hitstop: on screen only)
+	local stops = ability.Hitstop or {}
 	for i = 1, level do
 		if not alive(char) then
 			return
@@ -2552,7 +2546,8 @@ function Handlers.ReciproBurst(player, char, root, ability)
 		local dashTime = ability.DashTime or 0.18
 		tunnel(char, root, dashTime, last and level == 3 and 7 or 5, 6)
 		sweep(player, char, root, dashTime, 7, 3, d, function(model)
-			if damage(player, model, last and (finish[level] or 14) or ability.Damage, { Hitstop = last and 0.1 or 0.04, Heavy = last }) then
+			local hitstop = last and ((stops.Last or {})[level] or 0.1) or (stops.Strike or 0.04)
+			if damage(player, model, last and (finish[level] or 14) or ability.Damage, { Hitstop = hitstop, Heavy = last }) then
 				if last then
 					knockback(model, flatten(root.CFrame.LookVector, root) * (80 + 40 * level) + UP * 30, 0.25)
 					stun(model, 1.1)
@@ -2691,8 +2686,9 @@ function Handlers.ReciproTurbo(player, char, root, ability, dir)
 	local d = flatten(dir, root)
 	task.wait(0.45) -- engine rev
 	tunnel(char, root, 0.6, 5, 9) -- follows the zig-zag via his velocity
+	-- (round 85) each hit freezes them both a beat (the look: Hitstop only)
 	local hitSet = sweep(player, char, root, 0.6, 9, 2, d, function(model)
-		if damage(player, model, ability.Damage) then
+		if damage(player, model, ability.Damage, { Hitstop = 0.04 }) then
 			knockback(model, d * 25, 0.12)
 			stun(model, 1.6)
 		end
@@ -2702,13 +2698,13 @@ function Handlers.ReciproTurbo(player, char, root, ability, dir)
 		task.wait(0.09)
 		for model in hitSet do
 			if model.Parent then
-				damage(player, model, math.floor(ability.Damage * 0.75))
+				damage(player, model, math.floor(ability.Damage * 0.75), { Hitstop = 0.04 })
 			end
 		end
 	end
 	task.wait(0.12)
 	for model in hitSet do
-		if model.Parent and damage(player, model, ability.FinisherDamage or 12) then
+		if model.Parent and damage(player, model, ability.FinisherDamage or 12, { Hitstop = 0.1 }) then
 			knockback(model, d * 150 + UP * 55, 0.28)
 			stun(model, 1)
 		end
@@ -2738,12 +2734,14 @@ function Handlers.APShot(player, char, root, ability, dir, _pos, cast)
 	local d = Config.AimedDirection(dir, root.CFrame.LookVector, cast.Air and ability.AirAim or ability.Aim)
 	local origin = root.Position + UP * 1.5
 	local length = ability.Range or 160
-	beamHit(char, origin, d, length, 9, function(model)
+	-- (round 92) whoever was in it on HIS screen too (Rewind: a beam 110
+	-- studs long whiffed on anyone moving across it at that range)
+	for _, model in Rewind.QueryBox(player, char, CFrame.lookAt(origin, origin + d) * CFrame.new(0, 0, -length / 2), Vector3.new(9, 9, length)) do
 		if damage(player, model, ability.Damage, { From = origin }) then
 			knockback(model, d * 85 + UP * 18, 0.2)
 			stun(model, ability.Stun or 0.7)
 		end
-	end)
+	end
 	-- armour-piercing: drills a tunnel straight through buildings, and blows
 	-- a hole wherever it first strikes
 	Destruction.Capsule(origin + d * 3, origin + d * (length - 10), 4.5, "Beam", d)
@@ -3235,6 +3233,7 @@ function Kit.blitzLethal(player, model, amount)
 		amount *= KAIJU.DamageTaken or 0.5
 	end
 	amount *= tonumber(workspace:GetAttribute("DamageMult")) or 1
+	amount *= Kit.AE and Kit.AE.mult("Damage") or 1 -- (round 87: BLOOD MOON, as damage() has it)
 	local armor = Reactions.armored(model)
 	if armor then
 		amount *= armor.Scale or 0.5
@@ -3271,8 +3270,8 @@ function Handlers.ExplosiveSpeed(player, char, root, ability, dir)
 	root.Anchored = true -- (rooted in the crouch; the server flies him)
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + d)
 	-- (his own screen keeps its hands off his body meanwhile: the shift lock
-	-- and the lock-on would stand him back upright every frame - flat out on
-	-- the blitz, upside down at the catch)
+	-- would stand him back upright every frame - flat out on the blitz,
+	-- upside down at the catch)
 	char:SetAttribute("BodyLocked", true)
 	if hum then
 		hum.AutoRotate = false
@@ -3924,7 +3923,7 @@ function Handlers.TurboKick(player, char, root, ability)
 		if connected then
 			return
 		end
-		if damage(player, model, ability.Damage) then
+		if damage(player, model, ability.Damage, { Hitstop = 0.06 }) then -- (round 85: a beat of hitstop as he appears in their face)
 			connected = true
 			local f = flatten(root.CFrame.LookVector, root)
 			knockback(model, f * 90 + UP * 25, 0.2)
@@ -3939,8 +3938,16 @@ function Handlers.ReciproMax(player, char, root, ability, dir)
 	tunnel(char, root, 0.55, 9, 14, function()
 		return d
 	end)
+	-- (round 85) every screen is told where and when the run catches
+	-- someone (its cutscene ends on that hit), and the hit freezes them both
+	local told = false
 	sweep(player, char, root, 0.55, 10, 3, d, function(model)
-		if damage(player, model, ability.Damage) then
+		if damage(player, model, ability.Damage, { Hitstop = 0.12 }) then
+			local r = model:FindFirstChild("HumanoidRootPart")
+			if not told and r then
+				told = true
+				broadcast("ReciproMaxHit", char, { Target = model, Pos = r.Position, Dir = d })
+			end
 			knockback(model, d * 200 + UP * 60, 0.3)
 			stun(model, 1.5)
 		end
@@ -4174,8 +4181,8 @@ end
 -- edged violet crackles round his arms while Air Cannon's gold orb swells in
 -- his palm, flickering violet; then the pulse rolls out in a wide fan (the
 -- wave travels at Speed): whoever it reaches is hurt, hurled back and
--- JAMMED for Jam seconds - static over their screen, their lock-on gone,
--- and (round 84) their quirk's signal lost: no moves till it clears (M1s,
+-- JAMMED for Jam seconds - static over their screen and (round 84) their
+-- quirk's signal lost: no moves till it clears (M1s,
 -- dashes and the guard still work). Everyone sees the static crackling on
 -- them (RadioJam).
 function Handlers.RadioWaves(player, char, root, ability, dir)
@@ -4229,7 +4236,7 @@ end
 
 -- (round 84) RIVET STORM: the rivets burst out of his back and both arms in
 -- every direction (ep 122's spread). Everyone they catch is skewered and
--- LIFTED on them (Lift studs up, held Hold seconds), then slammed down into
+-- LIFTED on them (Lift studs up, held LiftHold seconds), then slammed down into
 -- the street (SlamDamage, a knockdown). A boss - or a dodge - is only
 -- pierced and thrown.
 function Handlers.RivetStorm(player, char, root, ability)
@@ -4238,7 +4245,7 @@ function Handlers.RivetStorm(player, char, root, ability)
 		return
 	end
 	local origin = root.Position + UP
-	local hold, lift, slamTime = ability.Hold or 0.7, ability.Lift or 9, ability.SlamTime or 0.16
+	local hold, lift, slamTime = ability.LiftHold or 0.7, ability.Lift or 9, ability.SlamTime or 0.16
 	local caught = {}
 	lances(char, origin, stormDirs(), ability.Range or 90, 1.4, {}, function(model, v)
 		local opts = { From = origin, NoKnockdown = lift > 0 or nil, Hitstop = 0.05 }
@@ -7131,7 +7138,7 @@ function Handlers.SpikePrison(player, char, root, ability, _dir, pos)
 		return
 	end
 	for _, model in queryCylinder(char, center - UP * 2, radius, 16) do
-		stun(model, ability.Hold or 1.6, 0)
+		stun(model, ability.PrisonHold or 1.6, 0)
 	end
 	task.wait(0.6) -- the spikes stab in
 	for _, model in queryCylinder(char, center - UP * 2, radius + 1, 16) do
@@ -7738,6 +7745,9 @@ local function handleM1(player, char, root, clientCF, variant)
 	if standQuirk and standQuirk.Stand then
 		reach += standQuirk.StandReach or 2.5 -- (round 74: The World's too)
 	end
+	if standQuirk and standQuirk.BladeReach then
+		reach += standQuirk.BladeReach -- (round 86: Hawks' feather blades)
+	end
 	boxSize += Vector3.new(0, 0, reach)
 	local pressedAt = root.Position
 	local frames = math.max(1, (Config.Hitboxes and Config.Hitboxes.M1ActiveFrames) or 1)
@@ -7796,7 +7806,11 @@ local function handleM1(player, char, root, clientCF, variant)
 						elseif not immune then
 							stun(model, 0.8)
 						end
-						knockback(model, f * Config.M1.FinisherKnockback + UP * (Config.M1.FinisherLift or 15), 0.2, true)
+						local send = f * Config.M1.FinisherKnockback + UP * (Config.M1.FinisherLift or 15)
+						if Kit.AE then
+							send = Kit.AE.knockback(send) -- (round 87 review: PLUS ULTRA throws the send-off, not the chain's spacing)
+						end
+						knockback(model, send, 0.2, true)
 					else
 						-- (round 81) JJS: pinned - momentum gone, a stud's shove that
 						-- matches the attacker's pull, and a stun that outlasts the
@@ -7852,40 +7866,101 @@ local function findLimb(char, r15Name, r6Name)
 	return char:FindFirstChild(r15Name) or char:FindFirstChild(r6Name)
 end
 
--- Iida-style exhaust pipes sticking out of the back of each calf
-local function addEnginePipes(gear, char, turbo)
+-- Iida's calf engines (round 85: rebuilt). A silver housing bulging out of
+-- the back of each calf, tapering into the knee and the ankle, and wrapping
+-- round the outside of the calf; a light plate on its back with 6 short
+-- gunmetal stubs in 2 columns of 3 (dark bores, mouths pointing back and a
+-- little out); a gold engine block with 4 round ends on the outside of the
+-- calf. Sizes are Config.Quirks.Engine.Look's. The exhaust
+-- isn't built here any more: every client drives its own out of the same
+-- mouths (VFX.EngineKit: idle wisps, the run flicker, the ult's), so it can
+-- follow his speed. The outer column's stubs are the "Pipe"s (6 in all, as
+-- before); the inner column's are "PipeInner". (`_turbo`, the ult, has the
+-- same engines for now.)
+local function addEnginePipes(gear, char, _turbo)
+	local L = Config.Quirks.Engine and Config.Quirks.Engine.Look
+	if not L then
+		return
+	end
 	local isR15 = char:FindFirstChild("UpperTorso") ~= nil
-	for _, names in { { "RightLowerLeg", "Right Leg" }, { "LeftLowerLeg", "Left Leg" } } do
+	for _, names in { { "RightLowerLeg", "Right Leg", 1 }, { "LeftLowerLeg", "Left Leg", -1 } } do
 		local leg = findLimb(char, names[1], names[2])
 		if leg then
-			local yCenter = isR15 and leg.Size.Y * 0.08 or -leg.Size.Y * 0.22
-			for i = -1, 1 do
-				local len = 0.95
-				local pipe = gearPart(gear, Vector3.new(len, 0.34, 0.34), Color3.fromRGB(60, 62, 70), Enum.Material.Metal, Enum.PartType.Cylinder)
-				pipe.Name = "Pipe"
-				-- cylinder axis is X; rotate so +X points out the back of the calf
-				local c0 = CFrame.new(0, yCenter + i * leg.Size.Y * 0.16, leg.Size.Z / 2 + len / 2 - 0.12)
-					* CFrame.Angles(0, math.rad(-90), 0)
-				weld(leg, pipe, c0)
-				local tip = Instance.new("Attachment")
-				tip.Position = Vector3.new(len / 2, 0, 0)
-				tip.Parent = pipe
-				local pe = Instance.new("ParticleEmitter")
-				pe.Texture = "rbxasset://textures/particles/fire_main.dds"
-				pe.Color = ColorSequence.new(Color3.fromRGB(235, 245, 255), Color3.fromRGB(90, 160, 255))
-				pe.LightEmission = 1
-				pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) })
-				pe.Transparency = NumberSequence.new(0.2, 1)
-				pe.Speed = NumberRange.new(4, 7)
-				pe.Lifetime = NumberRange.new(0.12, 0.22)
-				pe.Rate = turbo and 60 or 10
-				if turbo then
-					pe.Speed = NumberRange.new(10, 16)
-					pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(1, 0) })
+			local side, s = names[3], leg.Size
+			-- (an R6 leg's studs onto this leg: an R15 lower leg is only the
+			-- shin, so its calf is the top of it; VFX.EngineKit.legPoint is the twin)
+			local function at(x, y, z)
+				if isR15 then
+					return Vector3.new(x * s.X, (y + 0.5) * s.Y * 0.55 + s.Y * 0.06, z * s.Z)
 				end
-				pe.EmissionDirection = Enum.NormalId.Right
-				pe.SpreadAngle = Vector2.new(8, 8)
-				pe.Parent = tip
+				return Vector3.new(x * s.X, y * s.Y / 2, z * s.Z)
+			end
+			local ky = isR15 and s.Y * 0.55 or s.Y / 2
+			local function piece(name, size, color, material, shape, c0)
+				local p = gearPart(gear, size, color, material, shape)
+				p.Name = name
+				weld(leg, p, c0)
+				return p
+			end
+			local function wedge(size, c0)
+				local w = Instance.new("WedgePart")
+				w.Name = "EngineHousing"
+				w.Size = size
+				w.Color = L.Metal
+				w.Material = Enum.Material.Metal
+				w.CanCollide = false
+				w.CanQuery = false
+				w.CanTouch = false
+				w.Massless = true
+				w.CastShadow = false
+				w.Parent = gear
+				weld(leg, w, c0)
+			end
+			local H = L.Housing
+			local back = H.Depth / 2 + 0.47 -- (the housing's middle, 0.03 into the calf)
+			piece("EngineHousing", Vector3.new(H.Width * s.X, H.Height * ky, H.Depth * s.Z), L.Metal, Enum.Material.Metal, nil, CFrame.new(at(0, H.Y, back)))
+			-- tapering up into the knee and down into the ankle (the wedges'
+			-- upright faces against the calf)
+			local top, bottom = H.Y + H.Height / 2, H.Y - H.Height / 2
+			local depth = (H.Depth - 0.03) * s.Z
+			wedge(Vector3.new(H.Width * s.X, (H.Top - top) * ky, depth), CFrame.new(at(0, (H.Top + top) / 2, 0.5 + (H.Depth - 0.03) / 2)) * CFrame.Angles(0, math.pi, 0))
+			wedge(Vector3.new(H.Width * s.X, (bottom - H.Bottom) * ky, depth), CFrame.new(at(0, (bottom + H.Bottom) / 2, 0.5 + (H.Depth - 0.03) / 2)) * CFrame.Angles(math.pi, 0, 0))
+			local plateZ = back + H.Depth / 2
+			piece("EnginePlate", Vector3.new(L.Plate.Width * s.X, L.Plate.Height * ky, 0.05), L.PlateColor, Enum.Material.Metal, nil, CFrame.new(at(0, H.Y, plateZ + 0.02 / s.Z)))
+			-- the stubs: pointing out the back, Splay degrees toward the outside
+			-- of the leg and Droop degrees down (a cylinder's axis is its X:
+			-- turned onto the look)
+			local sp, dr = math.rad(L.Splay or 0), math.rad(L.Droop or 0)
+			local axis = Vector3.new(math.sin(sp) * side * math.cos(dr), -math.sin(dr), math.cos(sp) * math.cos(dr))
+			local w = math.min(s.X, s.Z)
+			for _, y in L.Rows do
+				for col = 1, 2 do
+					local base = at((col == 1 and 1 or -1) * side * L.Column, y, L.StubBase)
+					local len = L.StubLength * w
+					local function along(d)
+						local p = base + axis * d
+						return CFrame.lookAt(p, p + axis) * CFrame.Angles(0, math.pi / 2, 0)
+					end
+					piece(col == 1 and "Pipe" or "PipeInner", Vector3.new(len, L.StubWidth * w, L.StubWidth * w), L.StubColor, Enum.Material.Metal, Enum.PartType.Cylinder, along(len / 2))
+					piece("PipeBore", Vector3.new(0.03, L.BoreWidth * w, L.BoreWidth * w), L.BoreColor, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder, along(len + 0.005))
+				end
+			end
+			-- (round 85 review) the housing wrapping round the outside of the
+			-- calf: a cheek Out studs proud of the side face, from Front back to
+			-- the housing's back (its inner part hides inside the leg), so the
+			-- calf reads thick from the front too
+			local C = L.Cheek
+			local xi, xo = 0.43, 0.5 + C.Out / s.X
+			local zb = 0.47 + H.Depth
+			piece("EngineHousing", Vector3.new((xo - xi) * s.X, H.Height * ky, (zb - C.Front) * s.Z), L.Metal, Enum.Material.Metal, nil, CFrame.new(at(side * (xi + xo) / 2, H.Y, (C.Front + zb) / 2)))
+			-- the gold "engine" on the cheek: the canon boxy block with 4 round
+			-- cylinder ends (their axis, a cylinder's X, pointing out)
+			local B = L.Block
+			local bx = xo + B.Depth / 2 / s.X
+			piece("EngineBlock", Vector3.new(B.Depth, B.Height * ky, B.Width * s.Z), L.Gold, Enum.Material.Metal, nil, CFrame.new(at(side * bx, B.Y, B.Z)))
+			local ex = xo + (B.Depth + B.EndLength / 2) / s.X
+			for _, o in { { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } } do
+				piece("EngineDisc", Vector3.new(B.EndLength, B.End * w, B.End * w), L.GoldShade, Enum.Material.Metal, Enum.PartType.Cylinder, CFrame.new(at(side * ex, B.Y + o[1] * B.Height * 0.25, B.Z + o[2] * B.Width * 0.24)))
 			end
 		end
 	end
@@ -9130,7 +9205,7 @@ Players.PlayerRemoving:Connect(function(player)
 			end
 		end
 		Destruction.Sphere(center + UP * 3, radius * 0.75, "Shatter")
-		task.wait(ability.Hold or 1.3)
+		task.wait(ability.RestoreHold or 1.3)
 		if not alive(char) then
 			return
 		end
@@ -9320,7 +9395,10 @@ do
 	-- BAKUGO: the Grenadier Bracers - a dark green pineapple grenade over each
 	-- forearm (segments cut by black grooves), the silver fuze collar at the
 	-- wrist his fist comes out of, the safety lever down the outside and the
-	-- pin ring; green gloves with orange palms
+	-- pin ring; green gloves with orange palms. (round 88) The gauntlets
+	-- store his sweat, so they show it: (round 90) the black band between
+	-- the green segments is the gauge (below; round 88's glass tube is gone -
+	-- one meter, not two)
 	function Kit.grenadeBracers(gear, char)
 		local GREEN = { Color3.fromRGB(48, 102, 62), Color3.fromRGB(42, 92, 56), Color3.fromRGB(54, 110, 68) }
 		local GROOVE, SILVER = Color3.fromRGB(14, 26, 18), Color3.fromRGB(200, 202, 208)
@@ -9344,7 +9422,24 @@ do
 				end
 				-- the grenade: a black core, and 4 rows x 7 raised segments round it,
 				-- the end rows tucked in (its rounded ends)
-				ring(len * 0.98, R * 1.84, mid, GROOVE)
+				-- (round 90) THE SWEAT BAND: what shows in the grooves between the
+				-- segments is his sweat - a neon sleeve (SweatFill, built full: a
+				-- fresh body is full) over the black core, which every screen
+				-- sizes from the wrist up to his SWEAT (VFX.CosA); drained, the
+				-- black core shows. Its top edge (SweatLevel, built hidden) glows
+				-- hotter where the level is. The core sits a little deeper than
+				-- the sleeve (never the same depth: no flicker between them), the
+				-- sleeve well under the segments' faces
+				ring(len * 0.98, R * 1.72, mid, GROOVE).Name = "BracerCore"
+				local axis = CFrame.new(0, mid, 0) * CFrame.Angles(0, 0, math.rad(90)) -- (its length, X, up the forearm)
+				local CA = (Config.CosmeticsA or {}).Bakugo or {}
+				local band = gearPart(gear, Vector3.new(len * 0.98, R * 1.84, R * 1.84), CA.Fill or ORANGE, Enum.Material.Neon, Enum.PartType.Cylinder)
+				band.Name = "SweatFill"
+				weld(arm, band, axis)
+				local level = gearPart(gear, Vector3.new(math.max(0.05, len * 0.06), R * 1.9, R * 1.9), CA.Level or SILVER, Enum.Material.Neon, Enum.PartType.Cylinder)
+				level.Name = "SweatLevel"
+				level.Transparency = 1
+				weld(arm, level, axis * CFrame.new(len * 0.49, 0, 0))
 				local rows, cols = 4, 7
 				local profile = { 0.9, 1, 1, 0.92 }
 				local h = len / rows
@@ -9373,9 +9468,11 @@ do
 					local lever = gearPart(gear, Vector3.new(0.08, span.Magnitude + 0.06, s.Z * 0.3), SILVER, Enum.Material.Metal)
 					weld(arm, lever, CFrame.lookAt((seg[1] + seg[2]) / 2, (seg[1] + seg[2]) / 2 + Vector3.new(0, 0, -1)) * CFrame.Angles(0, 0, math.atan2(span.X, span.Y) * -1))
 				end
-				-- the pin ring, on the front of the collar
+				-- the pin ring, on the front of the collar ((round 88) the
+				-- GrenadePin: every screen lights it when his tubes are full)
 				local ringAt = Vector3.new(0, collarY, -R * 1.04)
 				local pin = gearPart(gear, Vector3.new(0.05, 0.36, 0.36), SILVER, Enum.Material.Metal, Enum.PartType.Cylinder)
+				pin.Name = "GrenadePin"
 				weld(arm, pin, CFrame.new(ringAt) * CFrame.Angles(0, math.rad(90), 0))
 				local hole = gearPart(gear, Vector3.new(0.06, 0.22, 0.22), GROOVE, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
 				weld(arm, hole, CFrame.new(ringAt + Vector3.new(0, 0, -0.01)) * CFrame.Angles(0, math.rad(90), 0))
@@ -9421,7 +9518,9 @@ do
 		end
 	end
 
-	-- IIDA: his rectangular glasses (thin dark frames)
+	-- IIDA: his rectangular glasses (thin dark frames). (round 88) The two
+	-- lenses are the "Lens"es: every screen glints them on a burst and fogs
+	-- them when his engines stall (VFX.CosA)
 	function Kit.iidaGlasses(gear, char)
 		local head = char:FindFirstChild("Head")
 		if not head then
@@ -9444,6 +9543,7 @@ do
 			bar(Vector3.new(t, h, t), CFrame.new(cx + side * w / 2, y, z))
 			bar(Vector3.new(t, h, t), CFrame.new(cx - side * w / 2, y, z))
 			local lens = gearPart(gear, Vector3.new(w, h, 0.012), Color3.fromRGB(210, 230, 255), Enum.Material.Glass)
+			lens.Name = "Lens"
 			lens.Transparency = 0.82
 			weld(head, lens, CFrame.new(cx, y, z))
 			-- the arm, back over the ear
@@ -9481,38 +9581,91 @@ do
 		end
 	end
 
-	-- DEKU: the red high-tops - chunky, a thick dark sole, white laces
+	-- DEKU: (round 88) his hero costume's red high-tops on Mei Hatsume's IRON
+	-- SOLES (costume gamma, for Shoot Style): a red boot to just under the
+	-- knee with a pale padded collar, white laces criss-crossed up the front,
+	-- a dark heel tab and the sneaker's white midsole; under it a thick
+	-- gunmetal sole plate with
+	-- a rounded nose, a heel cup, a brace up the outside of the ankle and a
+	-- strap over the instep, bolted on in yellow. A seam runs round the sole:
+	-- every screen lights it (VFX.CosA) - green and crackling while he runs,
+	-- red-hot after a 100% move. The pieces: Boot (the red, the collar, the
+	-- laces, the tab), BootShaft (the boot's body, where the cracks go),
+	-- SolePlate, IronSole, SoleBolt, BootSeam
 	function Kit.dekuBoots(gear, char)
-		local RED, DARK = Color3.fromRGB(214, 42, 46), Color3.fromRGB(160, 26, 32)
-		local SOLE, LACE = Color3.fromRGB(56, 50, 54), Color3.fromRGB(238, 234, 226)
-		for _, names in { { "RightFoot", "Right Leg" }, { "LeftFoot", "Left Leg" } } do
-			local leg = findLimb(char, names[1], names[2])
+		local RED, DARK = Color3.fromRGB(214, 42, 46), Color3.fromRGB(146, 22, 30)
+		local COLLAR, LACE = Color3.fromRGB(226, 226, 222), Color3.fromRGB(246, 244, 238)
+		local IRON, BOLT = Color3.fromRGB(54, 56, 64), Color3.fromRGB(255, 204, 40)
+		local SEAM = (Config.CosmeticsA and Config.CosmeticsA.Deku.Seam) or Color3.fromRGB(26, 74, 52)
+		for _, spec in { { "RightFoot", "Right Leg", 1 }, { "LeftFoot", "Left Leg", -1 } } do
+			local leg = findLimb(char, spec[1], spec[2])
 			if leg then
+				local side = spec[3]
 				local s = leg.Size
-				local r15 = leg.Name == names[1]
-				local b = -s.Y / 2
-				local shaft = r15 and s.Y * 1.4 or s.Y * 0.36
-				local function box(size, pos, color, material)
-					local p = gearPart(gear, size, color, material or Enum.Material.SmoothPlastic)
-					p.Name = "Boot"
+				local r15 = leg.Name == spec[1]
+				-- (R6: a 1 x 2 x 1 leg, the boot up to just under the knee; R15:
+				-- the foot, the boot climbing onto the shin)
+				local k = r15 and math.clamp(math.min(s.X, s.Z), 0.5, 1.2) or 1
+				local W, D = s.X + 0.1 * k, s.Z + 0.1 * k
+				local T = (r15 and 0.16 or 0.22) * k -- the iron's thickness
+				local H = r15 and s.Y * 1.4 or s.Y * 0.4 -- the red upper
+				local TH, TD = 0.36 * k, 0.32 * k -- the toe box: high, deep
+				local yb = -s.Y / 2 - 0.04 * k -- the bottom of the iron
+				local ys = yb + T -- ...its top, where the boot stands
+				local yt = ys + H -- the top of the boot
+				local front = -D / 2 -- the front of the boot's body
+				local function piece(name, size, cf, color, material, shape)
+					local p = gearPart(gear, size, color, material or Enum.Material.SmoothPlastic, shape)
+					p.Name = name
+					weld(leg, p, cf)
+					return p
+				end
+				local function oval(name, size, pos, color, material)
+					local p = ellipsoid(gear, size, color, material or Enum.Material.SmoothPlastic)
+					p.Name = name
 					weld(leg, p, CFrame.new(pos))
 					return p
 				end
-				box(Vector3.new(s.X + 0.12, shaft, s.Z + 0.12), Vector3.new(0, b + shaft / 2 + 0.06, 0), RED)
-				box(Vector3.new(s.X + 0.17, 0.1, s.Z + 0.17), Vector3.new(0, b + shaft + 0.06, 0), DARK)
-				-- the toe, out past the front of the leg, rounded off
-				box(Vector3.new(s.X + 0.12, 0.34, s.Z * 0.5), Vector3.new(0, b + 0.22, -(s.Z / 2 + s.Z * 0.2)), RED)
-				local cap = ellipsoid(gear, Vector3.new(s.X + 0.12, 0.36, s.Z * 0.5), RED, Enum.Material.SmoothPlastic)
-				weld(leg, cap, CFrame.new(0, b + 0.2, -(s.Z / 2 + s.Z * 0.38)))
-				-- the sole
-				box(Vector3.new(s.X + 0.18, 0.14, s.Z * 1.36), Vector3.new(0, b + 0.02, -s.Z * 0.2), SOLE)
-				local nose = ellipsoid(gear, Vector3.new(s.X + 0.18, 0.14, s.Z * 0.46), SOLE, Enum.Material.SmoothPlastic)
-				weld(leg, nose, CFrame.new(0, b + 0.02, -s.Z * 0.9))
-				-- laces up the front, and the heel tab
-				for i = 0, 2 do
-					box(Vector3.new(s.X * 0.56, 0.05, 0.05), Vector3.new(0, b + 0.3 + i * shaft * 0.2, -(s.Z / 2 + 0.07)), LACE)
+				-- the boot: its body, the toe box out in front rounded off
+				piece("BootShaft", Vector3.new(W, H, D), CFrame.new(0, ys + H / 2, 0), RED)
+				piece("Boot", Vector3.new(W, TH, TD), CFrame.new(0, ys + TH / 2, front - TD / 2), RED)
+				oval("Boot", Vector3.new(W * 0.98, TH * 0.92, TD * 0.9), Vector3.new(0, ys + TH * 0.46, front - TD * 0.98), RED)
+				-- the sneaker's white midsole, a stripe round it over the iron
+				local back, tip = D / 2 + 0.06 * k, front - TD
+				piece("Boot", Vector3.new(W + 0.04 * k, 0.07 * k, back - tip - 0.06 * k), CFrame.new(0, ys + 0.035 * k, (back + tip) / 2 - 0.02 * k), LACE)
+				-- the padded collar
+				piece("Boot", Vector3.new(W + 0.08 * k, 0.16 * k, D + 0.08 * k), CFrame.new(0, yt - 0.08 * k, 0), COLLAR)
+				-- the laces, criss-crossed up the front, and the heel tab
+				for _, y in { ys + H * 0.4, ys + H * 0.62 } do
+					for _, tilt in { 24, -24 } do
+						piece("Boot", Vector3.new(W * 0.56, 0.06 * k, 0.05 * k), CFrame.new(0, y, front - 0.025 * k) * CFrame.Angles(0, 0, math.rad(tilt)), LACE)
+					end
 				end
-				box(Vector3.new(s.X * 0.3, shaft * 0.4, 0.06), Vector3.new(0, b + shaft * 0.72, s.Z / 2 + 0.08), DARK)
+				piece("Boot", Vector3.new(W * 0.3, H * 0.5, 0.06 * k), CFrame.new(0, yt - H * 0.3, D / 2 + 0.03 * k), DARK)
+				-- the iron: the sole plate from heel to toe, its rounded nose
+				local plateL = back - tip
+				local plateZ = (back + tip) / 2
+				piece("SolePlate", Vector3.new(W + 0.1 * k, T, plateL), CFrame.new(0, yb + T / 2, plateZ), IRON, Enum.Material.Metal)
+				oval("IronSole", Vector3.new(W + 0.1 * k, T, 0.4 * k), Vector3.new(0, yb + T / 2, tip), IRON, Enum.Material.Metal)
+				-- ...cupping the heel (low: the red shows above it), braced up the
+				-- outside of the ankle, strapped over the instep
+				piece("IronSole", Vector3.new(W * 0.84, 0.22 * k, 0.1 * k), CFrame.new(0, ys + 0.11 * k, D / 2 + 0.05 * k), IRON, Enum.Material.Metal)
+				local braceX = side * (W / 2 + 0.05 * k)
+				piece("IronSole", Vector3.new(0.1 * k, 0.5 * k, 0.46 * k), CFrame.new(braceX, ys + 0.25 * k, 0.08 * k), IRON, Enum.Material.Metal)
+				piece("IronSole", Vector3.new(W + 0.12 * k, 0.13 * k, 0.16 * k), CFrame.new(0, ys + TH - 0.04 * k, front - 0.06 * k), IRON, Enum.Material.Metal)
+				-- the yellow bolts: the ankle's pivot and the brace's foot, and two
+				-- along the sole's outer edge
+				local function bolt(x, y, z)
+					piece("SoleBolt", Vector3.new(0.06 * k, 0.2 * k, 0.2 * k), CFrame.new(x, y, z), BOLT, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+				end
+				bolt(braceX + side * 0.07 * k, ys + 0.4 * k, 0.08 * k)
+				bolt(braceX + side * 0.07 * k, ys + 0.12 * k, 0.08 * k)
+				local edgeX = side * ((W + 0.1 * k) / 2 + 0.025 * k)
+				bolt(edgeX, yb + T / 2, tip + plateL * 0.18)
+				bolt(edgeX, yb + T / 2, back - plateL * 0.2)
+				-- the seam round the sole (a hair proud of the plate and the nose)
+				piece("BootSeam", Vector3.new(W + 0.14 * k, 0.065 * k, plateL + 0.04 * k), CFrame.new(0, yb + T * 0.45, plateZ), SEAM)
+				oval("BootSeam", Vector3.new(W + 0.14 * k, 0.065 * k, 0.46 * k), Vector3.new(0, yb + T * 0.45, tip), SEAM)
 			end
 		end
 	end
@@ -9536,11 +9689,30 @@ do
 			local p = ellipsoid(gear, Vector3.one * size * k, color or SKIN, Enum.Material.SmoothPlastic)
 			p.Name = "Father"
 			weld(head, p, CFrame.new(pos))
+			return p
+		end
+		-- (round 88) every finger piece says which finger it's on (5: the
+		-- thumb), which joint moves it (Seg 1: the knuckle; 2: the middle
+		-- joint as well), where those joints are on the head and the way
+		-- they bend (Axis: +angle lifts the finger off his face), so every
+		-- screen can clench the hand into a claw while he charges (VFX.CosB)
+		local function joints(finger, a, b, list)
+			local d = (b - a).Unit
+			local _, n = onHead(v, b.X, b.Y, 0)
+			local axis = d:Cross(n).Unit
+			for _, entry in list do
+				entry[1]:SetAttribute("Finger", finger)
+				entry[1]:SetAttribute("Seg", entry[2])
+				entry[1]:SetAttribute("Knuckle", a)
+				entry[1]:SetAttribute("Joint", b)
+				entry[1]:SetAttribute("Axis", axis)
+			end
 		end
 		-- the palm, cupped over his mouth and chin
 		local palmAt = at(0.02, -0.2, 0.08)
 		local palm = ellipsoid(gear, Vector3.new(0.7, 0.56, 0.22) * k, SKIN, Enum.Material.SmoothPlastic)
 		palm.Name = "Father"
+		palm:SetAttribute("Palm", true)
 		weld(head, palm, CFrame.new(palmAt) * CFrame.Angles(math.rad(-10), 0, 0))
 		-- the wrist, hanging below his chin, and its cuff
 		local wristTop = at(0.02, -0.42, 0.1)
@@ -9548,7 +9720,7 @@ do
 		rod(gear, head, wristTop, wristLow, 0.3 * k, SKIN)
 		rod(gear, head, wristTop + Vector3.new(0, -0.2, 0.05) * k, wristLow + Vector3.new(0, -0.08, 0.02) * k, 0.38 * k, CUFF, Enum.Material.Metal)
 		-- four fingers: knuckle, middle joint, tip curling over the forehead
-		for _, f in {
+		for i, f in {
 			{ -0.24, -0.32, -0.38 },
 			{ -0.08, -0.1, -0.12 },
 			{ 0.06, 0.1, 0.13 },
@@ -9557,25 +9729,36 @@ do
 			local base = at(f[1], 0.02, 0.1)
 			local mid = at(f[2], 0.3, 0.08)
 			local tip = at(f[3], 0.52, 0.07)
-			rod(gear, head, base, mid, 0.17 * k, SKIN)
-			rod(gear, head, mid, tip, 0.15 * k, SKIN)
-			knob(0.175, mid)
-			knob(0.155, tip)
-			knob(0.19, base)
+			local near = rod(gear, head, base, mid, 0.17 * k, SKIN)
+			local far = rod(gear, head, mid, tip, 0.15 * k, SKIN)
+			local midKnob = knob(0.175, mid)
+			local tipKnob = knob(0.155, tip)
+			local baseKnob = knob(0.19, base)
 			-- a crease across the middle joint
 			local crease = gearPart(gear, Vector3.new(0.14 * k, 0.025 * k, 0.03 * k), SHADE, Enum.Material.SmoothPlastic)
 			crease.Name = "Father"
 			weld(head, crease, CFrame.lookAt(mid, mid + (mid - Vector3.new(0, mid.Y, 0)).Unit) * CFrame.new(0, 0, -0.085 * k))
+			joints(i, base, mid, { { near, 1 }, { midKnob, 1 }, { baseKnob, 1 }, { crease, 1 }, { far, 2 }, { tipKnob, 2 } })
 		end
 		-- the thumb, round his left cheek
 		local t0, t1, t2 = at(-0.26, -0.24, 0.1), at(-0.44, -0.1, 0.08), at(-0.52, 0.06, 0.07)
-		rod(gear, head, t0, t1, 0.19 * k, SKIN)
-		rod(gear, head, t1, t2, 0.165 * k, SKIN)
-		knob(0.2, t1)
-		knob(0.17, t2)
+		local near = rod(gear, head, t0, t1, 0.19 * k, SKIN)
+		local far = rod(gear, head, t1, t2, 0.165 * k, SKIN)
+		local midKnob = knob(0.2, t1)
+		local tipKnob = knob(0.17, t2)
+		joints(5, t0, t1, { { near, 1 }, { midKnob, 1 }, { far, 2 }, { tipKnob, 2 } })
 	end
 
-	-- GOJO: the black blindfold, knotted at the back
+	-- GOJO: the black blindfold, knotted at the back. (round 88) In his ult
+	-- (Unlimited Void) it's pushed up onto his forehead - the cloth bunched,
+	-- tipped back about its middle, the knot low at the back - and the SIX
+	-- EYES show where it was: a dark blue rim, the bright iris over it, a
+	-- white catchlight, his white upper lashes and a soft blue glow
+	-- (Config.CosmeticsB.Gojo). Every piece of the band carries both of its
+	-- places on the head (BandDown / BandUp: its C0; BandDownSize /
+	-- BandUpSize) and the state it was built in (BandState), and the eyes
+	-- SixEye, so every screen slides it up as his hand comes past and back
+	-- down at the end (VFX.CosB) instead of the rebuilt gear popping it
 	function Kit.gojoBlindfold(gear, char)
 		local head = char:FindFirstChild("Head")
 		if not head then
@@ -9583,16 +9766,75 @@ do
 		end
 		local v = visibleHead(head)
 		local k = v.X / 1.2
+		local G = (Config.CosmeticsB or {}).Gojo or {}
+		local up = char:GetAttribute("UltActive") == true
 		local CLOTH = Color3.fromRGB(18, 18, 24)
-		local band = gearPart(gear, Vector3.new(0.34 * k, v.X * 1.07, v.Z * 1.07), CLOTH, Enum.Material.Fabric, Enum.PartType.Cylinder)
+		local y0 = 0.1 * k
+		local raise = CFrame.new(0, y0 + (G.Lift or 0.2) * k, 0) * CFrame.Angles(math.rad(G.Tilt or 12), 0, 0) * CFrame.new(0, -y0, 0)
+		local function place(p, c0, upC0, upSize)
+			p:SetAttribute("BandState", up and "Up" or "Down")
+			p:SetAttribute("BandDown", c0)
+			p:SetAttribute("BandUp", upC0)
+			p:SetAttribute("BandDownSize", p.Size)
+			p:SetAttribute("BandUpSize", upSize or p.Size)
+			if up and upSize then
+				p.Size = upSize
+			end
+			weld(head, p, up and upC0 or c0)
+		end
+		local size = Vector3.new(0.34 * k, v.X * 1.07, v.Z * 1.07)
+		local band = gearPart(gear, size, CLOTH, Enum.Material.Fabric, Enum.PartType.Cylinder)
 		band.Name = "Blindfold"
-		weld(head, band, CFrame.new(0, 0.1 * k, 0) * CFrame.Angles(0, 0, math.rad(90)))
+		local c0 = CFrame.new(0, y0, 0) * CFrame.Angles(0, 0, math.rad(90))
+		local loose = G.Loose or 1.03
+		place(band, c0, raise * c0, Vector3.new(size.X * (G.Bunch or 0.8), size.Y * loose, size.Z * loose))
+		-- (the knot rides with the band; the tails go with it but still hang)
 		local knot = ellipsoid(gear, Vector3.new(0.24, 0.2, 0.16) * k, CLOTH, Enum.Material.Fabric)
-		weld(head, knot, CFrame.new(0, 0.1 * k, 0.66 * k))
+		knot.Name = "BlindfoldKnot"
+		c0 = CFrame.new(0, y0, 0.66 * k)
+		place(knot, c0, raise * c0)
 		for _, side in { 1, -1 } do
 			local tail = gearPart(gear, Vector3.new(0.13, 0.36, 0.03) * k, CLOTH, Enum.Material.Fabric)
-			weld(head, tail, CFrame.new(side * 0.05 * k, -0.08 * k, 0.7 * k) * CFrame.Angles(math.rad(12), 0, math.rad(side * 14)))
+			tail.Name = "BlindfoldKnot"
+			c0 = CFrame.new(side * 0.05 * k, -0.08 * k, 0.7 * k) * CFrame.Angles(math.rad(12), 0, math.rad(side * 14))
+			place(tail, c0, CFrame.new((raise * c0).Position) * c0.Rotation)
 		end
+		if not up then
+			return
+		end
+		-- the SIX EYES: on his face where the band was, each piece facing out
+		-- off the head (lifted clear of the face decal); SixEye says which
+		-- piece it is (Rim, Iris, Catch, Lash, Glow)
+		local E = G.Eye or {}
+		local rim, iris, spot, lash = E.Rim or { 0.225, 0.245 }, E.Iris or { 0.17, 0.19 }, E.Spot or { 0.04, 0.05 }, E.Lash or { 0.24, 0.035 }
+		local catch = E.Catch or 0.06
+		local function eyePart(p, role, x, y, lift, roll)
+			local at, n = onHead(v, x, y, lift)
+			p.Name = "SixEyes"
+			p:SetAttribute("SixEye", role)
+			weld(head, p, CFrame.lookAt(at, at + n) * CFrame.Angles(0, 0, math.rad(roll or 0)))
+			return p
+		end
+		for _, side in { 1, -1 } do
+			local ex, ey = side * (E.X or 0.2) * k, (E.Y or 0.1) * k
+			eyePart(ellipsoid(gear, Vector3.new(rim[1], rim[2], 0.05) * k, G.RimColor or Color3.fromRGB(24, 92, 196), Enum.Material.SmoothPlastic), "Rim", ex, ey, 0.012 * k)
+			eyePart(ellipsoid(gear, Vector3.new(iris[1], iris[2], 0.05) * k, G.IrisColor or Color3.fromRGB(110, 205, 255), Enum.Material.Neon), "Iris", ex, ey, 0.02 * k)
+			eyePart(ellipsoid(gear, Vector3.new(catch, catch, 0.03) * k, Color3.new(1, 1, 1), Enum.Material.Neon), "Catch", ex + spot[1] * k, ey + spot[2] * k, 0.028 * k)
+			-- (the lash along the top of the eye, its outer end up)
+			eyePart(gearPart(gear, Vector3.new(lash[1], lash[2], 0.03) * k, G.LashColor or Color3.fromRGB(242, 246, 255), Enum.Material.SmoothPlastic), "Lash", ex + side * 0.01 * k, ey + rim[2] * 0.5 * k, 0.02 * k, side * 10)
+		end
+		local glow = G.Glow or {}
+		local holder = gearPart(gear, Vector3.one * 0.1, Color3.new(), nil, nil)
+		holder.Name = "SixEyes"
+		holder.Transparency = 1
+		holder:SetAttribute("SixEye", "Glow")
+		weld(head, holder, CFrame.new(0, (E.Y or 0.1) * k, -0.75 * k))
+		local light = Instance.new("PointLight")
+		light.Color = glow.Color or Color3.fromRGB(120, 200, 255)
+		light.Range = (glow.Range or 5) * k
+		light.Brightness = glow.Brightness or 1.8
+		light.Shadows = false
+		light.Parent = holder
 	end
 
 	-- KAMUI WOODS: his wooden forearms with the tan riveted armbands above
@@ -10246,6 +10488,13 @@ local function buildGear(player, char)
 		Kit.dabiLook(cos, char, ult ~= nil)
 	elseif quirkName == "Creation" and Kit.YM then
 		Kit.YM.arm(char, Kit.YM.weapon(player), gear) -- (round 60: Creati's weapon, in her hand)
+	elseif quirkName == "FierceWings" and Kit.HK then
+		Kit.HK.wings(gear, char, ult ~= nil) -- (round 86: Hawks' wings - his ammo, so not the hideable look)
+		Kit.HK.look(cos, char)
+	elseif quirkName == "Saitama" and Kit.ST then
+		Kit.ST.look(cos, char, ult ~= nil) -- (round 90: the suit, the cape, his own face - serious in the ult)
+	elseif quirkName == "Whirlwind" and Kit.IN then
+		Kit.IN.look(cos, char, ult ~= nil) -- (round 92: Inasa's coat and cape, the Shiketsu cap, his own face - wilder in the ult)
 	end
 	Kit.signatureLook(cos, char, quirkName)
 	if player:GetAttribute("WearCosmetics") == false then
@@ -10253,6 +10502,11 @@ local function buildGear(player, char)
 	end
 	-- (round 59) Dabi's hair goes over the head: the avatar's own hair comes off
 	Kit.avatarHair(char, (quirkName == "Blueflame" or quirkName == "TheWorld") and player:GetAttribute("WearCosmetics") ~= false)
+	-- (round 90) Saitama's bald head and his own face over the avatar's (and both back after)
+	-- ((round 92) Inasa's too: his cap and his own hair and face go on in their place)
+	if Kit.ST then
+		Kit.ST.bare(char, (quirkName == "Saitama" or quirkName == "Whirlwind") and player:GetAttribute("WearCosmetics") ~= false)
+	end
 	if ult then
 		addUltAura(gear, char, quirkName, ult)
 	end
@@ -10399,6 +10653,9 @@ local function applyPassives(player, char, fresh)
 	-- (server settings)
 	walkSpeed *= tonumber(workspace:GetAttribute("SpeedMult")) or 1
 	jumpPower *= tonumber(workspace:GetAttribute("JumpMult")) or 1
+	if Kit.AE then
+		walkSpeed, jumpPower = Kit.AE.moveMult(walkSpeed, jumpPower) -- (round 87: GIANT / TINY MODE)
+	end
 	char:SetAttribute("BaseWalkSpeed", walkSpeed)
 	char:SetAttribute("BaseJumpPower", jumpPower)
 	-- Suneater's stomach (Config.Quirks.Manifest.Stomach): full on a new body,
@@ -10426,6 +10683,11 @@ local function applyPassives(player, char, fresh)
 	if Kit.HF then
 		Kit.HF.setup(char, quirkName == "Hellflame", fresh)
 	end
+	-- (round 86) Hawks' feathers (Kit.HK): full on a new body, the ult's
+	-- Overgrowth trimmed when it ends, gone when he's someone else
+	if Kit.HK then
+		Kit.HK.setup(char, quirkName == "FierceWings", fresh, player)
+	end
 	-- mirrored on the character so every client's VFX can read them
 	char:SetAttribute("Quirk", quirkName)
 	char:SetAttribute("QuirkAlt", alt)
@@ -10448,7 +10710,10 @@ local function applyPassives(player, char, fresh)
 		hum.JumpPower = jumpPower
 	end
 	local bodyScale = (ult and ult.BodyScale) or (alt and quirk and quirk.Alt and quirk.Alt.BodyScale) or (quirk and quirk.BodyScale) or nil
-	local rescaled = applyBody(char, bodyScale, player:GetAttribute("SizeMode"))
+	local rescaled = applyBody(char, bodyScale, (player:GetAttribute("SizeMode") or 1) * (Kit.AE and Kit.AE.sizeOf(player) or 1)) -- (round 87: GIANT / TINY MODE)
+	if rescaled and Kit.AE then
+		Kit.AE.afterScale(char, hum, walkSpeed, jumpPower) -- (round 87: ScaleTo scales the speeds too)
+	end
 	applyGear(player, char, rescaled and 0.2 or 0)
 	-- (round 59) the awakening outfit on (or off) with the ult - first, so the
 	-- hero costume below goes on (or back) over whichever look is on
@@ -10514,7 +10779,7 @@ local function setAlt(player, char, on, notifyCaster)
 						for key, v in full do
 							part[key] = 1 + (v - 1) * pulse[2]
 						end
-						if applyBody(char, part, player:GetAttribute("SizeMode")) then
+						if applyBody(char, part, (player:GetAttribute("SizeMode") or 1) * (Kit.AE and Kit.AE.sizeOf(player) or 1)) then -- (round 87: an event's size)
 							applyGear(player, char, 0.1)
 						end
 					end
@@ -10644,6 +10909,9 @@ local function activateUlt(player, char, root)
 	if Kit.TW and quirkName == "Double" then
 		task.spawn(Kit.TW.parade, player, char) -- (round 69: Sad Man's Parade - they pour out of him)
 	end
+	if Kit.HK and quirkName == "FierceWings" then
+		Kit.HK.awaken(player, char) -- (round 86: Hawks' Overgrowth - full, and past it)
+	end
 	-- the awakening blasts everyone nearby away
 	local center = root.Position
 	for _, model in queryRadius(char, center, ULT.ActivationRadius) do
@@ -10759,6 +11027,9 @@ local function handleDash(player, char, dir, kind, target)
 		+ (front and (Config.Movement.FrontWhiffRecovery or 0.18) or kind == "Back" and (Config.Movement.BackDashRecovery or 0) or 0))
 	-- (only a front dash can end in a punch)
 	Kit.frontDashes[player] = kind == "Front" and { At = os.clock(), Punched = false } or nil
+	if Kit.HK and Kit.HK.dash then
+		Kit.HK.dash(player, char) -- (round 90: Hawks - every dash spends feathers)
+	end
 	iFrames[char] = os.clock() + Config.Movement.DashIFrames
 	if typeof(dir) ~= "Vector3" or dir ~= dir or dir.Magnitude < 0.1 then
 		dir = char.HumanoidRootPart.CFrame.LookVector
@@ -10835,6 +11106,11 @@ local function launchBody(model, velocity, spin, carry)
 		Debris:AddItem(att, carry)
 	end
 	broadcast("FinisherLaunch", model, { Velocity = velocity })
+	-- (round 87) through the buildings in its way, body-sized holes - the
+	-- server runs this body now (Kit.Smash)
+	if Reactions.SM and Reactions.SM.launch(model, root, velocity) then
+		return
+	end
 	task.spawn(function()
 		local t0 = os.clock()
 		while os.clock() - t0 < 1.6 and root.Parent and launchTokens[model] == token do
@@ -11052,6 +11328,11 @@ local function onKnockedOut(model)
 	if killer and (killer == victim or not killer.Parent) then
 		killer = nil
 	end
+	-- (round 87) a dev who's away in another body (Kit.PS) is credited with
+	-- nothing - not even off a hit of his own from before he went in
+	if killer and Kit.PS and Kit.PS.away(killer) then
+		killer = nil
+	end
 	broadcast("KO", nil, { Target = model, Pos = root and root.Position or nil })
 
 	-- the one who went down: streak ends, recap on their screen
@@ -11130,6 +11411,7 @@ local function onKnockedOut(model)
 		-- payday: every KO puts Bucks in the killer's pocket
 		local econ = Config.Economy or {}
 		local pay = victim and (econ.PerKO or 5) or (econ.PerDummyKO or 0)
+		pay *= Kit.AE and Kit.AE.mult("Bucks") or 1 -- (round 87: MONEY RAIN pays double)
 		Store.AddBucks(killer, pay)
 		PlayVFX:FireClient(killer, "KOConfirm", nil, {
 			Victim = feed.Victim,
@@ -11285,7 +11567,10 @@ do
 			for _, model in bodies do
 				local root = model:FindFirstChild("HumanoidRootPart")
 				local hum = model:FindFirstChildOfClass("Humanoid")
-				if root and hum and hum.Health > 0 and not root.Anchored and not model:GetAttribute("PhaseDive") then
+				-- (round 86: nor a dev flying - high over the void, or skimming
+				-- under a ledge - he's going where he means to)
+				if root and hum and hum.Health > 0 and not root.Anchored and not model:GetAttribute("PhaseDive")
+					and not model:GetAttribute("DevFlying") then
 					local pos = root.Position
 					-- (over a plate, or off the edge of the world?)
 					local over = false
@@ -11364,6 +11649,7 @@ end
 
 local function dummyBusy(model)
 	return model:GetAttribute("Stunned") or model:GetAttribute("Ragdolled") or model:GetAttribute("Frozen") or model:GetAttribute("BeingFinished")
+		or model:GetAttribute("Possessed") -- (round 87: a dev's driving it - its brain stands aside)
 end
 
 local function nearestFighter(root, range)
@@ -11371,7 +11657,7 @@ local function nearestFighter(root, range)
 	for _, plr in Players:GetPlayers() do
 		local c = plr.Character
 		local r = c and c:FindFirstChild("HumanoidRootPart")
-		if r and alive(c) then
+		if r and alive(c) and not c:GetAttribute("Parked") then -- (round 87: not a dev's body left waiting)
 			local dist = (r.Position - root.Position).Magnitude
 			if dist < bestDist then
 				best, bestDist = c, dist
@@ -11418,7 +11704,7 @@ local function attackDummy(model, hum, root, kind)
 					nextSwing = os.clock() + (last and (kind.ComboRest or 1.3) or 0.42)
 				end
 			end
-		else
+		elseif not model:GetAttribute("Possessed") then -- (round 87: a dev drives it - it isn't held still)
 			hum:MoveTo(root.Position)
 			if not foe then
 				combo = 0
@@ -11472,7 +11758,7 @@ local function dummyBrain(model)
 			if label then
 				label.Text = string.format("%s  %d%%", kind.Label or "EVASIVE", math.floor(meter))
 			end
-			if model:GetAttribute("Ragdolled") then
+			if model:GetAttribute("Ragdolled") and not model:GetAttribute("Possessed") then -- (round 87: the dev cancels it himself)
 				downAt = downAt or os.clock()
 				if meter >= 100 and os.clock() - downAt >= (kind.Reaction or 0.2) then
 					local foe = nearestFighter(root, 60)
@@ -13684,6 +13970,2091 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- (round 86) HAWKS (Keigo Takami): FIERCE WINGS (Config.Quirks.FierceWings)
+-- THE FEATHERS are his: "Feathers" on him (FeathersMax: the ult's
+-- Overgrowth), spent by every move (HK.refuse before the cooldown, HK.used
+-- after it), growing back (the loop below), PLUCKED at 0. The wings are
+-- built here in QuirkGear (HK.wings) from Config's Wing table and posed by
+-- every client from that count (VFX.HK). His feathers fly as maths here
+-- (no parts on the server): the clients draw them from what's broadcast -
+-- FeatherVolley / FeatherVolleyHits, SwiftCutHit, PlumeCycloneBurst,
+-- FeatherCarryHook / Lift / Slam, ScarletRainFall, TooFastCut,
+-- FeatherStormPlan and its beats. R flies on his own machine (the client's
+-- HawksFly, Float's way): Handlers.FierceWings opens the window
+-- (HawksFlyUntil), HK.relay passes the lift-off, boosts and landing on.
+---------------------------------------------------------------------------
+do
+	local HK = {
+		last = setmetatable({}, { __mode = "k" }), -- [char] = os.clock() he last spent feathers
+		exact = setmetatable({}, { __mode = "k" }), -- [char] = his count with the fraction the regrowth's at
+		plucked = setmetatable({}, { __mode = "k" }), -- [char] = the pluck's token
+		boosts = setmetatable({}, { __mode = "k" }), -- [player] = os.clock() of his last flight boost
+		burnt = setmetatable({}, { __mode = "k" }), -- [char] = os.clock() fire last took feathers
+		-- (round 90 review) [player] = os.clock() his braked fall last came on
+		-- (only a rate gate: a lost entry lets one more through, nothing more)
+		fallOn = setmetatable({}, { __mode = "k" }),
+		volleys = 0,
+		KINDS = { HawksLift = true, HawksBoost = true, HawksFlyEnd = true, HawksFall = true }, -- (round 90: HawksFall, the braked fall)
+		-- the tip of a feather: a WedgePart's triangle lying in the feather
+		WEDGE = CFrame.fromMatrix(Vector3.zero, Vector3.new(0, 0, 1), Vector3.new(0, -1, 0), Vector3.new(1, 0, 0)),
+	}
+	Kit.HK = HK
+	local function spec()
+		local q = Config.Quirks.FierceWings
+		return (q and q.Feathers) or {}
+	end
+
+	-- the most he can hold (the ult: the Overgrowth)
+	function HK.max(player)
+		local S = spec()
+		return (player and player:GetAttribute("UltActive") == true) and (S.UltMax or 150) or (S.Max or 100)
+	end
+	-- full on a new body; the Overgrowth trimmed off when the ult ends; all of
+	-- it gone when he's someone else (the HUD bar and the wings go with it)
+	function HK.setup(char, mine, fresh, player)
+		if mine then
+			local max = HK.max(player)
+			local f = tonumber(char:GetAttribute("Feathers"))
+			if fresh or f == nil then
+				char:SetAttribute("Feathers", max)
+				char:SetAttribute("Plucked", nil)
+				HK.plucked[char] = nil
+				HK.exact[char] = nil
+			elseif f > max then
+				char:SetAttribute("Feathers", max)
+			end
+			char:SetAttribute("FeathersMax", max)
+			if fresh or char:GetAttribute("WingState") == nil then
+				char:SetAttribute("WingState", "Rest")
+			end
+		elseif char:GetAttribute("Feathers") ~= nil or char:GetAttribute("WingState") ~= nil then
+			for _, key in { "Feathers", "FeathersMax", "Plucked", "WingState", "HawksFlying", "HawksFlyUntil", "HawksStorm", "HawksFalling" } do
+				char:SetAttribute(key, nil)
+			end
+			HK.plucked[char] = nil
+		end
+	end
+
+	-- spend / give back (whole feathers); at 0 he's plucked
+	function HK.spend(char, amount)
+		local f = tonumber(char:GetAttribute("Feathers"))
+		if not f or not amount or amount <= 0 then
+			return
+		end
+		local n = math.max(f - math.floor(amount + 0.5), 0)
+		char:SetAttribute("Feathers", n)
+		HK.exact[char] = n
+		HK.last[char] = os.clock()
+		if n <= 0 then
+			HK.pluck(char)
+		end
+	end
+	function HK.give(char, amount)
+		local f = tonumber(char:GetAttribute("Feathers"))
+		if not f or not char.Parent or not amount or amount <= 0 then
+			return
+		end
+		local max = tonumber(char:GetAttribute("FeathersMax")) or spec().Max or 100
+		local n = math.min(f + math.floor(amount + 0.5), math.max(max, f))
+		char:SetAttribute("Feathers", n)
+		HK.exact[char] = n
+	end
+	-- PLUCKED: nothing left - no moves for Plucked seconds, and he jumps lower
+	function HK.pluck(char)
+		if char:GetAttribute("Plucked") then
+			return
+		end
+		local S = spec()
+		local time = S.Plucked or 2.5
+		local token = {}
+		HK.plucked[char] = token
+		char:SetAttribute("Plucked", true)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum and not char:GetAttribute("Stunned") then
+			hum.JumpPower = S.PluckedJump or 45
+		end
+		broadcast("FeathersPlucked", char, { Time = time })
+		task.delay(time, function()
+			if HK.plucked[char] ~= token then
+				return
+			end
+			HK.plucked[char] = nil
+			if char.Parent then
+				char:SetAttribute("Plucked", nil)
+				local h = char:FindFirstChildOfClass("Humanoid")
+				if h and not char:GetAttribute("Stunned") then
+					h.JumpPower = char:GetAttribute("BaseJumpPower") or Config.BaseJumpPower
+				end
+			end
+		end)
+	end
+
+	-- a move that costs feathers, without enough (or plucked): refused before
+	-- its cooldown - and his own screen, which played it already, gets the
+	-- cooldown back
+	function HK.refuse(player, char, quirkName, ability)
+		if quirkName ~= "FierceWings" or not ability.Feathers then
+			return false
+		end
+		if ability.FreeFlying and char:GetAttribute("HawksFlying") then
+			return false
+		end
+		local f = tonumber(char:GetAttribute("Feathers")) or 0
+		local need = ability.MinFeathers or ability.Feathers
+		local plucked = char:GetAttribute("Plucked") == true
+		if not plucked and f >= need then
+			return false
+		end
+		PlayVFX:FireClient(player, "Notice", nil, {
+			Text = plucked and "PLUCKED - your feathers are growing back" or string.format("NOT ENOUGH FEATHERS (%d)", need),
+			Color = Color3.fromRGB(255, 120, 110),
+		})
+		broadcast("FeathersOut", char, { Plucked = plucked })
+		if Kit.shortCooldown then
+			Kit.shortCooldown(player, ability, 0)
+		end
+		return true
+	end
+	function HK.used(player, char, quirkName, ability)
+		if quirkName ~= "FierceWings" or not ability.Feathers then
+			return
+		end
+		if ability.FreeFlying and char:GetAttribute("HawksFlying") then
+			return -- (TEMPEST: free while he's flying)
+		end
+		HK.spend(char, ability.Feathers)
+	end
+	-- (round 90) EVERY DASH COSTS FEATHERS (Feathers.Dash, 3): the dash key on
+	-- the street or in the air, any way (handleDash, once its cooldown let it
+	-- go). Never refused - the dash is how he gets out of trouble: it takes
+	-- 3, or the last of them (empty wings pluck him, as any spend does);
+	-- plucked, it's a bare-wing dash and costs nothing. Returns what it took
+	function HK.dash(player, char)
+		if not player or player:GetAttribute("Quirk") ~= "FierceWings" then
+			return 0
+		end
+		local f = tonumber(char:GetAttribute("Feathers"))
+		if not f or f <= 0 or char:GetAttribute("Plucked") then
+			return 0
+		end
+		local n = math.min(spec().Dash or 3, f)
+		HK.spend(char, n)
+		return n
+	end
+
+	-- FIRE burns his feathers (burn(): Endeavor's, Dabi's, Todoroki's fire
+	-- side, Bakugo's burns): Fire more off him, a hit
+	function HK.burned(model, pal)
+		local f = tonumber(model:GetAttribute("Feathers"))
+		if not f or f <= 0 or os.clock() - (HK.burnt[model] or 0) < 0.3 then
+			return
+		end
+		HK.burnt[model] = os.clock()
+		local n = math.min(spec().Fire or 6, f)
+		HK.spend(model, n)
+		broadcast("FeathersBurned", model, { Pal = pal, Count = n })
+	end
+	Reactions.featherFire = HK.burned
+
+	-- the ult: OVERGROWTH - full, past full (FeathersMax is the ult's)
+	function HK.awaken(player, char)
+		-- (round 92, hawksair) the ult's own bar takes over: whoever's on his
+		-- feathers is let go first (the carry's 1-4 aren't in it)
+		local rec = Kit.HA and player and Kit.HA.by[player]
+		if rec then
+			Kit.HA.release(rec, "Drop")
+		end
+		local max = tonumber(char:GetAttribute("FeathersMax")) or spec().UltMax or 150
+		char:SetAttribute("Feathers", max)
+		HK.exact[char] = max
+		char:SetAttribute("Plucked", nil)
+		HK.plucked[char] = nil
+	end
+
+	-- the regrowth (and the flight's drain), ten times a second
+	function HK.tick(plr, ch, f, dt)
+		local S = spec()
+		local ult = plr:GetAttribute("UltActive") == true
+		local max = tonumber(ch:GetAttribute("FeathersMax")) or S.Max or 100
+		local flying = ch:GetAttribute("HawksFlying") == true
+		local ex = HK.exact[ch]
+		if ex == nil or math.abs(ex - f) >= 1 then
+			ex = f -- (set from somewhere else: start from there)
+		end
+		if flying then
+			local now = workspace:GetServerTimeNow()
+			local window = ch:GetAttribute("HawksFlyUntil") or 0
+			if now <= window then
+				ex -= (S.FlyDrain or 5) * (ult and (S.UltFlyDrain or 0.5) or 1) * dt
+			else
+				-- (round 86 review) the window's over: his machine glides him down
+				-- (no faster than Glide) and says when he's down - from up high
+				-- that can take a while, and he's still flying for everyone
+				-- meanwhile (no drain: the wings are only held out). It used to
+				-- put him down 3 s after the window, hundreds of studs up. If his
+				-- machine never says: down once he's on something, or GlideMax
+				local sp = Config.FindAbilityById("FierceWings") or {}
+				local root = ch:FindFirstChild("HumanoidRootPart")
+				local high = root and root.Position.Y - HK.floor(root.Position, ch).Y or 0
+				if now > window + (sp.GlideMax or 45) or (now > window + 3 and high < 4.5) then
+					HK.land(plr, ch, false)
+					flying = false
+				end
+			end
+		end
+		if not ch:GetAttribute("Plucked") and os.clock() - (HK.last[ch] or 0) >= (S.RegrowDelay or 1.6) and ex < max then
+			ex = math.min(ex + (flying and (S.FlyRegrow or 2) or (S.Regrow or 4)) * (ult and (S.UltRegrow or 2) or 1) * dt, max)
+		end
+		ex = math.max(ex, 0)
+		HK.exact[ch] = ex
+		local n = math.floor(ex + 0.5)
+		if n ~= f then
+			ch:SetAttribute("Feathers", n)
+			if n <= 0 then
+				HK.pluck(ch)
+			end
+		end
+	end
+	task.spawn(function()
+		while true do
+			task.wait(0.1)
+			for _, plr in Players:GetPlayers() do
+				local ch = plr.Character
+				local f = ch and tonumber(ch:GetAttribute("Feathers"))
+				if f and ch.Parent and not ch:GetAttribute("HawksStorm") then
+					HK.tick(plr, ch, f, 0.1)
+				end
+			end
+		end
+	end)
+
+	---------------------------------------------------------------------
+	-- THE WINGS: QuirkGear.HawksWings - per wing (Side 1 = right, -1 =
+	-- left) three invisible bones (WingBone1..3) joined by Welds named
+	-- WingJoint (Welds, not Motor6Ds: the ragdoll turns every Motor6D in
+	-- the body into a ball socket), and the feathers hinged on them (a
+	-- "Feather" vane per slot - attribute Slot = "P1".."C10"/"O6", Side -
+	-- welded to its bone by a FeatherHinge; its tip and shaft welded to the
+	-- vane). Built folded (so a machine that isn't posing them still shows
+	-- them right); every client poses them by writing those welds' C0.
+	-- The ult's overgrowth row (O) is only built in the ult.
+	---------------------------------------------------------------------
+	-- a bone's turn: { raise, sweep, twist } degrees, as the Wing table says
+	function HK.turn(t)
+		return CFrame.Angles(0, math.rad(-t[2]), 0) * CFrame.Angles(0, 0, math.rad(t[1])) * CFrame.Angles(math.rad(t[3]), 0, 0)
+	end
+	-- the left wing: every local CFrame mirrored (z and the turns about X and Y flipped)
+	function HK.mirror(cf, side)
+		if side > 0 then
+			return cf
+		end
+		local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = cf:GetComponents()
+		return CFrame.new(x, y, -z, r00, r01, -r02, r10, r11, -r12, -r20, -r21, r22)
+	end
+	function HK.wings(gear, char, ult)
+		local q = Config.Quirks.FierceWings
+		local W = q and q.Wing
+		local torso = findLimb(char, "UpperTorso", "Torso")
+		if not W or not torso then
+			return nil
+		end
+		local model = Instance.new("Model")
+		model.Name = "HawksWings"
+		local kr = torso.Size.Y / 2 -- (a scaled-up body: the wings grow with it)
+		-- (round 86, hawks_ult) FULL PLUMAGE: in the ult the wings themselves are
+		-- UltScale bigger (the bones and the feathers - the root stays on his
+		-- back); every client poses them at the model's Scale
+		local k = kr * (ult and (W.UltScale or 1) or 1)
+		model:SetAttribute("Scale", k)
+		model:SetAttribute("RootScale", kr)
+		model.Parent = gear
+		local C = W.Colors
+		local rest = (ult and W.States.UltFolded) or W.States.Folded -- (round 86 review: their own fold in the ult)
+		local A = { HK.turn(rest.S), HK.turn(rest.E), HK.turn(rest.W) }
+		for _, side in { 1, -1 } do
+			local bones = {}
+			local prev = torso
+			for b = 1, 3 do
+				local bone = gearPart(model, Vector3.one * 0.1, C.Nub)
+				bone.Name = "WingBone" .. b
+				bone.Transparency = 1
+				bone:SetAttribute("Side", side)
+				local c0
+				if b == 1 then
+					c0 = CFrame.new(W.Root.X * side * kr, W.Root.Y * kr, W.Root.Z * kr) * (side < 0 and CFrame.Angles(0, math.pi, 0) or CFrame.new()) * HK.mirror(A[1], side)
+				else
+					c0 = HK.mirror(CFrame.new(W.Bones[b - 1] * k, 0, 0) * A[b - 1]:Inverse() * A[b], side)
+				end
+				bone.CFrame = prev.CFrame * c0
+				local j = Instance.new("Weld")
+				j.Name = "WingJoint"
+				j.Part0 = prev
+				j.Part1 = bone
+				j.C0 = c0
+				j.Parent = bone
+				bones[b] = bone
+				prev = bone
+			end
+			-- the bare nub under it all (what's left of a plucked wing)
+			local nub = ellipsoid(model, Vector3.new(0.5, 0.42, 0.4) * k, C.Nub, Enum.Material.SmoothPlastic)
+			nub.Name = "WingNub"
+			weld(bones[1], nub, HK.mirror(CFrame.new(0.15 * k, 0, 0.05 * k), side))
+			for _, f in W.Feathers do
+				if f.Row ~= "O" or ult then
+					local len, wid = f.Len * k, f.Wid * k
+					local vane = (W.Vane or 0.78) * len
+					local tip = len - vane
+					local fan = rest.Fan[f.Row] or { 1, 0 }
+					local hinge = CFrame.new(f.At * k, f.Y * k, f.Z * k) * CFrame.Angles(0, 0, math.rad(f.Phi * fan[1] + fan[2]))
+					local v = gearPart(model, Vector3.new(wid, vane, 0.06 * k), C[f.Row] or C.S, Enum.Material.SmoothPlastic)
+					v.Name = "Feather"
+					v.Reflectance = 0.05
+					v:SetAttribute("Slot", f.Row .. f.Idx)
+					v:SetAttribute("Side", side)
+					local c0 = HK.mirror(hinge * CFrame.new(0, -vane / 2, 0), side)
+					v.CFrame = bones[f.Bone].CFrame * c0
+					local h = Instance.new("Weld")
+					h.Name = "FeatherHinge"
+					h.Part0 = bones[f.Bone]
+					h.Part1 = v
+					h.C0 = c0
+					h.Parent = v
+					local t = Instance.new("WedgePart")
+					t.Name = "FeatherTip"
+					t.Size = Vector3.new(0.06 * k, tip, wid)
+					t.Color = (f.Row == "P" or f.Row == "S") and C.Tip or (C[f.Row] or C.S)
+					t.Material = Enum.Material.SmoothPlastic
+					t.Reflectance = 0.05
+					t.CanCollide, t.CanQuery, t.CanTouch, t.Massless, t.CastShadow = false, false, false, true, false
+					t.Parent = v
+					weld(v, t, HK.mirror(CFrame.new(0, -vane / 2 - tip / 2, 0) * HK.WEDGE, side))
+					if f.Row == "P" then
+						local s = gearPart(v, Vector3.new(0.06 * k, vane * 0.92, 0.02 * k), C.Shaft, Enum.Material.SmoothPlastic)
+						s.Name = "FeatherShaft"
+						weld(v, s, HK.mirror(CFrame.new(0, -0.05 * k, 0.035 * k), side))
+					end
+				end
+			end
+		end
+		return model
+	end
+
+	-- HIS LOOK (the hideable cosmetics): the yellow-tinted visor, the
+	-- headphones, the cream fur collar standing up behind his neck
+	function HK.look(cos, char)
+		local head = char:FindFirstChild("Head")
+		if head then
+			local v = visibleHead(head)
+			local k = v.X / 1.2
+			local LENS, FRAME, CUP = Color3.fromRGB(242, 218, 99), Color3.fromRGB(40, 40, 46), Color3.fromRGB(30, 30, 36)
+			-- the visor: three panes round the front of the head at eye height
+			local y, r = 0.1 * k, 0.62 * k
+			for i = -1, 1 do
+				local a = math.rad(i * 34)
+				local at = Vector3.new(math.sin(a) * r, y, -math.cos(a) * r)
+				local cf = CFrame.lookAt(at, at + Vector3.new(math.sin(a), 0, -math.cos(a)))
+				local pane = gearPart(cos, Vector3.new(0.4 * k, 0.2 * k, 0.04 * k), LENS, Enum.Material.Glass)
+				pane.Name = "Visor"
+				pane.Transparency = 0.42
+				weld(head, pane, cf)
+				for _, dy in { 0.11, -0.11 } do
+					local rim = gearPart(cos, Vector3.new(0.42 * k, 0.035 * k, 0.05 * k), FRAME, Enum.Material.Metal)
+					rim.Name = "Visor"
+					weld(head, rim, cf * CFrame.new(0, dy * k, 0))
+				end
+			end
+			-- the headphones: a cup each side, a band over the top
+			for _, side in { 1, -1 } do
+				local cup = gearPart(cos, Vector3.new(0.18 * k, 0.42 * k, 0.42 * k), CUP, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+				cup.Name = "Headphones"
+				weld(head, cup, CFrame.new(side * 0.62 * k, 0.02 * k, 0.04 * k))
+				local pad = gearPart(cos, Vector3.new(0.05 * k, 0.26 * k, 0.26 * k), Color3.fromRGB(72, 72, 82), Enum.Material.Metal, Enum.PartType.Cylinder)
+				pad.Name = "Headphones"
+				weld(head, pad, CFrame.new(side * 0.72 * k, 0.02 * k, 0.04 * k))
+			end
+			local last
+			for i = 0, 4 do
+				local a = math.rad(-90 + i * 45)
+				local p = Vector3.new(math.sin(a) * 0.64 * k, (0.12 + math.cos(a) * 0.5) * k, 0.04 * k)
+				if last then
+					rod(cos, head, last, p, 0.07 * k, CUP, Enum.Material.SmoothPlastic).Name = "Headphones"
+				end
+				last = p
+			end
+		end
+		-- the fur collar: cream tufts round the neck, high at the back, open at the throat
+		local torso = findLimb(char, "UpperTorso", "Torso")
+		if torso then
+			local ts = torso.Size
+			local FUR = Color3.fromRGB(240, 236, 224)
+			for i = 0, 8 do
+				local a = math.rad(-120 + i * 30) -- (from his left front, round the back, to his right front)
+				local x, z = math.sin(a) * ts.X * 0.3, math.cos(a) * ts.Z * 0.48
+				local high = (math.cos(a) + 1) / 2 -- (1 at the back)
+				local tuft = ellipsoid(cos, Vector3.new(0.42, 0.3 + 0.22 * high, 0.36), FUR:Lerp(Color3.fromRGB(214, 206, 188), (i % 2) * 0.5), Enum.Material.SmoothPlastic)
+				tuft.Name = "FurCollar"
+				weld(torso, tuft, CFrame.new(x, ts.Y / 2 + 0.04 + 0.14 * high, z) * CFrame.Angles(math.rad(-18 * math.cos(a)), 0, 0))
+			end
+			-- the slits in the jacket the wings come out of
+			for _, side in { 1, -1 } do
+				local slit = gearPart(cos, Vector3.new(0.09, 0.62, 0.04), Color3.fromRGB(60, 44, 30), Enum.Material.SmoothPlastic)
+				slit.Name = "WingSlit"
+				weld(torso, slit, CFrame.new(side * 0.36 * ts.X / 2, ts.Y * 0.2, ts.Z / 2 + 0.01))
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- helpers for the moves
+	---------------------------------------------------------------------
+	-- the street under a point high in the air
+	function HK.floor(pos, char)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = nonMapStuff(char)
+		local hit = workspace:Raycast(pos, Vector3.new(0, -600, 0), params)
+		return hit and hit.Position or groundBelow(pos, char)
+	end
+	-- whoever's nearest the aim: within Range, within cone degrees of it (or
+	-- right on the aim point)
+	function HK.homeOn(char, root, d, pos, range, cone)
+		local best, bestScore
+		local cosCone = math.cos(math.rad(cone or 35))
+		for _, model in queryRadius(char, root.Position, range) do
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			local v = mr and mr.Position - root.Position
+			if v and v.Magnitude > 1 then
+				local dot = v.Unit:Dot(d)
+				local near = typeof(pos) == "Vector3" and (mr.Position - pos).Magnitude or math.huge
+				if dot >= cosCone or near < 8 then
+					local score = (1 - dot) * 60 + v.Magnitude * 0.15 - (near < 8 and 20 or 0)
+					if not bestScore or score < bestScore then
+						best, bestScore = model, score
+					end
+				end
+			end
+		end
+		return best
+	end
+	-- the aim turned toward d by at most `deg` degrees
+	function HK.turnToward(v, d, deg)
+		local dot = math.clamp(v:Dot(d), -1, 1)
+		local ang = math.acos(dot)
+		local most = math.rad(deg)
+		if ang <= most or ang < 1e-4 then
+			return d
+		end
+		local axis = v:Cross(d)
+		if axis.Magnitude < 1e-4 then
+			axis = v:Cross(UP).Magnitude > 1e-3 and v:Cross(UP) or Vector3.new(1, 0, 0)
+		end
+		return (CFrame.fromAxisAngle(axis.Unit, most) * v).Unit
+	end
+	-- a dash's direction: along the aim, pitched at most `aim` degrees up or
+	-- down ((round 90 review) or `down` degrees down: the air stoop)
+	function HK.cutDir(root, dir, aim, down)
+		local d = sanitizeDir(dir, root)
+		local flat = Vector3.new(d.X, 0, d.Z)
+		flat = flat.Magnitude > 0.05 and flat.Unit or flatten(root.CFrame.LookVector, root)
+		local pitch = math.clamp(math.asin(math.clamp(d.Y, -1, 1)), -math.rad(down or aim or 30), math.rad(aim or 30))
+		return (flat * math.cos(pitch) + UP * math.sin(pitch)).Unit
+	end
+
+	---------------------------------------------------------------------
+	-- 1: FEATHER BARRAGE (and SCARLET RAIN's maths): the feathers as points
+	---------------------------------------------------------------------
+	-- Count feathers peel off (Gap apart, after Delay), alternating wings;
+	-- with a target they home (Turn degrees a second, re-aimed in steps),
+	-- else straight in a fan. Each first body it reaches takes Damage (and a
+	-- Stun flinch); a miss (Life seconds, or the map) is refunded as it
+	-- comes home. Everyone gets FeatherVolley at the launch and
+	-- FeatherVolleyHits as they land or turn back.
+	function HK.volley(player, char, root, ability, d, pos)
+		local count = ability.Count or 12
+		local range = ability.Range or 90
+		local target = HK.homeOn(char, root, d, pos, range, ability.Homing or 35)
+		HK.volleys += 1
+		local id = HK.volleys
+		local speed = target and (ability.Speed or 140) or (ability.AimedSpeed or 200)
+		local gap, life = ability.Gap or 0.025, ability.Life or 1.2
+		task.wait(ability.Delay or 0.12)
+		if not alive(char) then
+			return nil
+		end
+		broadcast("FeatherVolley", char, { Volley = id, Target = target, Dir = d, Count = count, Speed = speed, Gap = gap, Turn = ability.Turn or 220, Spread = ability.Spread or 8, Life = life })
+		local side = d:Cross(UP)
+		side = side.Magnitude > 0.05 and side.Unit or root.CFrame.RightVector
+		local feathers = {}
+		for i = 1, count do
+			local s = (i % 2 == 0) and -1 or 1
+			local k = math.ceil(i / 2) / math.ceil(count / 2) -- (outer to inner)
+			local fan = math.rad(s * (ability.Spread or 8) * (1.2 - k))
+			local v = (CFrame.fromAxisAngle(UP, fan) * d).Unit
+			feathers[i] = {
+				p = root.Position + UP * 1.3 + side * s * (0.9 + 1.6 * (1 - k)) - root.CFrame.LookVector * 0.5,
+				v = v, launch = (i - 1) * gap, live = true, aimed = 0,
+			}
+		end
+		-- (everyone who could be reached, once: a distance check a step, no queries)
+		local bodies = queryRadius(char, root.Position, range + 30)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = nonMapStuff(char)
+		local t0 = os.clock()
+		local last = t0
+		local misses, landed = 0, {}
+		local live = count
+		while live > 0 and os.clock() - t0 < count * gap + life + 0.4 do
+			task.wait(0.04)
+			local now = os.clock()
+			local dt = math.min(now - last, 0.1)
+			last = now
+			if not char.Parent then
+				break
+			end
+			local hits, back = {}, {}
+			local tr = target and target.Parent and target:FindFirstChild("HumanoidRootPart")
+			for i, f in feathers do
+				local age = now - t0 - f.launch
+				if f.live and age >= 0 then
+					-- the homing: re-aimed in sharp steps (every 0.08 s)
+					if tr and now - f.aimed >= 0.08 then
+						f.aimed = now
+						local want = tr.Position - f.p
+						if want.Magnitude > 0.5 then
+							f.v = HK.turnToward(f.v, want.Unit, (ability.Turn or 220) * 0.08 * 1.5)
+						end
+					end
+					local step = f.v * speed * dt
+					local wall = workspace:Raycast(f.p, step, params)
+					local hitBody
+					for _, model in bodies do
+						local mr = model.Parent and model:FindFirstChild("HumanoidRootPart")
+						if mr then
+							-- (the closest the feather came to them along this step)
+							local rel = mr.Position - f.p
+							local along = math.clamp(rel:Dot(f.v), 0, step.Magnitude)
+							if (rel - f.v * along).Magnitude <= 2.6 then
+								hitBody = model
+								break
+							end
+						end
+					end
+					if hitBody then
+						f.live = false
+						live -= 1
+						local mr = hitBody:FindFirstChild("HumanoidRootPart")
+						table.insert(hits, { Index = i, Target = hitBody, Pos = mr and mr.Position or f.p })
+						if damage(player, hitBody, ability.Damage or 2, { From = f.p, NoKnockdown = true, Hitstop = 0.015 }) then
+							landed[hitBody] = true
+							if ability.Stun then
+								stun(hitBody, ability.Stun)
+							end
+						end
+					elseif wall or age > life then
+						f.live = false
+						live -= 1
+						misses += 1
+						table.insert(back, { Index = i, Pos = wall and wall.Position or f.p + step })
+					else
+						f.p += step
+					end
+				end
+			end
+			if #hits > 0 or #back > 0 then
+				broadcast("FeatherVolleyHits", char, { Volley = id, Hits = hits, Misses = back })
+			end
+		end
+		-- the misses fly home: back in his wings as they arrive
+		if misses > 0 and (ability.Refund or 0) > 0 then
+			task.delay(0.7, function()
+				HK.give(char, misses * ability.Refund)
+			end)
+		end
+		return landed, misses
+	end
+	-- (round 90) in the air: fired down at them - homing on anyone within
+	-- AirHoming degrees of the aim (from up there someone below is far off
+	-- the level), else straight down the aim pitched at least AirPitch under
+	-- level. (He hangs in the air for it: his own machine holds him)
+	function HK.airAim(d, pitch)
+		local flatv = Vector3.new(d.X, 0, d.Z)
+		local down = math.asin(math.clamp(-d.Y, -1, 1))
+		if down >= math.rad(pitch) or flatv.Magnitude < 0.05 then
+			return d
+		end
+		return (flatv.Unit * math.cos(math.rad(pitch)) - UP * math.sin(math.rad(pitch))).Unit
+	end
+	function Handlers.FeatherBarrage(player, char, root, ability, dir, pos, cast)
+		local d = sanitizeDir(dir, root)
+		if cast and cast.Air and (root.Position.Y - HK.floor(root.Position, char).Y) > 6 then
+			local spec2 = setmetatable({ Homing = ability.AirHoming or ability.Homing }, { __index = ability })
+			local target = HK.homeOn(char, root, d, pos, ability.Range or 90, spec2.Homing)
+			HK.volley(player, char, root, spec2, target and d or HK.airAim(d, ability.AirPitch or 25), pos)
+			return
+		end
+		HK.volley(player, char, root, ability, d, pos)
+	end
+
+	-- ult 1: SCARLET RAIN - up they go, and down out of the sky onto the aim
+	-- point: half of them on whoever's in the circle, the rest all over it
+	function Handlers.ScarletRain(player, char, root, ability, _dir, pos)
+		local center = groundTarget(root, typeof(pos) == "Vector3" and pos or root.Position + root.CFrame.LookVector * 30, ability.Range or 80, char)
+		local radius = ability.Radius or 12
+		local count = ability.Count or 20
+		task.wait(0.3)
+		if not alive(char) then
+			return
+		end
+		local inside = queryRadius(char, center, radius + 2)
+		local rng = Random.new(math.floor(os.clock() * 1000) % 100000)
+		local spots = {}
+		-- (round 86 review) they come down out of the sky: a roof over a spot
+		-- takes the feather (it lands up there - nobody indoors is hit)
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(char)
+		local height = ability.Height or 45
+		for i = 1, count do
+			local who = (i % 2 == 1 and #inside > 0) and inside[(math.floor(i / 2) % #inside) + 1] or nil
+			local wr = who and who:FindFirstChild("HumanoidRootPart")
+			local p
+			if wr then
+				p = Vector3.new(wr.Position.X + rng:NextNumber(-1.5, 1.5), center.Y, wr.Position.Z + rng:NextNumber(-1.5, 1.5))
+			else
+				local a, r = rng:NextNumber(0, math.pi * 2), math.sqrt(rng:NextNumber(0, 1)) * radius
+				p = center + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+			end
+			local roof = workspace:Raycast(Vector3.new(p.X, center.Y + height, p.Z), Vector3.new(0, -height - 2, 0), rp)
+			if roof and roof.Position.Y > p.Y + 2 then
+				p = roof.Position
+			end
+			spots[i] = { Pos = p, At = (i - 1) / count * 0.35 }
+		end
+		local fall = ability.Fall or 0.55
+		broadcast("ScarletRainFall", char, { Pos = center, Radius = radius, Height = ability.Height or 45, Fall = fall, Spots = spots })
+		task.wait(fall)
+		local misses = 0
+		local hits = {} -- (round 86 review) which spots struck someone: every screen breaks those up and flies the rest home
+		local t0 = os.clock()
+		for i, s in spots do
+			local wait = s.At - (os.clock() - t0)
+			if wait > 0 then
+				task.wait(wait)
+			end
+			if not char.Parent then
+				return
+			end
+			local hit = false
+			for _, model in queryRadius(char, s.Pos + UP * 2.5, 2.8) do
+				if damage(player, model, ability.Damage or 1.6, { From = s.Pos + UP * 10, NoKnockdown = true, Hitstop = 0.01 }) then
+					hit = true
+					if ability.Stun then
+						stun(model, ability.Stun)
+					end
+				end
+				break
+			end
+			if not hit then
+				misses += 1
+			else
+				table.insert(hits, i)
+			end
+			if i % 5 == 0 then
+				Destruction.Sphere(s.Pos, 1.6, "Slash", -UP)
+			end
+		end
+		broadcast("ScarletRainHits", char, { Hit = hits, Count = #spots })
+		if misses > 0 then
+			task.delay(0.8, function()
+				HK.give(char, misses * (ability.Refund or 1))
+			end)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- 2: SWIFT CUT - his own machine carries him along the line (the coil,
+	-- then Range studs in Time); here the line is cut: everyone within Width
+	-- of it takes Damage as he passes, CutDamage when the cut opens
+	---------------------------------------------------------------------
+	-- the line he's carried down (stopping short of a wall), and whoever's on it
+	-- (lag-compensated: where the attacker saw them)
+	function HK.cutLine(player, char, from, d, ability, air)
+		local range = ability.Range or 32
+		local len = math.max(math.min(range, wallDistance(char, from, d, range + 1.5) - 1.5), 1)
+		-- (round 90 review) the stoop (in the air, aimed down) ends ON the
+		-- street, not in it: his root no lower than its hip height over the
+		-- street under the end (his machine stops him there too: VFX HK.carry)
+		if air and d.Y < -0.1 then
+			local to = from + d * len
+			local floor = HK.floor(Vector3.new(to.X, from.Y, to.Z), char)
+			if to.Y < floor.Y + 3 then
+				len = math.max(math.min(len, (from.Y - floor.Y - 3) / -d.Y), 1)
+			end
+		end
+		return from + d * len
+	end
+	function HK.onLine(player, char, from, to, ability)
+		local len = math.max((to - from).Magnitude, 1)
+		local cf = CFrame.lookAt(from, from + (to - from).Unit) * CFrame.new(0, 0, -len / 2)
+		return Rewind.QueryBox(player, char, cf, Vector3.new((ability.Width or 4.5) * 2, 6, len + 2))
+	end
+	function HK.cutHit(player, char, d, hits, ability, from)
+		local struck = {}
+		for _, model in hits do
+			if damage(player, model, ability.Damage or 14, { From = from, Hitstop = 0.08 }) then
+				table.insert(struck, model)
+				stun(model, 0.55)
+				knockback(model, d * 18 + UP * 8, 0.12)
+			end
+		end
+		return struck
+	end
+	function HK.openCuts(player, char, struck, ability, from)
+		task.delay(ability.CutDelay or 0.25, function()
+			for _, model in struck do
+				if model.Parent then
+					damage(player, model, ability.CutDamage or 4, { From = from, NoKnockdown = true, Hitstop = 0.04, HitsDowned = true })
+				end
+			end
+		end)
+	end
+	-- (round 86, C2) the map where the blade went: a clean gash, not a hole
+	-- punched through - a thin slab along the line at his chest (flat
+	-- across, pitched with his aim: a downward cut digs a little into the
+	-- street, as the old tunnel did), on past where he stopped (GashPast: a
+	-- wall that stopped him takes the cut), GashWidth wide (Destruction's
+	-- Slash: fine pieces, flung along it)
+	function HK.gash(from, to, d, ability)
+		local len = (to - from).Magnitude + (ability.GashPast or 4)
+		local mid = from + d * (len / 2) + UP * 0.3
+		local flat = Vector3.new(d.X, 0, d.Z)
+		local across = flat.Magnitude > 0.05 and flat.Unit:Cross(UP) or Vector3.new(1, 0, 0)
+		local cf = CFrame.fromMatrix(mid, across, d:Cross(across).Unit)
+		Destruction.Box(cf, Vector3.new(ability.GashWidth or 7, 1.2, len), "Slash", d)
+	end
+	function Handlers.SwiftCut(player, char, root, ability, dir, _pos, cast)
+		-- (round 90) in the air: a stoop, up to AirAim degrees down ((round 90
+		-- review) and no steeper up than on the street: Aim)
+		local air = cast and cast.Air == true
+		local d = HK.cutDir(root, dir, ability.Aim or 30, air and ability.AirAim or nil)
+		task.wait(ability.Coil or 0.16)
+		if not alive(char) then
+			return
+		end
+		local from = root.Position
+		local to = HK.cutLine(player, char, from, d, ability, air)
+		task.wait(ability.Time or 0.22)
+		if not alive(char) then
+			return
+		end
+		-- (as he passes: everyone on the line now)
+		local struck = HK.cutHit(player, char, d, HK.onLine(player, char, from, to, ability), ability, from)
+		broadcast("SwiftCutHit", char, { From = from, To = to, Dir = d, Targets = struck, Delay = ability.CutDelay or 0.25 })
+		HK.gash(from, to, d, ability)
+		HK.openCuts(player, char, struck, ability, from)
+	end
+
+	-- ult 2: TOO FAST - three cuts, the server carrying him (anchored, as
+	-- the Prominence Burn does): each re-aimed at whoever's nearest, through
+	-- them and out the other side
+	function Handlers.TooFast(player, char, root, ability, dir)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local anchored, autoRotate = root.Anchored, hum and hum.AutoRotate
+		local d = HK.cutDir(root, dir, 20)
+		local all = {}
+		root.Anchored = true
+		if hum then
+			hum.AutoRotate = false
+		end
+		local ok, err = xpcall(function()
+			task.wait(0.12)
+			for k = 1, ability.Cuts or 3 do
+				if not alive(char) then
+					return
+				end
+				local from = root.Position
+				local foe = Grab.nearest(char, root, d, ability.Range or 26, -1)
+				local fr = foe and foe:FindFirstChild("HumanoidRootPart")
+				if fr then
+					local v = fr.Position - from
+					d = v.Magnitude > 1 and (v + v.Unit * 6).Unit or d
+				end
+				local to = HK.cutLine(player, char, from, d, ability)
+				broadcast("TooFastCut", char, { From = from, To = to, Index = k, Time = ability.Time or 0.16 })
+				local t0 = os.clock()
+				local time = ability.Time or 0.16
+				local fl = flatten(d, root)
+				while os.clock() - t0 < time do
+					local a = math.clamp((os.clock() - t0) / time, 0, 1)
+					local p = from:Lerp(to, a)
+					root.CFrame = CFrame.lookAt(p, p + fl)
+					task.wait(1 / 60)
+				end
+				root.CFrame = CFrame.lookAt(to, to + fl)
+				for _, model in HK.cutHit(player, char, d, HK.onLine(player, char, from, to, ability), ability, from) do
+					table.insert(all, model)
+				end
+				Destruction.Capsule(from, to, 1.1, "Slash", d)
+				-- turned on the spot for the next one
+				d = -fl
+				task.wait(ability.Gap or 0.12)
+			end
+		end, debug.traceback)
+		if root.Parent then
+			root.Anchored = anchored
+			root.AssemblyLinearVelocity = Vector3.zero
+			if not anchored then
+				pcall(function()
+					root:SetNetworkOwnershipAuto()
+				end)
+			end
+		end
+		if hum and hum.Parent then
+			hum.AutoRotate = autoRotate
+		end
+		if not ok then
+			warn("[TooFast] " .. tostring(err))
+		end
+		broadcast("SwiftCutHit", char, { From = root.Position, To = root.Position, Targets = all, Delay = ability.CutDelay or 0.25, Chain = true })
+		HK.openCuts(player, char, all, ability, root.Position)
+	end
+
+	---------------------------------------------------------------------
+	-- 3: PLUME CYCLONE (held): the feathers guard him (super armour at
+	-- Guard) and shred whoever's in it, dragging them in; let go: the burst
+	---------------------------------------------------------------------
+	function HK.cyclone(player, char, root, ability)
+		local move = Moves.current()
+		local free = ability.FreeFlying and char:GetAttribute("HawksFlying")
+		local max = (ability.Hold and ability.Hold.Max) or 2.5
+		local guard = { Until = os.clock() + max + 0.6, Scale = ability.Guard or 0.5 }
+		Reactions.armor[char] = guard
+		char:SetAttribute("WingState", "Mantle")
+		local holding = true
+		task.spawn(function()
+			Moves.join(move)
+			local drained, carved = 0, os.clock()
+			while holding and alive(char) do
+				task.wait(ability.Tick or 0.2)
+				if not holding or not alive(char) then
+					break
+				end
+				local center = root.Position
+				for _, model in queryRadius(char, center, ability.Radius or 7) do
+					if damage(player, model, ability.Damage or 1.5, { From = center, NoKnockdown = true, Hitstop = 0, Tick = true }) then
+						local mr = model:FindFirstChild("HumanoidRootPart")
+						local inward = mr and Vector3.new(center.X - mr.Position.X, 0, center.Z - mr.Position.Z)
+						if inward and inward.Magnitude > 2 then
+							knockback(model, inward.Unit * (ability.Pull or 4) * 1.25, (ability.Tick or 0.2) * 0.8, true, true)
+						end
+					end
+				end
+				if not free then
+					drained += (ability.Drain or 4) * (ability.Tick or 0.2)
+					if drained >= 1 then
+						HK.spend(char, math.floor(drained))
+						drained -= math.floor(drained)
+					end
+					-- (round 86 review) held till he's plucked: the last of them burst
+					-- out now - no guarded, shredding cyclone on an empty wing
+					local hold = char:GetAttribute("Plucked") and HoldMoves.active[player]
+					if hold then
+						hold.Released = true
+					end
+				end
+				if os.clock() - carved >= 1 then
+					carved = os.clock()
+					Destruction.Cylinder(center, (ability.Radius or 7) * 0.8, 6, "Whirl", UP)
+				end
+			end
+		end)
+		local held = HoldMoves.wait(player, char, ability)
+		holding = false
+		if Reactions.armor[char] == guard then
+			Reactions.armor[char] = nil
+		end
+		if char:GetAttribute("WingState") == "Mantle" then
+			char:SetAttribute("WingState", "Rest")
+		end
+		if not held or not alive(char) then
+			return
+		end
+		local center = root.Position
+		local radius = ability.BurstRadius or 12
+		broadcast("PlumeCycloneBurst", char, { Pos = center, Radius = radius, Held = held, Tempest = ability.Id == "PlumeTempest" })
+		for _, model in queryRadius(char, center, radius) do
+			if damage(player, model, ability.BurstDamage or 8, { From = center, Heavy = true, Hitstop = 0.06 }) then
+				knockback(model, awayFrom(center, model, root.CFrame.LookVector) * (ability.Push or 70) + UP * 28, 0.2)
+			end
+		end
+		Destruction.Cylinder(center, radius * 0.55, 6, "Whirl", UP)
+		-- the ones that survived come home
+		task.delay(0.5, function()
+			HK.give(char, ability.Refund or 8)
+		end)
+	end
+	Handlers.PlumeCyclone = function(player, char, root, ability)
+		HK.cyclone(player, char, root, ability)
+	end
+	Handlers.PlumeTempest = Handlers.PlumeCyclone
+
+	---------------------------------------------------------------------
+	-- 4: FEATHER CARRY - hooked, hoisted, whirled, slammed (Grab, xpcall'd:
+	-- whatever happens they're let go)
+	---------------------------------------------------------------------
+	function HK.carryTarget(char, root, d, range, cone)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = nonMapStuff(char)
+		local best, bestScore
+		for _, model in queryRadius(char, root.Position, range) do
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			local v = mr and mr.Position - root.Position
+			if v and v.Magnitude > 0.5 then
+				local flat = Vector3.new(v.X, 0, v.Z)
+				local dot = flat.Magnitude > 0.5 and flat.Unit:Dot(d) or 1
+				-- (in front, and in plain sight: a wall in between and the feathers can't get there)
+				if dot >= (cone or 0.8) and not workspace:Raycast(root.Position + UP, v - UP, params) then
+					local score = v.Magnitude * (2 - dot)
+					if not bestScore or score < bestScore then
+						best, bestScore = model, score
+					end
+				end
+			end
+		end
+		return best
+	end
+	-- (round 92, hawksair) NO SLAM any more (the owner: "have feather carry not
+	-- downslam people but follow into a move in his alternate moveset while
+	-- he's flying"): the hook is the same, then Kit.HA has them - reeled up
+	-- under him as he takes off with them, his flying bar's 1-4 the carry's
+	-- follow-ups, let go however it ends. Nobody hooked (or the grab refused:
+	-- a dodge, god mode, held already...): the feathers come home, as before
+	function Handlers.FeatherCarry(player, char, root, ability, dir)
+		local d = flatten(dir, root)
+		local target = HK.carryTarget(char, root, d, ability.Range or 40, ability.Cone or 0.8)
+		if target and Kit.HA and not Kit.HA.canTake(player, char, target) then
+			target = nil -- (one nobody may carry off: the raid's boss, a parked body...)
+		end
+		broadcast("FeatherCarryHook", char, { Target = target, Dir = d, Time = ability.Hook or 0.2 })
+		task.wait(ability.Hook or 0.2)
+		local refund = ability.Refund or 4
+		local hold = Config.HawksAir.spec()
+		local g = target and alive(char) and Kit.HA and Grab.take(target, (hold.MaxHold or 3.5) + (hold.LiftWait or 1.2) + 2) or nil
+		if not g then
+			broadcast("FeatherCarryLift", char, { Target = nil })
+			task.delay(0.5, function()
+				HK.give(char, refund)
+			end)
+			return
+		end
+		local ok, err = xpcall(Kit.HA.start, debug.traceback, player, char, root, ability, target, g)
+		if not ok then
+			warn("[FeatherCarry] " .. tostring(err))
+			if Kit.HA.by[player] then
+				Kit.HA.release(Kit.HA.by[player], "Lost")
+			else
+				Grab.release(g)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- R: FIERCE WINGS - his machine flies him (the client's HawksFly);
+	-- the server opens the window, marks him flying for everyone's wings
+	-- (HawksFlying) and drains his feathers for it (HK.tick)
+	---------------------------------------------------------------------
+	function Handlers.FierceWings(_player, char, _root, ability)
+		char:SetAttribute("HawksFlyUntil", workspace:GetServerTimeNow() + (ability.Duration or 10) + 1.5)
+	end
+	-- (the lift-off and every boost check his state - these come in before
+	-- the stunned gate - but dropping out always goes through)
+	function HK.relay(player, char, kind, dir)
+		if not char or not char.Parent then
+			return
+		end
+		if kind == "HawksFlyEnd" then
+			HK.land(player, char, dir == "Land", dir == "Hit" and "Hit" or nil)
+			return
+		end
+		-- (round 90) the braked fall, on / off (his machine moves him; this only
+		-- marks him for every screen's wings and pose - off always goes through)
+		if kind == "HawksFall" then
+			-- (true: under the canopy; "Stoop": the wings tucked on a long way down)
+			local want = (dir == true or dir == "Stoop") and alive(char) and player:GetAttribute("Quirk") == "FierceWings" and not char:GetAttribute("HawksFlying")
+				and not char:GetAttribute("Plucked") and (tonumber(char:GetAttribute("Feathers")) or 0) > 0
+			-- (round 90 review) a client can't flicker it on every screen (each
+			-- time it comes on, every machine starts his canopy's watcher, wind
+			-- and flutter): from off, on again no sooner than Fall.Relay seconds
+			-- after it last came on. Off always goes through
+			if want and char:GetAttribute("HawksFalling") == nil then
+				local now = os.clock()
+				if now - (HK.fallOn[player] or -math.huge) < (((Config.Quirks.FierceWings or {}).Fall or {}).Relay or 0.15) then
+					return
+				end
+				HK.fallOn[player] = now
+			end
+			char:SetAttribute("HawksFalling", want and (dir == "Stoop" and "Stoop" or true) or nil)
+			return
+		end
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root or not alive(char) or player:GetAttribute("Quirk") ~= "FierceWings"
+			or (char:GetAttribute("HawksFlyUntil") or 0) < workspace:GetServerTimeNow()
+			or char:GetAttribute("Stunned") or char:GetAttribute("Ragdolled") or char:GetAttribute("Grabbed") or char:GetAttribute("Frozen")
+			or player:GetAttribute("NoSkills") or char:GetAttribute("Plucked") then
+			return
+		end
+		local sp = Config.FindAbilityById("FierceWings") or {}
+		local d = (typeof(dir) == "Vector3" and dir == dir and dir.Magnitude > 0.01) and dir.Unit or root.CFrame.LookVector
+		if kind == "HawksBoost" then
+			local now = os.clock()
+			if not char:GetAttribute("HawksFlying") or now - (HK.boosts[player] or 0) < (sp.BoostEvery or 0.9) - 0.12
+				or (tonumber(char:GetAttribute("Feathers")) or 0) < (sp.BoostCost or 5) then
+				return
+			end
+			HK.boosts[player] = now
+			HK.spend(char, sp.BoostCost or 5)
+			broadcast("HawksFlyFX", char, { Kind = "Boost", Dir = d }, player)
+			return
+		end
+		if not char:GetAttribute("HawksFlying") then
+			char:SetAttribute("HawksFlying", true)
+			char:SetAttribute("HawksFalling", nil) -- (round 90: flying now, not falling)
+			broadcast("HawksFlyFX", char, { Kind = "Lift", Dir = d }, player)
+		end
+		if Kit.HA then
+			Kit.HA.air(player, char, true) -- (round 92, hawksair: up - his bar's the flying one)
+		end
+	end
+	-- down (his machine said so, or the window ran out): a moment on his feet
+	-- (LandCooldown) before he can take off again. reason "Hit": knocked out of
+	-- the air (round 86 review: the screens skip the hover pose then)
+	function HK.land(player, char, landed, reason)
+		local was = char:GetAttribute("HawksFlying") == true
+		char:SetAttribute("HawksFlying", nil)
+		char:SetAttribute("HawksFlyUntil", nil)
+		-- (round 92, hawksair) down: his own bar back, and whoever's on his
+		-- feathers is let go where they hang
+		if Kit.HA then
+			Kit.HA.air(player, char, false)
+			local rec = Kit.HA.by[player]
+			if rec and rec.Char == char then
+				Kit.HA.release(rec, "Land")
+			end
+		end
+		if was then
+			broadcast("HawksFlyFX", char, { Kind = "End", Land = landed == true, Reason = reason }, player)
+			local sp = Config.FindAbilityById("FierceWings")
+			if sp and sp.LandCooldown and Kit.shortCooldown and player:GetAttribute("Quirk") == "FierceWings" then
+				Kit.shortCooldown(player, sp, sp.LandCooldown)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- ult 4: THE THOUSAND-FEATHER STORM. The server carries him (anchored,
+	-- the SkyProminence way) and holds whoever's in the storm up in the air
+	-- (Grab); everything's xpcall'd so they're always let go. The beats
+	-- (seconds): Rise, Break (every feather off him: Feathers 0, HawksStorm
+	-- on - the regrowth holds), Storm (Ticks of Damage every Tick), Dive (the
+	-- last cut on the one in the middle: FinalDamage), Home (every feather
+	-- back: as many as he had). FeatherStormPlan has it all for the clients
+	-- at the start; FeatherStormBreak / FeatherStormCut / FeatherStormHome
+	-- mark the beats as they happen.
+	---------------------------------------------------------------------
+	function Handlers.ThousandFeathers(player, char, root, ability, dir, pos)
+		local d = flatten(dir, root)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local anchored, autoRotate = root.Anchored, hum and hum.AutoRotate
+		local had = tonumber(char:GetAttribute("Feathers")) or 0
+		local held = {}
+		root.Anchored = true
+		if hum then
+			hum.AutoRotate = false
+		end
+		local ok, err = xpcall(function()
+			local from = root.Position
+			-- the storm comes down on whoever's nearest the aim (or the aim point)
+			local aim = typeof(pos) == "Vector3" and pos or from + d * 30
+			local center = groundTarget(root, aim, ability.Range or 70, char)
+			local best, bestDist
+			for _, model in queryRadius(char, center, (ability.Radius or 24) + 10) do
+				local mr = model:FindFirstChild("HumanoidRootPart")
+				local dist = mr and (Vector3.new(mr.Position.X, center.Y, mr.Position.Z) - center).Magnitude
+				if dist and (not bestDist or dist < bestDist) then
+					best, bestDist = model, dist
+				end
+			end
+			if best then
+				local br = best:FindFirstChild("HumanoidRootPart")
+				center = Vector3.new(br.Position.X, center.Y, br.Position.Z)
+			end
+			local rp = RaycastParams.new()
+			rp.FilterType = Enum.RaycastFilterType.Exclude
+			rp.FilterDescendantsInstances = nonMapStuff(char)
+			local ceiling = workspace:Raycast(from + UP * 3, UP * (ability.Height or 40), rp)
+			local top = from + UP * (ceiling and math.max(ceiling.Distance - 6, 12) or (ability.Height or 40))
+			-- (round 86, hawks_ult) Crouch and Sun: two beats inside Rise and Break
+			-- (the totals - and so every hit's timing - as they were)
+			local B = { Rise = ability.Rise or 0.5, Break = ability.Break or 0.6, Storm = ability.Storm or 1.6, Dive = ability.Dive or 0.6, Home = ability.Home or 0.8 }
+			B.Crouch = math.clamp(ability.Crouch or 0, 0, B.Rise * 0.5)
+			B.Sun = math.clamp(ability.Sun or 0, 0, B.Break * 0.85)
+			broadcast("FeatherStormPlan", char, { From = from, Top = top, Center = center, Radius = ability.Radius or 24, Target = best, Beats = B, Feathers = had })
+			-- (round 88, live) the place streams (PauseOutsideLoadedArea): the
+			-- server carries him up to the top and down to the storm faster than
+			-- the map there reaches his machine, and his game said "Gameplay
+			-- paused" with the camera stuck. Asked for first, as the Sky Coffin's
+			-- warps and the flight do (it yields: off the storm's own clock)
+			for _, at in { top, center } do
+				task.spawn(function()
+					pcall(function()
+						player:RequestStreamAroundAsync(at, 2)
+					end)
+				end)
+			end
+			-- (round 86, hawks_ult) the crouch: a beat on the street, the wings
+			-- raised, before the downstroke throws him up
+			local t0 = os.clock()
+			while os.clock() - t0 < B.Crouch do
+				if not alive(char) then
+					return
+				end
+				task.wait(1 / 60)
+			end
+			-- the ascent
+			t0 = os.clock()
+			local rise = math.max(B.Rise - B.Crouch, 0.05)
+			while os.clock() - t0 < rise do
+				if not alive(char) then
+					return
+				end
+				local a = math.clamp((os.clock() - t0) / rise, 0, 1)
+				local p = from:Lerp(top, 1 - (1 - a) ^ 3)
+				root.CFrame = CFrame.lookAt(p, p + d)
+				task.wait(1 / 60)
+			end
+			-- (round 86, hawks_ult) against the sun: hung at the top, every
+			-- feather still on him, the wings at full stretch
+			root.CFrame = CFrame.lookAt(top, top + d)
+			task.wait(B.Sun)
+			if not alive(char) then
+				return
+			end
+			-- the wings break: every feather off him at once
+			char:SetAttribute("HawksStorm", true)
+			char:SetAttribute("Feathers", 0)
+			HK.exact[char] = 0
+			broadcast("FeatherStormBreak", char, { Pos = top })
+			task.wait(B.Break - B.Sun)
+			if not alive(char) then
+				return
+			end
+			-- the storm: everyone in it held up and shredded
+			local radius = ability.Radius or 24
+			for _, model in queryRadius(char, center + UP * 4, radius) do
+				local g = Grab.take(model, B.Storm + B.Dive + 0.8)
+				if g then
+					held[model] = { g = g, at = g.Root.Position, spin = math.random() * math.pi * 2 }
+					-- (round 88, live) a player held up in it: the map round it sent to them too
+					local victim = Players:GetPlayerFromCharacter(model)
+					if victim then
+						task.spawn(function()
+							pcall(function()
+								victim:RequestStreamAroundAsync(center + UP * 8, 2)
+							end)
+						end)
+					end
+				end
+			end
+			local victims = {}
+			for model in held do
+				table.insert(victims, model)
+			end
+			broadcast("FeatherStorm", char, { Center = center, Radius = radius, Time = B.Storm, Victims = victims })
+			local ticks = ability.Ticks or 15
+			local every = math.max(B.Storm / ticks, ability.Tick or 0.1)
+			t0 = os.clock()
+			local n = 0
+			while os.clock() - t0 < B.Storm do
+				if not alive(char) then
+					return
+				end
+				local t = os.clock() - t0
+				for model, h in held do
+					if model.Parent then
+						-- (lifted off the street and turned slowly round the eye)
+						local lift = math.min(t / 0.4, 1) * 6
+						local ang = h.spin + t * 1.6
+						local off = Vector3.new(h.at.X - center.X, 0, h.at.Z - center.Z)
+						local r = off.Magnitude * (1 - 0.25 * math.min(t / B.Storm, 1))
+						local p = center + Vector3.new(math.cos(ang) * r, h.at.Y - center.Y + lift, math.sin(ang) * r)
+						-- (round 88, live) the one the storm's aimed at stands IN its eye
+						-- (r 0): a lookAt from a point to itself is NaN - the dummy, then
+						-- his dive at it, then him: invisible, "Gameplay paused" as the
+						-- map streamed out round a NaN. In the eye: just turned round it
+						local eye = Vector3.new(center.X, p.Y, center.Z)
+						if (eye - p).Magnitude > 0.05 then
+							Grab.place(h.g, CFrame.lookAt(p, eye))
+						else
+							Grab.place(h.g, CFrame.new(p) * CFrame.Angles(0, ang, 0))
+						end
+					end
+				end
+				if t >= n * every and n < ticks then
+					n += 1
+					for model in held do
+						if model.Parent then
+							damage(player, model, ability.Damage or 2.5, { From = center + UP * 6, NoKnockdown = true, Hitstop = 0, Tick = true })
+						end
+					end
+					if n % 5 == 0 then
+						Destruction.Cylinder(center, radius * 0.5, 14, "Whirl", UP)
+					end
+				end
+				task.wait(1 / 60)
+			end
+			-- the dive through the eye: the last cut
+			local mid = best and held[best] and best or nil
+			local midRoot = mid and mid:FindFirstChild("HumanoidRootPart")
+			local goal = midRoot and midRoot.Position or center + UP * 3
+			-- (round 88, live) never a NaN to dive at (whatever the target's
+			-- body went through), nor a dive with no direction
+			if goal.X ~= goal.X or goal.Y ~= goal.Y or goal.Z ~= goal.Z then
+				goal = center + UP * 3
+			end
+			local diveDir = (goal - top).Magnitude > 0.05 and (goal - top).Unit or d
+			local land = HK.floor(goal + d * 4 + UP * 2, char) + UP * 3
+			broadcast("FeatherStormDive", char, { From = top, To = goal, Land = land, Time = B.Dive, Target = mid })
+			t0 = os.clock()
+			while os.clock() - t0 < B.Dive do
+				if not alive(char) then
+					return
+				end
+				local a = math.clamp((os.clock() - t0) / B.Dive, 0, 1)
+				local p = top:Lerp(goal, a ^ 1.6)
+				root.CFrame = CFrame.lookAt(p, p + diveDir)
+				task.wait(1 / 60)
+			end
+			for model, h in held do
+				Grab.release(h.g, model == mid and (diveDir * 90 + UP * 30) or UP * 10, 0.2)
+				held[model] = nil
+			end
+			if mid then
+				if damage(player, mid, ability.FinalDamage or 18, { From = top, Heavy = true, Hitstop = 0.14, HitsDowned = true }) then
+					ragdoll(mid, 1.8)
+				end
+			end
+			broadcast("FeatherStormCut", char, { Pos = goal, Target = mid })
+			Destruction.Box(CFrame.lookAt(goal, goal + d), Vector3.new(14, 2, 2), "Slash", d)
+			root.CFrame = CFrame.lookAt(land, land + Vector3.new(d.X, 0, d.Z))
+			-- homecoming: every feather streams back - (round 86, hawks_ult) and
+			-- the wings fill back in as they land, a step at a time (the hide
+			-- order backwards: the coverts first, the long primaries last)
+			broadcast("FeatherStormHome", char, { Pos = land, Time = B.Home, Feathers = had })
+			-- (round 86 review) none lands for the first HomeLead of it (they're
+			-- all still in the air: each client lands every feather in its slot
+			-- on the step that shows it), then a step at a time to the end; never
+			-- over what he can hold now (the ult can end mid-storm: back to 100)
+			local steps = math.max(math.floor(ability.HomeSteps or 1), 1)
+			local lead = math.clamp(tonumber(ability.HomeLead) or 0, 0, 0.9)
+			task.wait(B.Home * lead)
+			for i = 1, steps do
+				task.wait(B.Home * (1 - lead) / steps)
+				if not char.Parent or char:GetAttribute("Feathers") == nil then
+					break -- (gone, or not Hawks any more)
+				end
+				local cap = tonumber(char:GetAttribute("FeathersMax")) or had
+				local n = math.min(math.floor(had * i / steps + 0.5), cap)
+				char:SetAttribute("Feathers", n)
+				HK.exact[char] = n
+			end
+		end, debug.traceback)
+		for _, h in held do
+			Grab.release(h.g)
+		end
+		char:SetAttribute("HawksStorm", nil)
+		if char.Parent and char:GetAttribute("Feathers") ~= nil then
+			local cap = tonumber(char:GetAttribute("FeathersMax")) or had
+			local back = math.min(math.max(had, tonumber(char:GetAttribute("Feathers")) or 0), cap)
+			char:SetAttribute("Feathers", back)
+			HK.exact[char] = back
+		end
+		if root.Parent then
+			root.Anchored = anchored
+			root.AssemblyLinearVelocity = Vector3.zero
+			if not anchored then
+				pcall(function()
+					root:SetNetworkOwnershipAuto()
+				end)
+			end
+		end
+		if hum and hum.Parent then
+			hum.AutoRotate = autoRotate
+		end
+		if not ok then
+			warn("[ThousandFeathers] " .. tostring(err))
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 92) hawksair: HAWKS' FLYING MOVESET, and FEATHER CARRY into it
+-- (Config.Quirks.FierceWings.Alt; Config.HawksAir's shared maths). The
+-- owner: "have feather carry not downslam people but follow into a move in
+-- his alternate moveset while he's flying / this also includes have a new
+-- moveset while hes flying, after hitting r".
+-- FLYING (HawksFlying: Kit.HK.relay's HawksLift / HK.land) his bar is the
+-- alt form (QuirkAlt - HA.air): RAZOR STRAFE, PEREGRINE STOOP, GALE BEAT,
+-- FEATHER DRILL, each handled here like any move (cooldowns, feathers).
+-- THE CARRY: FEATHER CARRY (his 4 on his feet) hooks them as ever, then
+-- HA.start has them: reeled up under him as his machine takes off with them
+-- (FeatherCarryLift tells it), and held on his feathers - the server puts
+-- their body under his root every frame (HA.step; every screen does the same
+-- before it draws: VFX's ON THE WING block). Meanwhile his 1-4 are the
+-- follow-ups (HA.route, from Kit.onUseAbility): SKY TOSS, FEATHER FLURRY,
+-- GALE THROW, LET GO - each of them lets go of them; none is a slam. He lets
+-- go by himself after MaxHold, if his flight isn't up within LiftWait, when
+-- he lands or his flight ends, hit hard / stunned / grabbed / plucked /
+-- erased / gone; and if they're gone, dead, god-moded, being finished or
+-- taken out of the hold by anything else. Let go anywhere, they're never
+-- left out over the void (pulled back over the city) nor outside the Sky
+-- Coffin's wall, and DIO's stopped time keeps them where it stopped them.
+-- (A do block: the main chunk is at its local limit. Round 87's lesson:
+-- plain tables keyed by player and body, cleared on every way out.)
+---------------------------------------------------------------------------
+do
+	local HA = {
+		by = {}, -- [player] = the carry he's doing
+		of = {}, -- [the body on his feathers] = that carry
+		last = {}, -- [player] = os.clock() of his last follow-up
+		-- (his own moves while he holds someone: swallowed - 1-4 are the
+		-- follow-ups; his flight's relays, the dash and the ragdoll cancel go on)
+		BUSY = {
+			[0] = true, [Config.SPECIAL_INDEX] = true, [Config.ULT_INDEX] = true, [Config.LEAP_INDEX] = true, [Config.FINISH_INDEX] = true,
+			[Config.EMOTE_INDEX] = true, [Config.PRANK_INDEX or -1] = true,
+		},
+		-- what has HIS body (the feathers let go)
+		HELD = { "Ragdolled", "Stunned", "Grabbed", "Frozen", "BeingFinished", "Finishing", "Clashing", "TimeStopped", "Submerged", "Parked", "HawksStorm" },
+		-- who can't be carried off
+		SAFE = { "Boss", "Possessed", "Parked", "DevCarrying", "CarriedBy", "HawksCarrying", "HawksCarriedBy", "TimeStopped", "Clashing", "PlayingUno",
+			"Finishing", "BeingFinished", "Grabbed", "Frozen", "Compressed", "Submerged" },
+		ATTRS = { "HawksCarriedBy", "HawksCarryState", "HawksCarryAt", "HawksCarryFrom", "HawksCarryTop", "HawksCarryEnds" },
+	}
+	Kit.HA = HA
+	Destruction.HawksAir = HA -- (for the tests, as Kit.Carry is: Destruction.Carry)
+	local HK = Kit.HK
+
+	---------------------------------------------------------------------
+	-- the flying bar: the alt form while he flies (the HUD, his keys and
+	-- the server's own lookup all follow QuirkAlt); on his body too, as
+	-- applyPassives keeps it
+	---------------------------------------------------------------------
+	function HA.air(player, char, on)
+		-- (round 92 review) only HIS bar: anyone's machine can send the
+		-- flight's "HawksFlyEnd" (HK.land - a late one after a switch, or a
+		-- forged one), and on another hero this switched a real form off
+		-- behind setAlt's back (All Might's muscle: its size and speed kept,
+		-- its timer and recovery skipped). Switching away resets it anyway
+		if player:GetAttribute("Quirk") ~= "FierceWings" then
+			return
+		end
+		on = on == true
+		if (player:GetAttribute("QuirkAlt") == true) ~= on then
+			player:SetAttribute("QuirkAlt", on)
+		end
+		if char and char.Parent and (char:GetAttribute("QuirkAlt") == true) ~= on then
+			char:SetAttribute("QuirkAlt", on)
+		end
+	end
+	-- (a safety net: his bar never stays the flying one with him down - an
+	-- end that never came, a body that went without one)
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			for _, plr in Players:GetPlayers() do
+				if plr:GetAttribute("QuirkAlt") == true and plr:GetAttribute("Quirk") == "FierceWings" then
+					local ch = plr.Character
+					if not (ch and ch.Parent and ch:GetAttribute("HawksFlying")) then
+						HA.air(plr, ch, false)
+					end
+				end
+			end
+		end
+	end)
+
+	---------------------------------------------------------------------
+	-- 1: RAZOR STRAFE - the feathers' line walks on ahead of him
+	---------------------------------------------------------------------
+	function Handlers.RazorStrafe(player, char, root, ability, dir)
+		local d = HK.airAim(sanitizeDir(dir, root), ability.Pitch or 30)
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(char)
+		local range = ability.Range or 70
+		local hit = workspace:Raycast(root.Position, d * range, rp)
+		local start = hit and hit.Position or HK.floor(root.Position + d * range, char)
+		-- (the way he's flying; his aim when he's hardly moving)
+		local v = root.AssemblyLinearVelocity
+		local walk = Config.HawksAir.flatUnit((v == v and Vector3.new(v.X, 0, v.Z).Magnitude > 12) and v or d, Config.HawksAir.flatUnit(root.CFrame.LookVector))
+		local speed = math.max(ability.Speed or 200, 1)
+		local spots = {}
+		for i = 1, ability.Count or 12 do
+			local p = start + walk * (ability.Step or 2.6) * (i - 1)
+			local g = HK.floor(Vector3.new(p.X, math.max(p.Y, start.Y) + 8, p.Z), char)
+			spots[i] = { Pos = g, At = (ability.Delay or 0.1) + (i - 1) * (ability.Gap or 0.05) + (g - root.Position).Magnitude / speed }
+		end
+		broadcast("RazorStrafeSpots", char, { Spots = spots, From = root.Position, Speed = speed, Walk = walk })
+		local t0 = os.clock()
+		local struck = {}
+		for _, s in spots do
+			local wait = t0 + s.At - os.clock()
+			if wait > 0 then
+				task.wait(wait)
+			end
+			if not alive(char) then
+				break
+			end
+			for _, model in queryRadius(char, s.Pos + UP * 2, ability.Radius or 3.6) do
+				if (struck[model] or 0) < (ability.MaxHits or 4) and damage(player, model, ability.Damage or 3, { From = s.Pos, NoKnockdown = true, Hitstop = 0.01 }) then
+					struck[model] = (struck[model] or 0) + 1
+					if ability.Stun then
+						stun(model, ability.Stun)
+					end
+				end
+			end
+		end
+		-- the ones that weren't broken come back out of the street
+		task.delay(0.9, function()
+			HK.give(char, ability.Refund or 4)
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- 2: PEREGRINE STOOP - his machine dives him (VFX: the carry along the
+	-- line, then the swoop back up); here the line is cut, as Swift Cut's
+	---------------------------------------------------------------------
+	function Handlers.PeregrineStoop(player, char, root, ability, dir)
+		local d = HK.cutDir(root, dir, ability.Up or 10, ability.Down or 75)
+		task.wait(ability.Coil or 0.14)
+		if not alive(char) then
+			return
+		end
+		local from = root.Position
+		local to = HK.cutLine(player, char, from, d, ability, true)
+		task.wait((to - from).Magnitude / math.max(ability.Speed or 200, 1))
+		if not alive(char) then
+			return
+		end
+		local struck = HK.cutHit(player, char, d, HK.onLine(player, char, from, to, ability), ability, from)
+		for _, model in struck do
+			if model.Parent and not model:GetAttribute("Ragdolled") then
+				ragdoll(model, ability.Ragdoll or 1.1) -- (knocked off their feet: he came out of the sky)
+			end
+		end
+		broadcast("SwiftCutHit", char, { From = from, To = to, Dir = d, Targets = struck, Delay = ability.CutDelay or 0.25, Stoop = true })
+		HK.gash(from, to, d, ability)
+		HK.openCuts(player, char, struck, ability, from)
+	end
+
+	---------------------------------------------------------------------
+	-- 3: GALE BEAT - one downstroke: a cone of wind
+	---------------------------------------------------------------------
+	function Handlers.GaleBeat(player, char, root, ability, dir)
+		local look = Config.HawksAir.flatUnit(root.CFrame.LookVector)
+		local d = Config.AimedDirection(sanitizeDir(dir, root), look, { Up = ability.Up or 20, Down = ability.Down or 70 })
+		task.wait(ability.Windup or 0.26)
+		if not alive(char) then
+			return
+		end
+		local origin = root.Position
+		local range = ability.Range or 36
+		local cosCone = math.cos(math.rad(ability.Cone or 42))
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(char)
+		local hits = {}
+		for _, model in queryRadius(char, origin + d * (range / 2), range / 2 + 6) do
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			local v = mr and mr.Position - origin
+			if v and v.Magnitude > 0.5 and v.Magnitude <= range and v.Unit:Dot(d) >= cosCone and not workspace:Raycast(origin, v * 0.95, rp) then
+				if damage(player, model, ability.Damage or 7, { From = origin, Heavy = true, Hitstop = 0.05 }) then
+					local away = Config.HawksAir.flatUnit(v, look)
+					knockback(model, (away * 0.75 + d * 0.25).Unit * (ability.Push or 110) + UP * (ability.Lift or 34), 0.3)
+					if model.Parent and not model:GetAttribute("Ragdolled") then
+						ragdoll(model, ability.Ragdoll or 1.3)
+					end
+					table.insert(hits, model)
+				end
+			end
+		end
+		-- the street under the gust, scoured
+		local hit = workspace:Raycast(origin, d * range, rp)
+		local g = hit and hit.Position or HK.floor(origin + d * range, char)
+		if workspace:GetAttribute("DestructionEnabled") ~= false then
+			Destruction.Cylinder(g, ability.Scour or 7, 4, "Whirl", UP)
+		end
+		broadcast("GaleBeatBlast", char, { From = origin, Dir = d, Range = range, Pos = g, Hits = hits })
+	end
+
+	---------------------------------------------------------------------
+	-- 4 (flying): FEATHER DRILL - the lance bores down the aim
+	---------------------------------------------------------------------
+	-- someone it reached: caught on it, carried along, Ticks of it
+	function HA.drillHits(player, model, ability, d, speed, from)
+		for i = 1, ability.Ticks or 3 do
+			if not model.Parent then
+				return
+			end
+			local landed = damage(player, model, ability.Damage or 3, { From = from, NoKnockdown = i < (ability.Ticks or 3), Hitstop = 0.02, HitsDowned = true })
+			if landed and i == 1 then
+				knockback(model, d * speed * 0.5, 0.2, true, true)
+			end
+			task.wait(ability.TickGap or 0.07)
+		end
+	end
+	function Handlers.FeatherDrill(player, char, root, ability, dir)
+		local look = Config.HawksAir.flatUnit(root.CFrame.LookVector)
+		local d = Config.AimedDirection(sanitizeDir(dir, root), look, { Up = ability.Up or 25, Down = ability.Down or 80 })
+		task.wait(ability.Windup or 0.34)
+		if not alive(char) then
+			return
+		end
+		local range = ability.Range or 80
+		local from = root.Position + d * 2.5
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(char)
+		-- through walls (a few), stopped by the street (anything it meets
+		-- facing up: a floor, a roof)
+		local len, walls, at = range, {}, from
+		for i = 1, 4 do
+			local left = range - (at - from).Magnitude
+			local hit = left > 0.5 and workspace:Raycast(at, d * left, rp) or nil
+			if not hit then
+				break
+			end
+			if hit.Normal.Y > 0.6 or i == 4 then
+				len = math.max((hit.Position - from).Magnitude, 1)
+				break
+			end
+			table.insert(walls, hit.Position)
+			at = hit.Position + d * 6
+		end
+		local to = from + d * len
+		local speed = math.max(ability.Speed or 130, 1)
+		local time = len / speed
+		broadcast("FeatherDrillPath", char, { From = from, To = to, Time = time, Walls = walls })
+		if #walls > 0 and workspace:GetAttribute("DestructionEnabled") ~= false then
+			Destruction.Capsule(from, to, ability.Bore or 2.4, "Whirl", d)
+		end
+		-- along the path, in time: everyone it reaches is caught on it
+		local caught = {}
+		local bodies = queryRadius(char, from + d * (len / 2), len / 2 + 8)
+		local t0 = os.clock()
+		while true do
+			task.wait(0.04)
+			local k = math.min((os.clock() - t0) / math.max(time, 0.01), 1)
+			for _, model in bodies do
+				local mr = not caught[model] and model.Parent and model:FindFirstChild("HumanoidRootPart")
+				if mr then
+					local rel = mr.Position - from
+					local along = rel:Dot(d)
+					if along >= -1 and along <= len * k + 1.5 and (rel - d * along).Magnitude <= (ability.Width or 3.6) then
+						caught[model] = true
+						task.spawn(HA.drillHits, player, model, ability, d, speed, from)
+					end
+				end
+			end
+			if k >= 1 or not alive(char) then
+				break
+			end
+		end
+		-- it bursts where it stops
+		local radius = ability.BurstRadius or 9
+		for _, model in queryRadius(char, to, radius) do
+			if damage(player, model, ability.BurstDamage or 6, { From = to, Heavy = true, Hitstop = 0.06, HitsDowned = true }) then
+				knockback(model, awayFrom(to, model, d) * (ability.BurstPush or 60) + UP * 24, 0.2)
+			end
+		end
+		if workspace:GetAttribute("DestructionEnabled") ~= false then
+			Destruction.Sphere(to, 4, "Whirl", d)
+		end
+		broadcast("FeatherDrillBurst", char, { Pos = to, Radius = radius, Dir = d })
+		task.delay(0.6, function()
+			HK.give(char, ability.Refund or 6)
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- THE CARRY
+	---------------------------------------------------------------------
+	-- his size (the Giant toy, GIANT MODE): where they hang scales with him
+	function HA.scaleOf(char)
+		local ok, s = pcall(function()
+			return char:GetScale()
+		end)
+		return (ok and type(s) == "number" and s == s) and math.clamp(s, 0.5, 4) or 1
+	end
+	function HA.nameOf(model)
+		local plr = Players:GetPlayerFromCharacter(model)
+		return plr and plr.DisplayName or model.Name
+	end
+	-- may this body be carried off? (Grab.take checks the rest: a dodge,
+	-- Infinity, god mode, a stopped move)
+	function HA.canTake(player, char, model)
+		if not model or model == char or not model.Parent then
+			return false
+		end
+		for _, flag in HA.SAFE do
+			if model:GetAttribute(flag) then
+				return false
+			end
+		end
+		local victim = Players:GetPlayerFromCharacter(model)
+		if model:GetAttribute("TwiceClone") == player.UserId or HA.of[model] or (victim and (HA.by[victim] or victim:GetAttribute("GodMode"))) then
+			return false
+		end
+		if finishing[model] ~= nil or untouchable(model) then
+			return false
+		end
+		if Reactions.NR and Reactions.NR.truce and Reactions.NR.truce(player, model) then
+			return false
+		end
+		local mr = model:FindFirstChild("HumanoidRootPart")
+		return not (mr and Kit.CR and Kit.CR.realm and Kit.CR.realm(mr.Position))
+	end
+	-- something has HIS body: the feathers let go
+	function HA.held(char, root)
+		if not root.Parent or root.Anchored then
+			return true
+		end
+		for _, flag in HA.HELD do
+			if char:GetAttribute(flag) then
+				return true
+			end
+		end
+		local kb = root:FindFirstChild("Knockback")
+		return kb ~= nil and kb:IsA("LinearVelocity") and kb.VectorVelocity.Magnitude >= (Config.HawksAir.spec().Push or 40)
+	end
+	function HA.setState(rec, state)
+		rec.State = state
+		rec.StateAt = os.clock()
+		if rec.Model.Parent then
+			rec.Model:SetAttribute("HawksCarryState", state)
+			rec.Model:SetAttribute("HawksCarryAt", workspace:GetServerTimeNow())
+		end
+	end
+	-- the street (or a roof) under a spot, now and then (they're never
+	-- dragged through it while he's low): nil = nothing near under it
+	function HA.floorY(rec, pos)
+		local now = os.clock()
+		if rec.FloorAt and now - rec.FloorAt < 0.1 and rec.FloorPos and (rec.FloorPos - pos).Magnitude < 6 then
+			return rec.Floor
+		end
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(rec.Char)
+		local hit = workspace:Raycast(pos + UP * 6, Vector3.new(0, -40, 0), rp)
+		rec.FloorAt, rec.FloorPos, rec.Floor = now, pos, hit and hit.Position.Y or nil
+		return rec.Floor
+	end
+
+	-- FEATHER CARRY's hook took them (Handlers.FeatherCarry): on his feathers
+	function HA.start(player, char, root, ability, model, g)
+		local C = Config.HawksAir.spec()
+		local now = os.clock()
+		local snow = workspace:GetServerTimeNow()
+		local old = HA.by[player]
+		if old then
+			HA.release(old, "Drop")
+		end
+		-- (whatever was moving them stops: a push, a through-the-building watch)
+		for _, x in g.Root:GetChildren() do
+			if x.Name == "Knockback" or x.Name == "KnockbackAttachment" then
+				x:Destroy()
+			end
+		end
+		local SM = Reactions.SM
+		if SM and SM.flights and SM.flights[model] then
+			SM.finish(model, SM.flights[model])
+		end
+		local rec = {
+			Player = player, Char = char, Root = root, Model = model, VRoot = g.Root, G = g, Ability = ability,
+			T0 = now, State = "Lift", StateAt = now, From = g.Root.Position, Took = g.Root.Position, Scale = HA.scaleOf(char),
+		}
+		HA.by[player] = rec
+		HA.of[model] = rec
+		local ends = snow + (ability.Lift or 0.35) + (C.MaxHold or 3.5)
+		model:SetAttribute("HawksCarriedBy", player.UserId)
+		model:SetAttribute("HawksCarryFrom", rec.From)
+		model:SetAttribute("HawksCarryEnds", ends)
+		HA.setState(rec, "Lift")
+		char:SetAttribute("HawksCarrying", HA.nameOf(model))
+		char:SetAttribute("HawksCarryEnds", ends)
+		-- his flight's window (as R opens it): his machine takes off with them
+		-- on FeatherCarryLift (or, up already, flies on with a fresh window)
+		local sp = Config.FindAbilityById("FierceWings") or {}
+		char:SetAttribute("HawksFlyUntil", math.max(char:GetAttribute("HawksFlyUntil") or 0, snow + (sp.Duration or 10) + 1.5))
+		damage(player, model, ability.Damage or 6, { From = root.Position, NoKnockdown = true, Hitstop = 0.05, HitsDowned = true })
+		broadcast("FeatherCarryLift", char, { Target = model, Carry = true, From = rec.From, Time = ability.Lift or 0.35, Ends = ends, Max = C.MaxHold or 3.5 })
+	end
+
+	-- every frame, each carry: still on? their body on his feathers
+	function HA.step(player, rec)
+		local C = Config.HawksAir.spec()
+		local now = os.clock()
+		local char, root, model = rec.Char, rec.Root, rec.Model
+		if not model.Parent or not rec.VRoot.Parent or not alive(model) then
+			HA.release(rec, "Gone")
+			return
+		end
+		if not player.Parent or player.Character ~= char or not root.Parent or not alive(char) or player:GetAttribute("Quirk") ~= "FierceWings" then
+			HA.release(rec, "Lost")
+			return
+		end
+		if HA.held(char, root) then
+			HA.release(rec, "Hit")
+			return
+		end
+		-- (no feathers to hold them with: plucked, or the quirk erased / jammed)
+		local snow = workspace:GetServerTimeNow()
+		if char:GetAttribute("Plucked") or (char:GetAttribute("ErasedUntil") or 0) > snow or (char:GetAttribute("JammedUntil") or 0) > snow then
+			HA.release(rec, "Drop")
+			return
+		end
+		local victim = Players:GetPlayerFromCharacter(model)
+		if (victim and victim:GetAttribute("GodMode")) or model:GetAttribute("BeingFinished") or model:GetAttribute("Clashing") or not rec.VRoot.Anchored
+			or model:GetAttribute("TimeStopped") then
+			HA.release(rec, "Drop")
+			return
+		end
+		-- (his flight: up within LiftWait of the hook, then down = let go)
+		if char:GetAttribute("HawksFlying") then
+			rec.Flew = true
+		elseif rec.Flew or now - rec.T0 > (C.LiftWait or 1.2) then
+			HA.release(rec, rec.Flew and "Land" or "Drop")
+			return
+		end
+		local lift = rec.Ability.Lift or 0.35
+		if rec.State == "Lift" and now - rec.StateAt >= lift then
+			HA.setState(rec, "Hold")
+		end
+		if not rec.Busy and now - rec.T0 > lift + (C.MaxHold or 3.5) then
+			HA.release(rec, "Time")
+			return
+		end
+		if rec.Busy and now - rec.StateAt > 3 then
+			HA.release(rec, "Drop") -- (a follow-up that never finished)
+			return
+		end
+		local cf = Config.HawksAir.at(root.CFrame, root.AssemblyLinearVelocity, rec.State, now - rec.StateAt, rec.From, rec.Top, rec.Scale)
+		if rec.State == "Lift" or rec.State == "Hold" then
+			local y = HA.floorY(rec, cf.Position)
+			if y and cf.Position.Y < y + 3 * rec.Scale then
+				cf = cf + Vector3.new(0, y + 3 * rec.Scale - cf.Position.Y, 0)
+			end
+		end
+		-- (round 92 review) never a NaN onto their body (round 88: one blanked
+		-- a player's game) - whatever his body went through, they stay put
+		local p = cf.Position
+		if p.X ~= p.X or p.Y ~= p.Y or p.Z ~= p.Z then
+			return
+		end
+		Grab.place(rec.G, cf)
+		-- (round 92 review) a player carried at speed: the map ahead asked for
+		-- on their machine too (the place streams - PauseOutsideLoadedArea -
+		-- and the server drags their body faster than their map arrives when
+		-- he dives with them); the dev carry's own way and rate
+		local v = root.AssemblyLinearVelocity
+		local speed = v == v and v.Magnitude or 0
+		if victim and speed >= (C.StreamSpeed or 45) and Kit.DF and Kit.DF.streamAhead then
+			Kit.DF.streamAhead(victim, root, speed)
+		end
+	end
+	RunService.Heartbeat:Connect(function()
+		for player, rec in HA.by do
+			local ok, err = pcall(HA.step, player, rec)
+			if not ok then
+				warn("[HawksCarry] " .. tostring(err))
+				pcall(HA.release, rec, "Lost")
+			end
+		end
+	end)
+
+	-- over the city? (a ray down finds something under them)
+	function HA.overMap(pos, model)
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(model)
+		return workspace:Raycast(pos, Vector3.new(0, -1500, 0), rp) ~= nil
+	end
+	function HA.height(pos, model)
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(model)
+		local hit = workspace:Raycast(pos, Vector3.new(0, -300, 0), rp)
+		return hit and (pos.Y - hit.Position.Y) or 300
+	end
+
+	-- let go (why: Drop / Time / Land / Hit / Lost / Gone, and the
+	-- follow-ups' Toss / Flurry / Throw - those do their own push after).
+	-- The grab ends, their stun with it; the pins come home (the refund).
+	-- true: they're there to be thrown (alive, not in stopped time)
+	function HA.release(rec, why)
+		if rec.Done then
+			return false
+		end
+		rec.Done = true
+		local C = Config.HawksAir.spec()
+		local player, char, root, model, vroot = rec.Player, rec.Char, rec.Root, rec.Model, rec.VRoot
+		if HA.by[player] == rec then
+			HA.by[player] = nil
+		end
+		if HA.of[model] == rec then
+			HA.of[model] = nil
+		end
+		if char.Parent then
+			char:SetAttribute("HawksCarrying", nil)
+			char:SetAttribute("HawksCarryEnds", nil)
+		end
+		for _, key in HA.ATTRS do
+			model:SetAttribute(key, nil)
+		end
+		local cv = root.Parent and root.AssemblyLinearVelocity or Vector3.zero
+		cv = cv == cv and cv or Vector3.zero
+		-- never left out over the void: pulled back toward where they were
+		-- taken until there's city under them; and (the Sky Coffin's rule)
+		-- taken on its island, let go on it. (round 92 review: pcall'd - by
+		-- here the carry's off every table, so an error past this point left
+		-- the body anchored and Grabbed in the air for good, with nothing
+		-- left to let go of it; the grab's release below always runs)
+		local okBack, errBack = pcall(function()
+			if not vroot.Parent then
+				return
+			end
+			local pos = vroot.Position
+			if not HA.overMap(pos, model) then
+				local back = rec.Took
+				for _, k in { 0.25, 0.5, 0.75, 1 } do
+					back = pos:Lerp(rec.Took, k)
+					if HA.overMap(back, model) then
+						break
+					end
+				end
+				pos = back
+			end
+			if Kit.SC and Kit.SC.keepIn then
+				pos = Kit.SC.keepIn(rec.Took, pos)
+			end
+			if pos == pos and (pos - vroot.Position).Magnitude > 0.5 then
+				vroot.CFrame = CFrame.new(pos + UP * 0.5) * vroot.CFrame.Rotation
+			end
+		end)
+		if not okBack then
+			warn("[HawksCarry] let go: " .. tostring(errBack))
+		end
+		local pos = vroot.Position
+		Grab.release(rec.G)
+		-- (DIO's stopped time, him or them: they stay frozen where they are -
+		-- not let fall through it; TS.resume lets go of the body)
+		local stopped = Reactions.TS and Reactions.TS.of(model)
+		if stopped and vroot.Parent then
+			vroot.Anchored = true
+		end
+		local live = model.Parent ~= nil and alive(model)
+		if model.Parent then
+			stunTokens[model] = (stunTokens[model] or 0) + 1 -- (the grab's long stun ends now)
+			if live then
+				restoreMovement(model)
+				if stopped and stopped.Stop then
+					stun(model, math.max((stopped.Stop.Until or 0) - os.clock(), 0) + 0.25, 0)
+				end
+			end
+		end
+		if live and not stopped and why ~= "Toss" and why ~= "Flurry" and why ~= "Throw" and why ~= "Gone" then
+			-- they drop where they are, keeping a little of his speed, limp
+			-- from high up
+			local D = C.Drop or {}
+			local v = cv * (D.Carry or 0.4)
+			if v.Magnitude > (D.Max or 60) then
+				v = v.Unit * (D.Max or 60)
+			end
+			if v.Magnitude > 15 then
+				knockback(model, v, 0.2, true, true)
+			end
+			local h = HA.height(pos, model)
+			if h > (D.Fall or 10) then
+				ragdoll(model, math.clamp(math.sqrt(2 * h / math.max(workspace.Gravity, 1)) + 0.8, 1, 3))
+			end
+		end
+		broadcast("HawksCarry", char, { Kind = "Release", Why = why, Target = model, Pos = pos })
+		task.delay(0.6, function()
+			HK.give(char, rec.Ability.Refund or 4)
+		end)
+		return live and not stopped
+	end
+
+	-- from Kit.onUseAbility: while his feathers hold someone, 1-4 are the
+	-- follow-ups and his other moves wait (true: handled here)
+	function HA.route(player, char, index, aimDir, aimPos)
+		local rec = HA.by[player]
+		if not rec then
+			return false
+		end
+		if index == 1 or index == 2 or index == 3 or index == Config.EXTRA_INDEX then
+			HA.follow(rec, index == Config.EXTRA_INDEX and 4 or index, aimDir, aimPos)
+			return true
+		end
+		if HA.BUSY[index] or (index == Config.BLOCK_INDEX and aimDir == true) then
+			return true
+		end
+		return false
+	end
+
+	-- a follow-up asked for (slot 1-4): checked, paid for, run - each lets go of them
+	function HA.follow(rec, slot, aimDir)
+		local C = Config.HawksAir.spec()
+		local player, char, root = rec.Player, rec.Char, rec.Root
+		local m = Config.HawksAir.move(slot)
+		-- (while they're still being reeled up too: a press the moment the bar
+		-- turns isn't lost)
+		if not m or rec.Done or rec.Busy or (rec.State ~= "Hold" and rec.State ~= "Lift") or not alive(char) or char:GetAttribute("TimeStopped")
+			or char:GetAttribute("Stunned") or (player:GetAttribute("NoSkills") and m.Id ~= "LetGo") then -- ((round 92 review) the server's "no moves" setting: HA.route runs before that gate - letting go always works)
+			return
+		end
+		local now = os.clock()
+		if now - (HA.last[player] or -1e9) < (C.Gap or 0.25) then
+			return
+		end
+		HA.last[player] = now
+		local cost = m.Feathers or 0
+		if cost > 0 and ((tonumber(char:GetAttribute("Feathers")) or 0) < cost or char:GetAttribute("Plucked")) then
+			PlayVFX:FireClient(player, "Notice", nil, { Text = string.format("NOT ENOUGH FEATHERS (%d)", cost), Color = Color3.fromRGB(255, 120, 110) })
+			broadcast("FeathersOut", char, { Plucked = char:GetAttribute("Plucked") == true })
+			return
+		end
+		if cost > 0 then
+			HK.spend(char, cost)
+		end
+		if m.ActionTime then
+			char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + m.ActionTime)
+		end
+		local d = sanitizeDir(aimDir, root)
+		rec.Busy = m.Id
+		task.spawn(function()
+			local fn = HA[m.Id]
+			local ok, err = true, nil
+			if fn then
+				ok, err = xpcall(fn, debug.traceback, rec, m, d)
+			end
+			if not ok then
+				warn("[HawksCarry] " .. tostring(m.Id) .. ": " .. tostring(err))
+			end
+			if not rec.Done then
+				HA.release(rec, "Drop")
+			end
+		end)
+	end
+
+	-- 1: SKY TOSS - yanked up and let go at the top, then the volley at them
+	function HA.SkyToss(rec, m)
+		local player, char, root, model, vroot = rec.Player, rec.Char, rec.Root, rec.Model, rec.VRoot
+		local from = vroot.Position
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(char)
+		local rise = m.Rise or 22
+		local ceiling = workspace:Raycast(from + UP * 2, UP * rise, rp)
+		local top = from + UP * (ceiling and math.max(ceiling.Distance - 3, 2) or rise)
+		rec.From, rec.Top = from, top
+		model:SetAttribute("HawksCarryFrom", from)
+		model:SetAttribute("HawksCarryTop", top)
+		HA.setState(rec, "Toss")
+		broadcast("HawksCarry", char, { Kind = "Toss", Target = model, From = from, Top = top, Time = m.Time or 0.38 })
+		task.wait(m.Time or 0.38)
+		if rec.Done then
+			return
+		end
+		local live = HA.release(rec, "Toss")
+		if not live or not model.Parent then
+			return
+		end
+		stun(model, m.Fall or 1.2)
+		local aim = vroot.Position - root.Position
+		local volley = {
+			Id = "SkyToss", Count = m.Count or 10, Damage = m.Damage or 2, Speed = m.Speed or 170, AimedSpeed = m.Speed or 170, Turn = m.Turn or 260,
+			Homing = 180, Range = 90, Spread = 6, Stun = 0.08, Life = 1, Gap = m.Gap or 0.03, Delay = 0.02, Refund = 0,
+		}
+		HK.volley(player, char, root, volley, aim.Magnitude > 0.5 and aim.Unit or UP, vroot.Position)
+		if model.Parent and alive(model) and not model:GetAttribute("Ragdolled") then
+			ragdoll(model, m.Ragdoll or 1.4)
+		end
+	end
+
+	-- 2: FEATHER FLURRY - in to his blades, the stabs, the crossing cut
+	function HA.FeatherFlurry(rec, m)
+		local player, char, root, model = rec.Player, rec.Char, rec.Root, rec.Model
+		HA.setState(rec, "Flurry")
+		broadcast("HawksCarry", char, { Kind = "Flurry", Target = model, Hits = m.Hits or 6, Gap = m.Gap or 0.075, Lead = m.Lead or 0.16 })
+		task.wait(m.Lead or 0.16)
+		for _ = 1, m.Hits or 6 do
+			if rec.Done or not model.Parent then
+				return
+			end
+			damage(player, model, m.Damage or 2, { From = root.Position, NoKnockdown = true, Hitstop = 0.025, HitsDowned = true })
+			task.wait(m.Gap or 0.075)
+		end
+		if rec.Done then
+			return
+		end
+		local look = Config.HawksAir.flatUnit(root.CFrame.LookVector)
+		local live = HA.release(rec, "Flurry")
+		broadcast("HawksCarry", char, { Kind = "Cross", Target = model, Dir = look })
+		if live then
+			damage(player, model, m.CrossDamage or 8, { From = root.Position, Heavy = true, Hitstop = 0.1, HitsDowned = true })
+			knockback(model, look * (m.Push or 80) + UP * (m.Lift or 20), 0.3, false, true)
+			if model.Parent and not model:GetAttribute("Ragdolled") then
+				ragdoll(model, m.Ragdoll or 1.4)
+			end
+		end
+	end
+
+	-- 3: GALE THROW - whirled round him and hurled down his aim (never at
+	-- the street: a throw, not a slam - at most 25 degrees down)
+	function HA.GaleThrow(rec, m, d)
+		local player, char, root, model = rec.Player, rec.Char, rec.Root, rec.Model
+		local look = Config.HawksAir.flatUnit(root.CFrame.LookVector)
+		local out = Config.AimedDirection(d, look, { Up = 30, Down = 25 })
+		HA.setState(rec, "Spin")
+		broadcast("HawksCarry", char, { Kind = "Throw", Target = model, Dir = out, Time = m.Spin or 0.32 })
+		task.wait(m.Spin or 0.32)
+		if rec.Done then
+			return
+		end
+		local live = HA.release(rec, "Throw")
+		if live then
+			damage(player, model, m.Damage or 12, { From = root.Position, Heavy = true, Hitstop = 0.08, HitsDowned = true })
+			local speed = m.Speed or 220
+			knockback(model, out * speed + UP * speed * (m.Lift or 0.15), m.Time or 0.7, true) -- (raw: through the buildings in the way)
+		end
+	end
+
+	-- 4: LET GO
+	function HA.LetGo(rec)
+		HA.release(rec, "Drop")
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		local rec = HA.by[player]
+		if rec then
+			HA.release(rec, "Lost")
+		end
+		HA.last[player] = nil
+	end)
+end
+
+---------------------------------------------------------------------------
 -- (round 69) TWICE (Jin Bubaigawara): Double
 ---------------------------------------------------------------------------
 -- His doubles are real bodies in workspace.TwiceClones: a copy of his own
@@ -13762,7 +16133,7 @@ do
 		local out = {}
 		local own = player.Character
 		for _, plr in Players:GetPlayers() do
-			if plr.Character and plr.Character ~= own then
+			if plr.Character and plr.Character ~= own and not plr.Character:GetAttribute("Parked") then -- (round 87: not a dev's parked body)
 				table.insert(out, plr.Character)
 			end
 		end
@@ -14700,6 +17071,14 @@ do
 	function NR.rootOf(char)
 		return char:FindFirstChild("HumanoidRootPart")
 	end
+	-- (round 87) where a move goes: whoever it's after, or (a Nomu a dev is
+	-- in, Kit.PS) the point he aimed at
+	function NR.aim(target)
+		if typeof(target) == "Vector3" then
+			return target
+		end
+		return NR.rootOf(target).Position
+	end
 	function NR.flat(v)
 		local f = Vector3.new(v.X, 0, v.Z)
 		return f.Magnitude > 0.01 and f.Unit or Vector3.new(0, 0, -1)
@@ -14763,6 +17142,7 @@ do
 			local c = plr.Character
 			local cr = c and c:FindFirstChild("HumanoidRootPart")
 			if cr and alive(c) and not plr:GetAttribute("InVestige") and not c:GetAttribute("PlayingUno")
+				and not c:GetAttribute("Parked") -- (round 87: a dev's body left waiting isn't anyone to fight)
 				and (cr.Position - r.Root.Position).Magnitude <= (NR.cfg().Aggro or 260) then
 				table.insert(out, c)
 			end
@@ -14911,6 +17291,11 @@ do
 		if r.Busy then
 			return
 		end
+		-- (round 87) a dev's in it (Kit.PS): its moves are his - the clock, the
+		-- phases and the healing above still run
+		if r.Model:GetAttribute("Possessed") then
+			return
+		end
 		local target, dist = NR.target(r)
 		if not target then
 			if (r.Root.Position - r.Ground).Magnitude > 20 then
@@ -14946,7 +17331,7 @@ do
 		local s = NR.cfg().Swipe or {}
 		r.Busy = true
 		r.Next.Swipe = NR.cool(r, s.Cooldown or 1.5)
-		local d = NR.flat(NR.rootOf(target).Position - r.Root.Position)
+		local d = NR.flat(NR.aim(target) - r.Root.Position)
 		r.Hum:MoveTo(r.Root.Position)
 		r.Root.CFrame = CFrame.lookAt(r.Root.Position, r.Root.Position + d)
 		r.Side = -r.Side
@@ -14972,7 +17357,7 @@ do
 		local s = NR.cfg().Slam or {}
 		r.Busy = true
 		r.Next.Slam = NR.cool(r, s.Cooldown or 7)
-		local land = groundTarget(r.Root, NR.rootOf(target).Position, 70, r.Model)
+		local land = groundTarget(r.Root, NR.aim(target), 70, r.Model)
 		local from = r.Root.Position
 		local d = NR.flat(land - from)
 		local air = s.Air or 0.85
@@ -15012,8 +17397,8 @@ do
 		r.Busy = true
 		r.Next.Charge = NR.cool(r, s.Cooldown or 6)
 		local from = r.Root.Position
-		local d = NR.flat(NR.rootOf(target).Position - from)
-		local want = math.min((NR.rootOf(target).Position - from).Magnitude + 14, s.Range or 80)
+		local d = NR.flat(NR.aim(target) - from)
+		local want = math.min((NR.aim(target) - from).Magnitude + 14, s.Range or 80)
 		local reach = math.min(want, wallDistance(r.Model, from, d, want))
 		r.Hum:MoveTo(from)
 		r.Root.CFrame = CFrame.lookAt(from, from + d)
@@ -15143,6 +17528,7 @@ do
 			elseif result == "Escaped" and earned then
 				e.Reward = pay.Consolation or 1
 			end
+			e.Reward = math.floor(e.Reward * (Kit.AE and Kit.AE.mult("Bucks") or 1) + 0.5) -- (round 87: MONEY RAIN pays double)
 			if e.Reward > 0 and Store.AddBucks then
 				Store.AddBucks(e.Player, e.Reward)
 			end
@@ -17123,10 +19509,11 @@ end
 local function refreshDevAccess(player)
 	player:SetAttribute("DevAccess", canUseDev(player))
 	-- lost access while playing a dev character: back to a regular quirk
+	-- (round 86: DEV ONLY as the roster switch has it, Config.IsDevOnly)
 	local quirk = Config.Quirks[player:GetAttribute("Quirk") or ""]
-	if quirk and quirk.DevOnly and not canUseDev(player) then
+	if quirk and Config.IsDevOnly(player:GetAttribute("Quirk")) and not canUseDev(player) then
 		for _, name in Config.QuirkOrder do
-			if not Config.Quirks[name].DevOnly then
+			if not Config.IsDevOnly(name) then
 				applyQuirk(player, name)
 				break
 			end
@@ -17154,6 +19541,464 @@ local function setGrant(granter, target, on)
 		notice(target, "Your DEV character access was removed", Color3.fromRGB(255, 120, 100))
 	end
 	return true
+end
+
+---------------------------------------------------------------------------
+-- (round 86) THE ROSTER SWITCH (Config.Roster): which heroes are DEV ONLY,
+-- switched live by testers (the test menu's HERO ROSTER panel: TestCommand
+-- "Roster" / "RosterReset") or the owner (the console's "roster").
+--  - In force here first: the workspace attributes every client reads, and
+--    Config.IsDevOnly, which every gate asks.
+--  - Then saved: UpdateAsync on one key, merged onto whatever's saved (two
+--    servers switching at once both stick). One save at a time, no sooner
+--    than WriteGap after the last; a click made meanwhile goes in the next
+--    one. Each save is a new version. One that never comes back is given up
+--    on after SaveTimeout.
+--  - Then sent: the saved state and its version on one MessagingService
+--    topic. A server puts it in force if it's newer than its own (its own
+--    save coming back isn't). Every Resync seconds each server re-reads the
+--    save (that heals a lost message), and a state too big for a message is
+--    read from the save.
+--  - A change that couldn't be saved (the store's down, or Studio with no
+--    API access) stays in force here, on top of anything that comes in, and
+--    is tried again with the next change and every Resync ("Local").
+--  - (review) Studio reads the live roster but never writes or sends one,
+--    unless Config.Roster.StudioSaves: its switches stay in that session
+--    ("Studio"), so a playtest can't release a hero to the live game.
+-- A hero pulled back to DEV ONLY: whoever's playing him without access keeps
+-- him for the rest of that life (KeepUntilRespawn), and is told so; their
+-- next body is the first public hero. Only them: someone the owner put on a
+-- DEV ONLY hero from the console keeps him, as before.
+---------------------------------------------------------------------------
+do
+	local RO = Config.Roster or {}
+	local KEY = RO.Key or "RosterOverrides"
+	local ATTR = RO.Attribute or "RosterOverrides"
+	local Roster = {
+		map = {}, -- [quirk] = { State = "public" | "dev", Since = os.time() }: in force here
+		version = 0, -- the version of the save this server has (each save adds one)
+		queue = {}, -- changes not saved yet, oldest first: { Quirk, State, By, At } or { Reset = true, By, At }
+		saving = false, -- (os.clock() when the save that's out was sent)
+		inflight = 0, -- how many of the queue's first changes that save carries
+		lastWrite = nil, -- os.clock() of the last write (WriteGap)
+		closing = false, -- the server's shutting down: what's waiting is saved now
+		loaded = false, -- the save's been read (or written) once: this server is in step with the rest
+		ds = nil, -- the DataStore (false: there's none to be had)
+		-- [player] = the hero pulled back to DEV ONLY while they played him: only
+		-- they go to a public hero on respawn (Roster.respawned)
+		pulled = setmetatable({}, { __mode = "k" }),
+	}
+	Kit.Roster = Roster
+
+	-- who may switch heroes: the owner (Console.isOwner), Config.Roster.Editors,
+	-- the test menu's AllowedUserIds and, in Studio, whoever's testing (a
+	-- Studio session's switches stay in it: Roster.studioOnly)
+	function Roster.canEdit(player)
+		if typeof(player) ~= "Instance" or not player:IsA("Player") then
+			return false
+		end
+		local id = player.UserId
+		if RunService:IsStudio() then
+			return true
+		end
+		if table.find(RO.Editors or {}, id) or table.find((Config.TestMenu or {}).AllowedUserIds or {}, id) then
+			return true
+		end
+		local console = Kit.Console
+		if console ~= nil and console.isOwner(player) == true then
+			return true
+		end
+		-- (the console turned off: the owner of a user-owned place still may. A
+		-- group's id is never taken for a user's - isOwner asks the group's rank)
+		local ok, user = pcall(function()
+			return game.CreatorType == Enum.CreatorType.User
+		end)
+		return ok and user == true and id ~= 0 and id == game.CreatorId
+	end
+
+	-- Studio without StudioSaves: the live roster is read, nothing's written or sent
+	function Roster.studioOnly()
+		return RunService:IsStudio() and RO.StudioSaves ~= true
+	end
+
+	-- real heroes and states only, and never one that's just his default
+	function Roster.clean(t)
+		local map = {}
+		for name, e in type(t) == "table" and t or {} do
+			local q = type(name) == "string" and Config.Quirks[name]
+			local state = type(e) == "table" and e.State
+			if q and (state == "public" or state == "dev") and (state == "dev") ~= (q.DevOnly == true) then
+				map[name] = { State = state, Since = tonumber(e.Since) }
+			end
+		end
+		return map
+	end
+
+	-- one change onto a map (a hero switched to his default has no override)
+	function Roster.change(map, op)
+		if op.Reset then
+			table.clear(map)
+		elseif op.State == "default" or (op.State == "dev") == (Config.Quirks[op.Quirk].DevOnly == true) then
+			map[op.Quirk] = nil
+		else
+			map[op.Quirk] = { State = op.State, Since = op.At }
+		end
+		return map
+	end
+
+	-- how it stands, for the panel: Studio (this session only), Saving, Local
+	-- (this server only) or Live
+	function Roster.status()
+		if Roster.studioOnly() then
+			return "Studio"
+		end
+		if Roster.saving then
+			return "Saving"
+		end
+		return (Roster.loaded and #Roster.queue == 0) and "Live" or "Local"
+	end
+
+	-- the first public hero (where the player of a pulled hero goes)
+	function Roster.fallback()
+		for _, name in Config.QuirkOrder do
+			if not Config.IsDevOnly(name) then
+				return name
+			end
+		end
+		return Config.QuirkOrder[1]
+	end
+
+	-- put a state in force here (the unsaved changes stay on top of it). Who's
+	-- playing a hero that just went DEV ONLY, without access, is told - or,
+	-- with KeepUntilRespawn off, moved to a public hero now.
+	function Roster.apply(map, sync, by, at)
+		local was = {}
+		for name in Config.Quirks do
+			was[name] = Config.IsDevOnly(name)
+		end
+		for _, op in Roster.queue do
+			Roster.change(map, op)
+		end
+		Roster.map = map
+		workspace:SetAttribute(ATTR, Config.EncodeRoster(map))
+		if sync then
+			workspace:SetAttribute("RosterSync", sync)
+		end
+		if by ~= nil then
+			workspace:SetAttribute("RosterBy", tostring(by))
+		end
+		if tonumber(at) then
+			workspace:SetAttribute("RosterAt", tonumber(at))
+		end
+		for _, player in Players:GetPlayers() do
+			local q = player:GetAttribute("Quirk")
+			if q and Config.Quirks[q] and not was[q] and Config.IsDevOnly(q) and not canUseDev(player) then
+				local shown = Config.Quirks[q].DisplayName or q
+				if RO.KeepUntilRespawn == false then
+					Roster.pulled[player] = nil
+					refreshDevAccess(player)
+					local now = Config.Quirks[player:GetAttribute("Quirk") or ""]
+					notice(player, shown .. " is DEV ONLY now - you're " .. (now and now.DisplayName or "someone else"), Color3.fromRGB(255, 176, 64))
+				else
+					Roster.pulled[player] = q
+					notice(player, shown .. " is DEV ONLY now - play on till you respawn", Color3.fromRGB(255, 176, 64))
+				end
+			end
+		end
+	end
+
+	-- a new body: whoever had a hero pulled back while they played him (and
+	-- has no access, and is still on him) goes for the first public one. Not
+	-- anyone else on a DEV ONLY hero (the owner's console "hero" puts players
+	-- on them). True if they were switched (applyQuirk did the passives).
+	function Roster.respawned(player, char)
+		if player.Character ~= char then
+			return false
+		end
+		local q, pulled = player:GetAttribute("Quirk"), Roster.pulled[player]
+		Roster.pulled[player] = nil
+		if pulled == nil or pulled ~= q or not (Config.Quirks[q] and Config.IsDevOnly(q) and not canUseDev(player)) then
+			return false
+		end
+		local to = Roster.fallback()
+		if not to or to == q then
+			return false
+		end
+		applyQuirk(player, to)
+		notice(player, (Config.Quirks[q].DisplayName or q) .. " is DEV ONLY now - you're " .. (Config.Quirks[to].DisplayName or to), Color3.fromRGB(255, 176, 64))
+		return true
+	end
+
+	function Roster.store()
+		if Roster.ds == nil then
+			local ok, ds = pcall(function()
+				return game:GetService("DataStoreService"):GetDataStore(RO.DataStore or "QuirkBattlegrounds_Roster_v1")
+			end)
+			Roster.ds = (ok and ds) or false
+		end
+		return Roster.ds or nil
+	end
+
+	-- a saved state, if it's newer than the one in force here
+	function Roster.take(version, map, by, at)
+		if (tonumber(version) or 0) <= Roster.version then
+			return false
+		end
+		Roster.version = tonumber(version)
+		Roster.apply(map, nil, by, at)
+		workspace:SetAttribute("RosterSync", Roster.status())
+		return true
+	end
+
+	-- read the save (at the start, every Resync, and for a message too big to carry it)
+	function Roster.load()
+		local ds = Roster.store()
+		local ok, data = false, nil
+		if ds then
+			ok, data = pcall(ds.GetAsync, ds, KEY)
+		end
+		if ok then
+			Roster.loaded = true
+			data = type(data) == "table" and data or {}
+			Roster.take(data.Version, Roster.clean(data.Overrides), data.By, data.At)
+		end
+		workspace:SetAttribute("RosterSync", Roster.status())
+		return ok
+	end
+
+	-- tell every other server (each puts it in force if it's newer than its own).
+	-- Every entry goes, heroes this server doesn't know too (a newer version's,
+	-- mid-update): the state is the whole state.
+	function Roster.publish(saved)
+		if Roster.studioOnly() then
+			return -- (Studio sends nothing to the live servers)
+		end
+		local parts = {}
+		for name, e in type(saved.Overrides) == "table" and saved.Overrides or {} do
+			if type(name) == "string" and string.match(name, "^[%w_]+$") and type(e) == "table" and (e.State == "public" or e.State == "dev") then
+				table.insert(parts, name .. "=" .. e.State .. (tonumber(e.Since) and (":" .. math.floor(e.Since)) or ""))
+			end
+		end
+		table.sort(parts)
+		local text = table.concat(parts, ",")
+		local msg = { V = tonumber(saved.Version) or 0, By = saved.By, At = saved.At, From = game.JobId, S = text }
+		-- (a message carries 1 kB, measured as it's sent - JSON, the JobId, a
+		-- name's escapes and all: a bigger state is read from the save instead)
+		local fits = #text <= 800
+		local okJson, json = pcall(function()
+			return game:GetService("HttpService"):JSONEncode(msg)
+		end)
+		if okJson and type(json) == "string" then
+			fits = #json <= 1000
+		end
+		if not fits then
+			msg.S = nil
+		end
+		task.spawn(pcall, function()
+			game:GetService("MessagingService"):PublishAsync(RO.Topic or "QuirkRoster", msg)
+		end)
+	end
+
+	function Roster.onMessage(message)
+		local msg = type(message) == "table" and message.Data
+		if type(msg) ~= "table" or (tonumber(msg.V) or 0) <= Roster.version then
+			return -- (old news, or this server's own save coming back)
+		end
+		if type(msg.S) == "string" then
+			Roster.loaded = true
+			Roster.take(msg.V, Roster.clean(Config.ParseRoster(msg.S)), msg.By, msg.At)
+		else
+			task.spawn(Roster.load)
+		end
+	end
+
+	-- save what's waiting: one save at a time, merged onto what's saved, no
+	-- sooner than WriteGap after the last (the key's write limit). Clicks made
+	-- while it waits or runs go in the next one.
+	function Roster.flush()
+		local ds = Roster.store()
+		local timeout = tonumber(RO.SaveTimeout) or 30
+		local busy = Roster.saving and os.clock() - Roster.saving < timeout
+		if busy or not ds or Roster.studioOnly() then
+			workspace:SetAttribute("RosterSync", Roster.status())
+			return
+		end
+		local token = os.clock()
+		Roster.saving = token
+		Roster.inflight = 0
+		workspace:SetAttribute("RosterSync", "Saving")
+		while #Roster.queue > 0 do
+			local gap = (tonumber(RO.WriteGap) or 6) - (os.clock() - (Roster.lastWrite or -math.huge))
+			if gap > 0 and not Roster.closing then
+				task.wait(gap)
+			end
+			if Roster.saving ~= token then
+				return -- (given up on, and a newer save took over)
+			end
+			local ops = table.clone(Roster.queue)
+			Roster.inflight = #ops
+			Roster.lastWrite = os.clock()
+			token = Roster.lastWrite
+			Roster.saving = token
+			-- (a save that never comes back: given up on, and the next one takes over)
+			local sent = token
+			task.delay(timeout + 0.5, function()
+				if Roster.saving == sent then
+					Roster.flush()
+				end
+			end)
+			local ok, saved = pcall(ds.UpdateAsync, ds, KEY, function(old)
+				old = type(old) == "table" and old or {}
+				local map = Roster.clean(old.Overrides)
+				-- (a hero this server doesn't know - a newer version's, mid-update - is kept as it is)
+				for name, e in type(old.Overrides) == "table" and old.Overrides or {} do
+					if type(name) == "string" and not Config.Quirks[name] then
+						map[name] = e
+					end
+				end
+				for _, op in ops do
+					Roster.change(map, op)
+				end
+				return { Overrides = map, Version = (tonumber(old.Version) or 0) + 1, By = ops[#ops].By, At = ops[#ops].At }
+			end)
+			if Roster.saving ~= token then
+				return -- (it came back after it was given up on: the newer save has it)
+			end
+			if not (ok and type(saved) == "table") then
+				break -- (kept: tried again with the next change, and every Resync)
+			end
+			for _ = 1, #ops do
+				table.remove(Roster.queue, 1) -- (saved; what was clicked meanwhile stays waiting)
+			end
+			Roster.inflight = 0
+			Roster.loaded = true
+			Roster.version = math.max(Roster.version, tonumber(saved.Version) or 0)
+			Roster.apply(Roster.clean(saved.Overrides), nil, saved.By, saved.At)
+			Roster.publish(saved)
+		end
+		Roster.saving = false
+		Roster.inflight = 0
+		workspace:SetAttribute("RosterSync", Roster.status())
+	end
+
+	local SHOWN = { public = "PUBLIC", dev = "DEV ONLY" }
+	-- a switch from the panel or the console: state "public" / "dev" /
+	-- "default" for one hero, or "reset" for every one. In force here at once,
+	-- then saved and sent. Returns ok and a line saying what happened.
+	function Roster.request(player, quirkName, state)
+		if not Roster.canEdit(player) then
+			return false, "Only the owner and listed testers can switch heroes"
+		end
+		local op
+		if state == "reset" then
+			op = { Reset = true }
+		elseif type(quirkName) == "string" and Config.Quirks[quirkName] and (state == "public" or state == "dev" or state == "default") then
+			op = { Quirk = quirkName, State = state }
+		else
+			return false, "Which hero, and public / dev / default?"
+		end
+		op.By, op.At = player.DisplayName, os.time()
+		-- (at least one hero has to stay public, or nobody could pick anyone)
+		local after = Roster.change(table.clone(Roster.map), op)
+		local public = 0
+		for _, name in Config.QuirkOrder do
+			local o = after[name]
+			if not (o and o.State == "dev" or (not o and Config.Quirks[name].DevOnly)) then
+				public += 1
+			end
+		end
+		if public == 0 then
+			return false, "At least one hero has to stay public"
+		end
+		-- (waiting changes to the same hero are dropped: the save carries the
+		-- last word. Not the ones a save that's out carries - so however fast
+		-- the clicks, the queue holds at most one per hero past those)
+		for i = #Roster.queue, (Roster.saving and Roster.inflight or 0) + 1, -1 do
+			if op.Reset or Roster.queue[i].Quirk == op.Quirk then
+				table.remove(Roster.queue, i)
+			end
+		end
+		table.insert(Roster.queue, op)
+		Roster.apply(table.clone(Roster.map), (Roster.store() and not Roster.studioOnly()) and "Saving" or Roster.status(), op.By, op.At)
+		task.spawn(Roster.flush)
+		local where = Roster.studioOnly() and " - Studio: this session only" or ""
+		if op.Reset then
+			return true, "Every hero is back to the default" .. where
+		end
+		local q = Config.Quirks[quirkName]
+		return true, string.format("%s: %s%s%s", q.DisplayName or quirkName, SHOWN[Config.IsDevOnly(quirkName) and "dev" or "public"],
+			Config.RosterOverride(quirkName) and "" or " (the default)", where)
+	end
+
+	-- one line for the console
+	function Roster.describe()
+		local dev, changed = {}, {}
+		for _, name in Config.QuirkOrder do
+			local shown = Config.Quirks[name].DisplayName or name
+			if Config.IsDevOnly(name) then
+				table.insert(dev, shown)
+			end
+			local o = Config.RosterOverride(name)
+			if o then
+				table.insert(changed, shown .. " " .. SHOWN[o])
+			end
+		end
+		return string.format("%d public, %d DEV ONLY (%s). Switched from the defaults: %s. [%s]", #Config.QuirkOrder - #dev, #dev,
+			#dev > 0 and table.concat(dev, ", ") or "none", #changed > 0 and table.concat(changed, ", ") or "none",
+			string.upper(workspace:GetAttribute("RosterSync") or "?"))
+	end
+
+	-- everyone's told whether they can switch heroes (the panel's view-only state)
+	local function mark(player)
+		player:SetAttribute("RosterEditor", Roster.canEdit(player))
+	end
+	Players.PlayerAdded:Connect(function(player)
+		task.defer(mark, player)
+	end)
+	for _, player in Players:GetPlayers() do
+		task.defer(mark, player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		Roster.pulled[player] = nil
+	end)
+	-- (review) a server shutting down saves what it hasn't yet (the one that's
+	-- out first; no WriteGap now)
+	pcall(function()
+		game:BindToClose(function()
+			Roster.closing = true
+			local t = os.clock()
+			while Roster.saving and os.clock() - t < 10 do
+				task.wait(0.25)
+			end
+			if #Roster.queue > 0 then
+				pcall(Roster.flush)
+			end
+		end)
+	end)
+
+	-- start with the defaults, then the save, then every Resync seconds
+	workspace:SetAttribute(ATTR, "")
+	workspace:SetAttribute("RosterSync", "Loading")
+	local function subscribe()
+		pcall(function()
+			Roster.sub = game:GetService("MessagingService"):SubscribeAsync(RO.Topic or "QuirkRoster", Roster.onMessage)
+		end)
+	end
+	task.spawn(function()
+		subscribe()
+		Roster.load()
+		while (tonumber(RO.Resync) or 0) > 0 do
+			task.wait(RO.Resync)
+			if not Roster.sub then
+				subscribe() -- (it failed at the start: tried again)
+			end
+			if #Roster.queue > 0 and not Roster.studioOnly() then
+				Roster.flush() -- (unsaved changes: saved first, merged onto what's there)
+			else
+				Roster.load()
+			end
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -17240,8 +20085,9 @@ local function setupStore()
 
 	---------------------------------------------------------------------------
 	-- EMOTES (round 58): sold in the Hero Shop - the only way to get one is to
-	-- spend Bucks on it. What you own (EmotesOwned: "Id,Id") and the four on
-	-- your wheel (EmoteWheel: "Id,,Id," - a blank is an empty slot) live in
+	-- spend Bucks on it. What you own (EmotesOwned: "Id,Id") and the ones on
+	-- your wheel (EmoteWheel: "Id,,Id," - a blank is an empty slot; round 92:
+	-- Config.EmoteSlots of them, 8) live in
 	-- player attributes so the HUD can read them, and are saved with the rest.
 	---------------------------------------------------------------------------
 	local EMOTES = {}
@@ -17314,6 +20160,87 @@ local function setupStore()
 		end
 		player:SetAttribute("EmoteWheel", table.concat(out, ","))
 		dirty[player] = true
+	end
+
+	-- (round 92) a wheel saved with fewer slots (from: the old 4) laid out on
+	-- today's SLOTS (8): each emote keeps its place on the ring - slot i of
+	-- `from` goes to the slot that points the same way (1, 2, 3, 4 of 4 ->
+	-- 1, 3, 5, 7 of 8: top, right, bottom, left) - and the slots that are new
+	-- get `extra` (ids, in order: the newest of the rest they own; one already
+	-- on the wheel is skipped). A slot they'd emptied stays empty. As many
+	-- slots or more: kept as it was (cut to SLOTS). list: the old slots' ids
+	-- ("" = empty). Returns the SLOTS ids.
+	function Store.SpreadWheel(list, from, extra)
+		local out, kept, used = {}, {}, {}
+		for i = 1, SLOTS do
+			out[i] = ""
+		end
+		from = math.max(math.floor(tonumber(from) or SLOTS), 1)
+		if from ~= from or from >= SLOTS then -- (NaN: as it is)
+			for i = 1, SLOTS do
+				out[i] = list[i] or ""
+			end
+			return out
+		end
+		for i = 1, from do
+			local k = math.floor((i - 1) * SLOTS / from + 0.5) + 1
+			out[k] = list[i] or ""
+			kept[k] = true
+			if out[k] ~= "" then
+				used[out[k]] = true
+			end
+		end
+		local j = 1
+		for k = 1, SLOTS do
+			if not kept[k] then
+				while extra and extra[j] and used[extra[j]] do
+					j += 1
+				end
+				if extra and extra[j] then
+					out[k] = extra[j]
+					used[extra[j]] = true
+					j += 1
+				end
+			end
+		end
+		return out
+	end
+	-- (round 92 review) ...and the other way: the `to` slots (4) an older
+	-- server reads off today's wheel - the ones that point the same ways (1,
+	-- 3, 5, 7 of 8). Saved as Wheel (the key every older server loads) next
+	-- to the whole wheel (WheelAll): while an update rolls out, someone who
+	-- lands on a server still running the 4-slot code sees their top, right,
+	-- bottom and left where they put them - not the first four slots (top,
+	-- two diagonals and right) dealt round its ring - and when they're back
+	-- on a new one, it spreads that 4 again
+	function Store.FoldWheel(list, to)
+		local out = {}
+		for i = 1, to do
+			out[i] = list[math.floor((i - 1) * SLOTS / to + 0.5) + 1] or ""
+		end
+		return out
+	end
+	-- (round 92 review) what's saved as Emotes: theirs, then any a newer
+	-- server gave them that this one doesn't know (Store.laterEmotes:
+	-- [player] = those ids, read off their save - a plain table, cleared
+	-- when they leave)
+	Store.laterEmotes = {}
+	function Store.EmotesToSave(player)
+		local owned = player:GetAttribute("EmotesOwned") or ""
+		local later = Store.laterEmotes[player]
+		if not later then
+			return owned
+		end
+		local ids = {}
+		for id in string.gmatch(owned, "[^,]+") do
+			table.insert(ids, id)
+		end
+		for _, id in later do
+			if not table.find(ids, id) then
+				table.insert(ids, id)
+			end
+		end
+		return table.concat(ids, ",")
 	end
 
 	function Store.OwnsEmote(player, id)
@@ -17557,15 +20484,22 @@ local function setupStore()
 			Bucks = Store.GetBucks(player),
 			Items = items,
 			Kills = kills,
-			Emotes = player:GetAttribute("EmotesOwned") or "",
-			Wheel = player:GetAttribute("EmoteWheel") or "",
+			-- (round 92 review: and any a newer server gave them that this one
+			-- doesn't know - kept, not lost, while an update rolls out)
+			Emotes = Store.EmotesToSave(player),
+			-- (round 92) the wheel: all of it (WheelAll, WheelSlots of them) and
+			-- the 4 an older 4-slot server reads (Wheel: Store.FoldWheel)
+			Wheel = table.concat(Store.FoldWheel(wheelList(player), 4), ","),
+			WheelAll = player:GetAttribute("EmoteWheel") or "",
+			WheelSlots = SLOTS, -- (how many slots WheelAll has; a save without WheelAll: an older server's 4)
 			Picks = player:GetAttribute("EmotePicks") or 0, -- (round 63) free picks waiting
 			Codes = player:GetAttribute("CodesUsed") or "",
 			Receipts = receipts[player] or {}, -- (round 72) Robux purchases handed over
 			EmoteWipe = ES.Wipe or 0, -- (round 72) the emote wipe they've had
 			Outfit = player:GetAttribute("AwakenOutfit") or 0,
 			Settings = { WearCosmetics = player:GetAttribute("WearCosmetics") ~= false, ShowCosmetics = player:GetAttribute("ShowCosmetics") ~= false, Music = player:GetAttribute("Music") ~= false, Blood = player:GetAttribute("Blood") ~= false, AutoRun = player:GetAttribute("AutoRun") == true,
-				RobloxCamera = player:GetAttribute("RobloxCamera") == true, PadSensitivity = tonumber(player:GetAttribute("PadSensitivity")) or 1 },
+				RobloxCamera = player:GetAttribute("RobloxCamera") == true, PadSensitivity = tonumber(player:GetAttribute("PadSensitivity")) or 1,
+				HideMyWings = player:GetAttribute("HideMyWings") == true }, -- (round 86)
 		}
 		local ok = pcall(function()
 			saveStore:SetAsync("u_" .. player.UserId, data)
@@ -17624,23 +20558,38 @@ local function setupStore()
 				receipts[player] = list
 			end
 			if type(data.Emotes) == "string" and not wiped then
-				local set, order = {}, {}
+				local set, order, later = {}, {}, {}
 				for id in string.gmatch(data.Emotes, "[^,]+") do
 					if EMOTES[id] then
 						set[id] = true
 						table.insert(order, id)
+					elseif #later < 100 and #id <= 40 and string.match(id, "^[%w_]+$") then
+						-- (round 92 review) one a newer server gave them (the
+						-- next update, still rolling out): not one this server
+						-- can show, but saved back with the rest
+						-- (Store.EmotesToSave) - dropped, they'd lose an emote
+						-- they paid for just by playing here
+						table.insert(later, id)
 					end
 				end
 				setOwned(player, set, order)
+				Store.laterEmotes[player] = #later > 0 and later or nil
+				-- (round 92) the wheel: a newer save has all of it (WheelAll, with
+				-- how many slots: WheelSlots); one saved by an older server has
+				-- only its 4 (Wheel) - they keep their places on the ring, and the
+				-- new slots get the newest of the rest they own (Store.SpreadWheel)
+				local all = type(data.WheelAll) == "string"
 				local list, n = {}, 0
-				for id in string.gmatch((type(data.Wheel) == "string" and data.Wheel or "") .. ",", "([^,]*),") do
+				for id in string.gmatch((all and data.WheelAll or (type(data.Wheel) == "string" and data.Wheel or "")) .. ",", "([^,]*),") do
 					n += 1
-					if n > SLOTS then
-						break
-					end
 					list[n] = set[id] and id or ""
 				end
-				setWheel(player, list)
+				local from = all and (tonumber(data.WheelSlots) or SLOTS) or math.max(n, 4)
+				local newest = {}
+				for k = #order, 1, -1 do
+					table.insert(newest, order[k])
+				end
+				setWheel(player, Store.SpreadWheel(list, from, newest))
 			end
 			if type(data.Outfit) == "number" and data.Outfit > 0 then
 				Store.PickOutfit(player, data.Outfit, true)
@@ -17652,7 +20601,7 @@ local function setupStore()
 				player:SetAttribute("CodesUsed", data.Codes)
 			end
 			if type(data.Settings) == "table" then
-				for _, key in { "WearCosmetics", "ShowCosmetics", "Music", "Blood", "AutoRun", "RobloxCamera" } do
+				for _, key in { "WearCosmetics", "ShowCosmetics", "Music", "Blood", "AutoRun", "RobloxCamera", "HideMyWings" } do
 					if type(data.Settings[key]) == "boolean" then
 						player:SetAttribute(key, data.Settings[key])
 					end
@@ -17747,7 +20696,7 @@ local function setupStore()
 				return
 			end
 			value = math.clamp(value, 0.25, 4)
-		elseif type(value) ~= "boolean" or (key ~= "WearCosmetics" and key ~= "ShowCosmetics" and key ~= "Music" and key ~= "Blood" and key ~= "AutoRun" and key ~= "RobloxCamera") then
+		elseif type(value) ~= "boolean" or (key ~= "WearCosmetics" and key ~= "ShowCosmetics" and key ~= "Music" and key ~= "Blood" and key ~= "AutoRun" and key ~= "RobloxCamera" and key ~= "HideMyWings") then
 			return
 		end
 		local now = os.clock()
@@ -17847,6 +20796,7 @@ local function setupStore()
 			saveData(player)
 			loaded[player] = nil
 			dirty[player] = nil
+			Store.laterEmotes[player] = nil -- (round 92 review)
 		end)
 	end
 
@@ -19899,6 +22849,265 @@ local function setupFood()
 end
 setupFood()
 
+---------------------------------------------------------------------------
+-- (round 89) JOIN THE DISCORD (Config.Discord): a kiosk on the plaza by the
+-- middle spawn - a blurple totem with a screen, a glowing sign on top (both
+-- faces) and a chat bubble over it - built here at startup in
+-- workspace.Shops, like the snack machines: attacks pass through it, the
+-- city's destruction and its rebuild never touch it (nothing in it is
+-- Destroyable, and it isn't in the Map), and one that's gone - anything
+-- clearing it away - is built again. Everything's built in the NEUTRAL
+-- words (the sign says COMMUNITY): each screen Roblox lets see Discord
+-- links swaps its own copy (QuirkClient's DiscordClient). Its prompt opens
+-- the card on the presser's screen; nothing else goes anywhere.
+---------------------------------------------------------------------------
+do
+	local DK = { kiosks = {}, last = {}, groundY = {}, broken = {} }
+	local CFG = Config.Discord or {}
+	local LOOK = CFG.Look or {}
+
+	function DK.folder()
+		local shops = workspace:FindFirstChild("Shops")
+		if not shops then
+			shops = Instance.new("Folder")
+			shops.Name = "Shops"
+			shops.Parent = workspace
+		end
+		return shops
+	end
+
+	-- (the server only ever writes the neutral words)
+	function DK.text(role)
+		return (CFG.Neutral or {})[role] or ""
+	end
+
+	-- the structure collides (it's sturdy); the trim, the screen and the
+	-- bubble don't, and no ray or camera stops at them
+	function DK.block(parent, name, size, cf, color, material, collide)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Anchored = true
+		p.CanCollide = collide == true
+		p.CanTouch = false
+		p.CanQuery = collide == true
+		p.CastShadow = collide == true
+		p.Size = size
+		p.CFrame = cf
+		p.Color = color
+		p.Material = material or Enum.Material.SmoothPlastic
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.Parent = parent
+		return p
+	end
+
+	-- a lit SurfaceGui; lines: { role, x, y, w, h, font, colour, outline }
+	-- ("Rule": a line across, no words). Each label carries its role: a
+	-- screen that's allowed re-words it.
+	function DK.face(part, face, lines)
+		local gui = Instance.new("SurfaceGui")
+		gui.Name = "Discord" .. face.Name
+		gui.Face = face
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = LOOK.PixelsPerStud or 60
+		gui.LightInfluence = 0
+		gui.Brightness = LOOK.TextGlow or 1.6
+		gui.Parent = part
+		for _, ln in lines do
+			if ln[1] == "Rule" then
+				local bar = Instance.new("Frame")
+				bar.Name = "Rule"
+				bar.BorderSizePixel = 0
+				bar.BackgroundColor3 = ln[7]
+				bar.Position = UDim2.fromScale(ln[2], ln[3])
+				bar.Size = UDim2.fromScale(ln[4], ln[5])
+				bar.Parent = gui
+			else
+				local t = Instance.new("TextLabel")
+				t.Name = ln[1]
+				t.BackgroundTransparency = 1
+				t.Position = UDim2.fromScale(ln[2], ln[3])
+				t.Size = UDim2.fromScale(ln[4], ln[5])
+				t.TextScaled = true
+				t.Font = ln[6]
+				t.TextColor3 = ln[7]
+				t.Text = DK.text(ln[1])
+				t:SetAttribute("DiscordRole", ln[1])
+				if ln[8] then
+					local edge = Instance.new("UIStroke")
+					edge.Thickness = ln[8][1]
+					edge.Color = ln[8][2]
+					edge.Parent = t
+				end
+				t.Parent = gui
+			end
+		end
+		return gui
+	end
+
+	-- where the street is under a spot (found once: a kiosk built again
+	-- later stands where the first one stood, crater or not)
+	function DK.feet(spot, index)
+		local pos = spot.Position
+		local y = DK.groundY[index]
+		if not y then
+			local snap = CFG.Snap or 4
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			local list = nonMapStuff(nil)
+			table.insert(list, DK.folder())
+			params.FilterDescendantsInstances = list
+			local hit = workspace:Raycast(pos + UP * snap, UP * (-snap * 2), params)
+			y = (hit and math.abs(hit.Position.Y - pos.Y) <= snap) and hit.Position.Y or pos.Y
+			DK.groundY[index] = y
+		end
+		return Vector3.new(pos.X, y, pos.Z)
+	end
+
+	function DK.build(spot, index)
+		local face = Vector3.new(spot.Face.X, 0, spot.Face.Z).Unit
+		local feet = DK.feet(spot, index)
+		local base = CFrame.lookAt(feet, feet + face) -- (its front is -Z, toward Face)
+		local P = LOOK.Plinth or Vector3.new(6.4, 0.5, 3.6)
+		local B = LOOK.Body or Vector3.new(4.6, 7, 2.4)
+		local S = LOOK.Sign or Vector3.new(8.4, 3.4, 1)
+		local NECK, FR = LOOK.Neck or 0.6, LOOK.Frame or 0.25
+		local BLURPLE = LOOK.Blurple or Color3.fromRGB(88, 101, 242)
+		local DEEP = LOOK.Deep or Color3.fromRGB(71, 82, 196)
+		local INK = LOOK.Ink or Color3.fromRGB(30, 31, 34)
+		local SLAB = LOOK.Slab or Color3.fromRGB(43, 45, 49)
+		local GLOW = LOOK.Glow or Color3.fromRGB(150, 160, 255)
+		local WHITE = Color3.new(1, 1, 1)
+		local m = Instance.new("Model")
+		m.Name = "DiscordKiosk"
+		m:SetAttribute("Kiosk", index)
+		local function glow(p)
+			p:SetAttribute("DiscordGlow", true) -- (each screen breathes it)
+			return p
+		end
+		-- the plinth, a glowing line along its front and back
+		DK.block(m, "Plinth", P, base * CFrame.new(0, P.Y / 2, 0), SLAB, Enum.Material.SmoothPlastic, true)
+		for _, z in { -1, 1 } do
+			glow(DK.block(m, "Strip", Vector3.new(P.X - 0.6, 0.14, 0.1), base * CFrame.new(0, P.Y / 2, z * (P.Z / 2 + 0.05)), GLOW, Enum.Material.Neon))
+		end
+		-- the body, framed by two darker fins
+		local bodyY = P.Y + B.Y / 2
+		local body = DK.block(m, "Body", B, base * CFrame.new(0, bodyY, 0), BLURPLE, Enum.Material.SmoothPlastic, true)
+		m.PrimaryPart = body
+		for _, x in { -1, 1 } do
+			DK.block(m, "Fin", Vector3.new(0.3, B.Y + 0.2, B.Z + 0.2), base * CFrame.new(x * (B.X / 2 + 0.15), bodyY, 0), DEEP, Enum.Material.SmoothPlastic, true)
+		end
+		-- the screen in its bezel, a little shelf under it
+		local screenY = P.Y + (LOOK.ScreenAt or 4.2)
+		local front = -B.Z / 2
+		DK.block(m, "Bezel", Vector3.new(B.X - 0.6, 3, 0.12), base * CFrame.new(0, screenY, front - 0.06), SLAB)
+		local screen = DK.block(m, "Screen", Vector3.new(B.X - 1, 2.6, 0.06), base * CFrame.new(0, screenY, front - 0.15), INK)
+		DK.face(screen, Enum.NormalId.Front, {
+			{ "ScreenTop", 0.06, 0.08, 0.88, 0.2, Enum.Font.GothamBlack, GLOW },
+			{ "Rule", 0.06, 0.32, 0.88, 0.02, nil, BLURPLE },
+			{ "ScreenMain", 0.04, 0.38, 0.92, 0.24, Enum.Font.GothamBold, WHITE },
+			{ "ScreenBottom", 0.06, 0.72, 0.88, 0.14, Enum.Font.GothamBold, Color3.fromRGB(150, 155, 185) },
+		})
+		DK.block(m, "Shelf", Vector3.new(B.X - 1, 0.25, 0.7), base * CFrame.new(0, screenY - 1.75, front - 0.35), SLAB)
+		-- the neck, the sign (the words on both faces), the neon frame round it
+		DK.block(m, "Neck", Vector3.new(2.2, NECK, 0.9), base * CFrame.new(0, P.Y + B.Y + NECK / 2, 0), DEEP, Enum.Material.SmoothPlastic, true)
+		local signY = P.Y + B.Y + NECK + S.Y / 2
+		local sign = DK.block(m, "Sign", S, base * CFrame.new(0, signY, 0), INK, Enum.Material.SmoothPlastic, true)
+		for _, side in { Enum.NormalId.Front, Enum.NormalId.Back } do
+			DK.face(sign, side, {
+				{ "SignTop", 0.06, 0.08, 0.88, 0.27, Enum.Font.GothamBlack, Color3.fromRGB(205, 210, 255) },
+				{ "SignMain", 0.04, 0.36, 0.92, 0.56, Enum.Font.GothamBlack, WHITE, { 3, BLURPLE } },
+			})
+		end
+		local L = LOOK.Light or {}
+		local light = Instance.new("PointLight")
+		light.Name = "Glow"
+		light.Color = BLURPLE
+		light.Range = L.Range or 16
+		light.Brightness = (L.Brightness or {})[1] or 2.2
+		light.Shadows = false
+		glow(light).Parent = sign
+		for _, y in { -1, 1 } do
+			glow(DK.block(m, "Frame", Vector3.new(S.X + FR * 2, FR, S.Z + 0.1), base * CFrame.new(0, signY + y * (S.Y / 2 + FR / 2), 0), GLOW, Enum.Material.Neon))
+		end
+		for _, x in { -1, 1 } do
+			glow(DK.block(m, "Frame", Vector3.new(FR, S.Y, S.Z + 0.1), base * CFrame.new(x * (S.X / 2 + FR / 2), signY, 0), GLOW, Enum.Material.Neon))
+		end
+		-- the chat bubble on top: blocky (its corners cut by a second block),
+		-- three dots, a stepped tail down to the sign
+		local bubbleY = signY + S.Y / 2 + FR + 1.775
+		local BUBBLE = LOOK.Bubble or WHITE
+		for _, spec in {
+			{ Vector3.new(2.6, 1.4, 0.5), 0, 0 }, { Vector3.new(2.2, 1.8, 0.5), 0, 0 },
+			{ Vector3.new(0.6, 0.4, 0.5), -0.6, -1.075 }, { Vector3.new(0.35, 0.3, 0.5), -0.85, -1.375 },
+		} do
+			DK.block(m, "Bubble", spec[1], base * CFrame.new(spec[2], bubbleY + spec[3], 0), BUBBLE)
+		end
+		for _, x in { -0.65, 0, 0.65 } do
+			DK.block(m, "Dot", Vector3.new(0.36, 0.36, 0.6), base * CFrame.new(x, bubbleY, 0), BLURPLE)
+		end
+		-- the prompt, at the shelf (under the screen, not over it)
+		local at = Instance.new("Attachment")
+		at.Name = "PromptAt"
+		at.CFrame = CFrame.new(0, screenY - 1.75 - bodyY, front - 0.7)
+		at.Parent = body
+		local pp = Instance.new("ProximityPrompt")
+		pp.Name = "DiscordPrompt"
+		pp.ActionText = DK.text("Action")
+		pp.ObjectText = DK.text("Object")
+		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.GamepadKeyCode = Enum.KeyCode.DPadRight
+		pp.HoldDuration = 0
+		pp.MaxActivationDistance = CFG.PromptRange or 7
+		pp.RequiresLineOfSight = false
+		pp:SetAttribute("DiscordRole", "Prompt")
+		pp.Parent = at
+		pp.Triggered:Connect(function(player)
+			local now = os.clock()
+			if now - (DK.last[player] or -math.huge) < (CFG.PressGap or 0.5) then
+				return
+			end
+			DK.last[player] = now
+			PlayVFX:FireClient(player, "DiscordCard", nil, { Kiosk = m, Pos = feet })
+		end)
+		-- (it streams in whole, never half-built)
+		m.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+		m.Parent = DK.folder()
+		return m
+	end
+
+	-- every kiosk there, built (again) where one's missing
+	function DK.ensure()
+		for i, spot in CFG.Spots or {} do
+			local k = DK.kiosks[i]
+			if not DK.broken[i] and not (k and k:IsDescendantOf(workspace)) then
+				if k then
+					pcall(k.Destroy, k)
+				end
+				local ok, made = pcall(DK.build, spot, i)
+				DK.kiosks[i] = ok and made or nil
+				if not ok then
+					DK.broken[i] = true -- (said once, not every few seconds)
+					warn("[Discord] kiosk " .. i .. ": " .. tostring(made))
+				end
+			end
+		end
+	end
+
+	if CFG.Enabled ~= false then
+		DK.ensure()
+		Players.PlayerRemoving:Connect(function(player)
+			DK.last[player] = nil
+		end)
+		task.spawn(function()
+			while true do
+				task.wait(CFG.Rebuild or 5)
+				DK.ensure()
+			end
+		end)
+	end
+end
+
 
 local DUMMY_AREA = CFrame.lookAt(Vector3.new(-77, 32, 668), Vector3.new(-77, 32, 651))
 
@@ -20033,6 +23242,22 @@ function TestCommands.GrantDevAll(player, _, _, on)
 		end
 	end
 	notice(player, string.format("%s DEV access %s %d player%s", on and "Granted" or "Removed", on and "to" or "from", count, count == 1 and "" or "s"), Color3.fromRGB(150, 220, 255))
+end
+
+-- (round 86) the HERO ROSTER panel (Kit.Roster): one hero PUBLIC / DEV ONLY /
+-- back to the default (state "public" | "dev" | "default"), or every one back
+function TestCommands.Roster(player, _, quirkName, state)
+	local ok, text = false, "The roster switch isn't running"
+	if Kit.Roster then
+		ok, text = Kit.Roster.request(player, quirkName, state)
+	end
+	if not ok then
+		notice(player, text, Color3.fromRGB(255, 150, 120))
+	end
+end
+
+function TestCommands.RosterReset(player)
+	TestCommands.Roster(player, nil, nil, "reset")
 end
 
 function TestCommands.ResetStats(player)
@@ -20394,6 +23619,6666 @@ do
 	end
 end
 
+---------------------------------------------------------------------------
+-- (round 87) THROUGH-THE-BUILDING KNOCKBACK (Config.Smash): the Omni-Man
+-- train. knockback() tags a throw hard enough (SM.tag: its tier rides on
+-- the push itself, for the body's own machine), and a finisher's send-off
+-- comes here too (launchBody: SM.launch). A player's body is run by his own
+-- machine: it opens the walls ahead on his screen and says where he went
+-- through or splatted (SmashThrough / SmashSplat over UseAbility), and here
+-- that's checked against the throw - its tier, how many walls, the speed
+-- the server threw it at - and against where the server sees him (the hole
+-- clamped to his path) before the real hole is carved and everyone else is
+-- shown it. A body the server runs (a dummy, a double, a finisher's send-
+-- off) is looked ahead of here every frame and carved before it gets
+-- there. The carving is rate limited server-wide (Rate full holes a
+-- second, then HardRate coarse ones). Nothing's carved under a body (the
+-- floor) and nothing past the city's edge.
+-- (No new top-level locals: the server's main chunk is at its limit.)
+---------------------------------------------------------------------------
+do
+	local SMC = Config.Smash or {}
+	local SK = Config.SmashKit
+	local SM = {
+		KINDS = { SmashThrough = true, SmashSplat = true },
+		flights = {}, -- [model] = the throw being watched (round 87, in Studio: not weak - the engine can drop an Instance key while it lives)
+		ids = 0,
+		bucket = { full = SMC.Burst or 8, lite = SMC.HardBurst or 12, at = os.clock() },
+		params = RaycastParams.new(),
+		knockback = knockback, -- (the tests throw bodies with it)
+	}
+	Kit.Smash = SM
+	Reactions.SM = SM
+	Destruction.Smash = SM -- (for any other server script - and the tests)
+	do
+		local map = workspace:FindFirstChild("Map")
+		SM.params.FilterType = map and Enum.RaycastFilterType.Include or Enum.RaycastFilterType.Exclude
+		SM.params.FilterDescendantsInstances = map and { map } or nonMapStuff(nil)
+		SM.overlap = OverlapParams.new()
+		SM.overlap.FilterType = map and Enum.RaycastFilterType.Include or Enum.RaycastFilterType.Exclude
+		SM.overlap.FilterDescendantsInstances = map and { map } or nonMapStuff(nil)
+		pcall(function()
+			SM.params.RespectCanCollide = true
+		end)
+	end
+
+	function SM.on()
+		return SMC.Enabled ~= false and SK ~= nil
+	end
+
+	-- the map only (what really stops a body); a sphere of radius if given
+	-- ((round 87 review) and a ray when the sphere sees nothing: a shape cast
+	-- never sees a part it starts inside - a body pressed to a wall as it's hit)
+	function SM.cast(origin, vec, radius)
+		if radius then
+			local ok, hit = pcall(function()
+				return workspace:Spherecast(origin, radius, vec, SM.params)
+			end)
+			if ok and hit then
+				return hit
+			end
+		end
+		return workspace:Raycast(origin, vec, SM.params)
+	end
+
+	-- may this body be sent through anything? (not held in a grab, being
+	-- finished, in a clash, a raid boss, at the UNO table, stopped in time,
+	-- frozen solid or a marble)
+	function SM.eligible(model)
+		if not model:FindFirstChildOfClass("Humanoid") then
+			return false
+		end
+		-- ((round 87 review) nor a dummy a dev's possessing - his machine runs
+		-- that body, and nothing on it opens walls: as before, it hits them)
+		for _, flag in { "Grabbed", "BeingFinished", "Clashing", "Boss", "PlayingUno", "TimeStopped", "Frozen", "Compressed", "Possessed" } do
+			if model:GetAttribute(flag) then
+				return false
+			end
+		end
+		return true
+	end
+
+	function SM.new(model, root, across, server)
+		SM.ids += 1
+		local T = SMC.Through
+		local tier = across.Magnitude >= T.Speed and "Through" or "Splat"
+		local hit = lastHit[model]
+		local rec = {
+			Model = model, Root = root, Id = SM.ids, Tier = tier, Speed = across.Magnitude, Dir = across.Unit,
+			T0 = os.clock(), Walls = 0, Max = tier == "Through" and T.MaxWalls or 0, Server = server,
+			-- (who threw it: their screen gets the first wall's impact frame)
+			Attacker = hit and os.clock() - hit.Time < 0.6 and hit.Player or nil,
+		}
+		SM.flights[model] = rec
+		return rec
+	end
+
+	-- from knockback(): a throw hard enough across (what meets a wall) is
+	-- watched (true); any other push ends the last one's watch. A player's
+	-- own machine is told on the push (lv): its tier, its id, how many walls
+	function SM.tag(model, root, lv, v, skip)
+		local old = SM.flights[model]
+		if old then
+			SM.finish(model, old)
+		end
+		if skip or not SM.on() then
+			return
+		end
+		local across = Vector3.new(v.X, 0, v.Z)
+		if across.Magnitude < SMC.Splat.Speed or not SM.eligible(model) then
+			return
+		end
+		local rec = SM.new(model, root, across, Players:GetPlayerFromCharacter(model) == nil)
+		lv:SetAttribute("Smash", rec.Tier)
+		lv:SetAttribute("SmashId", rec.Id)
+		lv:SetAttribute("SmashWalls", rec.Max)
+		return true
+	end
+
+	-- from launchBody(): a finisher's send-off - the server runs that body
+	-- (true: it's watching it)
+	function SM.launch(model, root, v)
+		local old = SM.flights[model]
+		if old then
+			SM.finish(model, old)
+		end
+		local across = Vector3.new(v.X, 0, v.Z)
+		if SM.on() and across.Magnitude >= SMC.Splat.Speed then
+			SM.new(model, root, across, true)
+			return true
+		end
+		return false
+	end
+
+	function SM.finish(model, rec)
+		if rec.Held then
+			SK.unhold(rec.Held)
+			rec.Held = nil
+		end
+		rec.Holding = false
+		rec.Done = true
+		if SM.flights[model] == rec then
+			SM.flights[model] = nil
+		end
+	end
+
+	-- the server-wide carving: "full", "lite" (coarse, it's busy) or nil
+	function SM.token()
+		local b, now = SM.bucket, os.clock()
+		local dt = math.max(now - b.at, 0)
+		b.at = now
+		b.full = math.min(SMC.Burst or 8, b.full + dt * (SMC.Rate or 8))
+		b.lite = math.min(SMC.HardBurst or 12, b.lite + dt * (SMC.HardRate or 20))
+		if b.full >= 1 then
+			b.full -= 1
+			return "full"
+		elseif b.lite >= 1 then
+			b.lite -= 1
+			return "lite"
+		end
+		return nil
+	end
+
+	-- the real hole (a capsule along the path) or the crater (a sphere
+	-- sunk Depth into the wall); never the floor under it
+	function SM.carve(plan)
+		if not SK.carving() then
+			return nil
+		end
+		local q = SM.token()
+		if not q then
+			return nil
+		end
+		local T, SP = SMC.Through, SMC.Splat
+		local at = plan.Kind == "Through" and plan.A or plan.Pos + plan.Normal * 0.6
+		local g = SM.cast(at + UP, -UP * 14)
+		local skip = {}
+		if g and g.Instance then
+			skip[g.Instance] = true
+		end
+		-- (a storey's floor, a sill under his path: left alone too)
+		local lo, hi = plan.Kind == "Through" and plan.A or plan.Pos, plan.Kind == "Through" and plan.B or plan.Pos - plan.Normal * 2
+		local reach = (plan.R or SP.MaxSphere) + 2
+		local box = (hi - lo).Magnitude > 0.1 and CFrame.lookAt((lo + hi) / 2, hi) or CFrame.new(lo)
+		local size = Vector3.new(reach * 2, reach * 2, (hi - lo).Magnitude + reach * 2)
+		-- (the splat's crater: a big sphere sunk Depth into the wall, its
+		-- middle out in the street in front of it)
+		local r, center
+		if plan.Kind ~= "Through" then
+			local depth = math.max(plan.Depth, 0.05)
+			r = math.min((SP.Crater * SP.Crater + depth * depth) / (2 * depth), SP.MaxSphere)
+			center = plan.Pos + plan.Normal * (r - depth)
+			box, size = CFrame.new(center), Vector3.one * (r * 2 + 4) -- (+ its cracked rim)
+		end
+		local okB, near = pcall(function()
+			return workspace:GetPartBoundsInBox(box, size, SM.overlap)
+		end)
+		for _, part in okB and near or {} do
+			if part:IsA("BasePart") then
+				if SK.isFloor(part, at.Y) then
+					skip[part] = true
+				elseif center then
+					-- ((round 87 review) only the wall: a lamp post, a sign, a tree in
+					-- front of it - all of it out in front of the wall's face - is
+					-- left alone)
+					local cf, s, n = part.CFrame, part.Size / 2, plan.Normal
+					local nearest = (cf.Position - plan.Pos):Dot(n)
+						- (math.abs(cf.RightVector:Dot(n)) * s.X + math.abs(cf.UpVector:Dot(n)) * s.Y + math.abs(cf.LookVector:Dot(n)) * s.Z)
+					if nearest > 0.05 then
+						skip[part] = true
+					end
+				end
+			end
+		end
+		local opts = { Above = SK.floorAbove(g, at.Y), Skip = skip }
+		if plan.Kind == "Through" then
+			Destruction.Capsule(plan.A, plan.B, plan.R, q == "full" and T.Profile or T.Lite, plan.Dir, opts)
+		else
+			Destruction.Sphere(center, r, q == "full" and SP.Profile or T.Lite, -plan.Normal, opts)
+		end
+		return q
+	end
+
+	-- everyone sees it (but the one whose machine showed him already)
+	function SM.beat(rec, plan, except, n)
+		local part = plan.Part
+		local color = typeof(plan.Color) == "Color3" and plan.Color or (part and part.Color) or nil
+		local glass = plan.Glass or (part and (part.Material == Enum.Material.Glass or (part.Transparency or 0) > 0.2)) or nil
+		broadcast("Smash", rec.Model, {
+			Kind = plan.Kind, A = plan.A, B = plan.B, Dir = plan.Dir, R = plan.R, N = n or rec.Walls,
+			Pos = plan.Pos, Normal = plan.Normal, Into = plan.Into, Color = color, Glass = glass or nil,
+			Attacker = rec.Attacker, Hold = plan.Kind == "Splat" and SMC.Splat.Hold or nil,
+		}, except)
+	end
+
+	-- a body the server runs, at the wall it's going through (carved the
+	-- moment it was seen): shown, held on it a moment (the hit-stop), then
+	-- on through it - slower
+	function SM.through(rec, plan)
+		rec.Walls += 1
+		SM.beat(rec, plan, nil)
+		local model, root = rec.Model, rec.Root
+		local T = SMC.Through
+		local v = root.AssemblyLinearVelocity
+		local pushes = SK.pushes(root)
+		SK.advance(model, root, plan)
+		rec.Held = SK.hold(model)
+		rec.Holding = true
+		task.delay(T.HitStop, function()
+			SK.unhold(rec.Held)
+			rec.Held, rec.Holding = nil, false
+			local mine = SM.flights[model] == rec and root.Parent ~= nil
+			SK.resume(model, pushes, mine and v * (1 - T.Loss) or nil, mine and 1 - T.Loss or 1)
+		end)
+	end
+
+	-- a body the server runs, splatted: the crater, spread on the wall
+	-- (its back to it), held there Splat.Hold, then dropped off it
+	function SM.splat(rec, plan)
+		rec.Splatted = true
+		if not plan.Uncarved then
+			SM.carve(plan)
+		end
+		SM.beat(rec, plan, nil)
+		local model, root = rec.Model, rec.Root
+		local SP = SMC.Splat
+		SK.pushes(root, true)
+		for _, pc in SK.splay(model, SK.wallCF(plan.Pos, plan.Normal, math.random(-SP.Tilt, SP.Tilt), SK.scale(model))) do
+			pc[1].CFrame = pc[2]
+		end
+		rec.Held = SK.hold(model, true) -- ((round 87 review) its joint limits let go while it's spread)
+		rec.Holding = true
+		task.delay(SP.Hold, function()
+			if SM.flights[model] == rec then
+				SK.unhold(rec.Held)
+				rec.Held, rec.Holding = nil, false
+				SK.drop(model, plan.Normal)
+				SM.finish(model, rec)
+			end
+		end)
+	end
+
+	-- each frame: a throw's watch runs out (MaxTime, or slowed to a stop);
+	-- a body the server runs is looked ahead of for the next wall
+	function SM.step(model, rec, dt)
+		local root = rec.Root
+		local now = os.clock()
+		if not model.Parent or not root.Parent or now - rec.T0 > SMC.MaxTime then
+			SM.finish(model, rec)
+			return
+		end
+		if rec.Holding then
+			return
+		end
+		local v = root.AssemblyLinearVelocity
+		if v.Magnitude < SMC.EndSpeed and now - rec.T0 > SMC.MinTime then
+			rec.SlowAt = rec.SlowAt or now
+			if now - rec.SlowAt >= SMC.SlowFor then
+				SM.finish(model, rec)
+				return
+			end
+		else
+			rec.SlowAt = nil
+		end
+		if not rec.Server or rec.Splatted or root.Anchored or not SM.eligible(model) then
+			return
+		end
+		dt = math.max(dt, 1 / 60)
+		if rec.Pending then
+			SM.arrive(rec, root, v, dt, now)
+			return
+		end
+		local across = Vector3.new(v.X, 0, v.Z)
+		if across.Magnitude < SMC.Splat.Speed then
+			return
+		end
+		local P = SMC.Probe
+		local hit = SM.cast(root.Position, across.Unit * (across.Magnitude * dt * P.Ahead + P.Extra), P.Radius)
+		local plan = hit and SK.plan(hit, v, rec.Walls, rec.Max, SM.cast, SK.scale(model))
+		if plan then
+			-- (seen a moment ahead: carved now, before the body gets there -
+			-- the server runs its physics. The server's carving all it can this
+			-- second: no hole, no way through - a splat)
+			if plan.Kind == "Through" and not SM.carve(plan) then
+				plan.Kind = "Splat"
+				plan.Uncarved = true
+			end
+			plan.Until = now + SMC.Arrive
+			rec.Pending = plan
+			SM.arrive(rec, root, v, dt, now)
+		end
+	end
+	-- the wall seen ahead: once the body's at it, through or splatted;
+	-- not there in time (knocked aside), it's off
+	function SM.arrive(rec, root, v, dt, now)
+		local plan = rec.Pending
+		local gap = (root.Position - plan.Pos):Dot(plan.Normal)
+		local into = math.max(-v:Dot(plan.Normal), 0)
+		if gap - into * dt <= SMC.Contact then
+			rec.Pending = nil
+			if plan.Kind == "Through" then
+				SM.through(rec, plan)
+			else
+				SM.splat(rec, plan)
+			end
+		elseif now > plan.Until then
+			rec.Pending = nil
+		end
+	end
+	RunService.Heartbeat:Connect(function(dt)
+		dt = math.min(tonumber(dt) or 1 / 30, 0.1)
+		for model, rec in SM.flights do
+			SM.step(model, rec, dt)
+		end
+	end)
+
+	-- a thrown player's own machine: where his body went through a wall, or
+	-- splatted on one. Only for the throw the server's watching (its id),
+	-- through only on a Through throw with walls left at a speed the server
+	-- threw it at, the hole clamped to where the server sees him and going
+	-- the way he was thrown, a splat once
+	function SM.relay(player, char, kind, data)
+		local rec = char and SM.flights[char]
+		if not rec or rec.Server or rec.Splatted or type(data) ~= "table" or data.Id ~= rec.Id then
+			return
+		end
+		local root = rec.Root
+		if not root.Parent then
+			return
+		end
+		local T, SP = SMC.Through, SMC.Splat
+		local reach = SMC.Reach[1] + rec.Speed * SMC.Reach[2]
+		local function sane(x)
+			return typeof(x) == "Vector3" and x == x and x.Magnitude < 1e6
+		end
+		-- ((round 87 review) on the path the server sees him on: no more than
+		-- Lane to the side of it, or over / under it (plus his climb or fall
+		-- for the lag), not behind him - then within reach along it)
+		local seen = root.AssemblyLinearVelocity
+		local flat = Vector3.new(seen.X, 0, seen.Z)
+		local way = flat.Magnitude > SMC.EndSpeed and flat.Unit or rec.Dir
+		local lane = SMC.Lane or 8
+		local function near(p)
+			local off = p - root.Position
+			local along = off:Dot(way)
+			local side = off - way * along - Vector3.yAxis * off.Y
+			if side.Magnitude > lane then
+				side = side.Unit * lane
+			end
+			local tall = lane + math.abs(seen.Y) * SMC.Reach[2]
+			off = way * math.max(along, -lane) + side + Vector3.yAxis * math.clamp(off.Y, -tall, tall)
+			return off.Magnitude > reach and root.Position + off.Unit * reach or root.Position + off
+		end
+		local plan
+		if kind == "SmashThrough" then
+			if rec.Tier ~= "Through" or rec.Walls >= rec.Max or not (sane(data.A) and sane(data.B)) then
+				return
+			end
+			if rec.Speed * (1 - T.Loss) ^ rec.Walls < T.Speed * SMC.Tolerance then
+				return -- (the server's own speed for it: too slow by now for another wall)
+			end
+			local a = near(data.A)
+			local seg = data.B - a
+			local across = Vector3.new(seg.X, 0, seg.Z)
+			if seg.Magnitude < 0.5 or across.Magnitude < seg.Magnitude * 0.3 or across.Unit:Dot(rec.Dir) < SMC.Cone then
+				return
+			end
+			-- ((round 87 review) x his size as the server has it: a giant's hole is bigger)
+			local k = SK.scale(char)
+			local r = tonumber(data.R) or T.Radius[1] * k
+			r = r == r and math.clamp(r, T.Radius[1] * k, T.Radius[2] * k) or T.Radius[1] * k
+			rec.Walls += 1
+			local d = seg.Unit
+			plan = { Kind = "Through", A = a, B = a + d * math.min(seg.Magnitude, T.SegMax + T.Pad[1] + T.Pad[2]), R = r, Dir = d }
+		elseif kind == "SmashSplat" then
+			if not (sane(data.Pos) and sane(data.Normal)) or data.Normal.Magnitude < 0.5 then
+				return
+			end
+			local n = data.Normal.Unit
+			if math.abs(n.Y) > SMC.WallSlope then
+				return
+			end
+			rec.Splatted = true
+			local depth = tonumber(data.Depth) or SP.MinDepth
+			depth = depth == depth and math.clamp(depth, SP.MinDepth, SP.Depth) or SP.MinDepth
+			plan = { Kind = "Splat", Pos = near(data.Pos), Normal = n, Depth = depth }
+		else
+			return
+		end
+		local into = tonumber(data.Into)
+		plan.Into = (into and into == into) and math.clamp(into, 0, rec.Speed) or rec.Speed
+		plan.Color = typeof(data.Color) == "Color3" and data.Color or nil
+		plan.Glass = data.Glass == true or nil
+		-- (the hole waits, a moment at most, for the server's view of his body
+		-- to get to the wall: everyone sees the two together)
+		local at = plan.A or plan.Pos
+		local dir = plan.Dir or -plan.Normal
+		local wait = math.clamp(((at - root.Position):Dot(dir) - 2) / math.max(rec.Speed, 1), 0, SMC.Align)
+		local n = rec.Walls
+		local function go()
+			SM.carve(plan)
+			SM.beat(rec, plan, player, n)
+		end
+		if wait > 0.01 then
+			task.delay(wait, go)
+		else
+			go()
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 87) ADMIN-ABUSE EVENTS (Config.AdminEvents): server-wide events a
+-- dev fires live - the test menu's ADMIN EVENTS panel (TestCommand
+-- "AdminEvent") or the console's `event` - and everyone plays. Who: the dev
+-- flight's gate (Kit.DF.allowed), checked here on every request; anyone
+-- else gets nothing back, not even a reply. The server owns it all: what's
+-- running is one workspace attribute (Config.EncodeAdminEvents) and every
+-- client draws from it (the banner, the chip, the music, the sky).
+-- Each event is a small table in AE.EVENTS - start(ev, def), stop(ev, def,
+-- why), step(ev, def, now, dt) ten times a second while it runs,
+-- onCharacter(ev, def, player, char) on a new body - and while one runs the
+-- game asks AE what changes: AE.mult (damage, ult gain, Bucks), AE.knockback
+-- / AE.floaty (the knocks), AE.sizeOf / AE.moveMult / AE.afterScale (the
+-- body), AE.heroLocked (picking a hero). ALL SERVERS: a message on
+-- Config.AdminEvents.Topic; every other server starts (or stops) it at once
+-- and this one ignores its own echo; Studio sends none (StudioSends).
+-- Adding an event: its entry in Config.AdminEvents.Events (and Order), and
+-- here, if it does more than its numbers say, an AE.EVENTS entry.
+-- (No new top-level locals: the server's main chunk is at its limit.)
+---------------------------------------------------------------------------
+do
+	local AEC = Config.AdminEvents or {}
+	local AE = {
+		EVENTS = {}, -- [id] = what the event does (see above)
+		running = {}, -- [id] = { Id, Def, Ends (server time), Length, Global, By, ... the event's own }
+		mults = { Damage = 1, Ult = 1, Bucks = 1 },
+		size = 1, walk = 1, jump = 1, knock = nil, -- (AE.recompute)
+		lastAsk = {}, -- [player] = os.clock() of their last request (not weak: see Kit.PS)
+		lockTold = {}, -- [player] = when HERO SHUFFLE last said heroes are dealt
+		seen = {}, -- [nonce] = os.clock(): messages handled (this server's own echo, a repeat)
+		acc = 0,
+	}
+	Kit.AE = AE
+	Reactions.AE = AE -- (damage() and knockback() come before Kit: they reach it here)
+	do
+		local ok, id = pcall(function()
+			return game.JobId
+		end)
+		AE.serverId = (ok and type(id) == "string" and id ~= "") and id or ("server-" .. tostring(math.random(1, 2 ^ 30)))
+	end
+
+	function AE.def(id)
+		return type(id) == "string" and AEC.Events and AEC.Events[id] or nil
+	end
+	-- the dev flight's devs, and nobody else
+	function AE.allowed(player)
+		return AEC.Enabled ~= false and Kit.DF ~= nil and Kit.DF.allowed(player) == true
+	end
+	-- Studio keeps ALL SERVERS to itself (and takes nothing from the live game)
+	function AE.studioOnly()
+		return RunService:IsStudio() and not AEC.StudioSends
+	end
+	function AE.status()
+		if AE.studioOnly() then
+			return "Studio"
+		end
+		return AE.sub and "Live" or "Local"
+	end
+	function AE.now()
+		return workspace:GetServerTimeNow()
+	end
+	function AE.count()
+		local n = 0
+		for _ in AE.running do
+			n += 1
+		end
+		return n
+	end
+	function AE.clock(s)
+		s = math.max(0, math.floor((tonumber(s) or 0) + 0.5))
+		return string.format("%d:%02d", s // 60, s % 60)
+	end
+	function AE.tell(player, text, ok)
+		if player and player.Parent then
+			PlayVFX:FireClient(player, "Notice", nil, { Text = text, Color = ok and Color3.fromRGB(255, 212, 64) or Color3.fromRGB(255, 150, 120) })
+		end
+	end
+	-- everyone alive: { player, body, root }. targets: only those things are
+	-- aimed at - (round 87 review) not anyone in the Vestige Realm (One For
+	-- All's dream, far off: Deku's memories play there) - AwayFromRealm
+	function AE.livePlayers(targets)
+		local out = {}
+		local realm = targets and Config.VestigeRealm and Config.VestigeRealm.Enabled ~= false and Config.VestigeRealm.Center
+		local away = AEC.AwayFromRealm or 600
+		for _, plr in Players:GetPlayers() do
+			local c = plr.Character
+			local r = c and c:FindFirstChild("HumanoidRootPart")
+			-- (round 87, with POSSESS) a dev's parked body is no one's target and grabs nothing
+			if r and alive(c) and not c:GetAttribute("Parked") and not (realm and (r.Position - realm).Magnitude < away) then
+				table.insert(out, { plr, c, r })
+			end
+		end
+		return out
+	end
+	-- the first solid thing under a spot (the street, a roof), or nil
+	function AE.ground(pos)
+		local map = workspace:FindFirstChild("Map")
+		if not map then
+			return nil
+		end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { map }
+		local hit = workspace:Raycast(pos + UP * 80, UP * -260, params)
+		return hit and hit.Position or nil
+	end
+
+	-- what's running, for everyone's screen
+	function AE.write()
+		local map = {}
+		for id, ev in AE.running do
+			map[id] = { Ends = ev.Ends, Length = ev.Length, Global = ev.Global, By = ev.By }
+		end
+		workspace:SetAttribute(AEC.Attribute or "AdminEvents", Config.EncodeAdminEvents(map))
+		workspace:SetAttribute("AdminEventsSync", AE.status())
+	end
+	-- the numbers the game asks for, from what's running
+	function AE.recompute()
+		local m = { Damage = 1, Ult = 1, Bucks = 1 }
+		local size, walk, jump, knock = 1, 1, 1, nil
+		for _, ev in AE.running do
+			local def = ev.Def
+			m.Damage *= tonumber(def.Damage) or 1
+			m.Ult *= tonumber(def.Ult) or 1
+			m.Bucks *= tonumber(def.Bucks) or 1
+			if tonumber(def.Scale) then
+				size *= def.Scale
+				walk *= tonumber(def.Walk) or 1
+				jump *= tonumber(def.Jump) or 1
+			end
+			if type(def.Knock) == "table" then
+				knock = def.Knock
+			end
+		end
+		AE.mults, AE.size, AE.walk, AE.jump, AE.knock = m, size, walk, jump, knock
+		-- (addUlt comes before everything: it reads the rate off workspace, as it does the server settings' UltRate)
+		workspace:SetAttribute("EventUltRate", m.Ult ~= 1 and m.Ult or nil)
+	end
+	function AE.mult(kind)
+		return AE.mults[kind] or 1
+	end
+	-- a player's body x this (GIANT / TINY; dummies stay as they are) - on
+	-- top of the FUN STUFF toy's own SizeMode, the two together kept within
+	-- x0.2..x4 (the toy's x3 and the event's x2 would make x6)
+	function AE.sizeOf(player)
+		local own = tonumber(player and player:GetAttribute("SizeMode")) or 1
+		if own <= 0 then
+			return AE.size
+		end
+		return math.clamp(own * AE.size, 0.2, 4) / own
+	end
+	function AE.moveMult(walk, jump)
+		return walk * AE.walk, jump * AE.jump
+	end
+	-- Model:ScaleTo scales WalkSpeed and JumpPower with the body: while an
+	-- event has him resized (or just put him back), the speeds applyPassives
+	-- set stand. Outside an event nothing here changes anything.
+	function AE.afterScale(char, hum, walk, jump)
+		if (AE.size ~= 1 or char:GetAttribute("EventScaled")) and not char:GetAttribute("Stunned") then
+			hum.WalkSpeed = walk
+			hum.JumpPower = jump
+		end
+		char:SetAttribute("EventScaled", AE.size ~= 1 or nil)
+	end
+	-- PLUS ULTRA: a knock's across x Side and its lift x Up (a spike down stays).
+	-- (round 87 review) Not a raw push (knockback()'s raw: an M1's stick, an
+	-- air juggle, the uppercut, the dash punch - the combo's own spacing: x2.5
+	-- put them out of reach of the next hit and floated a juggle away). The
+	-- M1 chain's send-off, the 4th hit, asks for it itself (AE.knockback(v)).
+	function AE.knockback(v, raw)
+		local k = AE.knock
+		if not k or raw or typeof(v) ~= "Vector3" then
+			return v
+		end
+		local side, up = tonumber(k.Side) or 1, tonumber(k.Up) or 1
+		return Vector3.new(v.X * side, v.Y > 0 and v.Y * up or v.Y, v.Z * side)
+	end
+	-- LOW GRAVITY: a knock's lift x k = sqrt(g / the gravity it started from)
+	-- and its push across x sqrt(k): about as high as ever, a third farther,
+	-- half again as long in the air (at 0.3: lift x0.55, across x0.74). Left
+	-- alone it'd go 2.5x as far (off the map from anywhere near the edge):
+	-- r87/scratch_events/sim_knock.py
+	function AE.floaty(v)
+		local ev = AE.running.LowGravity
+		if not ev or not ev.was or ev.was <= 0 or typeof(v) ~= "Vector3" then
+			return v
+		end
+		local k = math.sqrt(math.clamp(workspace.Gravity / ev.was, 0.05, 1))
+		local across = math.sqrt(k)
+		return Vector3.new(v.X * across, v.Y * k, v.Z * across)
+	end
+	-- HERO SHUFFLE deals the heroes: the phone can't pick one meanwhile (a
+	-- player with no hero yet still can - they're dealt in next time)
+	function AE.heroLocked(player)
+		local ev = AE.running.Shuffle
+		if not ev or not player:GetAttribute("Quirk") then
+			return false
+		end
+		if os.clock() - (AE.lockTold[player] or -10) > 3 then
+			AE.lockTold[player] = os.clock()
+			AE.tell(player, string.format("HERO SHUFFLE: heroes are dealt, not picked (%s left)", AE.clock(ev.Ends - AE.now())), false)
+		end
+		return true
+	end
+
+	-- start one (or, running already, give it `seconds` from now). opts.Global:
+	-- it's on every server (the banner says so). Returns ok, a line to show.
+	function AE.start(id, seconds, by, opts)
+		opts = type(opts) == "table" and opts or {}
+		local def = AE.def(id)
+		if not def then
+			return false, "No event '" .. tostring(id) .. "'"
+		end
+		local s = tonumber(seconds)
+		if not s or s ~= s or math.abs(s) == math.huge then
+			s = def.Duration or 90
+		end
+		local len = math.clamp(math.floor(s + 0.5), AEC.MinDuration or 10, AEC.MaxDuration or 900)
+		local now = AE.now()
+		local ev = AE.running[id]
+		if ev then
+			ev.Ends = now + len
+			ev.Length = len
+			ev.Global = ev.Global or opts.Global == true
+			AE.write()
+			return true, string.format("%s: %s from now", def.Name, AE.clock(len))
+		end
+		-- (a clash: the new one ends the old)
+		local replaced = {}
+		for _, other in (AEC.Clash or {})[id] or {} do
+			if AE.running[other] then
+				AE.stop(other, "Replaced")
+				table.insert(replaced, AE.def(other).Name)
+			end
+		end
+		if AE.count() >= (AEC.MaxRunning or 4) then
+			return false, string.format("%d events at once is the most - stop one first", AEC.MaxRunning or 4)
+		end
+		ev = { Id = id, Def = def, Ends = now + len, Length = len, Global = opts.Global == true, By = by, Started = os.clock() }
+		AE.running[id] = ev
+		AE.recompute()
+		local mod = AE.EVENTS[id]
+		if mod and mod.start then
+			local ok, err = pcall(mod.start, ev, def)
+			if not ok then
+				warn("[AdminEvents] " .. id .. " start: " .. tostring(err))
+			end
+		end
+		AE.write()
+		local text = string.format("%s for %s%s", def.Name, AE.clock(len), #replaced > 0 and (" (it ended " .. table.concat(replaced, ", ") .. ")") or "")
+		if Kit.Console then
+			Kit.Console.print("EVENT: " .. text .. (by and (" - " .. tostring(by)) or ""), "event")
+		end
+		return true, text
+	end
+
+	-- stop one ("*": every one). why: Stopped / Expired / Replaced
+	function AE.stop(id, why)
+		if id == "*" then
+			local any = false
+			for other in table.clone(AE.running) do
+				AE.stop(other, why)
+				any = true
+			end
+			return any, any and "Every event stopped" or "Nothing's running"
+		end
+		local ev = AE.running[id]
+		if not ev then
+			local def = AE.def(id)
+			return false, (def and def.Name or tostring(id)) .. " isn't running"
+		end
+		AE.running[id] = nil
+		AE.recompute()
+		local mod = AE.EVENTS[id]
+		if mod and mod.stop then
+			local ok, err = pcall(mod.stop, ev, ev.Def, why)
+			if not ok then
+				warn("[AdminEvents] " .. id .. " stop: " .. tostring(err))
+			end
+		end
+		AE.write()
+		if Kit.Console then
+			Kit.Console.print(string.format("EVENT OVER: %s (%s)", ev.Def.Name, string.lower(tostring(why or "stopped"))), "event")
+		end
+		return true, ev.Def.Name .. " stopped"
+	end
+
+	-- ALL SERVERS: tell every other server. "Live" (sent), "Studio" (not:
+	-- Studio keeps to itself) or "Local" (MessagingService isn't answering)
+	function AE.publish(op, id, len, by)
+		if AE.studioOnly() then
+			return "Studio"
+		end
+		if not AE.sub then
+			AE.subscribe()
+		end
+		local nonce = string.format("%s:%d:%d", AE.serverId, math.floor(os.clock() * 1000), math.random(1, 1e6))
+		AE.seen[nonce] = os.clock()
+		local ok = pcall(function()
+			game:GetService("MessagingService"):PublishAsync(AEC.Topic or "QuirkAdminEvents", { Op = op, Id = id, Len = len, By = by, From = AE.serverId, N = nonce })
+		end)
+		return ok and "Live" or "Local"
+	end
+	-- another server's start / stop (its own echo, a repeat or junk: nothing)
+	function AE.onMessage(message)
+		local m = type(message) == "table" and message.Data
+		if type(m) ~= "table" or AE.studioOnly() or m.From == AE.serverId then
+			return
+		end
+		if type(m.N) == "string" then
+			if AE.seen[m.N] then
+				return
+			end
+			AE.seen[m.N] = os.clock()
+		end
+		local by = type(m.By) == "string" and string.sub(m.By, 1, 40) or "a dev"
+		if m.Op == "start" and AE.def(m.Id) then
+			AE.start(m.Id, m.Len, by, { Global = true })
+		elseif m.Op == "stop" and (m.Id == "*" or AE.def(m.Id)) then
+			AE.stop(m.Id, "Stopped")
+		end
+	end
+	function AE.subscribe()
+		if AE.sub then
+			return true
+		end
+		local ok, sub = pcall(function()
+			return game:GetService("MessagingService"):SubscribeAsync(AEC.Topic or "QuirkAdminEvents", AE.onMessage)
+		end)
+		AE.sub = (ok and sub) or nil
+		workspace:SetAttribute("AdminEventsSync", AE.status())
+		return AE.sub ~= nil
+	end
+
+	-- a dev's start / stop, here (and with all: everywhere)
+	function AE.ask(player, op, id, seconds, all)
+		local by = player and player.DisplayName or "a dev"
+		local global = all == true and AE.status() == "Live"
+		local ok, text
+		if op == "start" then
+			ok, text = AE.start(id, seconds, by, { Global = global })
+		else
+			ok, text = AE.stop(id, "Stopped")
+		end
+		if all and (ok or op == "stop") then
+			local ev = AE.running[id]
+			local sent = AE.publish(op, id, ev and ev.Length or nil, by)
+			text ..= sent == "Live" and " - on every server" or sent == "Studio" and " - Studio: this server only (StudioSends is off)" or " - messaging's down: this server only"
+			ok = ok or sent == "Live" -- (stopped elsewhere, if not here)
+		end
+		return ok, text
+	end
+	-- the panel (TestCommand "AdminEvent"): action "start" / "stop", data =
+	-- { Id = an event or "*" (stop: every one), Seconds = n, All = bool }
+	function AE.request(player, action, data)
+		if not AE.allowed(player) then
+			return false -- (nothing, for anyone else: not even a reply)
+		end
+		local now = os.clock()
+		if now - (AE.lastAsk[player] or -math.huge) < (AEC.Gap or 0.3) then
+			return false
+		end
+		AE.lastAsk[player] = now
+		data = type(data) == "table" and data or {}
+		local id, all = data.Id, data.All == true
+		local seconds = type(data.Seconds) == "number" and data.Seconds or nil
+		local ok, text
+		if action == "start" and AE.def(id) then
+			ok, text = AE.ask(player, "start", id, seconds, all)
+		elseif action == "stop" and (id == "*" or AE.def(id)) then
+			ok, text = AE.ask(player, "stop", id, nil, all)
+		else
+			return false
+		end
+		AE.tell(player, text, ok)
+		return ok, text
+	end
+
+	-- the console's `event`
+	function AE.names()
+		local out = {}
+		for _, id in AEC.Order or {} do
+			local def = AE.def(id)
+			table.insert(out, (def.Aliases and def.Aliases[1]) or string.lower(id))
+		end
+		return table.concat(out, ", ")
+	end
+	-- "90", "2m", "90s", "1:30" -> seconds
+	function AE.parseTime(w)
+		local n = tonumber(w)
+		if n then
+			return n
+		end
+		local m, s = string.match(w, "^(%d+):(%d%d)$")
+		if m then
+			return tonumber(m) * 60 + tonumber(s)
+		end
+		n = string.match(w, "^(%d+%.?%d*)m$")
+		if n then
+			return tonumber(n) * 60
+		end
+		n = string.match(w, "^(%d+%.?%d*)s$")
+		return n and tonumber(n) or nil
+	end
+	function AE.describe()
+		local parts = {}
+		local now = AE.now()
+		for _, id in AEC.Order or {} do
+			local ev = AE.running[id]
+			if ev then
+				table.insert(parts, string.format("%s %s left%s%s", ev.Def.Name, AE.clock(ev.Ends - now), ev.Global and " (every server)" or "", ev.By and (", by " .. ev.By) or ""))
+			end
+		end
+		return string.format("Running: %s. Events: %s. [%s]", #parts > 0 and table.concat(parts, " · ") or "nothing", AE.names(), string.upper(AE.status()))
+	end
+	function AE.console(player, args)
+		if not AE.allowed(player) then
+			return "admin events are only for the owner and Config.DevFlight.Devs", "err"
+		end
+		local words = {}
+		for _, a in args do
+			table.insert(words, string.lower(tostring(a)))
+		end
+		local function everywhere(w)
+			return w == "all" or w == "everywhere" or w == "servers" or w == "global"
+		end
+		if #words == 0 or words[1] == "list" then
+			return AE.describe(), "info"
+		end
+		local ok, text
+		if words[1] == "stop" or words[1] == "end" then
+			-- stop [name|all] [all]: "all" in the name's place is every event;
+			-- after a name (or after "all"), every server
+			local id, global = "*", false
+			local w2, w3 = words[2], words[3]
+			if w2 == "all" then
+				global = w3 ~= nil and everywhere(w3)
+			elseif w2 and everywhere(w2) then
+				global = true
+			elseif w2 then
+				id = Config.FindAdminEvent(w2)
+				if not id then
+					return "No event '" .. w2 .. "' - try: " .. AE.names(), "err"
+				end
+				global = w3 ~= nil and everywhere(w3)
+			end
+			ok, text = AE.ask(player, "stop", id, nil, global)
+		else
+			local id = Config.FindAdminEvent(words[1])
+			if not id then
+				return "No event '" .. words[1] .. "' - try: " .. AE.names(), "err"
+			end
+			local seconds, global = nil, false
+			for i = 2, #words do
+				local s = AE.parseTime(words[i])
+				if s then
+					seconds = s
+				elseif everywhere(words[i]) then
+					global = true
+				else
+					return "event <name> [seconds] [all] - e.g. event meteor 2m all", "err"
+				end
+			end
+			ok, text = AE.ask(player, "start", id, seconds, global)
+		end
+		return text, ok and "ok" or "err"
+	end
+	function TestCommands.AdminEvent(player, _, action, data)
+		AE.request(player, action, data)
+	end
+
+	---------------------------------------------------------------------------
+	-- the events
+	---------------------------------------------------------------------------
+	local function rand(range)
+		return range[1] + (range[2] - range[1]) * math.random()
+	end
+	local function lerp(range, k)
+		return range[2] + (range[1] - range[2]) * k
+	end
+
+	-- METEOR SHOWER: near someone, a red ring Warn s ahead (every screen
+	-- draws the fall and the impact from that), then the hit: damage by
+	-- distance (the game's hit rules all apply: god mode, a dodge, someone
+	-- being finished...), knocked out and up, a crater
+	AE.EVENTS.Meteor = {
+		start = function(ev)
+			ev.next = os.clock() + 1.4 -- (the banner first)
+			ev.n = 0
+		end,
+		step = function(ev, def, now)
+			if now < ev.next then
+				return
+			end
+			local live = AE.livePlayers(true)
+			local crowd = math.clamp(#live / 4, 1, def.Crowd or 2.5)
+			ev.next = now + rand(def.Every or { 0.6, 1.1 }) / crowd
+			if #live > 0 then
+				AE.meteor(ev, def, live[math.random(1, #live)][3])
+			end
+		end,
+	}
+	function AE.meteor(ev, def, root)
+		local a, d = math.random() * math.pi * 2, (def.Spread or 40) * math.sqrt(math.random())
+		local at = root.Position + Vector3.new(math.cos(a) * d, 0, math.sin(a) * d)
+		local ground = AE.ground(at) or (at - UP * 3)
+		local warnTime = def.Warn or 1.15
+		ev.n += 1
+		broadcast("AdminMeteor", nil, { Pos = ground, Warn = warnTime, Radius = def.Radius or 10, Height = def.Height or 420, N = ev.n })
+		task.delay(warnTime, function()
+			if AE.running.Meteor == ev then
+				AE.meteorHit(def, ground)
+			end
+		end)
+		return ground
+	end
+	function AE.meteorHit(def, pos)
+		local R = def.Radius or 10
+		for _, model in queryRadius(nil, pos, R + 1) do
+			local r = model:FindFirstChild("HumanoidRootPart")
+			if r then
+				local off = r.Position - pos
+				local k = math.clamp(1 - Vector3.new(off.X, 0, off.Z).Magnitude / R, 0, 1)
+				if damage(nil, model, lerp(def.Damage or { 30, 12 }, k), { From = pos, Heavy = k > 0.5 or nil, Unblockable = true }) then
+					local flat = Vector3.new(off.X, 0, off.Z)
+					flat = flat.Magnitude > 0.3 and flat.Unit or Vector3.new(1, 0, 0)
+					knockback(model, flat * lerp(def.Out or { 85, 35 }, k) + UP * lerp(def.Up or { 55, 22 }, k), 0.25)
+				end
+			end
+		end
+		Destruction.Sphere(pos, def.Crater or 5.5, def.Profile or "Explosion", UP)
+	end
+
+	-- LOW GRAVITY: the world's gravity x Gravity, put back at the end (if
+	-- nobody's changed it since: theirs stands)
+	AE.EVENTS.LowGravity = {
+		start = function(ev, def)
+			ev.was = workspace.Gravity
+			ev.set = ev.was * (def.Gravity or 0.3)
+			workspace.Gravity = ev.set
+		end,
+		stop = function(ev)
+			if ev.set and math.abs(workspace.Gravity - ev.set) < 1e-3 then
+				workspace.Gravity = ev.was
+			end
+		end,
+	}
+
+	-- GIANT / TINY MODE: every player's body through applyPassives (the
+	-- game's own size path: AE.sizeOf, AE.moveMult, AE.afterScale) - now,
+	-- and on every new body; not while they're down, held or being
+	-- finished (once they're up). Everyone sees each body grow / shrink.
+	function AE.refreshBodies()
+		for _, e in AE.livePlayers() do
+			local plr, char = e[1], e[2]
+			task.spawn(function()
+				local t0 = os.clock()
+				-- (round 87 review: a finisher or a long hold outlasted the old 4 s - ResizeWait)
+				while char.Parent and os.clock() - t0 < (AEC.ResizeWait or 15) and (char:GetAttribute("Ragdolled") or char:GetAttribute("Grabbed") or char:GetAttribute("BeingFinished")) do
+					task.wait(0.2)
+				end
+				if plr.Parent and plr.Character == char and alive(char) then
+					local before = char:GetAttribute("BuffScale") or 1
+					applyPassives(plr, char, false)
+					local after = char:GetAttribute("BuffScale") or 1
+					if math.abs(after - before) > 1e-3 then
+						broadcast("AdminResize", char, { From = before, To = after })
+					end
+				end
+			end)
+		end
+	end
+	local function resize(_, _, why)
+		if why ~= "Replaced" then -- (the one replacing it resizes everyone once)
+			AE.refreshBodies()
+		end
+	end
+	AE.EVENTS.Giant = { start = resize, stop = resize }
+	AE.EVENTS.Tiny = { start = resize, stop = resize }
+
+	-- HERO SHUFFLE: First s in, then every Every s, everyone with a hero (and
+	-- not mid-ult, mid-finisher, held, in a clash, at the UNO table or dev
+	-- flying) is dealt a public hero they don't have - the reel on their
+	-- screen for Spin s, then the switch (their ult meter kept). At the end
+	-- they get their own back (unless they've been put on another since).
+	function AE.busy(plr, char)
+		if plr:GetAttribute("UltActive") or plr:GetAttribute("DevFlight") then
+			return true
+		end
+		-- (round 87, with POSSESS: Parked - he's in another body; a new hero would pull him out)
+		for _, flag in { "BeingFinished", "Finishing", "Grabbed", "Clashing", "PlayingUno", "Parked" } do
+			if char:GetAttribute(flag) then
+				return true
+			end
+		end
+		return false
+	end
+	function AE.swap(plr, quirkName)
+		local ult = plr:GetAttribute("Ult") or 0
+		applyQuirk(plr, quirkName)
+		if Config.Quirks[quirkName] and Config.Quirks[quirkName].Ult then
+			plr:SetAttribute("Ult", ult)
+		end
+	end
+	function AE.deal(ev, def)
+		ev.round += 1
+		local round, spin = ev.round, def.Spin or 2.6
+		local pool = {}
+		for _, q in Config.QuirkOrder do
+			if Config.Quirks[q] and not Config.IsDevOnly(q) then
+				table.insert(pool, q)
+			end
+		end
+		if #pool < 2 then
+			return
+		end
+		local bag = {}
+		for _, e in AE.livePlayers() do
+			local plr, char = e[1], e[2]
+			local cur = plr:GetAttribute("Quirk")
+			if cur and not AE.busy(plr, char) then
+				-- (off a shuffled bag, so a crowd gets as many different heroes as there are)
+				local choices = {}
+				for i, q in bag do
+					if q ~= cur then
+						table.insert(choices, i)
+					end
+				end
+				if #choices == 0 then
+					bag = table.clone(pool)
+					for i, q in bag do
+						if q ~= cur then
+							table.insert(choices, i)
+						end
+					end
+				end
+				local pick = table.remove(bag, choices[math.random(1, #choices)])
+				AE.home[plr] = AE.home[plr] or cur
+				PlayVFX:FireClient(plr, "AdminShuffle", nil, { Hero = pick, From = cur, Spin = spin, Round = round })
+				task.delay(spin, function()
+					-- (round 87 review) gone into an ult (a finisher, a grab, a
+					-- clash...) while the reel rolled: switching now would cut it
+					-- (applyQuirk ends the ult) - dealt once it's over, this round only
+					local told = false
+					while AE.running.Shuffle == ev and ev.round == round and plr.Parent and plr.Character and AE.busy(plr, plr.Character) do
+						if not told then
+							told = true
+							local q = Config.Quirks[pick]
+							AE.tell(plr, "HERO SHUFFLE: you're " .. string.upper(q and q.DisplayName or pick) .. " once this is over", true)
+						end
+						task.wait(0.25)
+					end
+					if AE.running.Shuffle == ev and ev.round == round and plr.Parent and plr:GetAttribute("Quirk") == cur then
+						AE.swap(plr, pick)
+						AE.dealt[plr] = pick
+						if plr.Character then
+							broadcast("AdminShuffled", plr.Character, { Hero = pick })
+						end
+					end
+				end)
+			end
+		end
+	end
+	-- (round 87 review) whose own hero is whose, across shuffles: a shuffle
+	-- started while the last one's still handing heroes back keeps the first
+	-- hero they had, not the one they were dealt
+	AE.home = {} -- [player] = their own hero (from the first deal till it's given back; not weak: see Kit.PS)
+	AE.dealt = {} -- [player] = the one the shuffle gave them
+	-- their own hero back - once they're free (mid-ult, being finished, held:
+	-- switching would cut it; at most BackWait s), unless they've picked
+	-- another since or a new shuffle has them (its end gives it back)
+	function AE.giveBack(plr)
+		local home = AE.home[plr]
+		local wait = (AE.def("Shuffle") or {}).BackWait or 90
+		local t0 = os.clock()
+		while plr.Parent and not AE.running.Shuffle and plr.Character and AE.busy(plr, plr.Character) and os.clock() - t0 < wait do
+			task.wait(0.25)
+		end
+		if AE.running.Shuffle or not plr.Parent then
+			return
+		end
+		local dealt = AE.dealt[plr]
+		AE.home[plr], AE.dealt[plr] = nil, nil
+		local q = Config.Quirks[home or ""]
+		if dealt and plr:GetAttribute("Quirk") == dealt and q and (not Config.IsDevOnly(home) or canUseDev(plr)) then
+			AE.swap(plr, home)
+			AE.tell(plr, "HERO SHUFFLE's over: you're " .. string.upper(q.DisplayName or home) .. " again", true)
+		end
+	end
+	AE.EVENTS.Shuffle = {
+		start = function(ev, def)
+			ev.round = 0
+			ev.next = os.clock() + (def.First or 1.8)
+		end,
+		step = function(ev, def, now)
+			if now >= ev.next then
+				ev.next = now + (def.Every or 40)
+				AE.deal(ev, def)
+			end
+		end,
+		stop = function(ev)
+			ev.round += 1 -- (a reel still spinning lands on nothing)
+			for plr in table.clone(AE.home) do
+				task.spawn(AE.giveBack, plr)
+			end
+		end,
+	}
+
+	-- MONEY RAIN: bills fall near people every Every s; the server watches
+	-- where everyone is (no remote to fake): within Grab of a bill that's
+	-- landed, it's theirs - Value Bucks, at most Cap an event. KOs pay x Bucks.
+	function AE.billWave(ev, def, now)
+		local live = AE.livePlayers(true)
+		if #live == 0 then
+			return
+		end
+		local pw = def.PerWave or { 2, 8 }
+		local fall, life = def.Fall or 2.4, def.Life or 14
+		local list = {}
+		for _ = 1, math.min(pw[1] + #live, pw[2]) do
+			local r = live[math.random(1, #live)][3]
+			local a, d = math.random() * math.pi * 2, (def.Spread or 34) * math.sqrt(math.random())
+			local at = r.Position + Vector3.new(math.cos(a) * d, 0, math.sin(a) * d)
+			local g = AE.ground(at) or (at - UP * 3)
+			ev.seq += 1
+			ev.bills[ev.seq] = { Pos = g, Lands = now + fall, Dies = now + fall + life }
+			table.insert(list, { Id = ev.seq, Pos = g })
+		end
+		broadcast("AdminBills", nil, { List = list, Fall = fall, Life = life })
+	end
+	function AE.grabBills(ev, def, now)
+		local live = AE.livePlayers()
+		local reach, cap = def.Grab or 4.5, def.Cap or 8
+		for id, b in ev.bills do
+			if now >= b.Dies then
+				ev.bills[id] = nil
+			elseif now >= b.Lands then
+				for _, e in live do
+					local plr, r = e[1], e[3]
+					local off = r.Position - b.Pos
+					-- (round 87 review: counted by UserId - leaving and coming back isn't a fresh 8)
+					local uid = plr.UserId
+					if (ev.got[uid] or 0) < cap and Vector3.new(off.X, 0, off.Z).Magnitude <= reach and off.Y > -3 and off.Y < 9 * math.max(AE.size, 1) then
+						ev.bills[id] = nil
+						ev.got[uid] = (ev.got[uid] or 0) + 1
+						Store.AddBucks(plr, def.Value or 1)
+						plr:SetAttribute("EventBills", ev.got[uid])
+						broadcast("AdminBillTaken", e[2], { Id = id, By = plr, Value = def.Value or 1, Got = ev.got[uid], Cap = cap })
+						break
+					end
+				end
+			end
+		end
+	end
+	AE.EVENTS.MoneyRain = {
+		start = function(ev)
+			ev.bills = {} -- [id] = { Pos, Lands, Dies }
+			ev.got = {} -- [UserId] = bills they've grabbed (a rejoin keeps its count)
+			ev.seq = 0
+			ev.next = os.clock() + 1.2
+		end,
+		step = function(ev, def, now)
+			if now >= ev.next then
+				ev.next = now + (def.Every or 2.2)
+				AE.billWave(ev, def, now)
+			end
+			AE.grabBills(ev, def, now)
+		end,
+		stop = function(ev)
+			table.clear(ev.bills)
+			broadcast("AdminBills", nil, { Clear = true })
+			for _, plr in Players:GetPlayers() do
+				if ev.got[plr.UserId] then
+					plr:SetAttribute("EventBills", nil)
+				end
+			end
+		end,
+		-- (a rejoin mid-rain: their count's chip back as it was)
+		onCharacter = function(ev, _, plr)
+			if ev.got[plr.UserId] then
+				plr:SetAttribute("EventBills", ev.got[plr.UserId])
+			end
+		end,
+	}
+
+	-- ULT FRENZY: x Ult on every gain (AE.mult), Boost at the start, Trickle a second
+	function AE.giveUlt(plr, amount)
+		local q = Config.Quirks[plr:GetAttribute("Quirk") or ""]
+		if q and q.Ult and not plr:GetAttribute("UltActive") then
+			plr:SetAttribute("Ult", math.min(100, (plr:GetAttribute("Ult") or 0) + amount))
+		end
+	end
+	AE.EVENTS.UltFrenzy = {
+		start = function(ev, def)
+			ev.acc = 0
+			for _, plr in Players:GetPlayers() do
+				AE.giveUlt(plr, def.Boost or 30)
+			end
+		end,
+		step = function(ev, def, _, dt)
+			ev.acc += dt
+			if ev.acc >= 1 then
+				ev.acc -= 1
+				for _, plr in Players:GetPlayers() do
+					AE.giveUlt(plr, def.Trickle or 1.5)
+				end
+			end
+		end,
+	}
+	-- (PLUS ULTRA and BLOOD MOON are only their numbers: AE.knockback, AE.mult)
+
+	-- ten times a second while anything runs: what's over ends, the rest step
+	RunService.Heartbeat:Connect(function(dt)
+		AE.acc += dt
+		if AE.acc < 0.1 then
+			return
+		end
+		local step = AE.acc
+		AE.acc = 0
+		if next(AE.running) == nil then
+			return
+		end
+		local now, clock = AE.now(), os.clock()
+		for id, ev in table.clone(AE.running) do
+			if AE.running[id] == ev then
+				if now >= ev.Ends then
+					AE.stop(id, "Expired")
+				else
+					local mod = AE.EVENTS[id]
+					if mod and mod.step then
+						local ok, err = pcall(mod.step, ev, ev.Def, clock, step)
+						if not ok then
+							warn("[AdminEvents] " .. id .. ": " .. tostring(err))
+						end
+					end
+				end
+			end
+		end
+		for nonce, at in AE.seen do
+			if clock - at > 600 then
+				AE.seen[nonce] = nil
+			end
+		end
+	end)
+	-- a new body mid-event (onCharacter: MONEY RAIN's count; the size comes
+	-- through applyPassives - a new event can hook in here too)
+	local function watch(plr)
+		plr.CharacterAdded:Connect(function(char)
+			for id, ev in AE.running do
+				local mod = AE.EVENTS[id]
+				if mod and mod.onCharacter then
+					task.spawn(pcall, mod.onCharacter, ev, ev.Def, plr, char)
+				end
+			end
+		end)
+	end
+	Players.PlayerAdded:Connect(watch)
+	for _, plr in Players:GetPlayers() do
+		watch(plr)
+	end
+	-- (round 87, in Studio: these tables aren't weak any more - gone with the player)
+	Players.PlayerRemoving:Connect(function(plr)
+		AE.lastAsk[plr], AE.lockTold[plr], AE.home[plr], AE.dealt[plr] = nil, nil, nil, nil
+	end)
+	workspace:SetAttribute(AEC.Attribute or "AdminEvents", "")
+	workspace:SetAttribute("AdminEventsSync", AE.status())
+	-- (the topic, and again every minute if it couldn't be had)
+	task.spawn(function()
+		while not AE.subscribe() do
+			task.wait(60)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 87) POSSESS (Config.Possess): a dev takes over a training dummy or
+-- the raid's High-End Nomu. Who: the dev flight's people (Kit.DF.allowed),
+-- checked here on every request; a player is never a body, and a body has
+-- one dev at a time. His own body is PARKED where he left it - anchored,
+-- hidden on every screen, out of every hitbox and every hit (Reactions.
+-- parked), earning nothing - and given back exactly as it was. The body's
+-- AI stands aside (its Possessed attribute: the dummy brains and the raid's
+-- think), its network ownership goes to his machine (the server keeps it
+-- while a ragdoll, a grab, a freeze or an anchor has the body, and hands it
+-- back Possess.Regain s after) and the map streams round it (his
+-- ReplicationFocus). His machine walks it; what it does to anyone else is
+-- done here: a dummy's M1 chain (the heroes' own, through damage() - its
+-- hits credit nobody: no KO, Bucks or ult), its guard, its dash, its
+-- ragdoll cancel; the Nomu's moves are the raid's own (NR.swipe / slam /
+-- charge / roar, aimed where he aims) on the raid's cooldowns, and the
+-- raid's clock, health and pay-out go on (he's never paid). Every way out -
+-- K, the body going down, his reset or death, a new hero, leaving, the
+-- dev gate lost - gives both bodies back as they were; the wisp carries
+-- him home (Possess.Travel) and his body comes back as it lands.
+-- (No new top-level locals: the main chunk is at its limit.)
+---------------------------------------------------------------------------
+do
+	local CFG = Config.Possess or {}
+	local PS = {
+		KINDS = { PossessStart = true, PossessLeave = true, PossessAct = true },
+		rec = {}, -- [player] = the body he's in (and his own, parked). (round 87, in Studio) none of these are weak: the engine can drop an Instance key from a weak table while the instance lives, and a lost record left a dev stuck in a dummy
+		back = {}, -- [player] = his record while the wisp carries him home
+		byBody = {}, -- [body] = the player in it
+		parked = {}, -- [char] = true: its player is elsewhere
+		last = {}, -- [player] = { [what] = os.clock() } (requests too close together)
+		-- what's switched off on a parked body (its parts and decals go clear)
+		HIDE = { "ParticleEmitter", "Light", "Highlight", "Beam", "Trail", "Fire", "Smoke", "Sparkles", "BillboardGui", "SurfaceGui" },
+		-- his own body can't leave like this (something has it)
+		TAKEN = { "Ragdolled", "Grabbed", "Frozen", "BeingFinished", "Finishing", "Clashing", "Kaiju", "Submerged", "PlayingUno", "TimeStopped", "Holding" },
+		-- ...nor can a body be taken while one of these has it
+		BODY_TAKEN = { "Grabbed", "BeingFinished", "Frozen", "Clashing" },
+		-- what the server holds a body for (its own rules run these)
+		HELD = { "Ragdolled", "Grabbed", "Frozen", "BeingFinished" },
+		CDS = { "M1", "Dash", "Swipe", "Slam", "Charge", "Roar" },
+		-- (round 87 review) what a body can be asked to do (anything else is dropped)
+		ACTS = { M1 = true, Block = true, Dash = true, Evade = true, Swipe = true, Slam = true, Charge = true, Roar = true },
+	}
+	Kit.PS = PS
+	Reactions.parked = PS.parked -- (damage() and stunProof() ask: a parked body is out of every fight)
+
+	function PS.allowed(player)
+		return CFG.Enabled ~= false and typeof(player) == "Instance" and player:IsA("Player") and Kit.DF ~= nil and Kit.DF.allowed(player) == true
+	end
+	-- (round 87 review) he's away: in a body, or his soul on its way home -
+	-- onKnockedOut credits him nothing meanwhile
+	function PS.away(player)
+		return PS.rec[player] ~= nil or PS.back[player] ~= nil
+	end
+	function PS.gap(player, key, t)
+		local now = os.clock()
+		local seen = PS.last[player]
+		if not seen then
+			seen = {}
+			PS.last[player] = seen
+		end
+		if now - (seen[key] or -1e9) < t then
+			return false
+		end
+		seen[key] = now
+		return true
+	end
+	function PS.vec(v)
+		return typeof(v) == "Vector3" and v == v and v.Magnitude < 1e6
+	end
+	function PS.flat(v, root)
+		local f = PS.vec(v) and Vector3.new(v.X, 0, v.Z) or Vector3.zero
+		if f.Magnitude < 0.05 then
+			local l = root.CFrame.LookVector
+			f = Vector3.new(l.X, 0, l.Z)
+		end
+		return f.Magnitude > 0.05 and f.Unit or Vector3.new(0, 0, -1)
+	end
+	-- his chest (where the wisp leaves from / lands)
+	function PS.chest(root)
+		return root.Position + UP * math.min(root.Size.Y * 0.4, 2)
+	end
+	-- the wisp's flight time over that distance
+	function PS.travel(a, b)
+		local T = CFG.Travel or {}
+		local d = (PS.vec(a) and PS.vec(b)) and (a - b).Magnitude or 0
+		return math.clamp(d * (T.PerStud or 0.004), T.Min or 0.38, T.Max or 0.85)
+	end
+
+	-- what a model is to us: "Dummy" or "Nomu" (with its raid), or nil -
+	-- not a body (a player, a player's double, a boss that isn't the raid's)
+	function PS.bodyKind(model)
+		if typeof(model) ~= "Instance" or not model:IsA("Model") or not model:IsDescendantOf(workspace) then
+			return nil
+		end
+		if Players:GetPlayerFromCharacter(model) or model:GetAttribute("TwiceClone") then
+			return nil
+		end
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		local root = model:FindFirstChild("HumanoidRootPart")
+		if not hum or not root or hum.Health <= 0 then
+			return nil
+		end
+		local r = Kit.NR and Kit.NR.active
+		if r and r.Model == model then
+			if r.Done then
+				return nil
+			end
+			return "Nomu", r
+		end
+		if model:GetAttribute("Boss") then
+			return nil
+		end
+		if model:GetAttribute("Possessable") == true then
+			return "Dummy"
+		end
+		for _, name in CFG.Folders or { "Dummies" } do
+			local f = workspace:FindFirstChild(name)
+			if f and model.Parent == f and name ~= "NomuRaid" then
+				return "Dummy"
+			end
+		end
+		return nil
+	end
+	-- the name his screen shows for it
+	function PS.label(model, kind)
+		if kind == "Nomu" then
+			return tostring(model:GetAttribute("BossName") or "HIGH-END NOMU")
+		end
+		local k = Config.DummyKind and Config.DummyKind(model:GetAttribute("DummyKind") or "")
+		if k then
+			return tostring(k.Label or k.Id)
+		end
+		return string.upper(model.Name)
+	end
+
+	---------------------------------------------------------------------------
+	-- his own body, parked
+	---------------------------------------------------------------------------
+	-- hidden from everyone (and whatever's added to it meanwhile: a rebuilt
+	-- costume), anchored where it stands, out of every hitbox and every hit
+	-- (Reactions.parked; no grab, ram or crater either: iFrames); all of it
+	-- put back exactly as it was by PS.unpark
+	function PS.hidePart(saved, d)
+		if d:IsA("BasePart") then
+			if not saved.parts[d] then
+				saved.parts[d] = { d.Transparency, d.CanCollide, d.CanQuery, d.CanTouch, d.CollisionGroup }
+			end
+			d.Transparency = 1
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
+			pcall(function()
+				d.CollisionGroup = "DevFlyer" -- (only the map touches it: nobody walks into him)
+			end)
+			return
+		end
+		if d:IsA("Decal") then -- (a Texture too)
+			if saved.decals[d] == nil then
+				saved.decals[d] = d.Transparency
+			end
+			d.Transparency = 1
+			return
+		end
+		for _, className in PS.HIDE do
+			if d:IsA(className) then
+				if saved.enabled[d] == nil then
+					saved.enabled[d] = d.Enabled
+				end
+				d.Enabled = false
+				return
+			end
+		end
+	end
+	function PS.park(rec)
+		local char, root, hum = rec.Char, rec.OwnRoot, rec.OwnHum
+		local saved = {
+			parts = {}, decals = {}, enabled = {}, cframe = root.CFrame, anchored = root.Anchored,
+			display = hum.DisplayDistanceType, iframes = iFrames[char],
+		}
+		rec.Park = saved
+		setBlocking(char, false)
+		for _, d in root:GetChildren() do
+			if d.Name == "Knockback" or d.Name == "KnockbackAttachment" then
+				d:Destroy()
+			end
+		end
+		pcall(function()
+			root.AssemblyLinearVelocity = Vector3.zero
+		end)
+		root.Anchored = true
+		for _, d in char:GetDescendants() do
+			PS.hidePart(saved, d)
+		end
+		saved.conn = char.DescendantAdded:Connect(function(d)
+			PS.hidePart(saved, d)
+		end)
+		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+		iFrames[char] = math.huge
+		PS.parked[char] = true
+		char:SetAttribute("Parked", true)
+		-- (round 87 review) nothing hurts it while he's away: a burn or a decay
+		-- still ticking on him stops (their own loops end on the token), and
+		-- PS.reassert never lets its health drop (a poison's tick, a hazard)
+		burnTokens[char] = (burnTokens[char] or 0) + 1
+		decayTokens[char] = (decayTokens[char] or 0) + 1
+		if char:GetAttribute("Burning") then
+			char:SetAttribute("Burning", false)
+		end
+		if char:GetAttribute("Decaying") then
+			char:SetAttribute("Decaying", false)
+		end
+		saved.health = hum.Health
+	end
+	-- (round 87 review) whatever flight he's in ends on the server too: his
+	-- screen's own "down" goes through Kit.onUseAbility, which swallows all
+	-- he sends once he's in a body - Bakugo's blasts, Deku's Float and
+	-- Hawks' wings would stay on over his parked body (and after it)
+	function PS.ground(player, char)
+		if char:GetAttribute("BlastFlying") and Kit.BF then
+			pcall(Kit.BF.relay, player, char, "BlastFlyEnd")
+		end
+		if char:GetAttribute("Floating") and Kit.FL then
+			pcall(Kit.FL.relay, player, char, "FloatEnd")
+		end
+		if (char:GetAttribute("HawksFlying") or char:GetAttribute("HawksFlyUntil")) and Kit.HK and Kit.HK.land then
+			pcall(Kit.HK.land, player, char, false, nil)
+		end
+	end
+	-- (something else set a part back meanwhile - a move's own clean-up: what
+	-- it wanted is what comes back, and the part goes clear again)
+	function PS.reassert(rec)
+		local saved = rec.Park
+		if not saved then
+			return
+		end
+		for d, v in saved.parts do
+			if d.Parent and d.Transparency ~= 1 then
+				v[1] = d.Transparency
+				d.Transparency = 1
+			end
+		end
+		for d in saved.enabled do
+			if d.Parent and d.Enabled then
+				saved.enabled[d] = true
+				d.Enabled = false
+			end
+		end
+		if rec.OwnRoot.Parent and not rec.OwnRoot.Anchored then
+			rec.OwnRoot.Anchored = true
+		end
+		-- (round 87 review) its health only goes up while he's away (out-of-fight
+		-- healing, a heal) - never down
+		local hum = rec.OwnHum
+		if hum and hum.Parent and hum.Health > 0 then
+			if hum.Health < (saved.health or 0) then
+				hum.Health = math.min(saved.health, hum.MaxHealth)
+			else
+				saved.health = hum.Health
+			end
+		end
+	end
+	function PS.unpark(rec)
+		local saved = rec.Park
+		if not saved then
+			return
+		end
+		rec.Park = nil
+		local char, root, hum = rec.Char, rec.OwnRoot, rec.OwnHum
+		if saved.conn then
+			saved.conn:Disconnect()
+		end
+		for d, v in saved.parts do
+			if d.Parent then
+				d.Transparency, d.CanCollide, d.CanQuery, d.CanTouch = v[1], v[2], v[3], v[4]
+				pcall(function()
+					d.CollisionGroup = v[5]
+				end)
+			end
+		end
+		for d, t in saved.decals do
+			if d.Parent then
+				d.Transparency = t
+			end
+		end
+		for d, on in saved.enabled do
+			if d.Parent then
+				d.Enabled = on
+			end
+		end
+		if hum then
+			hum.DisplayDistanceType = saved.display
+		end
+		iFrames[char] = saved.iframes
+		PS.parked[char] = nil
+		char:SetAttribute("Parked", nil)
+		if root and root.Parent then
+			root.CFrame = saved.cframe
+			root.Anchored = saved.anchored
+			pcall(function()
+				root.AssemblyLinearVelocity = Vector3.zero
+			end)
+			-- (his machine moves him again, from exactly where he left)
+			if not root.Anchored and rec.Player.Parent and rec.Player.Character == char then
+				pcall(function()
+					root:SetNetworkOwner(rec.Player)
+				end)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- the body he's in
+	---------------------------------------------------------------------------
+	-- who simulates it: his machine - unless a ragdoll, a grab, a freeze, a
+	-- finisher or an anchor has it (the server's own rules run those, as for
+	-- any dummy), and until Regain s after it lets go
+	function PS.wantOwner(rec)
+		local body, root = rec.Body, rec.Root
+		local held = root.Anchored or root:FindFirstChild("FinisherLaunch") ~= nil
+		for _, flag in PS.HELD do
+			if body:GetAttribute(flag) then
+				held = true
+			end
+		end
+		if held then
+			rec.heldAt = os.clock()
+			return nil
+		end
+		if rec.heldAt and os.clock() - rec.heldAt < (CFG.Regain or 0.35) then
+			return nil
+		end
+		return rec.Player
+	end
+	function PS.own(rec)
+		local root = rec.Root
+		if not root.Parent then
+			return
+		end
+		local want = PS.wantOwner(rec)
+		if root.Anchored then
+			rec.owner = "?" -- (an anchor drops whoever had it: set again once it's loose)
+			return
+		end
+		-- (the engine's word where there is one; else what was last set)
+		local ok, real = pcall(function()
+			return root:GetNetworkOwner()
+		end)
+		local cur
+		if ok then
+			cur = real
+		else
+			cur = rec.owner
+		end
+		if cur ~= want and pcall(function()
+			root:SetNetworkOwner(want)
+		end) then
+			rec.owner = want
+		end
+	end
+	function PS.take(rec)
+		local body, hum, root = rec.Body, rec.Hum, rec.Root
+		local g = guardState[body]
+		local s = {
+			WalkSpeed = hum.WalkSpeed, JumpPower = hum.JumpPower, UseJumpPower = hum.UseJumpPower,
+			BaseWalkSpeed = body:GetAttribute("BaseWalkSpeed"), BaseJumpPower = body:GetAttribute("BaseJumpPower"),
+			Evasive = body:GetAttribute("Evasive"), Blocking = g ~= nil and g.Blocking == true,
+		}
+		rec.Saved = s
+		pcall(function()
+			hum:MoveTo(root.Position) -- (whatever its AI was walking to: forgotten)
+		end)
+		if s.Blocking then
+			setBlocking(body, false)
+		end
+		if Kit.counters[body] then
+			Kit.counters[body] = nil
+			body:SetAttribute("Countering", nil)
+		end
+		hum.UseJumpPower = true
+		if rec.Kind == "Dummy" then
+			local D = CFG.Dummy or {}
+			hum.WalkSpeed = D.WalkSpeed or 16
+			hum.JumpPower = D.JumpPower or 50
+			body:SetAttribute("BaseWalkSpeed", hum.WalkSpeed)
+			body:SetAttribute("BaseJumpPower", hum.JumpPower)
+			-- (it fights by the players' rules: its ragdoll cancel's meter fills as it fights)
+			if s.Evasive == nil then
+				body:SetAttribute("Evasive", 0)
+			end
+		else
+			hum.JumpPower = (CFG.Nomu or {}).JumpPower or 58
+			body:SetAttribute("BaseJumpPower", hum.JumpPower)
+			if rec.Raid then
+				rec.Raid.Dealt[rec.Player] = nil -- (never paid for the raid he's playing)
+			end
+		end
+		body:SetAttribute("Possessed", true)
+		body:SetAttribute("PossessedBy", rec.Player.UserId)
+		PS.byBody[body] = rec.Player
+		pcall(function()
+			s.Focus = rec.Player.ReplicationFocus
+			rec.Player.ReplicationFocus = root -- (the map streams round the body, not his parked one)
+		end)
+		rec.owner, rec.heldAt = "?", nil
+		PS.own(rec)
+	end
+	function PS.giveBack(rec)
+		local body, hum, root, s = rec.Body, rec.Hum, rec.Root, rec.Saved or {}
+		rec.Saved = nil
+		if PS.byBody[body] == rec.Player then
+			PS.byBody[body] = nil
+		end
+		for _, act in PS.CDS do
+			body:SetAttribute("PossessCd_" .. act, nil)
+		end
+		body:SetAttribute("PossessBusy", nil)
+		body:SetAttribute("Possessed", nil)
+		body:SetAttribute("PossessedBy", nil)
+		pcall(function()
+			rec.Player.ReplicationFocus = s.Focus
+		end)
+		-- (round 87 review: only what taking it changed - the Nomu's walk is the
+		-- raid's own, and its phase 2 may have quickened it meanwhile)
+		if rec.Kind == "Dummy" then
+			body:SetAttribute("BaseWalkSpeed", s.BaseWalkSpeed)
+			body:SetAttribute("Evasive", s.Evasive)
+		end
+		body:SetAttribute("BaseJumpPower", s.BaseJumpPower)
+		if hum and hum.Parent and hum.Health > 0 then
+			-- (a stun's own end puts BaseWalkSpeed back: the walk is left to it)
+			if rec.Kind == "Dummy" and not body:GetAttribute("Stunned") then
+				hum.WalkSpeed = s.WalkSpeed
+			end
+			hum.JumpPower = s.JumpPower
+			hum.UseJumpPower = s.UseJumpPower
+			local g = guardState[body]
+			if (g ~= nil and g.Blocking == true) ~= (s.Blocking == true) then
+				setBlocking(body, s.Blocking == true)
+			end
+			pcall(function()
+				hum:Move(Vector3.zero)
+			end)
+			pcall(function()
+				hum:MoveTo(root.Position)
+			end)
+		end
+		-- (the server's again, as every dummy and the raid's Nomu is)
+		if root then
+			PS.serverOwn(body, root)
+		end
+		rec.owner = nil
+	end
+	-- (round 87 review) the body back to the server's machine - at once, or
+	-- (an anchor has it now: the Nomu mid-slam or mid-charge, a stopped
+	-- clock, ice) as soon as it lets go; unless someone's taken it again by then
+	function PS.serverOwn(body, root)
+		local function give()
+			if PS.byBody[body] ~= nil or not root.Parent then
+				return true
+			end
+			if root.Anchored then
+				return false
+			end
+			pcall(function()
+				root:SetNetworkOwner(nil)
+			end)
+			return true
+		end
+		if give() then
+			return
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			while os.clock() - t0 < (CFG.OwnerWait or 20) do
+				task.wait(0.2)
+				if give() then
+					return
+				end
+			end
+		end)
+	end
+
+	---------------------------------------------------------------------------
+	-- in and out
+	---------------------------------------------------------------------------
+	function PS.deny(player, why)
+		PlayVFX:FireClient(player, "PossessDeny", nil, { Why = why })
+		return false
+	end
+	function PS.watch(rec)
+		local player = rec.Player
+		rec.Conns = {
+			rec.Hum.Died:Connect(function()
+				if PS.rec[player] == rec then
+					PS.stop(player, "Down")
+				end
+			end),
+			rec.OwnHum.Died:Connect(function()
+				if PS.rec[player] == rec then
+					PS.stop(player, "Dead")
+				end
+			end),
+			-- (a ragdoll is the server's to run, at once)
+			rec.Body:GetAttributeChangedSignal("Ragdolled"):Connect(function()
+				if PS.rec[player] ~= rec then
+					return
+				end
+				PS.own(rec)
+				if rec.Body:GetAttribute("Ragdolled") and rec.Hum.Health > 0 then
+					pcall(function()
+						rec.Hum:ChangeState(Enum.HumanoidStateType.Physics)
+					end)
+				end
+			end),
+		}
+	end
+	function PS.unwatch(rec)
+		for _, c in rec.Conns or {} do
+			c:Disconnect()
+		end
+		rec.Conns = {}
+	end
+
+	function PS.start(player, model)
+		local kind, raid = PS.bodyKind(model)
+		if not kind then
+			return PS.deny(player, "NotABody")
+		end
+		if model:GetAttribute("Possessed") or PS.byBody[model] then
+			return PS.deny(player, "Taken")
+		end
+		for _, flag in PS.BODY_TAKEN do
+			if model:GetAttribute(flag) then
+				return PS.deny(player, "Busy")
+			end
+		end
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not (root and hum and alive(char)) then
+			return PS.deny(player, "You")
+		end
+		local rec, from, hop = PS.rec[player], nil, nil
+		if rec then
+			-- from one body straight into another (his own stays parked)
+			if rec.Body == model then
+				return false
+			end
+			from = rec.Root.Parent and PS.chest(rec.Root) or nil
+			hop = true
+			PS.unwatch(rec)
+			PS.giveBack(rec)
+		else
+			rec = PS.back[player]
+			if rec and rec.Char == char and rec.Park then
+				-- (on his way home: turned straight round into this one)
+				rec.token = nil
+				PS.back[player] = nil
+			else
+				rec = nil
+				for _, flag in PS.TAKEN do
+					if char:GetAttribute(flag) then
+						return PS.deny(player, "You")
+					end
+				end
+				if root.Anchored or root:FindFirstChild("Knockback") or root:FindFirstChild("FinisherLaunch") then
+					return PS.deny(player, "You")
+				end
+				-- (one at a time: his dev flight ends)
+				if Kit.DF and player:GetAttribute("DevFlight") then
+					Kit.DF.setPower(player, false)
+				end
+				PS.ground(player, char)
+				rec = { Player = player, Char = char, OwnRoot = root, OwnHum = hum }
+				PS.park(rec)
+			end
+			from = PS.chest(rec.OwnRoot)
+		end
+		rec.Body, rec.Hum, rec.Root, rec.Kind, rec.Raid = model, model:FindFirstChildOfClass("Humanoid"), model:FindFirstChild("HumanoidRootPart"), kind, raid
+		rec.m1, rec.dashAt = nil, nil
+		PS.take(rec)
+		PS.rec[player] = rec
+		PS.watch(rec)
+		player:SetAttribute("PossessSeq", (tonumber(player:GetAttribute("PossessSeq")) or 0) + 1) -- (each body a new one, even of the same name)
+		player:SetAttribute("Possessing", PS.label(model, kind))
+		broadcast("Possess", nil, {
+			Kind = "In", From = from or PS.chest(rec.Root), Body = model, Char = char, Owner = player.UserId,
+			Travel = PS.travel(from, rec.Root.Position), Hop = hop,
+		})
+		-- (round 87 review: on his own console only - anyone can open F2 and
+		-- watch the shared log, and nobody else is to know)
+		if Kit.Console and Kit.Console.print then
+			Kit.Console.print(string.format("You're in %s (K to leave)", PS.label(model, kind)), "event", player)
+		end
+		return true
+	end
+
+	-- out: the body back to its AI, the wisp home, and his own body back as
+	-- it lands (at once if he's gone or dead: nothing to wait for)
+	function PS.stop(player, reason)
+		local rec = PS.rec[player]
+		if not rec then
+			return false
+		end
+		PS.rec[player] = nil
+		PS.unwatch(rec)
+		local body, broot = rec.Body, rec.Root
+		local from = broot and broot.Parent and PS.chest(broot) or nil
+		PS.giveBack(rec)
+		if player:GetAttribute("Possessing") ~= nil then
+			player:SetAttribute("Possessing", nil)
+		end
+		local char = rec.Char
+		local home = rec.Park and rec.Park.cframe.Position + UP * 1.5
+		local stays = reason ~= "Dead" and reason ~= "Left" and player.Parent ~= nil and player.Character == char and alive(char)
+		if stays and home then
+			local travel = PS.travel(from or home, home)
+			broadcast("Possess", nil, {
+				Kind = "Out", From = from or home, To = home, Body = body, Char = char, Owner = player.UserId, Travel = travel, Reason = reason,
+			})
+			local token = {}
+			rec.token = token
+			PS.back[player] = rec
+			task.delay(travel, function()
+				if rec.token == token then
+					rec.token = nil
+					if PS.back[player] == rec then
+						PS.back[player] = nil
+					end
+					PS.unpark(rec)
+				end
+			end)
+		else
+			PS.unpark(rec)
+		end
+		return true
+	end
+
+	---------------------------------------------------------------------------
+	-- what the body does
+	---------------------------------------------------------------------------
+	-- free to act (nothing has it)
+	function PS.free(body, root)
+		if root.Anchored then
+			return false
+		end
+		for _, flag in { "Stunned", "Ragdolled", "Grabbed", "Frozen", "BeingFinished", "Clashing", "Countering" } do
+			if body:GetAttribute(flag) then
+				return false
+			end
+		end
+		return true
+	end
+	-- a cooldown his screen can show (the body's PossessCd_<act>: server time it's ready)
+	function PS.cd(rec, act, seconds)
+		rec.Body:SetAttribute("PossessCd_" .. act, workspace:GetServerTimeNow() + math.max(seconds, 0))
+	end
+	-- where he aimed, kept sane (within reach of the body; else ahead of it)
+	function PS.aimPoint(rec, aim, reach)
+		local root = rec.Root
+		if not PS.vec(aim) then
+			return root.Position + PS.flat(nil, root) * 20
+		end
+		local off = aim - root.Position
+		if off.Magnitude > reach then
+			return root.Position + off.Unit * reach
+		end
+		return aim
+	end
+
+	-- A DUMMY'S M1: the heroes' chain (Config.M1: its cadence, its contact
+	-- frames, its box, its damage, hit reactions, the 4th's ragdoll), every
+	-- hit through damage() with the body as the attacker - so guards, parries
+	-- and every protection apply - and credited to nobody
+	function PS.punch(rec, data)
+		local M1 = Config.M1
+		local body, root, player = rec.Body, rec.Root, rec.Player
+		if not PS.free(body, root) then
+			return
+		end
+		local st = rec.m1 or { Count = 0, Last = 0, Next = 0 }
+		rec.m1 = st
+		local now = os.clock()
+		if now < st.Next then
+			return
+		end
+		if now - st.Last > M1.ComboReset then
+			st.Count = 0
+		end
+		st.Count = st.Count % M1.ComboLength + 1
+		st.Last = now
+		local finisher = st.Count == M1.ComboLength
+		local count = st.Count
+		st.Next = now + (finisher and M1.FinisherCooldown or M1.Cooldown) - 0.05
+		PS.cd(rec, "M1", st.Next - now)
+		local g = guardState[body]
+		if g and g.Blocking then
+			setBlocking(body, false) -- (swinging lowers the guard)
+		end
+		-- (his machine already plays the swing)
+		broadcast("Punch", body, { Count = count, Finisher = finisher }, player)
+		local origin0, f = swingOrigin(root, type(data) == "table" and data.CF or nil)
+		local pressedAt = root.Position
+		local contacts = M1.Contact or {}
+		local contactAt = contacts[finisher and 4 or math.min(count, 3)] or (finisher and 0.155 or 0.095)
+		task.delay(math.max(contactAt - (M1.ServerLead or 0.015), 0), function()
+			if PS.rec[player] ~= rec or rec.Body ~= body or not alive(body) or not PS.free(body, root) then
+				return -- (a swing dies with the body that threw it - or with him leaving it)
+			end
+			local origin = origin0 + (root.Position - pressedAt)
+			local cf = CFrame.lookAt(origin, origin + f) * CFrame.new(0, 0, -(M1.HitboxForward or 3.5))
+			if finisher then
+				local size = (M1.Destruction or {}).Finisher or Vector3.new(4.5, 6, 4)
+				Destruction.Box(CFrame.lookAt(origin, origin + f) * CFrame.new(0, -0.3, -(2.5 + size.Z / 2)), size, "Impact", f)
+			end
+			for _, model in Rewind.QueryBox(player, body, cf, M1.HitboxSize) do
+				local opts = finisher
+						and { GuardDamage = GUARD.FinisherGuardDamage or 30, Hitstop = M1.FinisherHitstop, Heavy = true, M1 = 4, AttackerModel = body, From = origin }
+					or { Hitstop = M1.Hitstop, M1 = count, AttackerModel = body, From = origin }
+				if damage(nil, model, finisher and M1.FinisherDamage or M1.Damage, opts) then
+					broadcast("PossessHit", body, { Target = model, Hitstop = opts.Hitstop, Heavy = finisher or nil, Owner = player.UserId })
+					if finisher then
+						local immune = Evasive.immune(model)
+						if M1.RagdollOnFinisher and not immune then
+							stun(model, M1.RagdollTime + 0.3)
+							ragdoll(model, M1.RagdollTime)
+						elseif not immune then
+							stun(model, 0.8)
+						end
+						knockback(model, f * M1.FinisherKnockback + UP * (M1.FinisherLift or 15), 0.2, true)
+					else
+						M1V.Stick(model, f)
+						if not Evasive.immune(model) and (M1V.upUntil[model] or 0) <= os.clock() then
+							stun(model, M1.Stun or 0.7, 0)
+						end
+					end
+				end
+			end
+		end)
+	end
+	-- A DUMMY'S GUARD: the real one (setBlocking - the meter, the parry on a
+	-- fresh raise, chip damage, the break)
+	function PS.block(rec, on)
+		local body, root = rec.Body, rec.Root
+		if on and not PS.free(body, root) then
+			return
+		end
+		setBlocking(body, on)
+	end
+	-- A DUMMY'S DASH: his machine moves it; here it's checked and everyone
+	-- else sees it
+	function PS.dash(rec, data)
+		local D = (CFG.Dummy or {}).Dash or {}
+		local body, root = rec.Body, rec.Root
+		local now = os.clock()
+		if not PS.free(body, root) or now < (rec.dashAt or 0) then
+			return
+		end
+		rec.dashAt = now + (D.Cooldown or 1)
+		PS.cd(rec, "Dash", D.Cooldown or 1)
+		local d = PS.flat(type(data) == "table" and data.Dir or nil, root)
+		local look = PS.flat(nil, root)
+		local side = d:Dot(look)
+		local kind = side > 0.5 and "Front" or (side < -0.5 and "Back" or "Side")
+		broadcast("Dash", body, { Kind = kind, Dir = d }, rec.Player)
+	end
+	-- the ragdoll cancel (Q while it's down): its own meter, the players' rules
+	function PS.evade(rec, data)
+		local d = type(data) == "table" and data.Dir or nil
+		Evasive.use(nil, rec.Body, rec.Root, PS.vec(d) and d or nil)
+	end
+	-- THE NOMU: the raid's own moves, aimed where he aims, on the raid's
+	-- cooldowns (phase 2's quicker ones too); ROAR on Nomu.RoarCooldown
+	function PS.nomu(rec, act, data)
+		local NR, r = Kit.NR, rec.Raid
+		if not NR or not r or r.Done or NR.active ~= r or r.Busy or not alive(rec.Body) or rec.Root.Anchored then
+			return
+		end
+		local N = CFG.Nomu or {}
+		local now = os.clock()
+		local aim = PS.aimPoint(rec, type(data) == "table" and data.Aim or nil, N.Reach or 120)
+		local fn
+		if act == "Swipe" and now >= (r.Next.Swipe or 0) then
+			fn = NR.swipe
+		elseif act == "Slam" and now >= (r.Next.Slam or 0) then
+			fn = NR.slam
+		elseif act == "Charge" and now >= (r.Next.Charge or 0) then
+			fn = NR.charge
+		elseif act == "Roar" and now >= (r.Next.Roar or 0) then
+			r.Next.Roar = NR.cool(r, N.RoarCooldown or 8)
+			rec.Body:SetAttribute("PossessBusy", true)
+			task.spawn(NR.roar, r)
+			PS.cd(rec, "Roar", r.Next.Roar - now)
+			return
+		end
+		if not fn then
+			return
+		end
+		rec.Body:SetAttribute("PossessBusy", true)
+		task.spawn(fn, r, aim)
+		-- (the move set its own cooldown as it started)
+		PS.cd(rec, act, (r.Next[act] or now) - now)
+	end
+	function PS.act(rec, data)
+		if not alive(rec.Body) then
+			return
+		end
+		local act = data.Act
+		if rec.Kind == "Nomu" then
+			PS.nomu(rec, act, data)
+		elseif act == "M1" then
+			PS.punch(rec, data)
+		elseif act == "Block" then
+			PS.block(rec, data.On == true)
+		elseif act == "Dash" then
+			PS.dash(rec, data)
+		elseif act == "Evade" then
+			PS.evade(rec, data)
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- the requests (UseAbility, PARKOUR_INDEX: Kit.onUseAbility routes them)
+	---------------------------------------------------------------------------
+	function PS.request(player, kind, data)
+		if not PS.allowed(player) then
+			return -- (anyone else: nothing at all)
+		end
+		if kind == "PossessStart" then
+			if PS.gap(player, "start", CFG.Gap or 0.5) then
+				PS.start(player, type(data) == "table" and data.Target or data)
+			end
+		elseif kind == "PossessLeave" then
+			PS.stop(player, "Leave")
+		elseif kind == "PossessAct" then
+			local rec = PS.rec[player]
+			if rec and type(data) == "table" and PS.ACTS[data.Act] and PS.gap(player, "act" .. data.Act, CFG.ActGap or 0.04) then
+				PS.act(rec, data)
+			end
+		end
+	end
+	-- true: it's been dealt with (one of ours - or anything at all from a
+	-- player whose own body is parked: it does nothing)
+	function PS.route(player, char, index, kind, data)
+		if index == Config.PARKOUR_INDEX and type(kind) == "string" and PS.KINDS[kind] then
+			PS.request(player, kind, data)
+			return true
+		end
+		return PS.rec[player] ~= nil or (char ~= nil and PS.parked[char] == true)
+	end
+
+	---------------------------------------------------------------------------
+	-- keeping it straight
+	---------------------------------------------------------------------------
+	function PS.tick(player, rec)
+		if not player.Parent then
+			PS.stop(player, "Left")
+			return
+		end
+		if not PS.allowed(player) then
+			PS.stop(player, "Gate")
+			return
+		end
+		if player.Character ~= rec.Char or not alive(rec.Char) then
+			PS.stop(player, "Dead")
+			return
+		end
+		local body = rec.Body
+		if not body.Parent or not body:IsDescendantOf(workspace) or not rec.Root.Parent or rec.Hum.Health <= 0 then
+			PS.stop(player, "Down")
+			return
+		end
+		if rec.Kind == "Nomu" then
+			local r = rec.Raid
+			if not r or r.Done or not Kit.NR or Kit.NR.active ~= r then
+				PS.stop(player, "Raid") -- (it flew off, or it's over)
+				return
+			end
+			-- (mid-move: his screen holds it still)
+			if (body:GetAttribute("PossessBusy") == true) ~= (r.Busy == true) then
+				body:SetAttribute("PossessBusy", r.Busy == true or nil)
+			end
+			-- (round 87 review: and he's never on its board - a shot of his still
+			-- in the air when he went in lands on it later)
+			r.Dealt[player] = nil
+		end
+		PS.own(rec)
+		PS.reassert(rec)
+	end
+	do
+		local acc = 0
+		RunService.Heartbeat:Connect(function(dt)
+			acc += dt
+			if acc < 0.1 then
+				return
+			end
+			acc = 0
+			for player, rec in PS.rec do
+				local ok, err = pcall(PS.tick, player, rec)
+				if not ok then
+					warn("[QuirkServer] possess: " .. tostring(err))
+				end
+			end
+		end)
+	end
+	-- a new hero, a new body, losing the dev gate, leaving: out
+	function PS.hook(player)
+		player:GetAttributeChangedSignal("Quirk"):Connect(function()
+			PS.stop(player, "Quirk")
+		end)
+		player:GetAttributeChangedSignal("DevFlyer"):Connect(function()
+			if not PS.allowed(player) then
+				PS.stop(player, "Gate")
+			end
+		end)
+		player.CharacterAdded:Connect(function()
+			PS.stop(player, "Dead")
+		end)
+	end
+	Players.PlayerAdded:Connect(PS.hook)
+	for _, plr in Players:GetPlayers() do
+		PS.hook(plr)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		PS.stop(player, "Left")
+		PS.back[player] = nil
+		PS.last[player] = nil -- (round 87, in Studio: not weak any more)
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 88) THE CARRY (Config.DevFlight.Carry): the dev flight's 5th move,
+-- Omni-Man's grab. A flying dev grabs whoever's in front of him (CarryGrab:
+-- the server picks, by reach, cone and line of sight, and takes them by the
+-- rules every grab goes by - Grab.take: anchored, held by the server), and
+-- then does things with them: SLAM (his machine dives; the impact it reports
+-- is checked - a slam asked for, long enough ago, at a speed the server saw
+-- or near the street - then the crater, the damage, left lying in it),
+-- THROW (swung back over his shoulder, then thrown through the buildings in
+-- the way: knockback's own round-87 path), RAM (his machine flies him flat
+-- out; each building the flight smashes through - DF.smash's own checked
+-- holes - hurts them and shows everyone the round-87 beat on their body, and
+-- at the end they're flung on), DROP. While he holds them, the server puts
+-- their body in his fist every frame (where his root is, as everyone sees
+-- it: Config.DevFlight.Carry.at), and his own moves wait (his hands are
+-- full). Let go by itself: MaxHold, hit hard / stunned / knocked down,
+-- the flight over, him gone; and if they're gone, dead, someone's finishing
+-- them or they're put in god mode. Everything's checked against the dev gate
+-- (Kit.DF.allowed) and his DevFlight. Nobody else can do any of it.
+-- (No new top-level locals: the server's main chunk is at its limit. Round
+-- 87's lesson: plain tables, cleared on every way out - never weak-keyed.)
+---------------------------------------------------------------------------
+do
+	local CRC = (Config.DevFlight or {}).Carry or {}
+	local CR = {
+		KINDS = { CarryGrab = true, CarrySlam = true, CarryImpact = true, CarryThrow = true, CarryRam = true, CarryRamEnd = true, CarryDrop = true },
+		by = {}, -- [player] = the carry he's doing
+		of = {}, -- [the body he holds] = that carry
+		last = {}, -- [player] = { [kind] = os.clock() }
+		-- what his hands being full stops: his own moves, M1s, the finisher,
+		-- an emote (his flight's own relays and the ragdoll cancel go on)
+		BUSY = {
+			[0] = true, [1] = true, [2] = true, [3] = true, [Config.SPECIAL_INDEX] = true, [Config.ULT_INDEX] = true,
+			[Config.LEAP_INDEX] = true, [Config.EXTRA_INDEX] = true, [Config.FINISH_INDEX] = true, [Config.EMOTE_INDEX] = true,
+			[Config.PRANK_INDEX or -1] = true,
+		},
+		-- what has his body (he lets go), and who can't be taken
+		HELD = { "Ragdolled", "Stunned", "Grabbed", "Frozen", "BeingFinished", "Finishing", "Clashing", "TimeStopped", "Submerged", "Parked" },
+		SAFE = { "Boss", "Possessed", "Parked", "DevCarrying", "CarriedBy", "TimeStopped", "Clashing", "PlayingUno", "Finishing", "BeingFinished", "Grabbed", "Frozen", "Compressed", "Submerged" },
+	}
+	Kit.CR = CR
+	Destruction.Carry = CR -- (for the tests, as Kit.Smash is: Destruction.Smash)
+	CR.TS = Reactions.TS -- (round 88 review: DIO's stopped time - the tests stop it with this)
+
+	-- not sooner than t after the last one of these
+	function CR.gap(player, key, t)
+		local now = os.clock()
+		local seen = CR.last[player]
+		if not seen then
+			seen = {}
+			CR.last[player] = seen
+		end
+		if now - (seen[key] or -1e9) < t then
+			return false
+		end
+		seen[key] = now
+		return true
+	end
+
+	-- a sane direction off the wire (or nil)
+	function CR.dir(v)
+		if typeof(v) == "Vector3" and v == v and v.Magnitude > 0.01 and v.Magnitude < 1e6 then
+			return v.Unit
+		end
+		return nil
+	end
+
+	-- his size (the Giant toy, GIANT MODE): where they hang scales with him
+	function CR.scaleOf(char)
+		local ok, s = pcall(function()
+			return char:GetScale()
+		end)
+		return (ok and type(s) == "number" and s == s) and math.clamp(s, 0.5, 4) or 1
+	end
+
+	-- (One For All's dream, far off the city: nobody's carried in or out)
+	function CR.realm(pos)
+		local VR = Config.VestigeRealm
+		if not VR or VR.Enabled == false then
+			return false
+		end
+		local center = VR.Center or Vector3.new(2600, 1400, -2600)
+		return (pos - center).Magnitude < ((Config.AdminEvents or {}).AwayFromRealm or 600)
+	end
+
+	-- from Kit.onUseAbility: the carry's own requests; and while his hands
+	-- are full, his own moves are swallowed (true: handled here)
+	function CR.route(player, char, index, aimDir, aimPos)
+		if index == Config.PARKOUR_INDEX and type(aimDir) == "string" and CR.KINDS[aimDir] then
+			CR.relay(player, char, aimDir, aimPos)
+			return true
+		end
+		if CR.by[player] then
+			if CR.BUSY[index] then
+				return true
+			end
+			if index == Config.DASH_INDEX and aimPos ~= "Evasive" then
+				return true
+			end
+			if index == Config.BLOCK_INDEX and aimDir == true then
+				return true
+			end
+		end
+		return false
+	end
+
+	-- something has his body: he can't grab, and lets go of who he holds
+	function CR.held(char, root)
+		if not char or not root or not root.Parent or not alive(char) or root.Anchored then
+			return true
+		end
+		for _, flag in CR.HELD do
+			if char:GetAttribute(flag) then
+				return true
+			end
+		end
+		local kb = root:FindFirstChild("Knockback")
+		if kb and kb:IsA("LinearVelocity") and kb.VectorVelocity.Magnitude >= (CRC.Push or 40) then
+			return true -- (hit hard)
+		end
+		return false
+	end
+
+	-- may this body be taken? (the rules every grab goes by - Grab.take
+	-- checks the rest: a dodge, Infinity, god mode, a stopped move)
+	function CR.canTake(player, char, model)
+		if model == char or not model.Parent then
+			return false
+		end
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		local root = model:FindFirstChild("HumanoidRootPart")
+		if not hum or not root or hum.Health <= 0 then
+			return false
+		end
+		for _, flag in CR.SAFE do
+			if model:GetAttribute(flag) then
+				return false
+			end
+		end
+		local victim = Players:GetPlayerFromCharacter(model)
+		if model:GetAttribute("TwiceClone") == player.UserId or CR.of[model] or (victim and CR.by[victim]) then
+			return false -- (his own double; held already; holding someone)
+		end
+		if (victim and victim:GetAttribute("GodMode")) or finishing[model] ~= nil or untouchable(model) then
+			return false
+		end
+		if Reactions.NR and Reactions.NR.truce and Reactions.NR.truce(player, model) then
+			return false
+		end
+		return not CR.realm(root.Position)
+	end
+
+	-- how far he reaches (more at speed: a snatch on the way past)
+	function CR.reach(char)
+		local speed = Kit.DF and Kit.DF.speedOf(char) or 0
+		return math.min((CRC.Reach or 10) + speed * (CRC.PerSpeed or 0.08), CRC.MaxReach or 30)
+	end
+	-- in reach, in front (within Cone of his aim), in plain sight: a score
+	-- (the nearest and straightest ahead is best), or nil
+	function CR.inReach(char, root, model, aim, reach)
+		local mr = model:FindFirstChild("HumanoidRootPart")
+		if not mr then
+			return nil
+		end
+		local v = mr.Position - root.Position
+		local dist = v.Magnitude
+		if dist > reach then
+			return nil
+		end
+		local dot = dist > 3 and v.Unit:Dot(aim) or 1
+		if dot < (CRC.Cone or 0.35) then
+			return nil
+		end
+		if dist > 3 then
+			local rp = RaycastParams.new()
+			rp.FilterType = Enum.RaycastFilterType.Exclude
+			rp.FilterDescendantsInstances = nonMapStuff(char)
+			local hit = workspace:Raycast(root.Position, v * 0.96, rp)
+			if hit then
+				return nil -- (a wall in between)
+			end
+		end
+		return dist * (2 - dot)
+	end
+	-- who he grabs: the one his machine saw (if it holds up here), else the best
+	function CR.pick(player, char, root, aim, hint)
+		local reach = CR.reach(char)
+		if typeof(hint) == "Instance" and hint:IsA("Model") and hint.Parent and CR.inReach(char, root, hint, aim, reach + 2) and CR.canTake(player, char, hint) then
+			return hint
+		end
+		local best, bestScore
+		for _, model in queryRadius(char, root.Position, reach + 2) do
+			local score = CR.inReach(char, root, model, aim, reach)
+			if score and (not bestScore or score < bestScore) and CR.canTake(player, char, model) then
+				best, bestScore = model, score
+			end
+		end
+		return best
+	end
+
+	function CR.relay(player, char, kind, data)
+		if CRC.Enabled == false or not (Kit.DF and Kit.DF.canFly(player)) then -- (round 92: a grant's flight carries too)
+			return
+		end
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root or not alive(char) then
+			return
+		end
+		data = type(data) == "table" and data or {}
+		local rec = CR.by[player]
+		if kind == "CarryGrab" then
+			-- (round 88 review: flying - his body's DevFlying, the tier the
+			-- server keeps - not just the switch: on the street he grabs nobody)
+			if not rec and player:GetAttribute("DevFlight") == true and char:GetAttribute("DevFlying") and CR.gap(player, kind, CRC.Gap or 0.35) and not CR.held(char, root) then
+				CR.grab(player, char, root, data)
+			end
+			return
+		end
+		if not rec or rec.Char ~= char or rec.Done or not CR.gap(player, kind, CRC.ActGap or 0.15) then
+			return
+		end
+		local now = os.clock()
+		if kind == "CarryDrop" then
+			if rec.State ~= "Throw" then
+				CR.release(rec, "Drop")
+			end
+		elseif kind == "CarrySlam" then
+			if rec.State == "Hold" or rec.State == "Ram" then
+				local f = CR.dir(data.Face) or root.CFrame.LookVector
+				f = Vector3.new(f.X, 0, f.Z)
+				rec.Face = f.Magnitude > 0.05 and f.Unit or Vector3.new(0, 0, -1)
+				CR.setState(rec, "Slam")
+				broadcast("DevCarry", char, { Kind = "Slam", Target = rec.Model }, player)
+			end
+		elseif kind == "CarryImpact" then
+			-- the street, reported: a slam asked for, long enough ago, at a speed
+			-- the server saw him reach (or down near the street already)
+			local at = typeof(data.Pos) == "Vector3" and data.Pos == data.Pos and data.Pos or nil
+			if rec.State == "Slam" then
+				local early = ((CRC.Slam or {}).MinTime or 0.1) - (now - rec.StateAt)
+				if early <= 0 then
+					CR.tryImpact(player, rec, at)
+				elseif not rec.ImpactDue then
+					-- (round 88 review) a slam from just over the street hits it
+					-- before MinTime: it counts once that's up (him seen down
+					-- there by then), not never - it used to fizzle, them left
+					-- hanging over him till the flight let go
+					rec.ImpactDue = true
+					task.delay(early, function()
+						rec.ImpactDue = nil
+						if CR.by[player] == rec and not rec.Done and rec.State == "Slam" then
+							CR.tryImpact(player, rec, at)
+						end
+					end)
+				end
+			end
+		elseif kind == "CarryThrow" then
+			local d = CR.dir(data.Dir)
+			if rec.State == "Hold" and d then
+				CR.setState(rec, "Throw")
+				rec.ThrowDir = d
+				broadcast("DevCarry", char, { Kind = "Throw", Target = rec.Model, Dir = d }, player)
+				task.delay((CRC.Throw or {}).WindUp or 0.21, function()
+					if CR.by[player] == rec and not rec.Done and rec.State == "Throw" then
+						CR.release(rec, "Throw", rec.ThrowDir)
+					end
+				end)
+			end
+		elseif kind == "CarryRam" then
+			local d = CR.dir(data.Dir)
+			if rec.State == "Hold" and d then
+				rec.RamDir = d
+				rec.Peak = 0
+				CR.setState(rec, "Ram")
+				broadcast("DevCarry", char, { Kind = "Ram", Target = rec.Model, Dir = d }, player)
+			end
+		elseif kind == "CarryRamEnd" then
+			if rec.State == "Ram" then
+				CR.release(rec, "RamEnd", CR.dir(data.Dir))
+			end
+		end
+	end
+
+	function CR.setState(rec, state)
+		rec.State = state
+		rec.StateAt = os.clock()
+		if rec.Model.Parent then
+			rec.Model:SetAttribute("CarryState", state)
+		end
+	end
+
+	-- GRAB: who he reached for, taken (or nothing: he's told)
+	function CR.grab(player, char, root, data)
+		local aim = CR.dir(data.Dir) or root.CFrame.LookVector
+		local model = CR.pick(player, char, root, aim, data.Target)
+		local g = model and Grab.take(model, (CRC.MaxHold or CRC.SafetyHold or 300) + 1)
+		if not g then
+			PlayVFX:FireClient(player, "DevCarry", char, { Kind = "Miss" })
+			return
+		end
+		-- (whatever was moving them stops: a push, a through-the-building watch)
+		for _, d in g.Root:GetChildren() do
+			if d.Name == "Knockback" or d.Name == "KnockbackAttachment" then
+				d:Destroy()
+			end
+		end
+		local SM = Reactions.SM
+		if SM and SM.flights and SM.flights[model] then
+			SM.finish(model, SM.flights[model])
+		end
+		local now = os.clock()
+		local rec = {
+			Player = player, Char = char, Root = root, Model = model, VRoot = g.Root, G = g,
+			T0 = now, State = "Hold", StateAt = now, Walls = 0, Peak = 0, Scale = CR.scaleOf(char),
+			From = g.Root.Position, -- (where they were taken: the Sky Coffin's rule on the let go)
+		}
+		CR.by[player] = rec
+		CR.of[model] = rec
+		model:SetAttribute("CarriedBy", player.UserId)
+		model:SetAttribute("CarryState", "Hold")
+		model:SetAttribute("CarryEnds", CRC.MaxHold and workspace:GetServerTimeNow() + CRC.MaxHold or nil) -- (the chips' time left; none: no limit)
+		char:SetAttribute("DevCarrying", true)
+		Grab.place(g, CRC.at(root.CFrame, root.AssemblyLinearVelocity.Magnitude, "Hold", 0, rec.Scale))
+		damage(player, model, CRC.GrabDamage or 6, { From = root.Position, NoKnockdown = true, Hitstop = 0.05, HitsDowned = true })
+		broadcast("DevCarry", char, { Kind = "Grab", Target = model, Ends = CRC.MaxHold and workspace:GetServerTimeNow() + CRC.MaxHold or nil })
+	end
+
+	-- every frame, each carry: still on? their body in his fist
+	function CR.step(player, rec)
+		local now = os.clock()
+		local char, root, model = rec.Char, rec.Root, rec.Model
+		if not model.Parent or not rec.VRoot.Parent or not alive(model) then
+			CR.release(rec, "Gone")
+			return
+		end
+		-- (round 88 review: and still flying - his body's DevFlying, which his
+		-- landing and the flight's end take off; a slam's comes off as he hits
+		-- the street, just before its impact. A flight that ended on his
+		-- machine without a word - his own movers gone - no longer leaves them
+		-- hanging off a dev on foot till MaxHold)
+		-- (round 88, in Studio: a slam's crash landing switches his flight off
+		-- before its impact is in - the slam keeps them till then, or its Timeout)
+		local slamming = rec.State == "Slam" and now - rec.StateAt < ((CRC.Slam or {}).Timeout or 2.5)
+		if not player.Parent or player.Character ~= char or not root.Parent or not alive(char)
+			or (player:GetAttribute("DevFlight") ~= true and not slamming) or not (Kit.DF and Kit.DF.canFly(player)) -- (round 92: taken back: let go)
+			or (rec.State ~= "Slam" and not char:GetAttribute("DevFlying")) then
+			CR.release(rec, "Lost")
+			return
+		end
+		if CR.held(char, root) then
+			CR.release(rec, "Hit")
+			return
+		end
+		-- (round 88 review) let go of them, too: their body taken out of the
+		-- server's hold by anything else (it isn't anchored: a client-owned
+		-- body can't be put anywhere by the server then), or caught in DIO's
+		-- stopped time without him (they stay where time stopped them)
+		local victim = Players:GetPlayerFromCharacter(model)
+		if (victim and victim:GetAttribute("GodMode")) or model:GetAttribute("BeingFinished") or model:GetAttribute("Clashing") or CR.realm(root.Position)
+			or not rec.VRoot.Anchored or model:GetAttribute("TimeStopped") then
+			CR.release(rec, "Drop")
+			return
+		end
+		local st = rec.State
+		local speed = root.AssemblyLinearVelocity.Magnitude
+		if st == "Slam" or st == "Ram" then
+			rec.Peak = math.max(rec.Peak or 0, speed)
+		end
+		if st == "Slam" and now - rec.StateAt > ((CRC.Slam or {}).Timeout or 2.5) then
+			CR.release(rec, "Drop")
+			return
+		end
+		if st == "Ram" and now - rec.StateAt > ((CRC.Ram or {}).Time or 1.1) + 0.6 then
+			CR.release(rec, "RamEnd")
+			return
+		end
+		if (st == "Hold" or st == "Ram") and now - rec.T0 > (CRC.MaxHold or CRC.SafetyHold or 300) then
+			CR.release(rec, st == "Ram" and "RamEnd" or "Time")
+			return
+		end
+		-- (the slam: down on the street - his flight's landing - they stay where
+		-- they hit till his impact comes, not up in the air over him standing)
+		if st == "Slam" and not char:GetAttribute("DevFlying") then
+			return
+		end
+		Grab.place(rec.G, CRC.at(root.CFrame, speed, st, now - rec.StateAt, rec.Scale))
+		-- (round 88 review) a player carried at speed: the map down his path
+		-- asked for on their machine too, as the flight does for his (the
+		-- place streams, PauseOutsideLoadedArea: otherwise their game pauses
+		-- mid-ram). DF.streamAhead's own rate (Stream.Every), from his root
+		local tier = char:GetAttribute("DevFlying")
+		if victim and Kit.DF and Kit.DF.streamAhead and (st == "Ram" or tier == "Fast" or tier == "Hyper" or tier == "Boost" or tier == "Dive") then
+			Kit.DF.streamAhead(victim, root, speed)
+		end
+	end
+	RunService.Heartbeat:Connect(function()
+		for player, rec in CR.by do
+			local ok, err = pcall(CR.step, player, rec)
+			if not ok then
+				warn("[DevCarry] " .. tostring(err))
+				pcall(CR.release, rec, "Lost")
+			end
+		end
+	end)
+
+	-- how high off the street (or far: nothing under them)
+	function CR.height(pos, model)
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = nonMapStuff(model)
+		local hit = workspace:Raycast(pos, Vector3.new(0, -300, 0), rp)
+		return hit and (pos.Y - hit.Position.Y) or 300
+	end
+
+	-- let go (why: Drop / Time / Hit / Lost / Gone, Throw, RamEnd, Slam) -
+	-- the server's grab ends, their stun with it, then what the move does
+	function CR.release(rec, why, dir)
+		if rec.Done then
+			return
+		end
+		rec.Done = true
+		local player, char, root, model = rec.Player, rec.Char, rec.Root, rec.Model
+		if CR.by[player] == rec then
+			CR.by[player] = nil
+		end
+		if CR.of[model] == rec then
+			CR.of[model] = nil
+		end
+		char:SetAttribute("DevCarrying", nil)
+		model:SetAttribute("CarriedBy", nil)
+		model:SetAttribute("CarryState", nil)
+		model:SetAttribute("CarryEnds", nil)
+		local cv = root.Parent and root.AssemblyLinearVelocity or Vector3.zero
+		cv = cv == cv and cv or Vector3.zero
+		local pos = rec.VRoot.Position
+		Grab.release(rec.G)
+		-- (round 88 review) caught in DIO's stopped time (him or them): they
+		-- stay frozen where they are, as everyone in it does - not let fall
+		-- through it. What the let go does to them (the push, the fall, a
+		-- throw's hit) waits on their tab for time to move (TS.push / rag /
+		-- hold), and TS.resume lets go of the body then
+		local stopped = Reactions.TS and Reactions.TS.of(model)
+		if stopped and rec.VRoot.Parent then
+			rec.VRoot.Anchored = true
+		end
+		-- (the Sky Coffin's barrier: taken on the island, let go on it - held
+		-- out past the wall he's pressed against, they're not let go outside
+		-- it; its own rule for every move that puts someone somewhere)
+		if Kit.SC and Kit.SC.keepIn and rec.From and rec.VRoot.Parent then
+			local kept = Kit.SC.keepIn(rec.From, pos)
+			if (kept - pos).Magnitude > 0.5 then
+				rec.VRoot.CFrame = CFrame.new(kept + Vector3.new(0, 3, 0)) * rec.VRoot.CFrame.Rotation
+				pos = rec.VRoot.Position
+			end
+		end
+		local live = model.Parent ~= nil and alive(model)
+		if model.Parent then
+			-- (the grab's long stun ends now: whatever comes next is the move's own)
+			stunTokens[model] = (stunTokens[model] or 0) + 1
+			if live then
+				restoreMovement(model)
+				if stopped and stopped.Stop then
+					stun(model, math.max((stopped.Stop.Until or 0) - os.clock(), 0) + 0.25, 0) -- (stopped time's own stun, not the grab's)
+				end
+			end
+		end
+		local out = nil
+		if live and why == "Throw" then
+			local T = CRC.Throw or {}
+			out = dir or rec.ThrowDir or root.CFrame.LookVector
+			local v = out * (T.Speed or 240) + UP * (T.Speed or 240) * (T.Lift or 0.12) + cv * (T.Carry or 0.35)
+			if v.Magnitude > (T.Max or 360) then
+				v = v.Unit * (T.Max or 360)
+			end
+			damage(player, model, T.Damage or 14, { From = root.Position, Heavy = true, Hitstop = 0.08, HitsDowned = true })
+			knockback(model, v, T.Time or 0.8, true) -- (raw: the full throw - through the buildings in the way)
+		elseif live and why == "RamEnd" then
+			local R = CRC.Ram or {}
+			out = dir or (cv.Magnitude > 20 and cv.Unit) or rec.RamDir or root.CFrame.UpVector
+			damage(player, model, R.EndDamage or 10, { From = root.Position, Heavy = true, Hitstop = 0.08, HitsDowned = true })
+			knockback(model, out * (R.EndPush or 150) + UP * (R.EndPush or 150) * (R.EndLift or 0.12), 0.6, true)
+		elseif live and why ~= "Slam" and why ~= "Gone" then
+			-- let go: they fall, keeping some of his speed (never thrown by it),
+			-- limp from high up
+			local D = CRC.Drop or {}
+			local v = cv * (D.Carry or 0.5)
+			if v.Magnitude > (D.Max or 120) then
+				v = v.Unit * (D.Max or 120)
+			end
+			if v.Magnitude > 15 then
+				knockback(model, v, 0.2, true, true)
+			end
+			local h = CR.height(pos, model)
+			if h > (D.Fall or 10) then
+				ragdoll(model, math.clamp(math.sqrt(2 * h / math.max(workspace.Gravity, 1)) + 0.8, 1, 3))
+			end
+		end
+		-- (round 89) thrown (or flung on off the RAM): limp the whole way, and
+		-- a hard landing where they come down (Kit.FB.thrown watches it)
+		if live and (why == "Throw" or why == "RamEnd") and not stopped and Kit.FB then
+			Kit.FB.thrown(rec, model, why)
+		end
+		broadcast("DevCarry", char, { Kind = "Release", Why = why, Target = model, Pos = pos, Dir = out })
+	end
+
+	-- the slam's impact his machine reported (at: where, or nil), checked: at
+	-- a speed the server saw him reach, or him down near the street already
+	function CR.impact(rec, at)
+		local S = CRC.Slam or {}
+		local char, root = rec.Char, rec.Root
+		if not root.Parent then
+			return false
+		end
+		local speed = Kit.DF and Kit.DF.speedOf(char) or 0
+		at = at or root.Position
+		if (at - root.Position).Magnitude > 40 + speed * 0.3 then
+			at = root.Position
+		end
+		local low = CR.height(root.Position, char) <= (S.Near or 14)
+		if (rec.Peak or 0) >= (S.MinSpeed or 120) or speed >= (S.MinSpeed or 120) or low then
+			CR.slam(rec, at)
+			return true
+		end
+		return false
+	end
+	-- (round 88, in Studio) his screen reports the street before the server
+	-- sees him get there: a short slam (a dive of ~15 studs, over in a tenth
+	-- of a second) was never seen fast, and he was still up in the air where
+	-- the server had him - the slam fizzled and they hung there till the
+	-- Timeout. So it's asked again for a moment, still by what the server
+	-- itself sees (him down on the street), never by his word alone
+	function CR.tryImpact(player, rec, at)
+		if CR.impact(rec, at) or rec.ImpactRetry then
+			return
+		end
+		rec.ImpactRetry = true
+		task.spawn(function()
+			for _ = 1, (CRC.Slam or {}).Retries or 8 do
+				task.wait(0.08)
+				if CR.by[player] ~= rec or rec.Done or rec.State ~= "Slam" or CR.impact(rec, at) then
+					break
+				end
+			end
+			rec.ImpactRetry = nil
+		end)
+	end
+
+	-- THE SLAM's impact: in the street in front of him, on their back - the
+	-- crater, the damage, anyone stood near it hit and knocked off their feet
+	function CR.slam(rec, at)
+		local S = CRC.Slam or {}
+		local player, char, root, model = rec.Player, rec.Char, rec.Root, rec.Model
+		local ground = groundBelow(at + UP * 2, char)
+		local face = rec.Face or Vector3.new(0, 0, -1)
+		local cf = CRC.downAt(ground, face)
+		Grab.place(rec.G, cf)
+		CR.release(rec, "Slam")
+		if not (model.Parent and alive(model)) then
+			return
+		end
+		damage(player, model, S.Damage or 26, { From = root.Position, Heavy = true, Hitstop = 0.12, HitsDowned = true })
+		ragdoll(model, S.Down or 2.4)
+		if workspace:GetAttribute("DestructionEnabled") ~= false then
+			Destruction.Sphere(cf.Position - UP * 0.5, S.Crater or 6.5, "Crater", UP)
+		end
+		local knock = S.Knock or { 70, 36 }
+		for _, m in queryRadius(char, ground + UP * 2, S.SplashRadius or 12) do
+			if m ~= model and Kit.DF and Kit.DF.canKnock(player, m) and damage(player, m, S.Splash or 8, { From = ground, Hitstop = 0.04 }) then
+				local mr = m:FindFirstChild("HumanoidRootPart")
+				if mr and not mr:FindFirstChild("Knockback") then
+					knockback(m, awayFrom(ground, m, face) * knock[1] + UP * knock[2], 0.25)
+				end
+			end
+		end
+		broadcast("DevCarry", char, { Kind = "Impact", Target = model, Pos = ground, Face = face, Radius = S.Crater or 6.5 })
+	end
+
+	-- RAM: a building the flight smashed through while he rams them into it
+	-- (DF.smash's own checked hole) - it hurts them, and everyone sees them
+	-- go through it (round 87's beat, on their body)
+	function CR.smashed(player, a, b, d, r, speed)
+		local rec = CR.by[player]
+		local R = CRC.Ram or {}
+		if not rec or rec.Done or rec.State ~= "Ram" or rec.Walls >= (R.MaxWalls or 5) then
+			return
+		end
+		rec.Walls += 1
+		local model = rec.Model
+		damage(player, model, R.WallDamage or 5, { From = a, Hitstop = 0.05, HitsDowned = true, NoKnockdown = true })
+		broadcast("Smash", model, { Kind = "Through", A = a, B = b, Dir = d, R = r, N = rec.Walls, Into = speed, Attacker = player })
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		local rec = CR.by[player]
+		if rec then
+			CR.release(rec, "Lost")
+		end
+		CR.last[player] = nil
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 90) polish: THE SHIELD GOES DOWN (Config.SkyCoffin.Break; the
+-- owner: "turn off animation for the shield"). A dev flying into the Sky
+-- Coffin's electromagnetic barrier breaks it. His own machine sees the
+-- face coming (Config's Break.cross), lets him through on its screen at
+-- once, plays the break and the shield powering down, and tells the server
+-- (DevBarrier). Here it's checked by the dev flight's own gate
+-- (Kit.DF.allowed, the switch on, his body flying, a speed the server has
+-- seen, the spot on the barrier and near where the server sees him, a few
+-- a second), and the shield goes down for everyone: every collider of it
+-- (the 12 walls' and the lid) stops colliding, nobody's jolted (SC.tick
+-- asks SB.isDown), every other screen is told (SkyBreak: the crack, the
+-- shards, the boom - each screen runs the power-down round the ring from
+-- there), and the island carries when it broke and when it's whole again
+-- (BarrierDown / BarrierUp, on the server's clock: a screen that comes
+-- near, or joins, later picks it up where it is). Down + Boot s later it's
+-- solid again, every collider exactly as built. While it's down there's
+-- nothing to break.
+-- (Its own block: the main chunk is at its local limit. Kit.onUseAbility
+-- routes DevBarrier here.)
+---------------------------------------------------------------------------
+do
+	local SB = { KINDS = { DevBarrier = true }, last = {}, down = nil }
+	Kit.SB = SB
+	Destruction.SkyBreak = SB -- (for the tests, as Kit.Smash is: Destruction.Smash)
+	function SB.cfg()
+		return (Config.SkyCoffin or {}).Break or {}
+	end
+	function SB.model()
+		local map = workspace:FindFirstChild("Map")
+		return (map and map:FindFirstChild("SkyCoffin")) or workspace:FindFirstChild("SkyCoffin")
+	end
+	-- what stops you: the 12 walls' colliders and the lid (SC.build tags them)
+	function SB.solids()
+		local list = {}
+		local m = SB.model()
+		for _, d in m and m:GetChildren() or {} do
+			if d:IsA("BasePart") and d.Name == "Barrier" and d:GetAttribute("BarrierFace") ~= nil then
+				table.insert(list, d)
+			end
+		end
+		return list
+	end
+	-- is the shield down (or still booting back up)? Nobody's stopped by it
+	-- or jolted (SC.tick)
+	function SB.isDown()
+		return SB.down ~= nil
+	end
+	-- the shield down for everyone, from now: every collider let go (what
+	-- each was kept, to put back), the island told when it broke and when
+	-- it's whole again (the server's clock), every other screen the break
+	function SB.fail(player, char, face, at, dir, speed, lid)
+		local B = SB.cfg()
+		local m = SB.model()
+		local now = os.clock()
+		local open = (B.Down or 15) + (B.Boot or 3.4)
+		local st = { at = now, upAt = now + open, saved = {} }
+		for _, p in SB.solids() do
+			st.saved[p] = p.CanCollide
+			p.CanCollide = false
+		end
+		SB.down = st
+		local T = workspace:GetServerTimeNow()
+		m:SetAttribute("BarrierAt", B.wallAt(at)) -- (where round the ring: the failure runs from there)
+		m:SetAttribute("BarrierUp", T + open)
+		m:SetAttribute("BarrierDown", T)
+		broadcast("SkyBreak", char, { Face = face, Pos = at, R = B.radius(speed), Dir = dir, Lid = lid, Speed = speed, T = T }, player)
+	end
+	-- ...and back up: every collider exactly as it was, the island's clock cleared
+	function SB.restore()
+		local st = SB.down
+		SB.down = nil
+		for p, was in st and st.saved or {} do
+			if p.Parent then
+				p.CanCollide = was
+			end
+		end
+		local m = SB.model()
+		if m then
+			m:SetAttribute("BarrierDown", nil)
+			m:SetAttribute("BarrierUp", nil)
+			m:SetAttribute("BarrierAt", nil)
+		end
+	end
+
+	-- his machine: { Face (the drawn face he's going through: W0..W11 /
+	-- R0..R11, or Lid - only the lid, no face of the field on that line),
+	-- Pos (on it), Lid (where his line crosses the lid, going through the
+	-- roof), Dir }
+	function SB.relay(player, char, kind, data)
+		local B = SB.cfg()
+		local DF = Kit.DF
+		-- ((round 92) a dev's, or a grant's with FULL POWER: DF.fullPower)
+		if kind ~= "DevBarrier" or not (DF and DF.fullPower(player)) or player:GetAttribute("DevFlight") ~= true then
+			return
+		end
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root or not alive(char) or not char:GetAttribute("DevFlying") or not SB.model() then
+			return
+		end
+		data = type(data) == "table" and data or {}
+		local face, pos = data.Face, data.Pos
+		if type(face) ~= "string" or not DF.vec(pos) then
+			return
+		end
+		local now = os.clock()
+		-- (down already, or still booting back up: there's nothing to break)
+		if SB.down or now - (SB.last[player] or -1e9) < (B.Gap or 0.2) then
+			return
+		end
+		local speed = DF.speedOf(char)
+		if speed < (B.MinSpeed or 60) * 0.5 then
+			return
+		end
+		local reach = 30 + speed * 0.3
+		local C, _, BH, inR = B.dims()
+		-- where his line crosses the lid (the roof), if it does
+		local lid = DF.vec(data.Lid) and data.Lid or nil
+		if face == "Lid" then
+			lid = pos
+		end
+		if lid then
+			-- (his machine tells it as he bursts out of the roof's tent, up to
+			-- 80 studs past the lid on his way up)
+			local d = lid - C
+			if math.abs(d.Y - (BH + 3)) > 5 or Vector3.new(d.X, 0, d.Z).Magnitude > inR + 2 or (lid - root.Position).Magnitude > reach + 90 then
+				return
+			end
+		end
+		-- the face and the spot on it (on its plane)
+		local at = pos
+		if face ~= "Lid" then
+			local f = B.frame(face)
+			if not f then
+				return
+			end
+			local x, y, z = B.local2(f, pos)
+			if math.abs(z) > 4 or not B.inside(f, x, y, -3) or (pos - root.Position).Magnitude > reach + (lid and 160 or 6) then
+				return
+			end
+			at = B.world(f, x, y)
+		end
+		SB.last[player] = now
+		local dir = (DF.vec(data.Dir) and data.Dir.Magnitude > 0.01) and data.Dir.Unit or root.CFrame.LookVector
+		SB.fail(player, char, face, at, dir, speed, lid)
+	end
+
+	-- its time up: the shield whole again
+	RunService.Heartbeat:Connect(function()
+		local st = SB.down
+		if st and os.clock() >= st.upAt then
+			SB.restore()
+		end
+	end)
+	Players.PlayerRemoving:Connect(function(player)
+		SB.last[player] = nil
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 90) SAITAMA (Config.Quirks.Saitama, Config.Saitama): his look (the
+-- yellow jumpsuit, the red gloves and boots, the belt, the white cape every
+-- screen swings, his own face over the avatar's - serious in the ult - and
+-- the hair off), and every move's gameplay: NORMAL PUNCH (and its gale),
+-- CONSECUTIVE NORMAL PUNCHES, SERIOUS SNEEZE, SERIOUS SIDE HOPS (the
+-- dodge; his own machine carries him round them), SERIOUS TABLE FLIP, and
+-- the ult's SERIOUS PUNCH: the windup (anchored, untouchable), then the
+-- wave out over the whole city - everyone hit as it reaches them
+-- (Config.SeriousWave, the one law every screen draws), thrown but kept on
+-- the map - and the real map's crater and trench. The rest of the city is
+-- blown away and put back on every screen (VFX.ST); nothing else changes
+-- here, so a full server only ever sends the bodies' hits and a few carves.
+-- (No new top-level locals: the server's main chunk is at its limit.)
+---------------------------------------------------------------------------
+do
+	local ST = { Q = Config.Quirks.Saitama or {}, C = Config.Saitama or {}, watch = {}, punching = {} }
+	Kit.ST = ST
+	Destruction.Saitama = ST -- (the tests reach it here, as they do Kit.Smash)
+
+	---------------------------------------------------------------------
+	-- his look
+	---------------------------------------------------------------------
+	-- a piece of the suit, welded on at cf (in part's space)
+	function ST.piece(cos, part, size, color, name, cf, material, shape)
+		local p = gearPart(cos, size, color, material or Enum.Material.SmoothPlastic, shape)
+		p.Name = name
+		weld(part, p, cf or CFrame.new())
+		return p
+	end
+
+	-- the cape: a collar over the shoulders, then Segments hanging off the
+	-- back of them, each hinged on a Weld ("CapeJoint": C0 at the hinge, C1
+	-- at the segment's top edge) that every screen swings (VFX.ST.cape)
+	function ST.cape(cos, torso)
+		local C, L = ST.C.Cape or {}, ST.C.Look or {}
+		local ts = torso.Size
+		local k = ts.Y / 2 -- (a bigger body, a bigger cape)
+		local model = Instance.new("Model")
+		model.Name = "SaitamaCape"
+		model:SetAttribute("Scale", k)
+		ST.piece(model, torso, Vector3.new(ts.X * 0.94, 0.16 * k, 0.5 * k), L.Cape, "CapeCollar", CFrame.new(0, ts.Y / 2 + 0.03, ts.Z * 0.16), Enum.Material.Fabric)
+		local prev, prevH = torso, 0
+		for i, seg in C.Segments or {} do
+			local w, h = seg[1] * k, seg[2] * k
+			local p = gearPart(model, Vector3.new(w, h + 0.06 * k, (C.Thick or 0.08) * k), i == #C.Segments and L.CapeEdge or L.Cape, Enum.Material.Fabric)
+			p.Name = "CapeSeg" .. i
+			p:SetAttribute("Seg", i)
+			local hinge = i == 1 and CFrame.new(0, ts.Y / 2 - 0.06, ts.Z / 2 + 0.08) or CFrame.new(0, -prevH / 2, 0)
+			local j = Instance.new("Weld")
+			j.Name = "CapeJoint"
+			j.Part0 = prev
+			j.Part1 = p
+			-- (hung straight down off his back, a little out from it: the
+			-- screens swing it from here)
+			j.C0 = hinge * CFrame.Angles(math.rad(i == 1 and -(C.Rest or 6) or 0), 0, 0)
+			j.C1 = CFrame.new(0, h / 2, 0)
+			p.CFrame = prev.CFrame * j.C0 * j.C1:Inverse()
+			j.Parent = p
+			prev, prevH = p, h
+		end
+		model.Parent = cos
+		return model
+	end
+
+	-- his face, drawn over the avatar's (its decal hidden: ST.bare): deadpan,
+	-- or SERIOUS (the ult). Lines on the front of the head, in its visible size
+	function ST.face(cos, head, serious)
+		local F, L = ST.C.Face or {}, ST.C.Look or {}
+		local v = visibleHead(head)
+		local s = v.X / 1.2
+		local z = -v.Z / 2 - 0.004
+		local face = Instance.new("Model")
+		face.Name = "SaitamaFace"
+		face:SetAttribute("Serious", serious == true)
+		local function line(size, x, y, rz, name, color, dz)
+			local p = gearPart(face, size * s, color or L.Ink, Enum.Material.SmoothPlastic)
+			p.Name = name
+			weld(head, p, CFrame.new(x * s, y * s, z + (dz or 0)) * CFrame.Angles(0, 0, math.rad(rz or 0)))
+			return p
+		end
+		if serious then
+			for _, side in { 1, -1 } do
+				line(F.SeriousEye, side * F.EyeX, F.EyeY, side * 4, "FaceEye")
+				-- (brows slanting down to the middle: the inner end lower)
+				line(F.Brow, side * (F.EyeX + 0.02), F.BrowY, side * (F.BrowTilt or 16), "FaceBrow")
+			end
+			line(F.SeriousMouth, 0, F.MouthY, 0, "FaceMouth")
+			local shade = line(F.ShadeSize, 0, F.ShadeY, 0, "FaceShade", L.Shadow, 0.006)
+			shade.Transparency = F.ShadeTransparency or 0.55
+		else
+			for _, side in { 1, -1 } do
+				line(F.Eye, side * F.EyeX, F.EyeY, 0, "FaceEye")
+				line(F.Lid, side * F.EyeX, F.EyeY + (F.LidY or 0.08), 0, "FaceLid")
+			end
+			line(F.Mouth, 0, F.MouthY, 0, "FaceMouth")
+		end
+		face.Parent = cos
+		return face
+	end
+
+	-- THE LOOK (buildGear: in Cosmetics). R6 limbs get the suit; an R15 body
+	-- (never, with ForceR6) just the cape and the face
+	function ST.look(cos, char, ult)
+		local L = ST.C.Look or {}
+		local over = L.Over or 0.04
+		local pad = Vector3.new(over * 2, over, over * 2)
+		local torso = findLimb(char, "UpperTorso", "Torso")
+		local r6 = char:FindFirstChild("Torso") ~= nil
+		if torso and r6 then
+			local ts = torso.Size
+			ST.piece(cos, torso, ts + pad, L.Suit, "SaitamaSuit")
+			-- the zip down the front, collar to belt
+			ST.piece(cos, torso, Vector3.new(0.06, ts.Y * 0.62, 0.02), L.SuitShade, "SaitamaSuit", CFrame.new(0, ts.Y * 0.12, -(ts.Z / 2 + over + 0.01)))
+			-- the belt and its round buckle
+			local beltY = -ts.Y / 2 + 0.22
+			ST.piece(cos, torso, Vector3.new(ts.X + over * 2 + 0.06, 0.26, ts.Z + over * 2 + 0.06), L.Belt, "SaitamaBelt", CFrame.new(0, beltY, 0))
+			local face = CFrame.new(0, beltY, -(ts.Z / 2 + over + 0.06)) * CFrame.Angles(0, math.rad(90), 0)
+			ST.piece(cos, torso, Vector3.new(0.08, 0.5, 0.5), L.Belt, "SaitamaBuckle", face, nil, Enum.PartType.Cylinder)
+			ST.piece(cos, torso, Vector3.new(0.1, 0.34, 0.34), L.Buckle, "SaitamaBuckle", face * CFrame.new(-0.02, 0, 0), Enum.Material.Metal, Enum.PartType.Cylinder)
+		end
+		if r6 then
+			for _, name in { "Right Arm", "Left Arm", "Right Leg", "Left Leg" } do
+				local limbPart = char:FindFirstChild(name)
+				if limbPart then
+					local s = limbPart.Size
+					local arm = name:find("Arm") ~= nil
+					local share = arm and (L.GloveShare or 0.36) or (L.BootShare or 0.42)
+					ST.piece(cos, limbPart, s + pad, L.Suit, "SaitamaSuit")
+					local h = s.Y * share
+					ST.piece(cos, limbPart, Vector3.new(s.X + over * 2 + 0.06, h, s.Z + over * 2 + 0.06), L.Glove, arm and "SaitamaGlove" or "SaitamaBoot",
+						CFrame.new(0, -s.Y / 2 + h / 2 - (arm and 0.02 or 0.03), 0))
+					-- the cuff round its top
+					ST.piece(cos, limbPart, Vector3.new(s.X + over * 2 + 0.16, 0.14, s.Z + over * 2 + 0.16), L.GloveCuff, arm and "SaitamaGlove" or "SaitamaBoot",
+						CFrame.new(0, -s.Y / 2 + h - 0.04, 0))
+				end
+			end
+		end
+		if torso then
+			ST.cape(cos, torso)
+		end
+		local head = char:FindFirstChild("Head")
+		if head then
+			ST.face(cos, head, ult == true)
+			-- the light on his bald head (the shine)
+			local v = visibleHead(head)
+			local shine = ST.C.Look and ST.C.Look.Shine or {}
+			local p = gearPart(cos, (shine.Size or Vector3.new(0.34, 0.12, 0.22)) * (v.X / 1.2), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
+			local mesh = Instance.new("SpecialMesh")
+			mesh.MeshType = Enum.MeshType.Sphere
+			mesh.Parent = p
+			p.Name = "SaitamaShine"
+			p.Transparency = shine.Transparency or 0.45
+			weld(head, p, CFrame.new(-0.14 * v.X, 0.47 * v.Y, -0.18 * v.Z) * CFrame.Angles(math.rad(-25), 0, math.rad(12)))
+		end
+	end
+
+	-- BALD, and his own face: the avatar's hair and hats and its face decal
+	-- see-through while he's Saitama (and wearing his look), each put back
+	-- as it was after. Things the avatar puts on later are caught as they come.
+	ST.HEAD = { HairAttachment = true, HatAttachment = true, FaceFrontAttachment = true, FaceCenterAttachment = true }
+	function ST.bare(char, on)
+		char:SetAttribute("SaitamaBald", on or nil)
+		local function apply(inst)
+			local target
+			if inst:IsA("Accessory") then
+				local handle = inst:FindFirstChild("Handle")
+				local onHead = false
+				for _, a in handle and handle:GetChildren() or {} do
+					if a:IsA("Attachment") and ST.HEAD[a.Name] then
+						onHead = true
+					end
+				end
+				target = onHead and handle:IsA("BasePart") and handle or nil
+			elseif inst:IsA("Decal") and inst.Parent and inst.Parent.Name == "Head" and inst.Face == Enum.NormalId.Front then
+				target = inst
+			end
+			if not target then
+				return
+			end
+			if char:GetAttribute("SaitamaBald") then
+				if target:GetAttribute("SaitamaHid") == nil then
+					target:SetAttribute("SaitamaHid", target.Transparency)
+				end
+				target.Transparency = 1
+			elseif target:GetAttribute("SaitamaHid") ~= nil then
+				local was = target:GetAttribute("SaitamaHid")
+				target:SetAttribute("SaitamaHid", nil)
+				-- (round 90 review) another look hides it now (Dabi's or DIO's
+				-- hair: Kit.avatarHair ran first, this frame, and took "hidden"
+				-- for the avatar's own): it gets the real one back, to give back
+				-- when that look's done - else the hair'd show under theirs now
+				-- and stay gone for good after
+				if target:GetAttribute("LookTransparency") ~= nil then
+					target:SetAttribute("LookTransparency", was)
+				else
+					target.Transparency = was
+				end
+			end
+		end
+		local head = char:FindFirstChild("Head")
+		for _, d in char:GetChildren() do
+			if d:IsA("Accessory") then
+				apply(d)
+			end
+		end
+		for _, d in head and head:GetChildren() or {} do
+			apply(d)
+		end
+		local w = ST.watch[char]
+		if on and not w then
+			w = {}
+			ST.watch[char] = w
+			w[1] = char.ChildAdded:Connect(function(inst)
+				if inst:IsA("Accessory") then
+					task.defer(apply, inst)
+				end
+			end)
+			if head then
+				w[2] = head.ChildAdded:Connect(function(inst)
+					task.defer(apply, inst)
+				end)
+			end
+			-- (the body gone: the watch with it)
+			pcall(function()
+				w[3] = char.AncestryChanged:Connect(function(_, parent)
+					if parent == nil then
+						ST.unwatch(char)
+					end
+				end)
+			end)
+		elseif not on and w then
+			ST.unwatch(char)
+		end
+	end
+	function ST.unwatch(char)
+		local w = ST.watch[char]
+		ST.watch[char] = nil
+		for _, c in w or {} do
+			c:Disconnect()
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- the moves
+	---------------------------------------------------------------------
+	-- everyone a blast can reach: the players' bodies (not anyone in the
+	-- vestige realm), the dummies, Twice's doubles, the raid's Nomu
+	function ST.bodies()
+		local list = {}
+		for _, plr in Players:GetPlayers() do
+			local c = plr.Character
+			if c and c.Parent and not plr:GetAttribute("InVestige") then
+				table.insert(list, c)
+			end
+		end
+		for _, name in { "Dummies", "TwiceClones", "NomuRaid" } do
+			local f = workspace:FindFirstChild(name)
+			for _, m in f and f:GetChildren() or {} do
+				if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") then
+					table.insert(list, m)
+				end
+			end
+		end
+		return list
+	end
+
+	-- the walkable city (the map's ground and roads, once): nil if there's none
+	function ST.city()
+		if ST.bounds ~= nil then
+			return ST.bounds or nil
+		end
+		local map = workspace:FindFirstChild("Map")
+		local mn, mx
+		for _, name in { "Ground", "Roads" } do
+			local f = map and map:FindFirstChild(name)
+			for _, p in f and f:GetDescendants() or {} do
+				if p:IsA("BasePart") then
+					local c, h = p.Position, p.Size / 2
+					local r = math.max(h.X, h.Z) -- (rotated plates: their widest)
+					mn = mn and Vector3.new(math.min(mn.X, c.X - r), 0, math.min(mn.Z, c.Z - r)) or Vector3.new(c.X - r, 0, c.Z - r)
+					mx = mx and Vector3.new(math.max(mx.X, c.X + r), 0, math.max(mx.Z, c.Z + r)) or Vector3.new(c.X + r, 0, c.Z + r)
+				end
+			end
+		end
+		ST.bounds = mn and { Min = mn, Max = mx } or false
+		return ST.bounds or nil
+	end
+
+	-- a throw from pos along `push` (studs/s across) with `lift`, cut short
+	-- if it would carry them past the city's edge (they land `edge` inside
+	-- it). The game's own scaling of a move's push and a limp body's are
+	-- in the guess (Config.Knockback, Config.Ragdoll.KnockbackScale)
+	function ST.keepOn(pos, push, lift, hold, edge)
+		local box = ST.city()
+		local across = Vector3.new(push.X, 0, push.Z)
+		if not box or across.Magnitude < 1 then
+			return push
+		end
+		local KB = Config.Knockback or {}
+		local limp = (Config.Ragdoll and Config.Ragdoll.KnockbackScale) or 0.8
+		local vh = across.Magnitude * (KB.MoveScale or 1) * limp
+		local vy = math.max(lift, 0) * (KB.MoveLift or 1) * limp
+		local g = math.max(workspace.Gravity, 1)
+		local travel = vh * (hold + 2 * vy / g) * 1.15
+		local dir = across.Unit
+		local most = math.huge
+		local lo, hi = box.Min + Vector3.new(edge, 0, edge), box.Max - Vector3.new(edge, 0, edge)
+		for _, axis in { "X", "Z" } do
+			local v = dir[axis]
+			if v > 1e-3 then
+				most = math.min(most, (hi[axis] - pos[axis]) / v)
+			elseif v < -1e-3 then
+				most = math.min(most, (lo[axis] - pos[axis]) / v)
+			end
+		end
+		if travel <= most then
+			return push
+		end
+		local k = math.clamp(math.max(most, 0) / travel, 0.15, 1)
+		return Vector3.new(push.X * k, push.Y, push.Z * k)
+	end
+
+	-- 1: NORMAL PUNCH - the nearest in front, punched; the gale on down the line
+	function Handlers.NormalPunch(player, char, root, ability, dir)
+		local d = flatten(dir, root)
+		task.wait(ability.Startup or 0.16)
+		if not alive(char) then
+			return
+		end
+		d = flatten(root.CFrame.LookVector:Lerp(d, 0.5), root)
+		local range, width = ability.Range or 8.5, ability.Width or 6
+		local look = CFrame.lookAt(root.Position, root.Position + d)
+		local target, best
+		for _, model in Rewind.QueryBox(player, char, look * CFrame.new(0, 0.5, -range / 2), Vector3.new(width, 7, range)) do
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			local dist = mr and (mr.Position - root.Position).Magnitude
+			if dist and (not best or dist < best) then
+				target, best = model, dist
+			end
+		end
+		local at = root.Position + d * 4
+		local hitSet = {}
+		local landed = false
+		if target then
+			hitSet[target] = true
+			local tr = target:FindFirstChild("HumanoidRootPart")
+			at = tr and tr.Position or at
+			landed = damage(player, target, ability.Damage or 16, { From = root.Position, Heavy = true, Hitstop = 0.12, Quiet = true })
+			if landed then
+				knockback(target, d * (ability.Launch or 150) + UP * (ability.Lift or 55), 0.3)
+				ragdoll(target, ability.Ragdoll or 1.6)
+			end
+		end
+		local wr, ww = ability.WindRange or 50, ability.WindWidth or 10
+		broadcast("NormalPunchHit", char, { Target = landed and target or nil, Pos = at, Dir = d, Range = wr, Width = ww })
+		-- the gale behind them: everyone else down the line
+		local gale = CFrame.lookAt(at, at + d)
+		for _, model in queryBox(char, gale * CFrame.new(0, 2, -wr / 2), Vector3.new(ww, 14, wr), hitSet) do
+			if damage(player, model, ability.WindDamage or 4, { From = at, Quiet = true, NoKnockdown = true }) then
+				knockback(model, d * (ability.WindPush or 110) + UP * (ability.WindLift or 30), 0.25)
+			end
+		end
+		Destruction.Capsule(at + d * 4 + UP * 3, at + d * (wr * 0.8) + UP * 3, ww * 0.35, "Wind", d)
+	end
+
+	-- 2: CONSECUTIVE NORMAL PUNCHES - the flurry in front of him (where he
+	-- faces), holding them in it; the last one throws them
+	function Handlers.ConsecutivePunches(player, char, root, ability)
+		local range, wide = ability.Range or 8, ability.Width or 9
+		task.wait(ability.Startup or 0.15)
+		for _ = 1, ability.Hits or 14 do
+			if not alive(char) then
+				return
+			end
+			local d = flatten(root.CFrame.LookVector, root)
+			local look = CFrame.lookAt(root.Position, root.Position + d)
+			for _, model in Rewind.QueryBox(player, char, look * CFrame.new(0, 0.5, -(range / 2 + 1)), Vector3.new(wide, 8, range)) do
+				if damage(player, model, ability.Damage or 1, { From = root.Position, NoKnockdown = true, Quiet = true }) then
+					knockback(model, d * 5, 0.08)
+					stun(model, 0.45)
+				end
+			end
+			task.wait(ability.Interval or 0.07)
+		end
+		if not alive(char) then
+			return
+		end
+		local d = flatten(root.CFrame.LookVector, root)
+		local look = CFrame.lookAt(root.Position, root.Position + d)
+		-- (every screen draws the flurry and its last punch on its own clock:
+		-- Effects.ConsecutivePunches)
+		for _, model in Rewind.QueryBox(player, char, look * CFrame.new(0, 0.5, -(range / 2 + 1.5)), Vector3.new(wide + 2, 9, range + 2)) do
+			if damage(player, model, ability.FinisherDamage or 8, { From = root.Position, Heavy = true, Hitstop = 0.1, Quiet = true }) then
+				knockback(model, d * (ability.Launch or 120) + UP * (ability.Lift or 40), 0.25)
+				stun(model, 1)
+				ragdoll(model, 1.2)
+			end
+		end
+		Destruction.Sphere(root.Position + d * 6 + UP * 1.5, 5, "Impact", d)
+	end
+
+	-- 3: SERIOUS SNEEZE - the cone of wind down the aim
+	function Handlers.SeriousSneeze(player, char, root, ability, dir)
+		local d = flatten(dir, root)
+		task.wait(ability.Windup or 0.75)
+		if not alive(char) then
+			return
+		end
+		local origin = root.Position
+		local range = ability.Range or 70
+		local cone = math.rad(ability.Cone or 30)
+		local cosCone = math.cos(cone)
+		for _, model in queryRadius(char, origin + d * (range / 2), range / 2 + 6) do
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			local v = mr and mr.Position - origin
+			local flat = v and Vector3.new(v.X, 0, v.Z)
+			if flat and flat.Magnitude <= range and math.abs(v.Y) < 24 and (flat.Magnitude < 4 or flat.Unit:Dot(d) >= cosCone) then
+				if damage(player, model, ability.Damage or 9, { From = origin, Heavy = true, Quiet = true }) then
+					local out = flat.Magnitude > 0.5 and flat.Unit or d
+					knockback(model, (d * 0.7 + out * 0.3).Unit * (ability.Push or 150) + UP * (ability.Lift or 45), 0.3)
+					ragdoll(model, ability.Ragdoll or 1.4)
+				end
+			end
+		end
+		-- (the sneeze itself is every screen's own, Windup after the move: Effects.SeriousSneeze)
+		-- the cone scoured (over the street: it stays)
+		local look = CFrame.lookAt(origin, origin + d)
+		Destruction.Box(look * CFrame.new(0, 4, -range * 0.55), Vector3.new(range * math.tan(cone) * 0.9, 10, range * 0.9), "Wind", d)
+	end
+
+	-- R: SERIOUS SIDE HOPS - untouchable while he hops (his own machine
+	-- carries him round them: VFX.ST.hops)
+	function Handlers.SeriousSideHops(_player, char, _root, ability)
+		iFrames[char] = math.max(iFrames[char] or 0, os.clock() + (ability.Dodge or 0.6))
+	end
+
+	-- 4: SERIOUS TABLE FLIP - the slab of street in front: up (everyone on
+	-- it thrown up and over), over its far edge, and down upside down past it
+	function Handlers.SeriousTableFlip(player, char, root, ability, dir)
+		local d = flatten(dir, root)
+		local feet = groundBelow(root.Position, char)
+		local ahead, len, wid = ability.Ahead or 3, ability.Length or 34, ability.Width or 26
+		local look = CFrame.lookAt(feet, feet + d)
+		local slab = look * CFrame.new(0, 0, -(ahead + len / 2))
+		-- (every screen turns its own slab over on the same beats: Effects.SeriousTableFlip)
+		task.wait(ability.Grip or 0.35)
+		if not alive(char) then
+			return
+		end
+		local thrown = {}
+		for _, model in queryBox(char, slab * CFrame.new(0, 5, 0), Vector3.new(wid, 14, len)) do
+			thrown[model] = true
+			if damage(player, model, ability.Damage or 10, { From = feet, Heavy = true, Quiet = true }) then
+				knockback(model, d * (ability.Launch or 40) + UP * (ability.Lift or 105), 0.3)
+				ragdoll(model, 1.6)
+			end
+		end
+		-- the slab torn out of the street (a pit where it was)
+		Destruction.Box(slab, Vector3.new(wid * 0.9, 3, len * 0.92), "TableFlip", UP)
+		task.wait(ability.Flip or 0.6)
+		if not alive(char) then
+			return
+		end
+		-- over its far edge: it lands upside down on the next stretch of street
+		local land = look * CFrame.new(0, 0, -(ahead + len + (ability.Reach or len) / 2))
+		for _, model in queryBox(char, land * CFrame.new(0, 5, 0), Vector3.new(wid, 16, ability.Reach or len), thrown) do
+			if damage(player, model, ability.SlamDamage or 12, { From = land.Position + UP * 12, Heavy = true, HitsDowned = true, Quiet = true }) then
+				knockback(model, d * 30 - UP * 40, 0.2)
+				stun(model, ability.SlamStun or 1.2)
+				ragdoll(model, 1.4)
+			end
+		end
+		Destruction.Box(land * CFrame.new(0, 3, 0), Vector3.new(wid * 0.85, 8, (ability.Reach or len) * 0.9), "Crater", -UP)
+	end
+
+	-- ULT 3: SERIOUS SERIES: SERIOUS PUNCH
+	function Handlers.SeriousPunch(player, char, root, ability, dir, _pos, cast)
+		local d = flatten(dir, root)
+		local windup = ability.Windup or 4.2
+		local wasAnchored = root.Anchored
+		root.Anchored = true
+		-- (round 90 review) and turned to the punch here: his own machine
+		-- turns him as he presses, but the root's anchored from now on, so
+		-- that never got here - every other screen saw him wind up and punch
+		-- facing wherever he was facing before
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + d)
+		ST.punching[char] = os.clock()
+		local released = false
+		local function release()
+			if not released then
+				released = true
+				ST.punching[char] = nil
+				-- (round 90 review) frozen solid or caught in DIO's stopped
+				-- time, he stays anchored: theirs to let go (they kept ours)
+				if root.Parent and not char:GetAttribute("TimeStopped") and not char:GetAttribute("Frozen") then
+					root.Anchored = wasAnchored
+				end
+			end
+		end
+		-- (whatever happens, he's let go)
+		task.delay(windup + (ability.Follow or 0.6) + 2, release)
+		local t0 = os.clock()
+		while os.clock() - t0 < windup do
+			task.wait(0.1)
+			-- (round 90 review) called off too when he's someone else now (the
+			-- hero menu: the punch went on 4 s later as another hero) or time
+			-- stops on him (a cinematic can't be cut, so it went off from inside
+			-- DIO's stopped time)
+			if not alive(char) or player.Character ~= char or player:GetAttribute("Quirk") ~= "Saitama"
+				or char:GetAttribute("TimeStopped") or char:GetAttribute("Frozen") then
+				release()
+				broadcast("SeriousPunchCancel", char, {})
+				return
+			end
+		end
+		local origin = root.Position
+		broadcast("SeriousPunchGo", char, { Origin = origin, Dir = d, At = workspace:GetServerTimeNow(), Seed = cast and cast.Seed or 0 })
+		task.delay(ability.Follow or 0.6, release)
+		ST.blast(player, char, origin, d, ability)
+	end
+
+	-- the wave: everyone in the city as it reaches them, and the real map's
+	-- crater (now) and trench (each stretch as the wave gets down the line)
+	function ST.blast(player, char, origin, d, ability)
+		local feetY = origin.Y - Kit.standHeight(char)
+		local events = {}
+		for _, model in ST.bodies() do
+			local mr = model ~= char and model:FindFirstChild("HumanoidRootPart")
+			if mr then
+				local p = mr.Position
+				local flat = Vector3.new(p.X - origin.X, 0, p.Z - origin.Z).Magnitude
+				if flat <= (ability.Radius or 1700) and p.Y - feetY <= (ability.Above or 320) and feetY - p.Y <= (ability.Below or 140) then
+					local t, inLine = Config.SeriousWave(ability, origin, d, p)
+					table.insert(events, { T = t, Model = model, Line = inLine })
+				end
+			end
+		end
+		local r = ability.TrenchRadius or 18
+		local step = ability.TrenchStep or 80
+		local s = ability.TrenchStart or 14
+		while s < (ability.Trench or 640) do
+			local e = math.min(s + step, ability.Trench or 640)
+			local a = Vector3.new(origin.X, feetY + r * 0.75, origin.Z) + d * s
+			local b = Vector3.new(origin.X, feetY + r * 0.75, origin.Z) + d * e
+			table.insert(events, { T = (Config.SeriousWave(ability, origin, d, (a + b) / 2)), Carve = { a, b } })
+			s = e
+		end
+		table.sort(events, function(x, y)
+			return x.T < y.T
+		end)
+		Destruction.Sphere(groundBelow(origin, char), ability.Crater or 24, "Crater", d)
+		local move = Moves.current()
+		local t0 = os.clock()
+		task.spawn(function()
+			Moves.join(move)
+			for _, e in events do
+				local wait = e.T - (os.clock() - t0)
+				if wait > 0 then
+					task.wait(wait)
+				end
+				if e.Carve then
+					Destruction.Capsule(e.Carve[1], e.Carve[2], r, "SeriousPunch", d, { Above = feetY + 0.5, Budget = ability.TrenchBudget or 260 })
+				elseif e.Model.Parent then
+					ST.hit(player, e.Model, origin, d, ability, e.Line)
+				end
+			end
+		end)
+		-- (round 94) the trench and the crater come back with the city
+		-- (Kit.wipeRebuild: defined with the light wipe's, further down)
+		if Kit.wipeRebuild then
+			Kit.wipeRebuild(origin, Config.SeriousWave, ability, d, (Config.Saitama or {}).Wipe, {
+				Radius = ability.Radius or 1700, Above = ability.Above or 320, Below = ability.Below or 140,
+				Street = feetY, Center = Vector3.new(origin.X, feetY, origin.Z),
+			})
+		end
+		return events
+	end
+
+	-- the wave reaching someone: in the line the punch itself, else the gale
+	-- off it - thrown (never off the city), off their feet
+	function ST.hit(player, model, origin, d, ability, inLine)
+		local mr = model:FindFirstChild("HumanoidRootPart")
+		if not mr then
+			return false
+		end
+		local rel = Vector3.new(mr.Position.X - origin.X, 0, mr.Position.Z - origin.Z)
+		local out = rel.Magnitude > 0.5 and rel.Unit or d
+		local amount = inLine and (ability.LineDamage or 80) or (ability.WaveDamage or 20)
+		if not damage(player, model, amount, { From = origin, Heavy = true, Unblockable = true, HitsDowned = true, Quiet = true, Hitstop = inLine and 0.08 or nil }) then
+			return false
+		end
+		local push, lift
+		if inLine then
+			push = (d * 0.8 + out * 0.2).Unit * (ability.LinePush or 240)
+			lift = ability.LineLift or 115
+		else
+			push = (out + d * 0.35 * math.max(out:Dot(d), 0)).Unit * (ability.WavePush or 120)
+			lift = ability.WaveLift or 85
+		end
+		push = ST.keepOn(mr.Position, push, lift, ability.PushTime or 0.35, ability.Edge or 40)
+		knockback(model, push + UP * lift, ability.PushTime or 0.35)
+		ragdoll(model, ability.Ragdoll or 2.6)
+		return true
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 92) LIGHTWIPE (Config.DevFlight.LightWipe): LIGHTSPEED INTO THE
+-- GROUND - THE END OF THE MAP. His crash at LIGHTSPEED (a DevLand his
+-- machine marks Light: DF.land asks here before the bomb) is checked the way
+-- the flight is - the dev gate and his switch are DF.relay's; the speed is
+-- the server's own view of him (its peak at MinSeen+, asked again a few
+-- times before it's the bomb after all), never his word alone - and goes
+-- off once a server every Cooldown s. Then everyone's told (LightWipeGo, and
+-- workspace's LightWipe for whoever joins while it plays) and every screen
+-- blows its own copy of the city away from the crater (VFX.LWX over
+-- VFX.ST.World). Here: everyone in the city hit as the wave gets to them
+-- (Config.LightWave - the law every screen draws; with falloff, capped,
+-- never a one-shot; thrown straight out from it but kept on the map:
+-- Kit.ST.keepOn), and the real map's crater and the furrows torn out from it
+-- (the Serious Punch's budget), which grow back. Nothing per part of the
+-- city here: a full server costs what one player does.
+-- Also Destruction.LightWipe (the tests reach it there).
+-- (No new top-level locals: the server's main chunk is at its limit. Round
+-- 87's lesson: plain tables, cleared on every way out.)
+---------------------------------------------------------------------------
+do
+	local DEV = Config.DevFlight or {}
+	local LWC = DEV.LightWipe or {}
+	local LW = {
+		lastAt = -1e9, -- (os.clock of the last one: one a server each Cooldown s)
+		n = 0, -- (how many so far: each one's Id)
+		pending = {}, -- [player] = true: his crash waits on the server's own view of him
+	}
+	Kit.LW = LW
+	Destruction.LightWipe = LW
+
+	function LW.ready()
+		return LWC.Enabled ~= false and os.clock() - LW.lastAt >= (LWC.Cooldown or 30)
+	end
+	function LW.carving()
+		return workspace:GetAttribute("DestructionEnabled") ~= false
+	end
+	-- whether he may end the map: a dev - and, with round 92's flightgrant
+	-- (Kit.DF.fullPower, once it's merged), a granted flyer only with FULL
+	-- POWER (till then DF.relay's own gate is the dev's)
+	function LW.fullPower(player)
+		local DF = Kit.DF
+		return not (DF and DF.fullPower) or DF.fullPower(player) == true
+	end
+	-- everyone the wave can reach (Saitama's list: the players' bodies -
+	-- not anyone in the Vestige Realm - the dummies, Twice's doubles, the
+	-- raid's Nomu)
+	function LW.bodies()
+		if Kit.ST and Kit.ST.bodies then
+			return Kit.ST.bodies()
+		end
+		local list = {}
+		for _, plr in Players:GetPlayers() do
+			if plr.Character and plr.Character.Parent and not plr:GetAttribute("InVestige") then
+				table.insert(list, plr.Character)
+			end
+		end
+		return list
+	end
+	-- how much of the wave reaches someone `dist` studs (flat) from the
+	-- crater: all of it within Damage.Full, none past Wave.Reach (Curve)
+	function LW.k(dist)
+		local D = LWC.Damage or {}
+		local reach = (LWC.Wave or {}).Reach or 1300
+		local full = D.Full or 40
+		local a = math.clamp(((tonumber(dist) or math.huge) - full) / math.max(reach - full, 1), 0, 1)
+		if a ~= a then
+			a = 1
+		end
+		return (1 - a) ^ (D.Curve or 2)
+	end
+	-- that much of it: the damage (before the cap), the throw out, the lift,
+	-- how long off their feet
+	function LW.amounts(k)
+		local D, PU, LI, DN = LWC.Damage or {}, LWC.Push or {}, LWC.Lift or {}, LWC.Down or {}
+		local function at(near, far)
+			return far + (near - far) * k
+		end
+		return at(D.Near or 70, D.Far or 14), at(PU.Near or 260, PU.Far or 110), at(LI.Near or 140, LI.Far or 70), at(DN.Near or 2.8, DN.Far or 1.8)
+	end
+
+	-- ((round 92 review) the crater on the city's own street: straight down
+	-- from where DF.land put the crash. That's his machine's word when it's
+	-- near the server's view of him - else that view, a beat behind him at
+	-- 1400 studs/s: over the roof he came down on, or up in the air, where
+	-- groundBelow's 40 studs find nothing - and the end of the map went off
+	-- up there: nobody in the hits' reach under it, every screen's crater,
+	-- pillar and cloud hung in the sky. The map's Roads / Ground, at most
+	-- Snap studs down; nil: none of the city under it (left as it was)
+	function LW.street(p)
+		local map = workspace:FindFirstChild("Map")
+		local list = {}
+		for _, name in { "Roads", "Ground" } do
+			local f = map and map:FindFirstChild(name)
+			if f then
+				table.insert(list, f)
+			end
+		end
+		if #list == 0 or typeof(p) ~= "Vector3" or p ~= p then
+			return nil
+		end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = list
+		local hit = workspace:Raycast(p + UP * 4, UP * -(LWC.Snap or 600), params)
+		return hit and hit.Position or nil
+	end
+
+	-- (from DF.land) his crash, his machine says at LIGHTSPEED (data.Light).
+	-- true: it's this one's - gone off now, or once the server's own view of
+	-- him catches up (the bomb a moment later if it never does); false: the
+	-- crash goes on as ever (the bomb, the crater). seen: the server's view
+	function LW.impact(player, char, ground, data, seen)
+		local claimed = tonumber(data.Speed) or 0
+		if LW.pending[player] or not (claimed == claimed and claimed >= (LWC.Speed or 1100)) then
+			return false
+		end
+		if not LW.fullPower(player) then
+			return false
+		end
+		-- ((round 92 review) on the city's street under it (LW.street)
+		ground = LW.street(ground) or ground
+		-- (another went off a moment ago, and his machine hadn't heard yet:
+		-- the bomb, and his screen - which played the light's impact - told)
+		if not LW.ready() then
+			return LW.refuse(player, char, ground, data, seen)
+		end
+		if seen >= (LWC.MinSeen or 1000) then
+			LW.go(player, char, ground, data)
+			return true
+		end
+		-- (round 89's lesson: his machine meets the street before the server's
+		-- view of him has caught up - asked again on its own view, not dropped;
+		-- never for a crash it's seen no faster than a bomb's: that's the
+		-- crash as ever, his screen told)
+		if not (seen >= ((DEV.Bomb or {}).Speed or 420)) then
+			return LW.refuse(player, char, ground, data, seen)
+		end
+		local RT = LWC.Retry or {}
+		local seen0 = seen
+		LW.pending[player] = true
+		local function try(again)
+			if not (player.Parent and char.Parent and player.Character == char) then
+				LW.pending[player] = nil
+				return
+			end
+			local now = Kit.DF.speedOf(char)
+			if now >= (LWC.MinSeen or 1000) and LW.ready() then
+				LW.pending[player] = nil
+				LW.go(player, char, ground, data)
+			elseif again < (RT.Times or 3) then
+				task.delay(RT.Wait or 0.1, function()
+					try(again + 1)
+				end)
+			else
+				LW.pending[player] = nil
+				LW.refuse(player, char, ground, data, math.max(seen0, now)) -- (the bomb it would have been: the speed it saw at first)
+			end
+		end
+		task.delay(RT.Wait or 0.1, function()
+			try(1)
+		end)
+		return true
+	end
+	-- not the end of the map after all: the bomb (Kit.FB's, by what the
+	-- server did see), and his own screen - which played the light's impact -
+	-- told so. true: the bomb went off (false: the crash's crater is DF.land's)
+	function LW.refuse(player, char, ground, data, seen)
+		local B = DEV.Bomb or {}
+		local went = Kit.FB ~= nil and Kit.FB.bomb(player, char, ground, tonumber(data.Speed), seen)
+		local info = {}
+		if went then
+			local claimed = tonumber(data.Speed) or seen
+			local k, R = B.power(math.min(claimed == claimed and claimed or seen, seen * (B.Seen or 1.15) + (B.Slack or 40), (DEV.Boost or {}).Cap or 980))
+			info = { Pos = ground, Radius = R, K = k, Speed = seen }
+		end
+		pcall(function()
+			PlayVFX:FireClient(player, "LightWipeNo", char, info)
+		end)
+		return went == true
+	end
+
+	-- IT GOES OFF: everyone told (and the last one kept on workspace), the
+	-- wave sent out over the city
+	function LW.go(player, char, ground, data)
+		LW.lastAt = os.clock()
+		LW.n += 1
+		local id = LW.n
+		local at = workspace:GetServerTimeNow()
+		local hit = Kit.DF.vec(data.Hit) and data.Hit or ground
+		if (hit - ground).Magnitude > (LWC.Drop or 220) + 20 then
+			hit = ground
+		end
+		workspace:SetAttribute("LightWipe", LWC.encode(id, ground, at))
+		local okName, name = pcall(function()
+			return player.DisplayName
+		end)
+		broadcast("LightWipeGo", char, { Id = id, Origin = ground, Hit = hit, At = at, Name = okName and name or nil })
+		LW.blast(player, char, ground)
+		return id
+	end
+
+	-- the wave: everyone in reach as it gets to them, the crater now and
+	-- each furrow as it gets out along it
+	function LW.blast(player, char, origin)
+		local WV = LWC.Wave or {}
+		local events = {}
+		for _, model in LW.bodies() do
+			local mr = model ~= char and model:FindFirstChild("HumanoidRootPart")
+			if mr then
+				local p = mr.Position
+				local flat = Vector3.new(p.X - origin.X, 0, p.Z - origin.Z).Magnitude
+				if flat <= (LWC.Radius or 1800) and p.Y - origin.Y <= (LWC.Above or 320) and origin.Y - p.Y <= (LWC.Below or 140) then
+					table.insert(events, { T = (Config.LightWave(WV, origin, nil, p)), Model = model })
+				end
+			end
+		end
+		local n = LWC.Furrows or 6
+		local fr = LWC.FurrowRadius or 14
+		local a0 = math.random() * math.pi * 2
+		for i = 1, n do
+			local a = a0 + (i - 1) / n * math.pi * 2
+			local u = Vector3.new(math.cos(a), 0, math.sin(a))
+			local from = Vector3.new(origin.X, origin.Y + fr * 0.75, origin.Z) + u * (LWC.FurrowStart or 30)
+			local to = from + u * (LWC.FurrowLength or 240)
+			table.insert(events, { T = (Config.LightWave(WV, origin, nil, (from + to) / 2)), Carve = { from, to, u } })
+		end
+		table.sort(events, function(x, y)
+			return x.T < y.T
+		end)
+		local R = LWC.Crater or 34
+		if LW.carving() then
+			Destruction.Sphere(origin + UP * R * 0.2, R, LWC.Profile or "LightWipe", UP, { Budget = LWC.CraterBudget or 1100 })
+		end
+		local t0 = os.clock()
+		task.spawn(function()
+			for _, e in events do
+				local wait = e.T - (os.clock() - t0)
+				if wait > 0 then
+					task.wait(wait)
+				end
+				-- ((round 92 review) each on its own: one body that errors (gone
+				-- mid-hit, its maker gone) no longer ends the wave for everyone
+				-- after it, nor the furrows still to come)
+				local ok, err = pcall(function()
+					if e.Carve then
+						if LW.carving() then
+							Destruction.Capsule(e.Carve[1], e.Carve[2], fr, LWC.FurrowProfile or "SeriousPunch", e.Carve[3], { Above = origin.Y + 0.5, Budget = LWC.FurrowBudget or 210 })
+						end
+					elseif e.Model.Parent then
+						LW.hit(player, char, e.Model, origin)
+					end
+				end)
+				if not ok then
+					warn("[LightWipe] " .. tostring(err))
+				end
+			end
+		end)
+		-- (round 94) what it carved comes back with the city
+		Kit.wipeRebuild(origin, Config.LightWave, WV, nil, LW.style(), { Radius = LWC.Radius or 1800, Above = LWC.Above or 320, Below = LWC.Below or 140, Street = origin.Y })
+		return events
+	end
+
+	-- the wave reaching someone: hit by how near the crater they are (never
+	-- more than MaxShare of their max health), thrown straight out from it
+	-- (never off the city), off their feet - by the rules every hit goes by
+	function LW.hit(player, char, model, origin)
+		local mr = model:FindFirstChild("HumanoidRootPart")
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if not mr or not hum or model == char or not (Kit.DF and Kit.DF.canKnock(player, model, true)) then
+			return false
+		end
+		local rel = Vector3.new(mr.Position.X - origin.X, 0, mr.Position.Z - origin.Z)
+		local k = LW.k(rel.Magnitude)
+		local amount, push, lift, down = LW.amounts(k)
+		amount = math.min(amount, hum.MaxHealth * (LWC.MaxShare or 0.3))
+		if not damage(player, model, amount, { From = origin, Heavy = true, Unblockable = true, HitsDowned = true, Quiet = true, Hitstop = k > 0.6 and 0.08 or nil }) then
+			return false
+		end
+		local out = rel.Magnitude > 0.5 and rel.Unit or Vector3.new(1, 0, 0)
+		local throw = out * push
+		if Kit.ST and Kit.ST.keepOn then
+			throw = Kit.ST.keepOn(mr.Position, throw, lift, LWC.PushTime or 0.35, LWC.Edge or 40)
+		end
+		knockback(model, throw + UP * lift, LWC.PushTime or 0.35)
+		ragdoll(model, down)
+		return true
+	end
+
+	-- (round 94) THE CITY BACK WITH THE REWIND. The owner: "when doing the
+	-- hyperspace dev flying and then crashing into the ground, the map is
+	-- purposely wiped out and then brought back. but the map does not look
+	-- right cosmetically speaking, it looks like it is missing parts of it."
+	-- Every screen hides its own copy of the city and flies it back
+	-- together - but what the server carved meanwhile (the crater, the
+	-- furrows torn out from it, the Serious Punch's trench, the holes the
+	-- flight punched on the way in) stayed out for Destruction's RegenTime
+	-- (40 s after the last hit): the city came back with trenches through it
+	-- and the cut pieces without their lights. Now the server puts the map
+	-- back in time with the rewind (Destruction.RestoreArea), in two goes:
+	--   Mid: halfway through the hold (the empty plain), everything broken
+	--     in the wiped folders (the wipe's Folders) that stands over the
+	--     foundations - on every screen it arrives hidden and comes back
+	--     with the rest of the city in the rewind (VFX.ST.World: WS.arrived)
+	--   End: as the rewind ends, the rest - the crater in the street, the
+	--     low pieces - converging on the crater with the city
+	-- The wave's out over the city's far side (its box, Kit.ST.city, by the
+	-- wave's own law) before the hold starts on any screen. Within
+	-- band.Radius studs (flat) of the blast, band.Below under it to
+	-- band.Above over it (not the Sky Coffin); a part in a marble stays
+	-- there; one that would come back on a dummy, a double, the raid's
+	-- Nomu or someone still limp waits for the usual regrow (a player on his
+	-- feet: his own screen moves him out of the city coming back round
+	-- him). Not when the server keeps the city broken (Destruction Respawns
+	-- off: MapRegen). A newer wipe's rebuild takes over from an older one's
+	-- (it puts back everything anyway).
+	--   law / spec / d: the wave's (Config.LightWave / Config.SeriousWave);
+	--   W: the wipe's numbers (Hold, RewindSpan, RewindTime, Foundation,
+	--   Folders); band: { Radius, Above, Below, Street, Center }
+	-- Returns the plan: { Mid, End (s from now), step(which) } (also LW.lastPlan).
+	function Kit.wipeRebuild(origin, law, spec, d, W, band)
+		W = W or {}
+		band = band or {}
+		Kit.rebuildToken = (Kit.rebuildToken or 0) + 1
+		local token = Kit.rebuildToken
+		local far = 0
+		local box = Kit.ST and Kit.ST.city and Kit.ST.city()
+		if box and law then
+			local lo, hi = box.Min, box.Max
+			local mid = (lo + hi) / 2
+			for _, x in { lo.X, mid.X, hi.X } do
+				for _, z in { lo.Z, mid.Z, hi.Z } do
+					local ok, t = pcall(law, spec or {}, origin, d or Vector3.new(0, 0, -1), Vector3.new(x, origin.Y, z))
+					if ok and type(t) == "number" and t == t then
+						far = math.max(far, t)
+					end
+				end
+			end
+		end
+		local waveEnd = math.clamp(far, 0.5, 6) + 0.3
+		local hold = W.Hold or 7
+		local rewind = (W.RewindSpan or 1.4) + (W.RewindTime or 1.5)
+		local map = workspace:FindFirstChild("Map")
+		local folders = {}
+		for _, name in W.Folders or {} do
+			local f = map and map:FindFirstChild(name)
+			if f then
+				folders[f] = true
+			end
+		end
+		local center = band.Center or origin
+		local street = band.Street or center.Y
+		local plan = { Token = token, Mid = waveEnd + hold * 0.5, End = waveEnd + hold + rewind, Done = {}, Count = {} }
+		function plan.step(which)
+			if Kit.rebuildToken ~= token or plan.Done[which] then
+				return 0
+			end
+			plan.Done[which] = true
+			if workspace:GetAttribute("MapRegen") == false or not Destruction.RestoreArea then
+				return 0
+			end
+			-- (bodies the server moves: a dummy, a double, the raid's Nomu, a
+			-- player still limp)
+			local bodies = {}
+			for _, model in (Kit.ST and Kit.ST.bodies and Kit.ST.bodies()) or {} do
+				if not Players:GetPlayerFromCharacter(model) or model:GetAttribute("Ragdolled") then
+					table.insert(bodies, model)
+				end
+			end
+			local opts = { Above = band.Above or 320, Below = band.Below or 140, Bodies = bodies, Batch = 400 }
+			if which == "Mid" then
+				opts.Folders = folders
+				opts.MinTop = street + (W.Foundation or 3)
+			end
+			local ok, n = pcall(Destruction.RestoreArea, center, band.Radius or 1800, opts)
+			if not ok then
+				warn("[Rebuild] " .. tostring(n))
+				return 0
+			end
+			plan.Count[which] = n
+			return n
+		end
+		task.delay(plan.Mid, plan.step, "Mid")
+		task.delay(plan.End, plan.step, "End")
+		LW.lastPlan = plan
+		return plan
+	end
+	-- (the tests reach it, and the last plan, through Destruction.LightWipe)
+	LW.rebuild = Kit.wipeRebuild
+	-- the light wipe's numbers: the punch's (Config.Saitama.Wipe) with the
+	-- light's (LightWipe.World) on top - every screen's (VFX.LWX.style)
+	function LW.style()
+		if not LW.W then
+			LW.W = setmetatable(table.clone(LWC.World or {}), { __index = (Config.Saitama or {}).Wipe or {} })
+		end
+		return LW.W
+	end
+
+	Players.PlayerRemoving:Connect(function(plr)
+		LW.pending[plr] = nil
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 92) BAKUGO: MAX CAPACITY (Config.Quirks.Explosion.Extra), his 4th -
+-- the Grenadier Bracer's pin. He plants his feet and levels the right
+-- gauntlet: braced through the Windup (a hit still lands, x Brace, but
+-- nothing staggers him off it), the pin out at Pin on every screen, and at
+-- Windup everything the bracer's stored goes off down where he's aiming
+-- right then (his aim streams up through the windup: LiveAim). The blast's
+-- front runs out at Speed: everyone it reaches is hit by how near they were
+-- (Damage down to FarScale of it at Range), thrown down the aim (near, hard
+-- enough to go through a wall) and knocked down; the first wall in its way
+-- is blown out and a trench carved down the line (never the street). From
+-- the air, aimed down, it stops where it meets the street and goes off
+-- there: a crater and a ring round it (Radius). Knocked down, grabbed,
+-- frozen or stopped in time by then: the pin fizzles. Every screen draws the
+-- blast from MaxCapacityBlast (his own too: the blast is the server's word).
+---------------------------------------------------------------------------
+do
+	local GB = {}
+	Kit.GB = GB
+
+	-- where it goes: his aim now (streamed up through the windup), held to
+	-- the move's Aim / AirAim
+	function GB.aim(player, root, ability, dir, air)
+		local live = Kit.liveAim[player]
+		if live and os.clock() - live.Time < 0.4 then
+			dir = live.Dir
+		end
+		return Config.AimedDirection(dir, root.CFrame.LookVector, air and ability.AirAim or ability.Aim)
+	end
+
+	-- how far it runs - Range, or (aimed down) to where it meets the street,
+	-- where it goes off - and the first wall in its way (blown out; on it goes)
+	function GB.reach(char, origin, d, ability)
+		local range = ability.Range or 120
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		local skip = nonMapStuff(char)
+		params.FilterDescendantsInstances = skip
+		local hit
+		-- (an invisible part in the way - the map's border, a trigger - isn't
+		-- what it meets: looked past)
+		for _ = 1, 4 do
+			hit = workspace:Raycast(origin, d * range, params)
+			local inst = hit and hit.Instance
+			if not (inst and inst:IsA("BasePart") and inst.Transparency >= 0.9) then
+				break
+			end
+			table.insert(skip, inst)
+			params.FilterDescendantsInstances = skip
+			hit = nil
+		end
+		if not hit then
+			return range, nil, nil
+		end
+		-- (a floor it meets - aimed down from the air: the street, a roof -
+		-- stops it there; a wall is blown out and on it goes)
+		if hit.Normal.Y > 0.6 then
+			return math.max(hit.Distance, 1), hit.Position, nil
+		end
+		return range, nil, hit.Position
+	end
+
+	-- k of the way to Range (0 at the gauntlet): its damage, throw and lift
+	function GB.at(ability, k)
+		k = math.clamp(k, 0, 1)
+		local launch, lift = ability.Launch or { 190, 120 }, ability.Lift or { 48, 32 }
+		local amount = (ability.Damage or 30) * (1 - (1 - (ability.FarScale or 0.6)) * k)
+		return amount, launch[1] + (launch[2] - launch[1]) * k, lift[1] + (lift[2] - lift[1]) * k
+	end
+	-- ...and how wide it is there
+	function GB.width(ability, k)
+		local w = ability.Width or { 8, 30 }
+		return w[1] + (w[2] - w[1]) * math.clamp(k, 0, 1)
+	end
+
+	-- the blast reaching someone t studs down the line
+	function GB.hit(player, model, origin, d, t, ability)
+		local amount, launch, lift = GB.at(ability, t / (ability.Range or 120))
+		local near = t < (ability.Range or 120) * 0.35
+		if not damage(player, model, amount, { Heavy = true, Hitstop = near and (ability.Hitstop or 0.12) or 0.07, From = origin, GuardDamage = ability.GuardDamage }) then
+			return false
+		end
+		local push = Vector3.new(d.X, 0, d.Z)
+		push = push.Magnitude > 0.25 and push.Unit or awayFrom(origin, model, Vector3.new(0, 0, -1))
+		knockback(model, push * launch + UP * lift, 0.3)
+		stun(model, ability.Stun or 1.2)
+		ragdoll(model, ability.Ragdoll or 1.6)
+		return true
+	end
+
+	-- (from the air) where it met the street: the crater, and everyone round it
+	function GB.crater(player, char, ground, flat, ability, hitSet)
+		Destruction.Sphere(ground, ability.Crater or 13, "BigExplosion", -UP)
+		local radius = ability.Radius or 16
+		for _, model in queryRadius(char, ground + UP * 3, radius, hitSet) do
+			hitSet[model] = true
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			local k = mr and math.clamp((mr.Position - ground).Magnitude / radius, 0, 1) or 1
+			local amount = (ability.Damage or 30) * (ability.CraterDamage or 0.7) * (1 - 0.4 * k)
+			if damage(player, model, amount, { Heavy = true, Hitstop = 0.08, From = ground, GuardDamage = ability.GuardDamage }) then
+				knockback(model, awayFrom(ground, model, flat) * (130 - 40 * k) + UP * (75 - 25 * k), 0.3)
+				stun(model, ability.Stun or 1.2)
+				ragdoll(model, ability.Ragdoll or 1.6)
+			end
+		end
+	end
+
+	function Handlers.MaxCapacity(player, char, root, ability, dir, _pos, cast)
+		Kit.liveAim[player] = nil -- (an aim streamed for some earlier move isn't this one's)
+		local windup = ability.Windup or 0.5
+		local brace = { Until = os.clock() + windup + 0.1, Scale = ability.Brace or 0.85 }
+		Reactions.armor[char] = brace
+		slow(char, windup + 0.1, ability.WindupSpeed or 0) -- (planted: he doesn't walk while he aims it)
+		task.wait(windup)
+		if Reactions.armor[char] == brace then
+			Reactions.armor[char] = nil
+		end
+		-- ((round 92 review) and his quirk switched off in the windup - Eraser
+		-- Head's capture scarf, Radio Waves' jam: the brace keeps their stun
+		-- off him, so this is what stops it)
+		local now = workspace:GetServerTimeNow()
+		if not alive(char) or player.Character ~= char or char:GetAttribute("Ragdolled") or char:GetAttribute("Grabbed")
+			or char:GetAttribute("Frozen") or char:GetAttribute("TimeStopped")
+			or (char:GetAttribute("ErasedUntil") or 0) > now or (char:GetAttribute("JammedUntil") or 0) > now then
+			broadcast("MaxCapacityFizzle", char, {})
+			return
+		end
+		local air = cast.Air == true
+		local d = GB.aim(player, root, ability, dir, air)
+		local flat = flatten(d, root)
+		local origin = root.Position + UP * 0.3 + flat * 2 -- (his fist: the arm out dead straight, MoveMaxCapacity)
+		local length, ground, wall = GB.reach(char, origin, d, ability)
+		broadcast("MaxCapacityBlast", char, { Dir = d, From = origin, Length = length, Ground = ground, Wall = wall, Air = air })
+		-- (never the street: the trench is carved down to it - from the air,
+		-- down to the street where it lands)
+		local floorY = (ground and ground.Y) or groundBelow(air and (origin + d * length) or root.Position, char).Y
+		local range, speed = ability.Range or 120, ability.Speed or 520
+		local carve = ability.Carve or { 4.5, 11 }
+		local segs = math.max(ability.Segments or 4, 1)
+		local look = CFrame.lookAt(origin, origin + d)
+		local hitSet = {}
+		local t0 = os.clock()
+		for i = 1, segs do
+			local a, b = length * (i - 1) / segs, length * i / segs
+			-- (the front gets to the end of this stretch at b / Speed)
+			local wait = b / speed - (os.clock() - t0)
+			if wait > 0 then
+				task.wait(wait)
+			end
+			if not alive(char) then
+				break -- (a clash or a freeze stops it where it is)
+			end
+			local w = GB.width(ability, b / range)
+			for _, model in Rewind.QueryBox(player, char, look * CFrame.new(0, 0, -(a + b) / 2), Vector3.new(w, w, b - a + 2), hitSet) do
+				hitSet[model] = true
+				local mr = model:FindFirstChild("HumanoidRootPart")
+				GB.hit(player, model, origin, d, mr and math.clamp((mr.Position - origin):Dot(d), 0, range) or b, ability)
+			end
+			local r = carve[1] + (carve[2] - carve[1]) * (b / range)
+			Destruction.Capsule(origin + d * a, origin + d * b, r, ability.Profile or "BracerBlast", d, { Above = floorY + 0.5, Budget = ability.Budget })
+		end
+		if wall and alive(char) then
+			Destruction.Sphere(wall, ability.Wall or 11, ability.Profile or "BracerBlast", d, { Above = floorY + 0.5 })
+		end
+		if ground and alive(char) then
+			GB.crater(player, char, ground, flat, ability, hitSet)
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 92) FLIGHTGRANT (Config.FlightGrant; the owner: "make me able to
+-- give people the flight ability as well"). A dev - the dev flight's own
+-- gate, Kit.DF.allowed, and only that: a grant never lets anyone grant -
+-- gives any player the dev flight and takes it back: the test menu's GIVE
+-- FLIGHT panel (TestCommand FlightGrant / FlightGrantAll) or the console
+-- (giveflight / takeflight / flights: FG.console). Two kinds:
+--   THIS SERVER (FG.server, by UserId): till they leave
+--   SAVED (FG.perm): UserIds in a DataStore, read at the start and every
+--     Resync, merged with UpdateAsync, one save at a time WriteGap apart,
+--     each a new version sent to every running server on MessagingService
+--     (the change itself, or - too big, or a version missed - the servers
+--     read the save). Studio reads the live list and keeps its own changes
+--     to its session (StudioSaves). A change that couldn't be saved stays
+--     in force here, on top of what comes in, and is tried again
+-- Each grant is FULL POWER or not (Kit.DF.fullPower): without it the
+-- destructive extras stay the devs' - the bomb, all the way down, the
+-- shield breaking, the LIGHTSPEED wipe. The flight asks Kit.DF.canFly (a
+-- dev, or a grant): worked out from these tables each time, never cached,
+-- so a grant or a take-back is in force at once - and DF.known (the dev
+-- check's cache) never holds a grant. A grant is NOT DevFlyer: the dev
+-- tools (the director camera, possess, admin events, the roster panel) go
+-- by DevFlyer / DF.allowed and never see it.
+-- On the player: FlightGrant ("Server" / "Perm"), FlightFull,
+-- FlightGrantBy, FlightGrantAt (every screen reads them: his own flies, the
+-- panel shows them). In workspace: the saved list (Config's Attribute,
+-- Config.EncodeFlightGrants), FlightGrantSync (Live / Saving / Local /
+-- Studio / Loading), FlightGrantLastBy / FlightGrantLastAt. Taken back
+-- mid-flight: his flight's switched off (DF.setPower - his own stop, a fall
+-- to the street) and the carry lets go (it asks DF.canFly every frame).
+-- He's told (PlayVFX "FlightGrant": the toast) whenever his changes.
+-- (No new top-level locals: the server's main chunk is at its limit.
+-- Round 87's lesson: plain tables, cleared on every way out.)
+---------------------------------------------------------------------------
+do
+	local FGC = Config.FlightGrant or {}
+	local KEY = FGC.Key or "FlightGrants"
+	local ATTR = FGC.Attribute or "FlightGrantsSaved"
+	local FG = {
+		server = {}, -- [UserId] = { Full, By, At }: this server's grants (gone when they leave)
+		saved = {}, -- [UserId] = { Full, By, At, Name }: the save as this server last read or wrote it
+		perm = {}, -- the saved grants in force here: saved, with the unsaved changes on top
+		version = 0, -- the save's version this server has (each save adds one)
+		queue = {}, -- changes not saved yet, oldest first: { Id, G = entry | false, By, At } or { All = true, By, At }
+		saving = false, -- (os.clock() when the save that's out was sent)
+		inflight = 0, -- how many of the queue's first changes that save carries
+		lastWrite = nil, -- os.clock() of the last write (WriteGap)
+		closing = false, -- the server's shutting down: what's waiting is saved now
+		loaded = false, -- the save's been read (or written) once
+		ds = nil, -- the DataStore (false: there's none to be had)
+		shown = {}, -- [player] = { Kind, Full }: what his attributes last said (his toast goes on a change)
+		told = {}, -- [player] = true: he's been told of the grant he has (the join reminder goes once)
+		joinedAt = {}, -- [player] = os.clock() he came in (his reminder waits JoinToast)
+	}
+	Kit.FG = FG
+	Destruction.FlightGrant = FG -- (for the tests, as Kit.FB is: Destruction.FlightBoom)
+	do
+		local ok, id = pcall(function()
+			return game.JobId
+		end)
+		FG.serverId = (ok and type(id) == "string" and id ~= "") and id or ("server-" .. tostring(math.random(1, 2 ^ 30)))
+	end
+
+	function FG.on()
+		return FGC.Enabled ~= false and (Config.DevFlight or {}).Enabled ~= false
+	end
+	-- who may give and take: the devs (the dev flight's own gate), nobody else
+	function FG.canGrant(player)
+		return FG.on() and typeof(player) == "Instance" and player:IsA("Player") and Kit.DF ~= nil and Kit.DF.allowed(player) == true
+	end
+	-- the grant in force for a UserId: { Kind = "Perm" | "Server", Full, By,
+	-- At } or nil (a saved one is the one that counts)
+	function FG.of(id)
+		id = tonumber(id)
+		if not id or not FG.on() then
+			return nil
+		end
+		local p, s = FG.perm[id], FG.server[id]
+		if p then
+			return { Kind = "Perm", Full = p.Full == true, By = p.By, At = p.At }
+		elseif s then
+			return { Kind = "Server", Full = s.Full == true, By = s.By, At = s.At }
+		end
+		return nil
+	end
+	-- (Kit.DF.canFly / fullPower ask these)
+	function FG.has(player)
+		return typeof(player) == "Instance" and player:IsA("Player") and FG.of(player.UserId) ~= nil
+	end
+	function FG.full(player)
+		if typeof(player) ~= "Instance" or not player:IsA("Player") then
+			return false
+		end
+		local g = FG.of(player.UserId)
+		return g ~= nil and g.Full == true
+	end
+	function FG.count()
+		local n = 0
+		for _ in FG.perm do
+			n += 1
+		end
+		return n
+	end
+
+	-- his toast (Event: Granted / Changed / Revoked / Join - the reminder of
+	-- a saved one when he comes in). Never a dev's: his flight isn't a grant's
+	function FG.tell(player, event, by, g, was, flying)
+		if Kit.DF ~= nil and Kit.DF.allowed(player) == true then
+			return
+		end
+		FG.told[player] = (event ~= "Revoked") or nil
+		PlayVFX:FireClient(player, "FlightGrant", nil, {
+			Event = event, By = tostring(by or (g and g.By) or ""), Kind = g and g.Kind or nil, Full = g ~= nil and g.Full == true,
+			WasKind = was and was.Kind or nil, WasFull = was ~= nil and was.Full == true, Flying = flying == true,
+		})
+	end
+	-- his attributes from the grant in force (every screen reads them), and
+	-- the toast when it changed (by: who did it; quiet: no toast - he's only
+	-- just come in, or the save's only just been read: FG.remind). Taken
+	-- back: his flight's switched off (a dev's own flight isn't the grant's)
+	function FG.mark(player, by, quiet)
+		if typeof(player) ~= "Instance" or not player.Parent then
+			return
+		end
+		local g = FG.of(player.UserId)
+		local was = FG.shown[player]
+		local flying = player:GetAttribute("DevFlight") == true
+		player:SetAttribute("FlightGrant", g and g.Kind or nil)
+		player:SetAttribute("FlightFull", (g and g.Full) and true or nil)
+		player:SetAttribute("FlightGrantBy", g and tostring(g.By or "") or nil)
+		player:SetAttribute("FlightGrantAt", g and tonumber(g.At) or nil)
+		FG.shown[player] = g and { Kind = g.Kind, Full = g.Full } or nil
+		if not g and flying and Kit.DF and not Kit.DF.allowed(player) then
+			Kit.DF.setPower(player, false) -- (his own stop: a fall to the street)
+		end
+		local event
+		if g and not was then
+			event = "Granted"
+		elseif was and not g then
+			event = "Revoked"
+		elseif g and was and (g.Kind ~= was.Kind or g.Full ~= was.Full) then
+			event = "Changed"
+		end
+		if not g then
+			FG.told[player] = nil
+		end
+		if event and not quiet then
+			FG.tell(player, event, by, g, was, flying)
+		end
+	end
+	-- the reminder: someone in with a grant he hasn't been told of (JoinToast
+	-- s after he joined - his screen's listening by then)
+	function FG.remind(player)
+		if player.Parent and FG.shown[player] and not FG.told[player] then
+			FG.tell(player, "Join", nil, FG.of(player.UserId), nil, false)
+		end
+	end
+
+	-- the saved grants in force here: the save, the unsaved changes on top;
+	-- the list for every screen, and everyone's marks (by: who changed it)
+	function FG.change(map, op)
+		if op.All then
+			table.clear(map)
+		elseif op.G then
+			map[op.Id] = op.G
+		else
+			map[op.Id] = nil
+		end
+		return map
+	end
+	-- (quiet: the save's first read - those in a while are reminded now, the
+	-- rest when their JoinToast is up)
+	function FG.apply(by, quiet)
+		local map = {}
+		for id, e in FG.saved do
+			map[id] = e
+		end
+		for _, op in FG.queue do
+			FG.change(map, op)
+		end
+		FG.perm = map
+		workspace:SetAttribute(ATTR, Config.EncodeFlightGrants(map))
+		for _, plr in Players:GetPlayers() do
+			FG.mark(plr, by, quiet)
+			if quiet and os.clock() - (FG.joinedAt[plr] or -1e9) >= (FGC.JoinToast or 5) then
+				FG.remind(plr)
+			end
+		end
+	end
+
+	-- the store's grants, checked: { [UserId] = { Full, By, At, Name } }
+	function FG.clean(t)
+		local map = {}
+		for k, e in type(t) == "table" and t or {} do
+			local id = tonumber(k)
+			if id and id == id and id % 1 == 0 and type(e) == "table" then
+				map[id] = { Full = e.Full == true, By = tostring(e.By or ""), At = tonumber(e.At) or 0, Name = tostring(e.Name or id) }
+			end
+		end
+		return map
+	end
+	-- ...and for the store (its keys strings)
+	function FG.dump(map)
+		local t = {}
+		for id, e in map do
+			t[tostring(id)] = { Full = e.Full == true, By = e.By, At = e.At, Name = e.Name }
+		end
+		return t
+	end
+
+	function FG.studioOnly()
+		return RunService:IsStudio() and FGC.StudioSaves ~= true
+	end
+	-- how it stands, for the panel: Studio (this session only), Saving,
+	-- Local (this server only), Live, or Loading (not read yet)
+	function FG.status()
+		if FG.studioOnly() then
+			return "Studio"
+		end
+		if FG.saving then
+			return "Saving"
+		end
+		if not FG.loaded then
+			return #FG.queue > 0 and "Local" or "Loading"
+		end
+		return #FG.queue == 0 and "Live" or "Local"
+	end
+	function FG.sync(by, at)
+		workspace:SetAttribute("FlightGrantSync", FG.status())
+		if by ~= nil then
+			workspace:SetAttribute("FlightGrantLastBy", tostring(by))
+		end
+		if tonumber(at) then
+			workspace:SetAttribute("FlightGrantLastAt", tonumber(at))
+		end
+	end
+
+	function FG.store()
+		if FG.ds == nil then
+			local ok, ds = pcall(function()
+				return game:GetService("DataStoreService"):GetDataStore(FGC.DataStore or "QuirkBattlegrounds_FlightGrants_v1")
+			end)
+			FG.ds = (ok and ds) or false
+		end
+		return FG.ds or nil
+	end
+
+	-- read the save (at the start, every Resync, a version missed)
+	function FG.load()
+		local ds = FG.store()
+		local ok, data = false, nil
+		if ds then
+			ok, data = pcall(ds.GetAsync, ds, KEY)
+		end
+		if ok then
+			local first = not FG.loaded
+			FG.loaded = true
+			data = type(data) == "table" and data or {}
+			local v = tonumber(data.Version) or 0
+			if first or v > FG.version then
+				FG.version = math.max(FG.version, v)
+				FG.saved = FG.clean(data.Grants)
+				FG.apply(data.By, first) -- (the first read: no toasts, the reminders)
+				FG.sync(data.By, data.At)
+			end
+		end
+		FG.sync()
+		return ok
+	end
+
+	-- tell every other server: the change and its version (a server a
+	-- version behind takes it; further behind, or too big to carry, it reads
+	-- the save)
+	function FG.publish(saved, ops)
+		if FG.studioOnly() then
+			return -- (Studio sends nothing to the live servers)
+		end
+		local list = {}
+		for _, op in ops do
+			if op.All then
+				table.insert(list, { All = true })
+			else
+				table.insert(list, { Id = op.Id, G = op.G and FG.dump({ [op.Id] = op.G })[tostring(op.Id)] or false })
+			end
+		end
+		local msg = { V = tonumber(saved.Version) or 0, Ops = list, By = saved.By, At = saved.At, From = FG.serverId }
+		local okJson, json = pcall(function()
+			return game:GetService("HttpService"):JSONEncode(msg)
+		end)
+		if not (okJson and type(json) == "string" and #json <= (FGC.MessageMax or 1000)) then
+			msg.Ops = nil
+		end
+		task.spawn(pcall, function()
+			game:GetService("MessagingService"):PublishAsync(FGC.Topic or "QuirkFlightGrants", msg)
+		end)
+	end
+	function FG.onMessage(message)
+		local msg = type(message) == "table" and message.Data
+		local v = type(msg) == "table" and tonumber(msg.V) or nil
+		if not v or v <= FG.version or msg.From == FG.serverId then
+			return -- (old news, or this server's own save coming back)
+		end
+		if v == FG.version + 1 and type(msg.Ops) == "table" and FG.loaded then
+			for _, op in msg.Ops do
+				if type(op) == "table" and op.All then
+					FG.change(FG.saved, { All = true })
+				elseif type(op) == "table" and tonumber(op.Id) then
+					local id = tonumber(op.Id)
+					local entry = type(op.G) == "table" and FG.clean({ [tostring(id)] = op.G })[id] or nil
+					FG.change(FG.saved, { Id = id, G = entry or false })
+				end
+			end
+			FG.version = v
+			FG.apply(msg.By)
+			FG.sync(msg.By, msg.At)
+		else
+			task.spawn(FG.load)
+		end
+	end
+
+	-- save what's waiting: one save at a time, merged onto what's saved, no
+	-- sooner than WriteGap after the last; changes made meanwhile go in the
+	-- next one (the roster switch's flush, for grants)
+	function FG.flush()
+		local ds = FG.store()
+		local timeout = tonumber(FGC.SaveTimeout) or 30
+		local busy = FG.saving and os.clock() - FG.saving < timeout
+		if busy or not ds or FG.studioOnly() then
+			FG.sync()
+			return
+		end
+		local token = os.clock()
+		FG.saving = token
+		FG.inflight = 0
+		FG.sync()
+		while #FG.queue > 0 do
+			local gap = (tonumber(FGC.WriteGap) or 6) - (os.clock() - (FG.lastWrite or -math.huge))
+			if gap > 0 and not FG.closing then
+				task.wait(gap)
+			end
+			if FG.saving ~= token then
+				return -- (given up on, and a newer save took over)
+			end
+			local ops = table.clone(FG.queue)
+			FG.inflight = #ops
+			FG.lastWrite = os.clock()
+			token = FG.lastWrite
+			FG.saving = token
+			local sent = token
+			task.delay(timeout + 0.5, function()
+				if FG.saving == sent then
+					FG.flush()
+				end
+			end)
+			local ok, saved = pcall(ds.UpdateAsync, ds, KEY, function(old)
+				old = type(old) == "table" and old or {}
+				local map = FG.clean(old.Grants)
+				for _, op in ops do
+					FG.change(map, op)
+				end
+				return { Grants = FG.dump(map), Version = (tonumber(old.Version) or 0) + 1, By = ops[#ops].By, At = ops[#ops].At }
+			end)
+			if FG.saving ~= token then
+				return -- (back after it was given up on: the newer save has it)
+			end
+			if not (ok and type(saved) == "table") then
+				break -- (kept: tried again with the next change, and every Resync)
+			end
+			for _ = 1, #ops do
+				table.remove(FG.queue, 1)
+			end
+			FG.inflight = 0
+			FG.loaded = true
+			FG.version = math.max(FG.version, tonumber(saved.Version) or 0)
+			FG.saved = FG.clean(saved.Grants)
+			FG.apply(saved.By)
+			FG.publish(saved, ops)
+		end
+		FG.saving = false
+		FG.inflight = 0
+		FG.sync()
+	end
+	-- a change to the save: in force here at once, saved after (waiting
+	-- changes to the same player are dropped - not those a save that's out
+	-- carries)
+	function FG.queueOp(op)
+		for i = #FG.queue, (FG.saving and FG.inflight or 0) + 1, -1 do
+			local q = FG.queue[i]
+			if op.All or (q.Id ~= nil and q.Id == op.Id) then
+				table.remove(FG.queue, i)
+			end
+		end
+		table.insert(FG.queue, op)
+		task.spawn(FG.flush)
+	end
+
+	local KIND_WORDS = { Server = "this server", Perm = "saved: every server" }
+	-- a change from the panel or the console. target: a Player, or a UserId
+	-- (someone in this server, or a saved grant of someone who isn't here).
+	-- kind: "off" | "server" | "perm" | "full" (full: true / false - nil
+	-- keeps the grant's own, a new one's FullByDefault). In force here at
+	-- once; a saved one is then saved and sent. name: a UserId's username,
+	-- when the console knows it. Returns ok and a line saying what happened.
+	function FG.request(by, target, kind, full, name)
+		if not FG.canGrant(by) then
+			return false, "Only the owner and the devs can give the dev flight"
+		end
+		if kind ~= "off" and kind ~= "server" and kind ~= "perm" and kind ~= "full" then
+			return false, "Give it how: off, server, perm or full?"
+		end
+		if full ~= nil and type(full) ~= "boolean" then
+			return false, "Full power: on or off?"
+		end
+		local plr, id
+		if typeof(target) == "Instance" and target:IsA("Player") then
+			plr = target.Parent and target or nil
+			id = plr and plr.UserId
+		elseif type(target) == "number" and target == target and target % 1 == 0 and math.abs(target) < 2 ^ 53 then
+			id = target
+			plr = Players:GetPlayerByUserId(target)
+		end
+		if not id then
+			return false, "Who? (someone in this server)"
+		end
+		if plr and Kit.DF.allowed(plr) then
+			return false, plr.DisplayName .. " flies already (a dev)"
+		end
+		local cur = FG.of(id)
+		local saved = FG.perm[id]
+		local shown = plr and plr.DisplayName or (saved and saved.Name) or name or ("user " .. id)
+		if kind == "full" then
+			if not cur then
+				return false, shown .. " has no flight to give full power to"
+			end
+			kind = cur.Kind == "Perm" and "perm" or "server"
+		end
+		if kind == "server" and not plr then
+			return false, shown .. " isn't in this server"
+		end
+		if kind == "perm" and not plr and not saved and type(name) ~= "string" then
+			return false, shown .. " isn't in this server" -- (the console saves one by UserId: FG.console)
+		end
+		if kind == "perm" and not saved and FG.count() >= (FGC.MaxSaved or 100) then
+			return false, "The saved list is full (" .. tostring(FGC.MaxSaved or 100) .. "): take one back first"
+		end
+		local f = full
+		if f == nil then
+			if cur then
+				f = cur.Full
+			else
+				f = FGC.FullByDefault == true
+			end
+		end
+		local now, who = os.time(), by.DisplayName
+		if kind == "off" then
+			if not cur and not saved and not FG.server[id] then
+				return false, shown .. " has no flight to take back"
+			end
+			FG.server[id] = nil
+			if saved or FG.saved[id] then
+				FG.queueOp({ Id = id, G = false, By = who, At = now })
+			end
+		elseif kind == "server" then
+			FG.server[id] = { Full = f, By = who, At = now }
+			if saved then
+				FG.queueOp({ Id = id, G = false, By = who, At = now })
+			end
+		else
+			FG.server[id] = nil
+			FG.queueOp({ Id = id, G = { Full = f, By = who, At = now, Name = plr and plr.Name or (saved and saved.Name) or name or tostring(id) }, By = who, At = now })
+		end
+		FG.apply(who)
+		FG.sync(who, now)
+		local where = (kind == "perm" or saved) and FG.studioOnly() and " - Studio: this session only" or ""
+		if kind == "off" then
+			return true, "Took the dev flight back from " .. shown .. where
+		end
+		local g = FG.of(id)
+		return true, string.format("%s: DEV FLIGHT (%s%s)%s", shown, KIND_WORDS[g and g.Kind or "Server"], (g and g.Full) and ", FULL POWER" or "", where)
+	end
+
+	-- every grant taken back: this server's and every saved one
+	function FG.revokeAll(by)
+		if not FG.canGrant(by) then
+			return false, "Only the owner and the devs can take the dev flight back"
+		end
+		local n = FG.count()
+		for id in FG.server do
+			if not FG.perm[id] then
+				n += 1
+			end
+		end
+		if n == 0 then
+			return false, "Nobody has the dev flight by a grant"
+		end
+		table.clear(FG.server)
+		local now = os.time()
+		if next(FG.perm) ~= nil or next(FG.saved) ~= nil then
+			FG.queueOp({ All = true, By = by.DisplayName, At = now })
+		end
+		FG.apply(by.DisplayName)
+		FG.sync(by.DisplayName, now)
+		return true, string.format("Took the dev flight back from %d %s", n, n == 1 and "player" or "players")
+	end
+
+	-- one line for the console
+	function FG.describe()
+		local here, away = {}, {}
+		for _, plr in Players:GetPlayers() do
+			local g = FG.of(plr.UserId)
+			if g then
+				table.insert(here, string.format("%s (%s%s)", plr.DisplayName, g.Kind == "Perm" and "saved" or "this server", g.Full and ", FULL" or ""))
+			end
+		end
+		for id, e in FG.perm do
+			if not Players:GetPlayerByUserId(id) then
+				table.insert(away, string.format("%s [%d]%s", tostring(e.Name), id, e.Full and " FULL" or ""))
+			end
+		end
+		table.sort(here)
+		table.sort(away)
+		return string.format("Flying by a grant here: %s. Saved, not here: %s. [%s]", #here > 0 and table.concat(here, ", ") or "nobody",
+			#away > 0 and table.concat(away, ", ") or "none", string.upper(workspace:GetAttribute("FlightGrantSync") or "?"))
+	end
+
+	-- the console's giveflight / takeflight (targets: the console's own way
+	-- of finding players - a name's start, all, others, random). A number
+	-- nobody here has is a UserId: a saved grant for someone who isn't here
+	function FG.console(player, verb, args, targets)
+		local word = args[1]
+		if not word or word == "" then
+			return verb == "give" and "giveflight <who> [perm] [full]" or "takeflight <who|all>", "err"
+		end
+		if verb == "take" and (string.lower(word) == "all" or string.lower(word) == "everyone") then
+			local ok, text = FG.revokeAll(player)
+			return text, ok and "ok" or "err"
+		end
+		local perm, full = false, nil
+		for i = 2, #args do
+			local w = string.lower(tostring(args[i]))
+			if w == "perm" or w == "saved" or w == "save" or w == "forever" then
+				perm = true
+			elseif w == "server" or w == "here" then
+				perm = false
+			elseif w == "full" or w == "fullpower" then
+				full = true
+			elseif w == "nofull" or w == "safe" then
+				full = false
+			end
+		end
+		local list = targets(player, word)
+		local id = tonumber(word)
+		if #list == 0 and id and id % 1 == 0 then
+			local name
+			if verb == "give" and perm then
+				local ok, n = pcall(function()
+					return Players:GetNameFromUserIdAsync(id)
+				end)
+				name = ok and type(n) == "string" and n or tostring(id)
+			end
+			local ok, text = FG.request(player, id, verb == "give" and (perm and "perm" or "server") or "off", full, name)
+			return text, ok and "ok" or "err"
+		end
+		if #list == 0 then
+			return "No player matches '" .. tostring(word) .. "'", "err"
+		end
+		local lines, any = {}, false
+		for _, plr in list do
+			if plr ~= player or #list == 1 then
+				local ok, text = FG.request(player, plr, verb == "give" and (perm and "perm" or "server") or "off", full)
+				any = any or ok
+				table.insert(lines, text)
+			end
+		end
+		return table.concat(lines, "; "), any and "ok" or "err"
+	end
+
+	-- the test menu's panel (TestCommand: canTest first, then the dev gate here)
+	local OK_COLOR, NO_COLOR = Color3.fromRGB(140, 220, 255), Color3.fromRGB(255, 150, 120)
+	function TestCommands.FlightGrant(player, _, userId, spec)
+		spec = type(spec) == "table" and spec or {}
+		local kind = type(spec.Kind) == "string" and spec.Kind or nil
+		local full = spec.Full
+		if full ~= nil and type(full) ~= "boolean" then
+			full = nil
+		end
+		local ok, text = FG.request(player, tonumber(userId), kind, full)
+		if not ok then
+			notice(player, text, NO_COLOR)
+		end
+	end
+	function TestCommands.FlightGrantAll(player, _, _, what)
+		if what ~= "off" then
+			return
+		end
+		local ok, text = FG.revokeAll(player)
+		notice(player, text, ok and OK_COLOR or NO_COLOR)
+	end
+
+	-- in and out: marked as he comes in (a saved grant flies at once), told
+	-- of it JoinToast s later (his screen's listening by then); this
+	-- server's grant ends with him leaving
+	Players.PlayerAdded:Connect(function(plr)
+		FG.joinedAt[plr] = os.clock()
+		task.defer(FG.mark, plr, nil, true)
+		task.delay(FGC.JoinToast or 5, FG.remind, plr)
+	end)
+	Players.PlayerRemoving:Connect(function(plr)
+		FG.server[plr.UserId] = nil
+		FG.shown[plr] = nil
+		FG.told[plr] = nil
+		FG.joinedAt[plr] = nil
+	end)
+	-- (a server shutting down saves what it hasn't yet - the one that's out
+	-- first; no WriteGap now)
+	pcall(function()
+		game:BindToClose(function()
+			FG.closing = true
+			local t = os.clock()
+			while FG.saving and os.clock() - t < 10 do
+				task.wait(0.25)
+			end
+			if #FG.queue > 0 then
+				pcall(FG.flush)
+			end
+		end)
+	end)
+	-- nothing saved yet, then the save, then every Resync seconds
+	workspace:SetAttribute(ATTR, "")
+	workspace:SetAttribute("FlightGrantSync", "Loading")
+	local function subscribe()
+		pcall(function()
+			FG.sub = game:GetService("MessagingService"):SubscribeAsync(FGC.Topic or "QuirkFlightGrants", FG.onMessage)
+		end)
+	end
+	task.spawn(function()
+		if not FG.on() then
+			return
+		end
+		subscribe()
+		FG.load()
+		while (tonumber(FGC.Resync) or 0) > 0 do
+			task.wait(FGC.Resync)
+			if not FG.sub then
+				subscribe() -- (it failed at the start: tried again)
+			end
+			if #FG.queue > 0 and not FG.studioOnly() then
+				FG.flush() -- (unsaved changes: saved first, merged onto what's there)
+			else
+				FG.load()
+			end
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 92) INASA (Config.Quirks.Whirlwind, Config.Inasa): his look (the
+-- burgundy coat and its cape, the fur collar, the brown sleeve and the
+-- piped glove, the blue undersuit, the Shiketsu cap, his own face and hair -
+-- the avatar's are put out of sight by Kit.ST.bare, shared with Saitama),
+-- and every move's gameplay: SLICING GUST (gust after gust down a cone),
+-- GALE CANNON (the blast down the line, reaching each body in its own time,
+-- bursting on the first wall), DRAGON WHIRLWIND (a tornado that rolls on by
+-- itself once it's thrown: the pull, the juggle, the burst), WIND WALL
+-- (hits from the front stopped - a shot blown back at whoever threw it:
+-- IN.shield, hung on damage()'s Reactions.shielded), WIND RIDE (his own
+-- machine flies him; here, whoever he rides through), and the ult's
+-- SKYBREAKER CYCLONE: anchored and untouchable, the eye at his aim, its pull
+-- and the eye's juggle, the street at its foot torn up and the city's
+-- loose rubble sucked into it (Destruction.Rubble: the real pieces taken off
+-- the street, every screen draws them in the funnel), then the burst and
+-- every piece hurled at everyone near (the maths here; the pieces on every
+-- screen). Nothing here moves a player's body but knockback() (a
+-- LinearVelocity their own machine runs) - his own body only anchored.
+-- (No new top-level locals: the server's main chunk is at its limit.)
+---------------------------------------------------------------------------
+do
+	local IN = { Q = Config.Quirks.Whirlwind or {}, C = Config.Inasa or {}, walls = {}, cyclones = {} }
+	Kit.IN = IN
+	Destruction.Inasa = IN -- (the tests reach it here, as they do Kit.Smash / Kit.ST)
+
+	---------------------------------------------------------------------
+	-- his look
+	---------------------------------------------------------------------
+	-- a piece of the costume, welded on at cf (in part's space)
+	function IN.piece(cos, part, size, color, name, cf, material, shape)
+		local p = gearPart(cos, size, color, material or Enum.Material.SmoothPlastic, shape)
+		p.Name = name
+		weld(part, p, cf or CFrame.new())
+		return p
+	end
+
+	-- the cape off his shoulders (the long coat's tail): Segments hanging off
+	-- the back of them, each hinged on a Weld ("InasaCapeJoint": C0 at the
+	-- hinge, C1 at the segment's top edge) that every screen swings (VFX.IN)
+	function IN.cape(cos, torso)
+		local C, L = IN.C.Coat or {}, IN.C.Look or {}
+		local ts = torso.Size
+		local k = ts.Y / 2 -- (a bigger body, a bigger cape)
+		local model = Instance.new("Model")
+		model.Name = "InasaCape"
+		model:SetAttribute("Scale", k)
+		local prev, prevH = torso, 0
+		local segs = C.Segments or {}
+		for i, seg in segs do
+			local w, h = seg[1] * k, seg[2] * k
+			local p = gearPart(model, Vector3.new(w, h + 0.06 * k, (C.Thick or 0.14) * k), L.Coat, Enum.Material.Fabric)
+			p.Name = "InasaCapeSeg" .. i
+			p:SetAttribute("Seg", i)
+			local hinge = i == 1 and CFrame.new(0, ts.Y / 2 - 0.04, ts.Z / 2 + 0.1) or CFrame.new(0, -prevH / 2, 0)
+			local j = Instance.new("Weld")
+			j.Name = "InasaCapeJoint"
+			j.Part0 = prev
+			j.Part1 = p
+			-- (hung straight down off his back, a little out from it: the
+			-- screens swing it from here)
+			j.C0 = hinge * CFrame.Angles(math.rad(i == 1 and -(C.Rest or 5) or 0), 0, 0)
+			j.C1 = CFrame.new(0, h / 2, 0)
+			p.CFrame = prev.CFrame * j.C0 * j.C1:Inverse()
+			j.Parent = p
+			if i == #segs then
+				-- the dark hem along its foot (it swings with it)
+				IN.piece(model, p, Vector3.new(w + 0.04, 0.16 * k, (C.Thick or 0.14) * k + 0.04), L.CoatDark, "InasaCapeHem", CFrame.new(0, -h / 2 + 0.06 * k, 0), Enum.Material.Fabric)
+			end
+			prev, prevH = p, h
+		end
+		model.Parent = cos
+		return model
+	end
+
+	-- his face, drawn over the avatar's (its decal hidden by Kit.ST.bare): big
+	-- round eyes, thick brows slanted down to the middle, the huge toothy
+	-- grin; in the ult (wild) a gold ring in the eyes and the grin wider
+	function IN.face(cos, head, wild)
+		local F = IN.C.Face or {}
+		local v = visibleHead(head)
+		local s = v.X / 1.2
+		local z = -v.Z / 2 - 0.004
+		local w = wild and (F.Wild or 1.15) or 1
+		local face = Instance.new("Model")
+		face.Name = "InasaFace"
+		face:SetAttribute("Wild", wild == true)
+		local function bit(size, x, y, rz, name, color, dz)
+			local p = gearPart(face, size * s, color or F.Ink, Enum.Material.SmoothPlastic)
+			p.Name = name
+			weld(head, p, CFrame.new(x * s, y * s, z - (dz or 0)) * CFrame.Angles(0, 0, math.rad(rz or 0)))
+			return p
+		end
+		for _, side in { 1, -1 } do
+			bit(F.Eye, side * F.EyeX, F.EyeY, 0, "FaceEye", F.White)
+			if wild then
+				bit(F.Iris, side * (F.EyeX - 0.015), F.EyeY - 0.005, 0, "FaceIris", F.IrisColor, 0.006)
+			end
+			-- (small pupils, a touch in toward the middle: that stare)
+			bit(F.Pupil, side * (F.EyeX - 0.02), F.EyeY - 0.005, 0, "FacePupil", F.Ink, 0.012)
+			bit(F.Brow, side * (F.EyeX + 0.02), F.BrowY, side * (F.BrowTilt or 12) * w, "FaceBrow")
+		end
+		local mouth = Vector3.new(F.Mouth.X * w, F.Mouth.Y * w, F.Mouth.Z)
+		local teeth = Vector3.new(F.Teeth.X * w, F.Teeth.Y * w, F.Teeth.Z)
+		bit(mouth, 0, F.MouthY, 0, "FaceMouth")
+		bit(teeth, 0, F.MouthY + 0.01, 0, "FaceTeeth", F.White, 0.006)
+		bit(Vector3.new(teeth.X, F.TeethLine or 0.022, 0.02), 0, F.MouthY + 0.01, 0, "FaceTeethLine", F.Ink, 0.012)
+		-- the corners turned right up (the grin)
+		for _, side in { 1, -1 } do
+			bit(Vector3.new(0.13, 0.045, 0.03), side * (mouth.X / 2 - 0.01), F.MouthY + mouth.Y * 0.42, side * 32, "FaceGrin")
+		end
+		face.Parent = cos
+		return face
+	end
+
+	-- THE SHIKETSU CAP over his own short black hair (the head's visible size)
+	function IN.cap(cos, head)
+		local K, L = IN.C.Cap or {}, IN.C.Look or {}
+		local v = visibleHead(head)
+		local s = v.X / 1.2
+		local lift = (K.Lift or 0.5) * s
+		local crown = K.Crown * s
+		-- (an upright cylinder: its axis is the part's X, turned to Y)
+		local upright = CFrame.Angles(0, 0, math.rad(90))
+		IN.piece(cos, head, Vector3.new(crown.Y, crown.X, crown.Z), L.Cap, "InasaCap", CFrame.new(0, lift, 0) * upright, Enum.Material.Fabric, Enum.PartType.Cylinder)
+		local top = K.Top * s
+		IN.piece(cos, head, Vector3.new(top.Y, top.X, top.Z), L.Cap, "InasaCap",
+			CFrame.new(0, lift + crown.Y / 2 + top.Y / 2 - 0.03 * s, 0.03 * s) * CFrame.Angles(math.rad(K.TopTilt or 6), 0, 0) * upright, Enum.Material.Fabric, Enum.PartType.Cylinder)
+		local band = (K.Band or 0.16) * s
+		IN.piece(cos, head, Vector3.new(band, crown.X + 0.05 * s, crown.Z + 0.05 * s), L.Band, "InasaCapBand",
+			CFrame.new(0, lift - crown.Y / 2 + band / 2, 0) * upright, Enum.Material.Fabric, Enum.PartType.Cylinder)
+		-- the long, wide visor out front, tipped down from the band
+		local visor = K.Visor * s
+		local hinge = CFrame.new(0, lift - crown.Y / 2 + 0.02 * s, -crown.Z / 2 + 0.06 * s)
+		IN.piece(cos, head, visor, L.Visor, "InasaCapVisor", hinge * CFrame.Angles(math.rad(-(K.VisorTilt or 16)), 0, 0) * CFrame.new(0, 0, -visor.Z / 2), Enum.Material.SmoothPlastic)
+		-- the school's gold badge on the crown's front
+		IN.piece(cos, head, K.Badge * s, L.Badge, "InasaCapBadge", CFrame.new(0, lift + 0.04 * s, -crown.Z / 2 - 0.01 * s), Enum.Material.Metal)
+		-- his hair: short and black, out from under it at the back and sides
+		IN.piece(cos, head, Vector3.new(v.X * 0.96, v.Y * 0.42, 0.14 * s), L.Hair, "InasaHair", CFrame.new(0, v.Y * 0.06, v.Z / 2 - 0.02 * s), Enum.Material.SmoothPlastic)
+		for _, side in { 1, -1 } do
+			IN.piece(cos, head, Vector3.new(0.12 * s, v.Y * 0.3, v.Z * 0.5), L.Hair, "InasaHair", CFrame.new(side * (v.X / 2 - 0.02 * s), v.Y * 0.12, v.Z * 0.08), Enum.Material.SmoothPlastic)
+		end
+	end
+
+	-- THE LOOK (buildGear: in Cosmetics). R6 limbs get the costume; an R15
+	-- body (never, with ForceR6) the coat's cape, the cap and the face
+	function IN.look(cos, char, ult)
+		local L = IN.C.Look or {}
+		local C = IN.C.Coat or {}
+		local over = L.Over or 0.05
+		local pad = Vector3.new(over * 2, over, over * 2)
+		local torso = findLimb(char, "UpperTorso", "Torso")
+		local r6 = char:FindFirstChild("Torso") ~= nil
+		if torso and r6 then
+			local ts = torso.Size
+			local front = -(ts.Z / 2 + over)
+			IN.piece(cos, torso, ts + pad, L.Coat, "InasaCoat", nil, Enum.Material.Fabric)
+			-- the seam down the front, and two rows of gold buttons
+			IN.piece(cos, torso, Vector3.new(0.07, ts.Y * 0.86, 0.02), L.CoatDark, "InasaCoat", CFrame.new(0, -ts.Y * 0.05, front - 0.01))
+			for _, x in { -0.34, 0.34 } do
+				for _, y in { 0.42, 0.04, -0.34 } do
+					IN.piece(cos, torso, Vector3.new(0.07, 0.2, 0.2), L.Button, "InasaButton", CFrame.new(x * ts.X / 2, y * ts.Y / 2, front - 0.03) * CFrame.Angles(0, math.rad(90), 0), Enum.Material.Metal, Enum.PartType.Cylinder)
+				end
+			end
+			-- the thick fur collar round his neck, over the cape's top
+			local CL = C.Collar or {}
+			IN.piece(cos, torso, CL.Back or Vector3.new(2.2, 0.56, 0.42), L.Fur, "InasaCollar", CFrame.new(0, ts.Y / 2 + 0.12, ts.Z / 2 - 0.02), Enum.Material.Fabric)
+			IN.piece(cos, torso, CL.Front or Vector3.new(1.7, 0.42, 0.36), L.Fur, "InasaCollar", CFrame.new(0, ts.Y / 2 + 0.03, -(ts.Z / 2 - 0.1)) * CFrame.Angles(math.rad(-10), 0, 0), Enum.Material.Fabric)
+			for _, side in { 1, -1 } do
+				IN.piece(cos, torso, CL.Side or Vector3.new(0.4, 0.5, 1.15), L.Fur, "InasaCollar", CFrame.new(side * (ts.X / 2 - 0.12), ts.Y / 2 + 0.1, 0) * CFrame.Angles(0, 0, math.rad(side * -12)), Enum.Material.Fabric)
+			end
+		end
+		if r6 then
+			for _, name in { "Right Arm", "Left Arm", "Right Leg", "Left Leg" } do
+				local limbPart = char:FindFirstChild(name)
+				if limbPart then
+					local s = limbPart.Size
+					if name == "Left Arm" then
+						-- the heavy brown sleeve, the big tan glove (a cuff, the air pipes over the knuckles), the plate on the shoulder
+						local gh = s.Y * (L.GloveShare or 0.4)
+						IN.piece(cos, limbPart, Vector3.new(s.X + over * 2 + 0.08, s.Y - gh + 0.02, s.Z + over * 2 + 0.08), L.Sleeve, "InasaSleeve", CFrame.new(0, gh / 2, 0), Enum.Material.Fabric)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.26, gh, s.Z + 0.26), L.Glove, "InasaGlove", CFrame.new(0, -s.Y / 2 + gh / 2 - 0.04, 0), Enum.Material.Leather)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.34, 0.14, s.Z + 0.34), L.Sleeve, "InasaGlove", CFrame.new(0, -s.Y / 2 + gh - 0.02, 0), Enum.Material.Leather)
+						for _, x in { -0.3, 0, 0.3 } do
+							IN.piece(cos, limbPart, Vector3.new(0.34, 0.12, 0.12), L.Pipe, "InasaPipe", CFrame.new(x * s.X, -s.Y / 2 + 0.24, -(s.Z / 2 + 0.17)) * CFrame.Angles(0, math.rad(90), 0), Enum.Material.Metal, Enum.PartType.Cylinder)
+						end
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.3, 0.3, s.Z + 0.34), L.Plate, "InasaPlate", CFrame.new(0, s.Y / 2 - 0.04, 0) * CFrame.Angles(0, 0, math.rad(-8)), Enum.Material.Metal)
+					elseif name == "Right Arm" then
+						-- the blue undersuit, the hand bare
+						local sh = s.Y * (L.SleeveShare or 0.72)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.04, sh, s.Z + 0.04), L.Under, "InasaUnder", CFrame.new(0, s.Y / 2 - sh / 2, 0))
+					else
+						-- the trousers, a tube round the ankle, the big brown shoe, a pad on the knee
+						local fh = s.Y * (L.ShoeShare or 0.3)
+						IN.piece(cos, limbPart, Vector3.new(s.X + over * 2, s.Y - fh + 0.02, s.Z + over * 2), L.Pants, "InasaPants", CFrame.new(0, fh / 2, 0), Enum.Material.Fabric)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.16, fh, s.Z + 0.32), L.Shoe, "InasaShoe", CFrame.new(0, -s.Y / 2 + fh / 2 - 0.03, -0.08), Enum.Material.Leather)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.24, 0.16, s.Z + 0.24), L.Pipe, "InasaTube", CFrame.new(0, -s.Y / 2 + fh + 0.04, 0), Enum.Material.Metal)
+						IN.piece(cos, limbPart, Vector3.new(s.X * 0.7, 0.42, 0.12), L.Plate, "InasaKnee", CFrame.new(0, 0.02, -(s.Z / 2 + over + 0.05)), Enum.Material.Metal)
+					end
+				end
+			end
+		end
+		if torso then
+			IN.cape(cos, torso)
+		end
+		local head = char:FindFirstChild("Head")
+		if head then
+			IN.cap(cos, head)
+			IN.face(cos, head, ult == true)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- the moves
+	---------------------------------------------------------------------
+	-- everyone his wind can reach: the players' bodies (not anyone in the
+	-- vestige realm), the dummies, Twice's doubles, the raid's Nomu
+	function IN.bodies()
+		local list = {}
+		for _, plr in Players:GetPlayers() do
+			local c = plr.Character
+			if c and c.Parent and not plr:GetAttribute("InVestige") then
+				table.insert(list, c)
+			end
+		end
+		for _, name in { "Dummies", "TwiceClones", "NomuRaid" } do
+			local f = workspace:FindFirstChild(name)
+			for _, m in f and f:GetChildren() or {} do
+				if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") then
+					table.insert(list, m)
+				end
+			end
+		end
+		return list
+	end
+
+	-- a velocity capped at `most` studs/s (a pull's steps stay under the
+	-- speed that knocks people off their feet or smashes them through walls)
+	function IN.clampV(v, most)
+		if v ~= v or v.Magnitude ~= v.Magnitude then
+			return Vector3.zero
+		end
+		return v.Magnitude > most and v.Unit * most or v
+	end
+
+	-- (round 92 review) who his wind may drag about or hold in its eye: not
+	-- anyone a grab couldn't take or nothing could hit (god mode, a dodge,
+	-- Infinity, being finished, a clash, held in someone's grab or carry, a
+	-- dev's parked body, a Nomu in a truce, a marble, under the ice) and not
+	-- a flying dev (his flight has him). A raid boss is dragged but never
+	-- held in the eye (hold). The pull isn't a hit, so damage()'s own gate
+	-- never asked: a god-mode admin was carried round the eye, stunned.
+	IN.SAFE = { "Grabbed", "BeingFinished", "Finishing", "Clashing", "PlayingUno", "Parked", "DevCarrying", "CarriedBy", "Compressed", "Submerged", "DevFlying" }
+	function IN.free(player, model, hold)
+		for _, flag in IN.SAFE do
+			if model:GetAttribute(flag) then
+				return false
+			end
+		end
+		if hold and model:GetAttribute("Boss") then
+			return false
+		end
+		local victim = Players:GetPlayerFromCharacter(model)
+		if (victim and victim:GetAttribute("GodMode")) or finishing[model] ~= nil or (iFrames[model] or 0) > os.clock() or untouchable(model) then
+			return false
+		end
+		if (Reactions.parked and Reactions.parked[model]) or (player and model:GetAttribute("TwiceClone") == player.UserId) then
+			return false
+		end
+		return not (Reactions.NR and Reactions.NR.truce and Reactions.NR.truce(player, model))
+	end
+
+	-- (round 92 review) the street under a point, looked for further down
+	-- than groundBelow's 40 studs: cast off a rooftop, the cyclone tore up
+	-- out of thin air at roof height instead of out of the street below
+	function IN.foot(pos, char, depth)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = nonMapStuff(char)
+		local hit = workspace:Raycast(pos + UP * 3, Vector3.new(0, -math.max(depth or 600, 43), 0), params)
+		return hit and hit.Position or groundBelow(pos, char)
+	end
+
+	-- 1: SLICING GUST - gust after gust down the cone, each reaching further
+	function Handlers.SlicingGust(player, char, root, ability, dir)
+		local d = flatten(dir, root)
+		task.wait(ability.Startup or 0.2)
+		local pulses = math.max(ability.Pulses or 4, 1)
+		local cosCone = math.cos(math.rad(ability.Cone or 38))
+		local origin, range = root.Position, ability.Range or 34
+		for i = 1, pulses do
+			if not alive(char) then
+				return
+			end
+			origin = root.Position
+			local k = pulses > 1 and (i - 1) / (pulses - 1) or 1
+			range = (ability.RangeStart or 18) + ((ability.Range or 34) - (ability.RangeStart or 18)) * k
+			local last = i == pulses
+			local hits = {}
+			for _, model in queryRadius(char, origin + d * (range / 2), range / 2 + 6) do
+				local mr = model:FindFirstChild("HumanoidRootPart")
+				local v = mr and mr.Position - origin
+				local f = v and Vector3.new(v.X, 0, v.Z)
+				if f and f.Magnitude <= range + 2 and math.abs(v.Y) <= (ability.Height or 12) and (f.Magnitude < 3 or f.Unit:Dot(d) >= cosCone) then
+					local out = f.Magnitude > 0.5 and (f.Unit * 0.4 + d * 0.6) or d
+					out = out.Magnitude > 0.05 and out.Unit or d
+					if damage(player, model, ability.Damage or 4, { From = origin, Quiet = true, NoKnockdown = not last, Heavy = last or nil, Hitstop = last and 0.06 or nil }) then
+						table.insert(hits, model)
+						if last then
+							knockback(model, out * (ability.FinalPush or 125) + UP * (ability.FinalLift or 45), 0.3)
+							ragdoll(model, ability.Ragdoll or 1.3)
+						else
+							knockback(model, out * (ability.Push or 55) + UP * (ability.Lift or 16), 0.15, false, true)
+							stun(model, ability.Stun or 0.5)
+						end
+					end
+				end
+			end
+			if #hits > 0 then
+				broadcast("SlicingGustHit", char, { Targets = hits, Last = last, Dir = d })
+			end
+			if not last then
+				task.wait(ability.Interval or 0.1)
+			end
+		end
+		-- the cone scoured (over the street: it stays)
+		local cone = math.rad(ability.Cone or 38)
+		Destruction.Box(CFrame.lookAt(origin, origin + d) * CFrame.new(0, 3, -range * 0.55), Vector3.new(range * math.tan(cone) * 0.9, 6, range * 0.85), "Wind", d)
+	end
+
+	-- 2: GALE CANNON - the blast down the line (out of his hands once it's
+	-- fired: hitting him doesn't stop it), each body hit as it gets there
+	function Handlers.GaleCannon(player, char, root, ability, dir)
+		local d = flatten(dir, root)
+		task.wait(ability.Windup or 0.35)
+		if not alive(char) then
+			return
+		end
+		local origin = root.Position + d * 2
+		local range = ability.Range or 90
+		local reach = math.max(wallDistance(char, origin + UP * 0.5, d, range), 6)
+		local wall = reach < range - 0.5
+		local speed = math.max(ability.Speed or 260, 1)
+		local width, height = ability.Width or 10, ability.Height or 12
+		-- the rubble it carries: loose pieces along the start of it (taken off
+		-- the street - every screen draws them flying with it)
+		local pieces = {}
+		if (ability.Rubble or 0) > 0 and Destruction.Rubble then
+			local ok, got = pcall(Destruction.Rubble, origin + d * math.min(reach * 0.4, 24), math.min(reach * 0.5, 36), ability.Rubble)
+			if ok and type(got) == "table" then
+				pieces = got
+			end
+		end
+		broadcast("GaleCannonBlast", char, { From = origin, Dir = d, Reach = reach, Speed = speed, Width = width, Wall = wall, Pieces = pieces })
+		local look = CFrame.lookAt(origin, origin + d)
+		local events = {}
+		for _, model in queryBox(char, look * CFrame.new(0, 1, -reach / 2), Vector3.new(width, height, reach)) do
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			if mr then
+				table.insert(events, { T = math.max((mr.Position - origin):Dot(d), 0) / speed, Model = model })
+			end
+		end
+		table.sort(events, function(a, b)
+			return a.T < b.T
+		end)
+		local amount = (ability.Damage or 20) + (ability.DebrisDamage or 0)
+		task.spawn(function()
+			local t0 = os.clock()
+			for _, e in events do
+				local wait = e.T - (os.clock() - t0)
+				if wait > 0 then
+					task.wait(wait)
+				end
+				if e.Model.Parent and damage(player, e.Model, amount, { From = origin, Heavy = true, Hitstop = 0.1, Quiet = true }) then
+					knockback(e.Model, d * (ability.Push or 150) + UP * (ability.Lift or 45), 0.3)
+					ragdoll(e.Model, ability.Ragdoll or 1.6)
+				end
+			end
+		end)
+		-- the street scoured along it as it goes, and the wall it bursts on
+		local steps = math.max(math.ceil(reach / 30), 1)
+		for i = 1, steps do
+			local a, b = origin + d * ((i - 1) / steps * reach) + UP * 2, origin + d * (i / steps * reach) + UP * 2
+			task.delay((i - 0.5) / steps * reach / speed, function()
+				Destruction.Capsule(a, b, width * 0.3, "Wind", d)
+			end)
+		end
+		if wall then
+			task.delay(reach / speed, function()
+				Destruction.Sphere(origin + d * reach + UP * 1.5, ability.WallBurst or 9, "Wind", d)
+			end)
+		end
+	end
+
+	-- one step of a whirlwind's pull at `center` (its foot on the street):
+	-- everyone within spec.PullRadius (from spec.Below under the street to
+	-- spec.Height over it) dragged in and swung round; inside `eye` caught
+	-- (the eye's list: caught[model] = when) - carried up round it to `lift`
+	-- studs, held, hit on the tick
+	function IN.pull(player, char, center, spec, caught, tick, eye, lift)
+		local R = spec.PullRadius or 16
+		local H = spec.Height or 24
+		local below = spec.Below or 6
+		local box = CFrame.new(center + UP * ((H - below) / 2))
+		local held = {}
+		for _, model in queryBox(char, box, Vector3.new(R * 2, H + below, R * 2)) do
+			local mr = model:FindFirstChild("HumanoidRootPart")
+			if mr then
+				local rel = mr.Position - center
+				local fl = Vector3.new(rel.X, 0, rel.Z)
+				local r = fl.Magnitude
+				local out = r > 0.3 and fl.Unit or Vector3.new(1, 0, 0)
+				local round = UP:Cross(out) -- (counter-clockwise, seen from above)
+				-- ((round 92 review) only those his wind may move: IN.free)
+				if r <= R and rel.Y <= H and rel.Y >= -below and IN.free(player, model) then
+					if (r <= eye or caught[model]) and IN.free(player, model, true) then
+						held[model] = true
+						caught[model] = caught[model] or os.clock()
+						-- a point a little further round the eye, at the height it's carried to
+						local orbit = math.clamp(r, 2.5, math.max(eye * 0.7, 2.5))
+						local a = math.atan2(out.Z, out.X) + 0.9
+						local goal = center + Vector3.new(math.cos(a) * orbit, lift, math.sin(a) * orbit)
+						knockback(model, IN.clampV((goal - mr.Position) * 4, 95), 0.15, true, true)
+						stun(model, 0.45)
+						if tick then
+							damage(player, model, spec.TickDamage or 2.5, { From = center, NoKnockdown = true, HitsDowned = true, Quiet = true })
+						end
+					else
+						local k = 1 - math.clamp((r - eye) / math.max(R - eye, 1), 0, 1)
+						local v = -out * (spec.Pull or 30) * (0.55 + 0.45 * k) + round * (spec.Swirl or 28) * k + UP * (6 * k)
+						knockback(model, IN.clampV(v, 95), 0.15, true, true)
+					end
+				end
+			end
+		end
+		-- (round 92 review) whoever it held and doesn't now - thrown clear by
+		-- someone else's hit, grabbed away, dodged, down - is let go of: its
+		-- ticks and its burst are only for those still in it (before, the
+		-- burst hit and launched them wherever they'd got to)
+		for model in caught do
+			if not held[model] then
+				caught[model] = nil
+			end
+		end
+	end
+
+	-- 3: DRAGON WHIRLWIND - spun up and flung; then it's its own
+	function Handlers.DragonWhirlwind(player, char, root, ability, dir)
+		local d = flatten(dir, root)
+		task.wait(ability.Startup or 0.3)
+		if not alive(char) then
+			return
+		end
+		local start = groundBelow(root.Position + d * (ability.Ahead or 7), char)
+		local life = ability.Life or 2.6
+		local want = (ability.Speed or 14) * life
+		local travel = math.clamp(wallDistance(char, start + UP * 3, d, want + 4) - 4, 0, want)
+		broadcast("DragonWhirlwindGo", char, { From = start, Dir = d, Travel = travel, Life = life })
+		task.spawn(IN.tornado, player, char, start, d, travel, ability)
+	end
+
+	-- the tornado rolling on down the line: its pull every 0.1 s, the street
+	-- torn under it, and when it dies the burst that throws them
+	function IN.tornado(player, char, start, d, travel, ability)
+		local life = ability.Life or 2.6
+		local t0 = os.clock()
+		local caught = {}
+		local every = ability.TickEvery or 0.3
+		local nextTick, nextCarve = t0 + every, t0
+		local center = start
+		while os.clock() - t0 < life do
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if not char.Parent or not hum or hum.Health <= 0 then
+				-- (he's down: his wind dies with him - whoever it held let go, no burst)
+				IN.letGo(center, caught)
+				broadcast("DragonWhirlwindEnd", char, { Pos = center, Dir = d, Targets = {} })
+				return caught
+			end
+			local now = os.clock()
+			center = start + d * (math.clamp((now - t0) / life, 0, 1) * travel)
+			local tick = now >= nextTick
+			if tick then
+				nextTick += every
+			end
+			IN.pull(player, char, center, ability, caught, tick, ability.CoreRadius or 6, (ability.LiftHeight or 9) * math.clamp((now - t0) / 0.8, 0.35, 1))
+			if now >= nextCarve then
+				nextCarve = now + 0.6
+				Destruction.Sphere(center + UP * 3, 5, "Whirl", d)
+			end
+			task.wait(0.1)
+		end
+		local thrown = {}
+		for model in caught do
+			if model.Parent and damage(player, model, ability.FinalDamage or 8, { From = center, Heavy = true, HitsDowned = true, Hitstop = 0.06, Quiet = true }) then
+				table.insert(thrown, model)
+				knockback(model, d * (ability.Throw or 40) + UP * (ability.Launch or 95), 0.3)
+				ragdoll(model, ability.Ragdoll or 1.4)
+			end
+		end
+		broadcast("DragonWhirlwindEnd", char, { Pos = center, Dir = d, Targets = thrown })
+		return caught
+	end
+
+	-- R: WIND WALL - hits from the front stopped for its Time (IN.shield);
+	-- anyone walking into it shoved off. He can barely walk while it's up.
+	function Handlers.WindWall(player, char, root, ability, dir)
+		local d = flatten(dir, root)
+		local wall = { Until = os.clock() + (ability.Time or 1.4), Dir = d, Player = player, Ability = ability, Pushed = {}, Melee = {}, Reflects = {} }
+		IN.walls[char] = wall
+		char:SetAttribute("WindWall", true)
+		slow(char, ability.Time or 1.4, ability.WalkSpeed or 4)
+		local depth, width = ability.Depth or 8, ability.Width or 14
+		while os.clock() < wall.Until and IN.walls[char] == wall do
+			-- ((round 92 review) and when he's someone else now: the hero menu
+			-- left an invisible wall stopping hits for the rest of its time)
+			if not alive(char) or char:GetAttribute("Stunned") or char:GetAttribute("Ragdolled") or char:GetAttribute("Grabbed")
+				or player.Character ~= char or player:GetAttribute("Quirk") ~= "Whirlwind" then
+				break
+			end
+			local look = CFrame.lookAt(root.Position, root.Position + d)
+			for _, model in queryBox(char, look * CFrame.new(0, 1, -(depth / 2 + 1)), Vector3.new(width, ability.Height or 12, depth)) do
+				if os.clock() - (wall.Pushed[model] or 0) > 0.4 and IN.free(player, model) then
+					wall.Pushed[model] = os.clock()
+					knockback(model, d * (ability.Push or 85) * 0.7 + UP * (ability.Lift or 25), 0.2, false, true)
+				end
+			end
+			task.wait(0.1)
+		end
+		if IN.walls[char] == wall then
+			IN.walls[char] = nil
+			char:SetAttribute("WindWall", nil)
+			broadcast("WindWallEnd", char, {})
+		end
+	end
+
+	-- (in damage(), through Reactions.shielded) a hit on him from in front of
+	-- his wall: stopped. A burn / an unblockable hit / one from his side or
+	-- back lands as ever.
+	function IN.shield(attacker, model, amount, opts)
+		local wall = IN.walls[model]
+		if not wall or os.clock() > wall.Until or (opts and (opts.Tick or opts.Unblockable)) then
+			return false
+		end
+		-- ((round 92 review) and a hit with no player behind it - the raid's
+		-- Nomu, a sparring dummy's or a possessed body's punch (its
+		-- AttackerModel), a blast from a point: stopped from the front too;
+		-- before, all of them went straight through the wall)
+		local ac = (attacker and attacker.Character) or (opts and typeof(opts.AttackerModel) == "Instance" and opts.AttackerModel) or nil
+		local mr = model:FindFirstChild("HumanoidRootPart")
+		if ac == model or not mr then
+			return false
+		end
+		local ar = ac and ac:FindFirstChild("HumanoidRootPart")
+		local from = (opts and typeof(opts.From) == "Vector3" and opts.From) or (ar and ar.Position)
+		if not from then
+			return false
+		end
+		local v = Vector3.new(from.X - mr.Position.X, 0, from.Z - mr.Position.Z)
+		if v.Magnitude <= 1 and ar then
+			-- (a blast right on top of him: the side it came from is where its thrower stands)
+			v = Vector3.new(ar.Position.X - mr.Position.X, 0, ar.Position.Z - mr.Position.Z)
+		end
+		if v.Magnitude <= 1 or v.Unit:Dot(wall.Dir) < math.cos(math.rad(wall.Ability.Cone or 70)) then
+			return false
+		end
+		if ac then
+			IN.deflect(model, mr, wall, ac, ar, amount, opts)
+		else
+			-- (nobody to send it back at: just stopped dead on it)
+			broadcast("WindWallBlock", model, { Pos = mr.Position + wall.Dir * 2.5 + UP * 0.6 })
+		end
+		return true
+	end
+	do
+		local before = Reactions.shielded
+		function Reactions.shielded(attacker, model, amount, opts)
+			if IN.shield(attacker, model, amount, opts) then
+				return true
+			end
+			return before ~= nil and before(attacker, model, amount, opts) or false
+		end
+	end
+
+	-- what his wall does with a hit it stopped: a shot (from further off than
+	-- MeleeRange) blown back down the line at whoever threw it - a share of
+	-- it, once every ReflectGap a thrower, never a reflection reflected; up
+	-- close, the one who threw it blown back (once a wall)
+	function IN.deflect(model, mr, wall, ac, ar, amount, opts)
+		local spec = wall.Ability
+		local at = mr.Position + wall.Dir * 2.5 + UP * 0.6
+		local reflected = opts and opts.Reflected
+		local now = os.clock()
+		if ar and (ar.Position - mr.Position).Magnitude > (spec.MeleeRange or 14) then
+			local again = reflected or now - (wall.Reflects[ac] or -1e9) < (spec.ReflectGap or 0.25)
+			broadcast("WindWallDeflect", model, { From = at, To = ar.Position, Back = not again })
+			if again then
+				return
+			end
+			wall.Reflects[ac] = now
+			local back = math.min((tonumber(amount) or 0) * (spec.ReflectShare or 0.5), spec.ReflectMax or 20)
+			local travel = math.clamp((ar.Position - at).Magnitude / math.max(spec.ReflectSpeed or 220, 1), 0.05, 0.8)
+			task.delay(travel, function()
+				if ac.Parent and wall.Player.Parent and back >= 1 then
+					if damage(wall.Player, ac, back, { From = at, Quiet = true, Reflected = true, Hitstop = 0.05 }) then
+						knockback(ac, awayFrom(at, ac, wall.Dir) * 50 + UP * 22, 0.2, false, true)
+					end
+				end
+			end)
+		else
+			broadcast("WindWallBlock", model, { Pos = at, Target = ac })
+			if reflected or wall.Melee[ac] then
+				return
+			end
+			wall.Melee[ac] = true
+			if damage(wall.Player, ac, spec.PushDamage or 4, { From = at, Quiet = true, Reflected = true }) then
+				knockback(ac, wall.Dir * (spec.Push or 85) + UP * (spec.Lift or 25), 0.25)
+				stun(ac, spec.Stun or 0.6)
+			end
+		end
+	end
+
+	-- 4: WIND RIDE - his own machine flies him (VFX.IN.ride); here, everyone
+	-- he rides through is blown aside (once each)
+	function Handlers.WindRide(player, char, root, ability)
+		task.wait(ability.Launch or 0.12)
+		local hit = {}
+		local t0 = os.clock()
+		-- ((round 92 review) a moment past its Time: this view of him trails
+		-- his own screen's by the ping, and the end of his line went unchecked;
+		-- and never while he's on the dev flight - his machine drops the ride
+		-- at once, but this went on hitting whoever he flew through)
+		while os.clock() - t0 < (ability.Time or 1.4) + (ability.Trail or 0.2) do
+			if not alive(char) or char:GetAttribute("DevFlying") ~= nil then
+				return
+			end
+			local v = root.AssemblyLinearVelocity
+			local d = (v.Magnitude > 5 and v.Magnitude == v.Magnitude) and v.Unit or root.CFrame.LookVector
+			for _, model in Rewind.QueryRadius(player, char, root.Position + d * 1.5, ability.Radius or 6, hit) do
+				hit[model] = true
+				if damage(player, model, ability.Damage or 9, { From = root.Position, Heavy = true, Hitstop = 0.05, Quiet = true }) then
+					local side = awayFrom(root.Position, model, flatten(d, root))
+					local push = side * 0.6 + flatten(d, root) * 0.4
+					push = push.Magnitude > 0.05 and push.Unit or side
+					knockback(model, push * (ability.Push or 70) + UP * (ability.Lift or 55), 0.25)
+					ragdoll(model, ability.Ragdoll or 1.2)
+					broadcast("WindRideHit", char, { Target = model, Dir = d })
+				end
+			end
+			task.wait(0.05)
+		end
+	end
+
+	-- ULT 3: SKYBREAKER CYCLONE
+	function Handlers.SkyCyclone(player, char, root, ability, dir, pos, cast)
+		local d = flatten(dir, root)
+		local ahead = typeof(pos) == "Vector3" and (pos - root.Position):Dot(d) or (ability.Range or 70)
+		ahead = math.clamp(ahead == ahead and ahead or 0, ability.MinAhead or 26, ability.Range or 70)
+		-- ((round 92 review) the street under it, however high he stands: IN.foot)
+		local center = IN.foot(root.Position + d * ahead, char, ability.FootProbe)
+		local wasAnchored = root.Anchored
+		root.Anchored = true
+		-- (turned to it here: his own machine's turn can't reach an anchored root)
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + d)
+		local run = { Center = center, Since = os.clock(), Caught = {} }
+		IN.cyclones[char] = run
+		local released = false
+		local function release()
+			if not released then
+				released = true
+				if IN.cyclones[char] == run then
+					IN.cyclones[char] = nil
+				end
+				-- (frozen solid or caught in DIO's stopped time, he stays
+				-- anchored: theirs to let go - they kept ours)
+				if root.Parent and not char:GetAttribute("TimeStopped") and not char:GetAttribute("Frozen") then
+					root.Anchored = wasAnchored
+				end
+			end
+		end
+		local form, hold = ability.Form or 1.1, ability.EyeHold or 3.4
+		-- (whatever happens, he's let go)
+		task.delay(form + hold + (ability.Follow or 0.6) + 2, release)
+		broadcast("SkyCycloneGo", char, { Pos = center, Dir = d, At = workspace:GetServerTimeNow(), Seed = cast and cast.Seed or 0 })
+		local caught = run.Caught
+		local every = ability.TickEvery or 0.4
+		local t0 = os.clock()
+		local nextTick, nextGather, carves, gathered = t0 + form + every, t0 + form * 0.5, 0, 0
+		local lift = ability.EyeLift or { 8, 34 }
+		while os.clock() - t0 < form + hold do
+			task.wait(0.1)
+			-- (called off: he's down, he's someone else now, or time stopped on him)
+			if not alive(char) or player.Character ~= char or player:GetAttribute("Quirk") ~= "Whirlwind"
+				or char:GetAttribute("TimeStopped") or char:GetAttribute("Frozen") then
+				release()
+				broadcast("SkyCycloneCancel", char, { Pos = center })
+				IN.letGo(center, caught)
+				return run
+			end
+			local now = os.clock()
+			local t = now - t0
+			if t >= form then
+				local tick = now >= nextTick
+				if tick then
+					nextTick += every
+				end
+				local k = math.clamp((t - form) / math.max(hold, 0.1), 0, 1)
+				IN.pull(player, char, center, ability, caught, tick, ability.EyeRadius or 14, lift[1] + (lift[2] - lift[1]) * k)
+				-- the street at its foot torn up, a few times
+				if carves < (ability.Carves or 3) and t - form >= carves * hold / math.max(ability.Carves or 3, 1) then
+					carves += 1
+					Destruction.Sphere(center, ability.CarveRadius or 14, "Whirl", d)
+				end
+			end
+			-- the city's loose rubble sucked up into it
+			if now >= nextGather and gathered < (ability.MaxRubble or 60) and Destruction.Rubble then
+				nextGather = now + (ability.Gather or 0.5)
+				local ok, got = pcall(Destruction.Rubble, center, ability.GatherRadius or 90, math.min(ability.GatherWant or 8, (ability.MaxRubble or 60) - gathered))
+				if ok and type(got) == "table" and #got > 0 then
+					gathered += #got
+					broadcast("SkyCycloneDebris", char, { Pos = center, Pieces = got })
+				end
+			end
+		end
+		run.Hurled = IN.burst(player, char, center, d, ability, caught)
+		task.delay(ability.Follow or 0.6, release)
+		return run
+	end
+
+	-- called off: whoever it held let go (a little shove out of it)
+	function IN.letGo(center, caught)
+		for model in caught do
+			if model.Parent then
+				knockback(model, awayFrom(center, model, Vector3.new(1, 0, 0)) * 30 + UP * 10, 0.15, true, true)
+			end
+		end
+	end
+
+	-- THE BURST: the eye's thrown out of it, the rest it pulled shoved off,
+	-- and everything it carried hurled at everyone in reach (each piece
+	-- timed by its flight: whoever's still where it was thrown is hit)
+	function IN.burst(player, char, center, d, ability, caught)
+		local thrownOut = {}
+		for model in caught do
+			if model.Parent and damage(player, model, ability.BurstDamage or 26, { From = center, Heavy = true, HitsDowned = true, Hitstop = 0.1, Quiet = true }) then
+				table.insert(thrownOut, model)
+				knockback(model, awayFrom(center, model, d) * (ability.BurstPush or 170) + UP * (ability.BurstLift or 95), 0.35)
+				ragdoll(model, ability.Ragdoll or 2.4)
+			end
+		end
+		local list = {}
+		for _, model in IN.bodies() do
+			local mr = model ~= char and not caught[model] and model:FindFirstChild("HumanoidRootPart")
+			local hum = mr and model:FindFirstChildOfClass("Humanoid")
+			if mr and hum and hum.Health > 0 then
+				local rel = mr.Position - center
+				local fd = Vector3.new(rel.X, 0, rel.Z).Magnitude
+				if fd <= (ability.HurlRange or 260) and rel.Y <= (ability.Above or 220) and rel.Y >= -(ability.Below or 90) then
+					table.insert(list, { Model = model, Root = mr, Dist = fd })
+					if fd <= (ability.PullRadius or 70) and IN.free(player, model) then
+						knockback(model, awayFrom(center, model, d) * (ability.Shove or 80) + UP * 25, 0.25, false, true)
+					end
+				end
+			end
+		end
+		table.sort(list, function(a, b)
+			return a.Dist < b.Dist
+		end)
+		local throws = {}
+		local speed = math.max(ability.ChunkSpeed or 170, 1)
+		for n, e in list do
+			if n > (ability.MaxTargets or 14) then
+				break
+			end
+			local vel = e.Root.AssemblyLinearVelocity
+			local lead = Vector3.new(vel.X, 0, vel.Z) * 0.2
+			if lead ~= lead or lead.Magnitude > 8 then
+				lead = Vector3.zero
+			end
+			for i = 1, ability.Chunks or 3 do
+				local from = center + UP * (30 + i * 18)
+				local aim = e.Root.Position + lead
+				table.insert(throws, {
+					Target = e.Model, Aim = aim, From = from,
+					Delay = (i - 1) * (ability.ChunkGap or 0.12) + (n - 1) * 0.03,
+					Time = math.clamp((aim - from).Magnitude / speed, 0.35, 1.8),
+				})
+			end
+		end
+		broadcast("SkyCycloneHurl", char, { Pos = center, Dir = d, Throws = throws, Out = thrownOut })
+		for _, th in throws do
+			task.delay(th.Delay + th.Time, function()
+				local mr = th.Target.Parent and th.Target:FindFirstChild("HumanoidRootPart")
+				if mr and (mr.Position - th.Aim).Magnitude <= (ability.ChunkHit or 8) then
+					if damage(player, th.Target, ability.ChunkDamage or 7, { From = th.From, Quiet = true, Hitstop = 0.03 }) then
+						knockback(th.Target, awayFrom(center, th.Target, d) * 40 + UP * 22, 0.15, false, true)
+					end
+				end
+			end)
+		end
+		-- its last tear through the street
+		Destruction.Sphere(center, (ability.CarveRadius or 14) * 1.3, "Crater", d)
+		return throws
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 86) DEV FLIGHT (Config.DevFlight): the owner's and the Devs'
+-- Invincible / Omni-Man flight. His own machine flies him (it owns his
+-- body, and the server never checks movement); here everything that touches
+-- anyone else is checked: the switch (DevFlight, on the player), the tier
+-- everyone else draws him at (DevFlying, on the body), the walls he smashes
+-- through (clamped to where the server sees him, a few a second), the
+-- crater, the boom, the people knocked out of his way. Speeds are the
+-- server's own view of his body, never what he sends. Nobody else gets any
+-- of it. DF.allowed: Config.DevFlight.Devs, Config.Console.Owners, the
+-- game's creator (a group game: rank 255), and in Studio whoever's testing
+-- (the console's rule - without needing the console switched on).
+-- (No new top-level locals: the server's main chunk is at its limit.)
+---------------------------------------------------------------------------
+do
+	local DEV = Config.DevFlight or {}
+	local DF = {
+		KINDS = {
+			DevFlyToggle = true, DevFly = true, DevFlyEnd = true, DevTakeoff = true, DevCatch = true, DevBoom = true,
+			DevBoost = true, DevBrake = true, DevDive = true, DevSmash = true, DevLand = true, DevWall = true,
+			DevDrill = true, -- (round 89: down through a building - Kit.FB.shaft)
+			-- (round 90, devfly2) the light barrier's charge, its break, out of
+			-- LIGHTSPEED again, the barrel roll / sidestep (DF.light: beats)
+			DevCharge = true, DevLight = true, DevLightOut = true, DevRoll = true,
+		},
+		-- what everyone else may draw him as (the body's DevFlying; Held: a
+		-- hit or a move has his body - nothing drawn on it)
+		-- (round 90: Light - LIGHTSPEED)
+		TIERS = { Crouch = true, Ascent = true, Hover = true, Cruise = true, Fast = true, Hyper = true, Boost = true, Brake = true, Dive = true, Held = true, Light = true },
+		known = setmetatable({}, { __mode = "k" }), -- [player] = allowed (worked out once)
+		-- [player] = { [beat] = os.clock() }. ((round 90 review) not weak: the
+		-- rate limits, the burst's bomb window (Kit.FB.bursting) and the
+		-- light barrier's charge (DF.light) read it - round 87's lesson, the
+		-- engine can drop an Instance key while it lives. Cleared on leaving)
+		last = {},
+		smashes = setmetatable({}, { __mode = "k" }), -- [player] = the holes' times this last second
+		-- [char] = the fastest the server's seen him lately (it decays).
+		-- ((round 89 review) not weak: the bomb goes by it, read the moment
+		-- his crash comes in - round 87's lesson. Cleared when he stops
+		-- flying; Kit.FB's Heartbeat sweeps out a body that's gone)
+		peak = {},
+		lastPos = setmetatable({}, { __mode = "k" }), -- [char] = where he was last frame (the ram's sweep)
+		offAt = setmetatable({}, { __mode = "k" }), -- [player] = when he switched it off (a drop's landing still counts)
+		-- [victim] = when they were last knocked aside. ((round 89 review) not
+		-- weak: the bomb's RamGrace reads it a frame later - round 87's lesson,
+		-- the engine can drop an Instance key while it lives. Kit.FB's
+		-- Heartbeat clears the old and the gone)
+		rammed = {},
+		wantTier = setmetatable({}, { __mode = "k" }), -- [player] = a tier that came too soon after the last (put on after the gap)
+		streamAt = setmetatable({}, { __mode = "k" }), -- [player] = when the map ahead of him was last asked for
+	}
+	Kit.DF = DF
+
+	function DF.allowed(player)
+		if DEV.Enabled == false or typeof(player) ~= "Instance" or not player:IsA("Player") then
+			return false
+		end
+		local known = DF.known[player]
+		if known ~= nil then
+			return known
+		end
+		local id = player.UserId
+		local yes = table.find(DEV.Devs or {}, id) ~= nil or table.find((Config.Console or {}).Owners or {}, id) ~= nil
+		local creator = tonumber(game.CreatorId) or 0
+		local sure = true
+		if not yes then
+			local okType, group = pcall(function()
+				return game.CreatorType == Enum.CreatorType.Group
+			end)
+			if okType and group then
+				local ok, rank = pcall(player.GetRankInGroup, player, creator)
+				yes = ok and rank == 255
+				-- (round 86 review) the group's web call failed (a blip): no
+				-- answer yet, so it isn't kept - the next ask tries again
+				sure = ok
+			else
+				yes = id == creator and id ~= 0
+			end
+		end
+		-- Studio: the one testing it (Player1 of a local server test; anyone
+		-- in a place that's never been published)
+		if not yes and RunService:IsStudio() then
+			yes = id == -1 or (id > 0 and (creator == 0 or id == creator))
+		end
+		if sure or yes then
+			DF.known[player] = yes
+		end
+		return yes
+	end
+	-- (round 92, flightgrant) who may FLY: a dev (DF.allowed), or someone a
+	-- dev gave it to (Kit.FG) - asked each time, never cached (DF.known only
+	-- ever holds the dev check). Every flight request goes by this; the dev
+	-- tools (the director camera, possess, admin events) keep DF.allowed
+	function DF.canFly(player)
+		return DF.allowed(player) or (Kit.FG ~= nil and Kit.FG.has(player))
+	end
+	-- (round 92, flightgrant) the destructive extras - the mach burst's bomb,
+	-- all the way down, the Sky Coffin's shield breaking, the LIGHTSPEED
+	-- wipe: a dev's, or a grant's with FULL POWER
+	function DF.fullPower(player)
+		return DF.allowed(player) or (Kit.FG ~= nil and Kit.FG.full(player))
+	end
+
+	-- (round 86 review) whether the flight may knock someone about (the ram,
+	-- the crash): the rules every hit and grab goes by - nobody in god mode,
+	-- dodging (iFrames), in a clash, a grab or a finisher, lying in the
+	-- street, a raid boss, at the UNO table, near the Nomu in its truce, his
+	-- own double, or while the world's stopped
+	-- ((round 89) downOk: lying in the street is no shield from this - the
+	-- flight's own ram put them there a moment ago, the bomb's the same hit)
+	function DF.canKnock(player, model, downOk)
+		local hum = model and model:FindFirstChildOfClass("Humanoid")
+		local root = model and model:FindFirstChild("HumanoidRootPart")
+		if not hum or not root or hum.Health <= 0 or root.Anchored or Moves.stopped() or untouchable(model) then
+			return false
+		end
+		for _, flag in { "Grabbed", "BeingFinished", "Finishing", "Clashing", "Boss", "Ragdolled", "PlayingUno" } do
+			if model:GetAttribute(flag) and not (downOk and flag == "Ragdolled") then
+				return false
+			end
+		end
+		local victim = Players:GetPlayerFromCharacter(model)
+		if (victim and victim:GetAttribute("GodMode")) or (iFrames[model] or 0) > os.clock() or finishing[model] ~= nil then
+			return false
+		end
+		if player and model:GetAttribute("TwiceClone") == player.UserId then
+			return false
+		end
+		if Reactions.NR and Reactions.NR.truce and Reactions.NR.truce(player, model) then
+			return false
+		end
+		return true
+	end
+
+	-- a sane Vector3 off the wire (no NaN, nowhere absurd)
+	function DF.vec(v)
+		return typeof(v) == "Vector3" and v == v and v.Magnitude < 1e6
+	end
+
+	-- not sooner than t after the last one of these
+	function DF.gap(player, key, t)
+		local now = os.clock()
+		local seen = DF.last[player]
+		if not seen then
+			seen = {}
+			DF.last[player] = seen
+		end
+		if now - (seen[key] or -1e9) < t then
+			return false
+		end
+		seen[key] = now
+		return true
+	end
+
+	-- the switch. On: only for those allowed - and the testers' N flight
+	-- lets go (one flight at a time). Off: everyone stops drawing him flying.
+	function DF.setPower(player, on)
+		on = on == true
+		if on and not DF.canFly(player) then -- (round 92: a dev, or a grant)
+			return false
+		end
+		if (player:GetAttribute("DevFlight") == true) ~= on then
+			player:SetAttribute("DevFlight", on or nil)
+		end
+		if on then
+			DF.offAt[player] = nil
+			if player:GetAttribute("Flight") then
+				player:SetAttribute("Flight", nil)
+			end
+		else
+			DF.offAt[player] = DF.offAt[player] or os.clock()
+			local char = player.Character
+			if char and char:GetAttribute("DevFlying") then
+				char:SetAttribute("DevFlying", nil)
+			end
+		end
+		return true
+	end
+
+	-- how fast the server's seen him: now, or his peak a moment ago
+	function DF.speedOf(char)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local now = root and root.AssemblyLinearVelocity.Magnitude or 0
+		return math.max(now, DF.peak[char] or 0)
+	end
+
+	function DF.relay(player, char, kind, data)
+		if kind == "DevFlyToggle" then
+			if data == nil then
+				data = player:GetAttribute("DevFlight") ~= true
+			end
+			DF.setPower(player, data == true)
+			return
+		end
+		if kind == "DevFlyEnd" then
+			if char and char:GetAttribute("DevFlying") then
+				char:SetAttribute("DevFlying", nil)
+			end
+			return
+		end
+		if not DF.canFly(player) then -- (round 92: a dev, or a grant)
+			return
+		end
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root or not alive(char) then
+			return
+		end
+		local on = player:GetAttribute("DevFlight") == true
+		-- (switched off mid-air a moment ago: the drop's landing still shows)
+		if not on and not (kind == "DevLand" and os.clock() - (DF.offAt[player] or -1e9) < (DEV.DropWindow or 8)) then
+			return
+		end
+		data = type(data) == "table" and data or { Tier = data }
+		local speed = DF.speedOf(char)
+		local function dirOf(v)
+			return (DF.vec(v) and v.Magnitude > 0.01) and v.Unit or root.CFrame.LookVector
+		end
+		if kind == "DevFly" then
+			local tier = data.Tier
+			if type(tier) == "string" and DF.TIERS[tier] then
+				DF.setTier(player, char, tier)
+			end
+		elseif kind == "DevTakeoff" then
+			if DF.gap(player, kind, 0.5) then
+				local charge = math.clamp(tonumber(data.Charge) or 0, 0, 1)
+				broadcast("DevFly", char, { Kind = "Takeoff", Pos = groundBelow(root.Position, char), Charge = charge == charge and charge or 0 }, player)
+			end
+		elseif kind == "DevCatch" then
+			if DF.gap(player, kind, 0.3) then
+				broadcast("DevFly", char, { Kind = "Catch" }, player)
+			end
+		elseif kind == "DevBoom" then
+			-- (only at a speed the server's seen him reach)
+			if speed >= (DEV.BoomAt or 420) * 0.6 and DF.gap(player, kind, 0.5) then
+				broadcast("DevFly", char, { Kind = "Boom", Pos = root.Position, Dir = dirOf(data.Dir) }, player)
+			end
+		elseif kind == "DevBoost" then
+			if DF.gap(player, kind, ((DEV.Boost or {}).Cooldown or 1.2) * 0.75) then
+				broadcast("DevFly", char, { Kind = "Boost", Dir = dirOf(data.Dir) }, player)
+			end
+		elseif kind == "DevBrake" then
+			if DF.gap(player, kind, 0.3) then
+				broadcast("DevFly", char, { Kind = "Brake", Dir = dirOf(data.Dir) }, player)
+			end
+		elseif kind == "DevDive" then
+			if DF.gap(player, kind, 0.5) then
+				local to = DF.vec(data.Pos) and data.Pos or nil
+				if to and (to - root.Position).Magnitude > ((DEV.DiveSlam or {}).Range or 600) + 60 then
+					to = nil
+				end
+				broadcast("DevFly", char, { Kind = "Dive", Pos = to }, player)
+			end
+		elseif kind == "DevWall" then
+			-- (an unbreakable wall at speed: just the dust, near where he is)
+			local pos = DF.vec(data.Pos) and data.Pos or nil
+			if pos and (pos - root.Position).Magnitude < 30 + speed * 0.3 and DF.gap(player, kind, 0.3) then
+				broadcast("DevFly", char, { Kind = "WallHit", Pos = pos, Normal = dirOf(data.Normal) }, player)
+				-- (round 89) into it at the mach burst: a bomb at the wall (Kit.FB.blast - the speed the server's seen)
+				if data.Bomb == true and Kit.FB then
+					Kit.FB.blast(player, char, pos, dirOf(data.Normal), speed)
+				end
+			end
+		elseif kind == "DevSmash" then
+			DF.smash(player, char, root, data, speed)
+		elseif kind == "DevLand" then
+			DF.land(player, char, root, data, speed, on)
+		elseif kind == "DevDrill" and Kit.FB then
+			Kit.FB.shaft(player, char, root, data, speed) -- (round 89: down through a building, to the street)
+		elseif kind == "DevCharge" or kind == "DevLight" or kind == "DevLightOut" or kind == "DevRoll" then
+			DF.light(player, char, root, kind, data, speed) -- (round 90: LIGHTSPEED's beats, the roll)
+		end
+	end
+
+	-- (round 90, devfly2) LIGHTSPEED's beats and the barrel roll, passed on to
+	-- everyone else: the charge (on only at a speed the server's seen him near
+	-- HYPERSONIC), the light barrier breaking (at the server's own view of
+	-- him: at least Hyper.Speed x 0.6 - and at most once each Light.Cooldown x
+	-- 0.75 s), out of it again, the roll - a few a second at most. Pictures
+	-- and sound only: the speed is his machine's flight, the holes and the
+	-- crash the flight's own (clamped as ever)
+	function DF.light(player, char, root, kind, data, speed)
+		local LT = DEV.Light or {}
+		if LT.Enabled == false and kind ~= "DevRoll" then
+			return
+		end
+		local function dirOf(v)
+			return (DF.vec(v) and v.Magnitude > 0.01) and v.Unit or root.CFrame.LookVector
+		end
+		local hyper = ((DEV.Tiers or {}).Hyper or {}).Speed or 520
+		if kind == "DevCharge" then
+			local on = data.On == true
+			if not on then
+				if DF.gap(player, "chargeOff", 0.1) then
+					broadcast("DevFly", char, { Kind = "Charge", On = false, Time = LT.Charge }, player)
+				end
+				return
+			end
+			-- ((round 90 review) round 89's lesson: his machine starts the charge
+			-- the moment it's HYPERSONIC - often the burst's own press - before
+			-- the server's view of him has caught up. Asked again on its own view
+			-- (Retry: how many times, Wait s apart) rather than dropped; not if
+			-- he let go of it meanwhile)
+			local asked = os.clock()
+			local RT = LT.Retry or {}
+			local mine = DF.last[player] or {}
+			DF.last[player] = mine
+			mine.chargeAsk = asked -- (one ask at a time: a newer one takes over)
+			local function try(again)
+				if not (player.Parent and char.Parent and player.Character == char and player:GetAttribute("DevFlight") == true) then
+					return
+				end
+				local seen = DF.last[player]
+				if not seen or seen.chargeAsk ~= asked or (seen.chargeOff or -1e9) >= asked then
+					return
+				end
+				if DF.speedOf(char) >= hyper * 0.6 then
+					if DF.gap(player, "charge", 0.25) then
+						broadcast("DevFly", char, { Kind = "Charge", On = true, Time = LT.Charge }, player)
+					end
+				elseif again < (RT.Times or 3) then
+					task.delay(RT.Wait or 0.1, function()
+						try(again + 1)
+					end)
+				end
+			end
+			try(0)
+		elseif kind == "DevLight" then
+			if speed >= hyper * 0.6 and DF.gap(player, kind, (LT.Cooldown or 3) * 0.75) then
+				broadcast("DevFly", char, { Kind = "Light", Pos = root.Position, Dir = dirOf(data.Dir) }, player)
+			end
+		elseif kind == "DevLightOut" then
+			if DF.gap(player, kind, 0.5) then
+				broadcast("DevFly", char, { Kind = "LightOut", Pos = root.Position, Dir = dirOf(data.Dir) }, player)
+			end
+		elseif kind == "DevRoll" then
+			if DF.gap(player, kind, 0.25) then
+				broadcast("DevFly", char, { Kind = "Roll", Dir = dirOf(data.Dir), Hover = data.Hover == true }, player)
+			end
+		end
+	end
+
+	-- the tier on his body, at most one change each 0.04 s (his machine sends
+	-- them 0.1 s apart; a forced one - hit, Held - can come sooner). (round 86
+	-- review) One that comes too soon isn't dropped: the latest is put on
+	-- when the gap's up, so nobody keeps drawing him at FAST while he's hit
+	function DF.setTier(player, char, tier)
+		if DF.gap(player, "tier", 0.04) then
+			DF.wantTier[player] = nil
+			if char:GetAttribute("DevFlying") ~= tier then
+				char:SetAttribute("DevFlying", tier)
+			end
+			return
+		end
+		local waiting = DF.wantTier[player] ~= nil
+		DF.wantTier[player] = tier
+		if waiting then
+			return
+		end
+		task.delay(0.05, function()
+			local want = DF.wantTier[player]
+			DF.wantTier[player] = nil
+			if want and player.Character == char and player:GetAttribute("DevFlight") == true and char:GetAttribute("DevFlying") ~= want then
+				char:SetAttribute("DevFlying", want)
+				DF.last[player] = DF.last[player] or {}
+				DF.last[player].tier = os.clock()
+			end
+		end)
+	end
+
+	-- a hole through a building: where he says it is, clamped to where the
+	-- server sees him (and how fast), at most SegMax long and Rate a second
+	function DF.smash(player, char, root, data, speed)
+		local SM = DEV.Smash or {}
+		if not (DF.vec(data.A) and DF.vec(data.B)) or speed < (SM.Speed or 200) * 0.5 then
+			return
+		end
+		local now = os.clock()
+		local list = DF.smashes[player] or {}
+		DF.smashes[player] = list
+		while list[1] and now - list[1] > 1 do
+			table.remove(list, 1)
+		end
+		if #list >= (SM.Rate or 12) then
+			return
+		end
+		local reach = 16 + speed * 0.25
+		local a = data.A
+		local off = a - root.Position
+		if off.Magnitude > reach then
+			a = root.Position + off.Unit * reach
+		end
+		local seg = data.B - a
+		if seg.Magnitude < 0.5 then
+			return
+		end
+		local d = seg.Unit
+		local b = a + d * math.min(seg.Magnitude, SM.SegMax or 36)
+		local r = math.clamp(tonumber(data.R) or 4.5, 3, 8)
+		r = r == r and r or 4.5
+		table.insert(list, now)
+		if workspace:GetAttribute("DestructionEnabled") ~= false then
+			Destruction.Capsule(a, b, r, SM.Profile or "FlyThrough", d)
+		end
+		broadcast("DevFly", char, { Kind = "Smash", A = a, B = b, Dir = d, R = r }, player)
+		if Kit.CR then
+			Kit.CR.smashed(player, a, b, d, r, speed) -- (round 88: the one he's ramming through it)
+		end
+		-- (round 89) the burst's first wall: a bomb there (Kit.FB.blast - the speed the server's seen)
+		if data.Bomb == true and Kit.FB then
+			Kit.FB.blast(player, char, a, -d, speed)
+		end
+	end
+
+	-- coming down: a crater only at a speed the server's seen him reach
+	-- (anyone near knocked off their feet), otherwise the landing's dust
+	function DF.land(player, char, root, data, speed, on)
+		local CR = DEV.Crash or {}
+		local pos = DF.vec(data.Pos) and data.Pos or root.Position
+		if (pos - root.Position).Magnitude > 40 + speed * 0.3 then
+			pos = root.Position
+		end
+		local ground = groundBelow(pos, char)
+		local crash = data.Kind == "Crash" and speed >= (CR.Speed or 260) * 0.55 and DF.gap(player, "crash", CR.Gap or 1)
+		-- (round 89) at mach speed the crash is a bomb (Kit.FB.bomb: its blast
+		-- hole, everyone near hit and thrown, its beat) - not this crater
+		-- (round 92) at LIGHTSPEED (his machine says: Light) it's the end of the
+		-- map - Kit.LW, by the server's own view of him; else the bomb as ever
+		if crash and data.Light == true and Kit.LW and Kit.LW.impact(player, char, ground, data, speed) then
+			-- (the end of the map - or, if the server never sees him that fast, the bomb a moment later)
+		elseif crash and Kit.FB and Kit.FB.bomb(player, char, ground, tonumber(data.Speed), speed) then
+			-- (the bomb was all of it)
+		elseif crash then
+			local claimed = tonumber(data.Speed) or 0
+			local hit = math.max(math.min(claimed == claimed and claimed or 0, speed * 1.3 + 60, (DEV.Boost or {}).Cap or 980), CR.Speed or 260)
+			local r0, r1 = (CR.Radius or {})[1] or 9, (CR.Radius or {})[2] or 18
+			local radius = math.clamp(r0 + (hit - (CR.Speed or 260)) / (CR.PerStud or 45), r0, r1)
+			if workspace:GetAttribute("DestructionEnabled") ~= false then
+				Destruction.Sphere(ground, radius, "Crater")
+			end
+			local knock = CR.Knock or { 92, 46 }
+			local seen = {}
+			for _, part in workspace:GetPartBoundsInRadius(ground, radius + (CR.KnockReach or 12)) do
+				local model = part.Parent
+				local r = model and model:FindFirstChild("HumanoidRootPart")
+				local hum = model and model:FindFirstChildOfClass("Humanoid")
+				-- (round 86 review: only those a hit could touch - DF.canKnock)
+				if r and hum and hum.Health > 0 and model ~= char and not seen[model] and DF.canKnock(player, model) then
+					seen[model] = true
+					local out = Vector3.new(r.Position.X - ground.X, 0, r.Position.Z - ground.Z)
+					out = out.Magnitude > 0.1 and out.Unit or Vector3.new(1, 0, 0)
+					knockback(model, out * knock[1] + UP * knock[2], 0.3, true) -- (raw: the full throw)
+				end
+			end
+			broadcast("DevFly", char, { Kind = "Crash", Pos = ground, Radius = radius, Speed = hit }, player)
+		elseif DF.gap(player, "land", 0.4) then
+			broadcast("DevFly", char, { Kind = data.Kind == "Soft" and "Soft" or "Land", Pos = ground }, player)
+		end
+		-- (down on his feet: the flight's over)
+		if on and char:GetAttribute("DevFlying") then
+			char:SetAttribute("DevFlying", nil)
+		end
+	end
+
+	-- people in his way, knocked flying out of it: swept along where the
+	-- server saw him go this frame (no damage - Config.DevFlight.Ram)
+	function DF.ram(char, root, speed, plr)
+		local RAM = DEV.Ram or {}
+		local from, to = DF.lastPos[char] or root.Position, root.Position
+		local seg = to - from
+		local len = seg.Magnitude
+		local v = root.AssemblyLinearVelocity
+		local dir = len > 0.1 and seg.Unit or (v.Magnitude > 1 and v.Unit or root.CFrame.LookVector)
+		-- (round 86 review) never longer than a moment of flight at his speed:
+		-- a hitch (his body seen jumping 100+ studs) or a teleport doesn't
+		-- sweep everyone along the jump
+		local most = speed * 0.2 + 10
+		if len > most then
+			from = to - dir * most
+			seg = to - from
+			len = most
+		end
+		local w = RAM.Width or 5
+		local mid = from + seg / 2
+		local params = OverlapParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { char }
+		local now = os.clock()
+		local seen = {}
+		for _, part in workspace:GetPartBoundsInBox(CFrame.lookAt(mid, mid + dir), Vector3.new(w * 2, w * 2 + 3, len + w * 2), params) do
+			local model = part.Parent
+			local hum = model and model:FindFirstChildOfClass("Humanoid")
+			local r = model and model:FindFirstChild("HumanoidRootPart")
+			if hum and r and model ~= char and not seen[model] and hum.Health > 0 and now - (DF.rammed[model] or -1e9) >= (RAM.Every or 1)
+				and DF.canKnock(plr, model) then -- (round 86 review: only those a hit could touch)
+				seen[model] = true
+				DF.rammed[model] = now
+				-- on with him, off to the side they were on, and up
+				local rel = r.Position - root.Position
+				local side = rel - dir * rel:Dot(dir)
+				side = Vector3.new(side.X, 0, side.Z)
+				if side.Magnitude < 0.1 then
+					side = Vector3.new(-dir.Z, 0, dir.X)
+				end
+				side = side.Magnitude > 0.01 and side.Unit or Vector3.new(1, 0, 0)
+				local push = (dir * 0.6 + side * 0.6 + UP * 0.5).Unit
+				local lo, hi = (RAM.Speed or {})[1] or 100, (RAM.Speed or {})[2] or 130
+				knockback(model, push * math.clamp(speed * 0.25, lo, hi), 0.3, true) -- (raw: the full throw)
+				broadcast("DevFly", char, { Kind = "Ram", Target = model, Pos = r.Position, Dir = push })
+			end
+		end
+	end
+
+	-- (round 86 review) the place streams (StreamingIntegrityMode
+	-- PauseOutsideLoadedArea): at FAST and up he crosses the city in a second
+	-- or two, faster than the map around him streams in on a slow line - so
+	-- every Stream.Every s the server asks for the map Stream.Ahead s down
+	-- his path (at most Stream.Max studs ahead) to be sent to him, one ask at
+	-- a time (it yields)
+	-- ((round 90) light: at LIGHTSPEED, asked more often - Light.Stream.Every)
+	function DF.streamAhead(plr, root, speed, light)
+		local ST = DEV.Stream or {}
+		if ST.Enabled == false then
+			return
+		end
+		local now = os.clock()
+		local every = light and (((DEV.Light or {}).Stream or {}).Every or 0.3) or (ST.Every or 0.5)
+		if now - (DF.streamAt[plr] or -1e9) < every then
+			return
+		end
+		DF.streamAt[plr] = math.huge -- (one ask on its way at a time)
+		local v = root.AssemblyLinearVelocity
+		local ahead = v.Magnitude > 1 and v.Unit * math.min(speed * (ST.Ahead or 1), ST.Max or 900) or Vector3.zero
+		local at = root.Position + ahead
+		task.spawn(function()
+			pcall(function()
+				plr:RequestStreamAroundAsync(at, ST.Timeout or 1)
+			end)
+			DF.streamAt[plr] = os.clock()
+		end)
+	end
+
+	-- every frame, for each one flying: how fast he's going (his peak decays
+	-- 520 studs/s a second) and the ram at speed
+	RunService.Heartbeat:Connect(function(dt)
+		dt = math.min(tonumber(dt) or 1 / 30, 0.1)
+		for _, plr in Players:GetPlayers() do
+			local char = plr.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root and plr:GetAttribute("DevFlight") == true then
+				local speed = root.AssemblyLinearVelocity.Magnitude
+				DF.peak[char] = math.max(speed, (DF.peak[char] or 0) - 520 * dt)
+				local tier = char:GetAttribute("DevFlying")
+				local fast = tier == "Fast" or tier == "Hyper" or tier == "Boost" or tier == "Dive" or tier == "Light" -- (round 90: LIGHTSPEED)
+				if speed >= ((DEV.Ram or {}).MinSpeed or 180) and fast then
+					DF.ram(char, root, speed, plr)
+				end
+				if fast then
+					DF.streamAhead(plr, root, speed, tier == "Light")
+				end
+				DF.lastPos[char] = root.Position
+			elseif char and DF.peak[char] then
+				DF.peak[char] = nil
+				DF.lastPos[char] = nil
+			end
+		end
+	end)
+
+	-- who flies (the client shows the key and the menu row only to them); a
+	-- fresh body starts on its feet
+	function DF.mark(plr)
+		plr:SetAttribute("DevFlyer", DF.allowed(plr) or nil)
+		-- (round 86 review) the group's answer didn't come (a web blip): asked
+		-- again a few times rather than locking the owner out till he rejoins
+		task.spawn(function()
+			for _ = 1, 3 do
+				if DF.known[plr] ~= nil or not plr.Parent then
+					break
+				end
+				task.wait(5)
+				if plr.Parent and DF.allowed(plr) then
+					plr:SetAttribute("DevFlyer", true)
+				end
+			end
+		end)
+		plr.CharacterAdded:Connect(function()
+			DF.setPower(plr, false)
+		end)
+		-- (round 86 review) one flight at a time: the testers' N flight (or
+		-- the server panel's "fly all") switched on while he dev-flies is let
+		-- go, or it would lift him straight back up the moment he lands
+		plr:GetAttributeChangedSignal("Flight"):Connect(function()
+			if plr:GetAttribute("Flight") and plr:GetAttribute("DevFlight") == true then
+				plr:SetAttribute("Flight", nil)
+			end
+		end)
+	end
+	Players.PlayerAdded:Connect(DF.mark)
+	for _, plr in Players:GetPlayers() do
+		task.spawn(DF.mark, plr)
+	end
+	-- (round 90 review) DF.last is a plain table now: gone with him
+	Players.PlayerRemoving:Connect(function(plr)
+		DF.last[plr] = nil
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 89) FLIGHTBOOM (Config.DevFlight.Bomb / Shaft / Carry.Throw.Land) -
+-- the owner after round 88: "make it so when dashing (mach bursting) into
+-- the ground/buildings, the damage increases way more, like a big bomb went
+-- off. also when doing that to a building, make sure you go all the way
+-- down, same thing for the slam move. when throwing the opponent as well
+-- make sure they are ragdolled and hit the ground hard". Checked here the
+-- way the flight is (Kit.DF: the dev gate and his switch, speeds the server
+-- itself has seen him reach - never his word alone - a few a second):
+--   THE BOMB: a crash at mach speed (FB.bomb - DF.land asks it first) is a
+--     blast: a hole in the street and whatever stands round it, everyone
+--     near hit (with falloff, never a one-shot) and thrown; the burst's
+--     first wall (FB.blast - DF.smash / DevWall pass on his machine's word
+--     that it was the burst) the same at the wall
+--   ALL THE WAY DOWN: his machine's DevDrill (FB.shaft) - the shaft carved
+--     down the server's own view of the building under where it sees him,
+--     to the street (the bomb's there: his landing comes after it)
+--   THE THROW'S LANDING: the carry's THROW / the RAM's fling (FB.thrown,
+--     from CR.release) watched on the server's own view of the body - kept
+--     limp the whole way, a hard landing where it comes down (FB.land)
+-- Also Destruction.FlightBoom (the tests reach it there, as Kit.Smash).
+-- (No new top-level locals: the server's main chunk is at its limit. Round
+-- 87's lesson: plain tables, cleared on every way out.)
+---------------------------------------------------------------------------
+do
+	local DEV = Config.DevFlight or {}
+	local BOMB, SHAFT = DEV.Bomb or {}, DEV.Shaft or {}
+	local LAND = ((DEV.Carry or {}).Throw or {}).Land or {}
+	local FB = {
+		last = {}, -- [player] = { [kind] = os.clock() }
+		throws = {}, -- [the body thrown] = its watch: { Model, Root, Player, Char, T0, Why, Air, Limp, KeepAt }
+		params = RaycastParams.new(),
+		spent = {}, -- (round 89 review) [player] = { Level, At }: what his bombs have carved lately (Bomb.Carve)
+		pruneAt = 0, -- (round 89 review) when Kit.DF.rammed is next swept of the old and the gone
+		rams = Kit.DF and Kit.DF.rammed or {}, -- (round 89 review) that table (the bomb's RamGrace reads it; swept here)
+		peaks = Kit.DF and Kit.DF.peak or {}, -- (round 89 review) Kit.DF.peak (the bomb's speed; a gone body swept out here)
+	}
+	Kit.FB = FB
+	Destruction.FlightBoom = FB
+	do
+		local map = workspace:FindFirstChild("Map")
+		FB.params.FilterType = map and Enum.RaycastFilterType.Include or Enum.RaycastFilterType.Exclude
+		FB.params.FilterDescendantsInstances = map and { map } or nonMapStuff(nil)
+		pcall(function()
+			FB.params.RespectCanCollide = true
+		end)
+	end
+
+	-- not sooner than t after the last one of these
+	function FB.gap(player, key, t)
+		local now = os.clock()
+		local seen = FB.last[player]
+		if not seen then
+			seen = {}
+			FB.last[player] = seen
+		end
+		if now - (seen[key] or -1e9) < t then
+			return false
+		end
+		seen[key] = now
+		return true
+	end
+	-- the map (what really stops a body), and what of it may go
+	function FB.cast(origin, vec)
+		return workspace:Raycast(origin, vec, FB.params)
+	end
+	function FB.breakable(part)
+		return typeof(part) == "Instance" and part:IsA("Part") and part:GetAttribute("Destroyable") == true and not part:GetAttribute("NoPhase")
+	end
+	function FB.carving()
+		return workspace:GetAttribute("DestructionEnabled") ~= false
+	end
+	-- (round 89 review) many bombs in a row: the Destruction budget one dev's
+	-- bombs may still spend now (Bomb.Carve: Rate a second, Burst at once) -
+	-- want at most; nil: too little left to carve (it still hurts and shows)
+	function FB.budget(player, want)
+		local C = BOMB.Carve or {}
+		local now = os.clock()
+		local s = FB.spent[player]
+		local level = s and math.max(s.Level - (now - s.At) * (C.Rate or 350), 0) or 0
+		local give = math.min(want, (C.Burst or 1400) - level)
+		if not (give >= (C.Min or 200)) then
+			FB.spent[player] = { Level = level, At = now }
+			return nil
+		end
+		FB.spent[player] = { Level = level + give, At = now }
+		return math.floor(give)
+	end
+	-- (round 89 review) the bomb's hole, as much of it as he may still carve
+	function FB.carve(player, center, R, dir)
+		if not FB.carving() then
+			return false
+		end
+		local name = BOMB.Profile or "FlightBomb"
+		local prof = Destruction.Profiles and Destruction.Profiles[name]
+		local budget = FB.budget(player, prof and prof.Budget or 700)
+		if not budget then
+			return false
+		end
+		Destruction.Sphere(center, R, name, dir, { Budget = budget })
+		return true
+	end
+
+	-- the blast's people: everyone within its reach by the rules every hit
+	-- goes by (Kit.DF.canKnock - nobody protected), hit for the middle's
+	-- damage x the falloff (never more than MaxShare of their max health),
+	-- thrown off their feet away from it. (One the flight's own ram knocked
+	-- down a moment ago - RamGrace s: right where he came down - is still
+	-- hit: lying there is no shield from the same hit.) How many it hit
+	function FB.hurt(player, char, center, R, k)
+		local D, KN = BOMB.Damage or { 30, 90 }, BOMB.Knock or {}
+		local top = D[1] + (D[2] - D[1]) * k
+		local outs, ups = KN.Out or { 90, 170 }, KN.Up or { 55, 100 }
+		local out = outs[1] + (outs[2] - outs[1]) * k
+		local up = ups[1] + (ups[2] - ups[1]) * k
+		local now = os.clock()
+		local hits = 0
+		for _, model in queryRadius(char, center, R * (BOMB.Reach or 1.6) + 1) do
+			local r = model:FindFirstChild("HumanoidRootPart")
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			local f = r and DEV.Bomb.falloff((r.Position - center).Magnitude, R) or 0
+			local rammed = now - (Kit.DF.rammed[model] or -1e9) < (BOMB.RamGrace or 0.75)
+			if f > 0 and hum and model ~= char and Kit.DF.canKnock(player, model, rammed) then
+				local amount = math.min(top * f, hum.MaxHealth * (BOMB.MaxShare or 0.3))
+				if damage(player, model, amount, { From = center, Heavy = true, Hitstop = 0.1, Unblockable = true, NoKnockdown = true, HitsDowned = rammed or nil }) then
+					hits += 1
+					local away = r.Position - center
+					away = Vector3.new(away.X, 0, away.Z)
+					away = away.Magnitude > 0.1 and away.Unit or Vector3.new(1, 0, 0)
+					-- (round 89 review) off their feet, every one of them - down
+					-- longer the nearer (the push alone, with the falloff, is
+					-- under Config.Ragdoll.MinSpeed for most of the reach)
+					local down = BOMB.Down or { 1.1, 2.2 }
+					ragdoll(model, down[1] + (down[2] - down[1]) * math.clamp((f - (BOMB.Edge or 0.3)) / math.max(1 - (BOMB.Edge or 0.3), 0.01), 0, 1))
+					knockback(model, (away * out + UP * up) * f, 0.35, true) -- (raw: the full throw)
+				end
+			end
+		end
+		return hits
+	end
+
+	-- THE BOMB: a crash at mach speed (from DF.land: true - it went off, it's
+	-- all there is). seen: the server's own view of his speed; claimed: what
+	-- his machine says he hit at (never more than Seen x seen + Slack)
+	-- (round 89, in Studio) the speed a bomb needs: Speed, or BurstSpeed just
+	-- after a burst (Q) - the burst is the bomb, whatever the server's caught
+	-- of its speed yet. Its own record of the burst (DF.last's DevBoost beat)
+	function FB.bursting(player)
+		local seen = Kit.DF.last[player]
+		return seen ~= nil and os.clock() - (seen.DevBoost or -1e9) < (BOMB.BurstWindow or 1.6)
+	end
+	function FB.need(player)
+		return FB.bursting(player) and (BOMB.BurstSpeed or 150) or (BOMB.Speed or 420)
+	end
+	function FB.bomb(player, char, ground, claimed, seen)
+		if BOMB.Enabled == false or not (seen >= FB.need(player)) then
+			return false
+		end
+		-- ((round 92) a dev's, or a grant's with FULL POWER - anyone else's
+		-- crash is the crater, DF.land's)
+		if not Kit.DF.fullPower(player) then
+			return false
+		end
+		claimed = tonumber(claimed) or seen
+		local p = math.min(claimed == claimed and claimed or seen, seen * (BOMB.Seen or 1.15) + (BOMB.Slack or 40), (DEV.Boost or {}).Cap or 980)
+		-- (round 89 review) and the speed it goes by is a bomb's too: the
+		-- server's view is his peak dying away (520 a second), so a FAST crash
+		-- (his machine: 300) a moment after a burst was a bomb here while his
+		-- own screen played the crater - that's the crater (DF.land's)
+		if not (p >= FB.need(player)) then
+			return false
+		end
+		if FB.bursting(player) then
+			p = math.max(p, BOMB.BurstFloor or 640)
+		end
+		local k, R = DEV.Bomb.power(p)
+		FB.carve(player, ground + UP * R * (BOMB.Lift or 0.25), R, UP)
+		FB.hurt(player, char, ground + UP * 2, R, k)
+		broadcast("DevFly", char, { Kind = "Bomb", Pos = ground, Radius = R, K = k, Speed = p }, player)
+		return true
+	end
+
+	-- the burst's first wall: the bomb there (Wall x its size), at the speed
+	-- the server's seen him going, Gap s apart (from DF.smash / DevWall).
+	-- (His machine sees the wall a moment ahead, as the burst's still coming
+	-- up to speed: the server's view of him may not be there yet - it's
+	-- asked again Retries times, Wait s apart: still its own view, never his
+	-- word.) again: how many times it's asked already
+	function FB.blast(player, char, pos, normal, seen, again)
+		if BOMB.Enabled == false or typeof(pos) ~= "Vector3" or not Kit.DF.fullPower(player) then -- ((round 92) FULL POWER)
+			return false
+		end
+		if not (seen >= FB.need(player)) then
+			again = (tonumber(again) or 0) + 1
+			if again <= (BOMB.Retries or 2) then
+				task.delay(BOMB.Wait or 0.08, function()
+					if player.Parent and char.Parent and player.Character == char and player:GetAttribute("DevFlight") == true then
+						FB.blast(player, char, pos, normal, Kit.DF.speedOf(char), again)
+					end
+				end)
+			end
+			return false
+		end
+		if not FB.gap(player, "blast", BOMB.Gap or 1) then
+			return false
+		end
+		local p = math.min(seen, (DEV.Boost or {}).Cap or 980)
+		if FB.bursting(player) then
+			p = math.max(p, BOMB.BurstFloor or 640)
+		end
+		local k, R = DEV.Bomb.power(p)
+		R *= BOMB.Wall or 0.7
+		local n = (typeof(normal) == "Vector3" and normal.Magnitude > 0.01) and normal.Unit or UP
+		FB.carve(player, pos, R, -n)
+		FB.hurt(player, char, pos + n * 2, R, k)
+		broadcast("DevFly", char, { Kind = "Bomb", Pos = pos, Normal = n, Radius = R, K = k, Speed = p, Wall = true }, player)
+		return true
+	end
+
+	-- ALL THE WAY DOWN: his machine came down on a building (data.Top: where
+	-- he hit it) - pulled in to where the server sees him, then the server's
+	-- own way down from there (Shaft.plan, its map), the shaft carved through
+	-- every floor (never the street at the bottom), everyone else shown it
+	function FB.shaft(player, char, root, data, seen)
+		if SHAFT.Enabled == false or not FB.carving() or type(data) ~= "table" or not Kit.DF.vec(data.Top) then
+			return nil
+		end
+		if not Kit.DF.fullPower(player) then
+			return nil -- ((round 92) all the way down: a dev's, or a grant's with FULL POWER)
+		end
+		if not (seen >= (SHAFT.MinSeen or 60)) then
+			return nil -- (the server hasn't seen him moving)
+		end
+		local top = data.Top
+		local reach = 16 + seen * 0.25
+		local off = top - root.Position
+		if off.Magnitude > reach then
+			top = root.Position + off.Unit * reach
+		end
+		local plan = DEV.Shaft.plan(top, FB.cast, FB.breakable)
+		if not plan or not FB.gap(player, "shaft", SHAFT.Gap or 0.6) then
+			return nil
+		end
+		local bottom = plan.Bottom
+		local skip = {}
+		if typeof(plan.Street) == "Instance" then
+			skip[plan.Street] = true
+		end
+		local r = SHAFT.Radius or 7
+		-- ((round 89 review) its budget by how long it is: the profile's one
+		-- ran out on a tower's upper floors and left the lower ones whole -
+		-- him shut in under them once his screen closed what it had opened)
+		local BG = SHAFT.Budget or {}
+		local len = (top.Y + 1.5) - (bottom.Y + 1)
+		local budget = math.floor(math.clamp(len * (BG.PerStud or 10), BG.Min or 420, BG.Max or 1500))
+		Destruction.Capsule(top + UP * 1.5, bottom + UP * 1, r, SHAFT.Profile or "FlyShaft", -UP, { Above = bottom.Y + 0.6, Skip = skip, Budget = budget })
+		local ys = {}
+		for i, f in plan.Floors do
+			ys[i] = f.Y
+		end
+		broadcast("DevFly", char, { Kind = "Shaft", Top = top, Bottom = bottom, Floors = ys, R = r, Speed = math.max(seen, SHAFT.Speed or 520) }, player)
+		return plan
+	end
+
+	-- THE THROW: watched from the let go (CR.release) till it comes down
+	function FB.thrown(rec, model, why)
+		if LAND.Enabled == false or (why == "RamEnd" and LAND.Ram == false) then
+			return
+		end
+		local root = model:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local now = os.clock()
+		FB.throws[model] = {
+			Model = model, Root = root, Player = rec.Player, Char = rec.Char, T0 = now, Why = why,
+			-- (the throw's own knockdown has them KeepFrom s at least: kept from then)
+			Air = false, Limp = model:GetAttribute("Ragdolled") == true, KeepAt = now + (LAND.KeepFrom or 0.9),
+		}
+	end
+	-- each frame, each body thrown: still theirs to fly? kept limp while
+	-- they're up; the street coming up under them - the landing
+	function FB.watch(model, w, dt)
+		local now = os.clock()
+		local root = w.Root
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if not model.Parent or not root.Parent or not hum or hum.Health <= 0 or now - w.T0 > (LAND.MaxTime or 5) then
+			FB.throws[model] = nil
+			return
+		end
+		-- (taken out of it: grabbed again, being finished, frozen, stopped in
+		-- time - or up on their feet by themselves: the ragdoll cancel)
+		local limp = model:GetAttribute("Ragdolled") == true
+		if root.Anchored or model:GetAttribute("Grabbed") or model:GetAttribute("CarriedBy") or model:GetAttribute("BeingFinished")
+			or model:GetAttribute("Frozen") or model:GetAttribute("TimeStopped") or (w.Limp and not limp) then
+			FB.throws[model] = nil
+			return
+		end
+		w.Limp = w.Limp or limp
+		-- (on a wall - round 87's hit-stop or its splat: not the street)
+		local SM = Reactions.SM
+		local sf = SM and SM.flights and SM.flights[model]
+		if sf and sf.Holding then
+			return
+		end
+		local v = root.AssemblyLinearVelocity
+		local reach = (LAND.Rest or 3.4) + math.max(-v.Y, 0) * math.max(dt, 1 / 60) * 1.2
+		local hit = FB.cast(root.Position, Vector3.new(0, -reach, 0))
+		if not hit then
+			w.Air = true
+			-- (limp the whole way: the ragdoll kept going while they're up)
+			if limp and now >= w.KeepAt then
+				w.KeepAt = now + (LAND.Every or 0.25)
+				ragdoll(model, LAND.Keep or 0.7)
+			end
+			return
+		end
+		if not w.Air or now - w.T0 < (LAND.MinTime or 0.1) then
+			return -- (still by the street they were let go over)
+		end
+		if not (v.Magnitude >= (LAND.MinSpeed or 70)) then
+			-- (down by the street slowly - or held a moment on a wall on the way
+			-- through it, as their own machine does: not the landing. Watched on
+			-- till they're up in the air again, or up on their feet)
+			w.Air = false
+			return
+		end
+		FB.throws[model] = nil
+		FB.land(w, hit, v)
+	end
+	-- THE LANDING: hard (MinSpeed+): hurt by how fast, a crater in the
+	-- street (not through a roof: only where there's no room under it) and
+	-- the dust, bounced back up, down a while longer; everyone sees it
+	function FB.land(w, hit, v)
+		local model = w.Model
+		local speed = v.Magnitude
+		local lo = LAND.MinSpeed or 70
+		if not (speed >= lo) then
+			return false
+		end
+		local k = math.clamp((speed - lo) / math.max((LAND.Full or 320) - lo, 1), 0, 1)
+		local function lerp(t, d)
+			t = t or d
+			return t[1] + (t[2] - t[1]) * k
+		end
+		local thrower = w.Player and w.Player.Parent and w.Player or nil
+		local at = hit.Position
+		damage(thrower, model, lerp(LAND.Damage, { 6, 28 }), { From = at + UP * 3, Heavy = true, Hitstop = 0.06, HitsDowned = true, NoKnockdown = true })
+		ragdoll(model, lerp(LAND.Down, { 1.4, 2.4 }))
+		local r = lerp(LAND.Crater, { 2.6, 4.6 })
+		if FB.carving() and not DEV.Shaft.plan(at, FB.cast, FB.breakable) then
+			Destruction.Sphere(at, r, LAND.Profile or "SmashSplat", UP)
+		end
+		local flat = Vector3.new(v.X, 0, v.Z)
+		local bounce = math.clamp(speed * (LAND.Bounce or 0.16), LAND.BounceMin or 14, LAND.BounceMax or 42)
+		knockback(model, flat * (LAND.Slide or 0.35) + UP * bounce, 0.15, true, true)
+		local char = w.Char and w.Char.Parent and w.Char or nil
+		broadcast("DevCarry", char, { Kind = "ThrowLand", Target = model, Pos = at, Speed = speed, K = k, Radius = r, Dir = flat.Magnitude > 1 and flat.Unit or nil })
+		return true
+	end
+	RunService.Heartbeat:Connect(function(dt)
+		dt = math.min(tonumber(dt) or 1 / 60, 0.1)
+		for model, w in FB.throws do
+			local ok, err = pcall(FB.watch, model, w, dt)
+			if not ok then
+				warn("[FlightBoom] " .. tostring(err))
+				FB.throws[model] = nil
+			end
+		end
+		-- (round 89 review) the flight's ram memory (Kit.DF.rammed, a plain
+		-- table now): the old and the gone swept out once a second
+		local now = os.clock()
+		if now >= FB.pruneAt then
+			FB.pruneAt = now + 1
+			for model, t in FB.rams do
+				if typeof(model) ~= "Instance" or not model.Parent or now - (tonumber(t) or 0) > 5 then
+					FB.rams[model] = nil
+				end
+			end
+			for char in FB.peaks do
+				if typeof(char) ~= "Instance" or not char.Parent then
+					FB.peaks[char] = nil
+				end
+			end
+		end
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		FB.last[player] = nil
+		FB.spent[player] = nil
+		for model, w in FB.throws do
+			if w.Player == player then
+				w.Player, w.Char = nil, nil -- (their body still comes down: nobody's credited)
+			end
+			if model == player.Character then
+				FB.throws[model] = nil
+			end
+		end
+	end)
+end
+
 TestCommand.OnServerEvent:Connect(function(player, command, arg, flag)
 	if typeof(command) ~= "string" or not canTest(player) then
 		return
@@ -20448,6 +30333,22 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 	deferred = deferred == Kit.DEFERRED
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
+	-- (round 87) possession (Kit.PS): taking a body, leaving it, what it does -
+	-- and while he's in one, his own parked body does nothing at all
+	if Kit.PS and Kit.PS.route(player, char, index, aimDir, aimPos) then
+		return
+	end
+	-- (round 88) the dev flight's carry (Kit.CR): GRAB, SLAM, THROW, RAM,
+	-- DROP - each checked there; and while he holds someone, his own moves
+	-- wait (his hands are full)
+	if Kit.CR and Kit.CR.route(player, char, index, aimDir, aimPos) then
+		return
+	end
+	-- (round 92, hawksair) Hawks holding someone on his feathers (Kit.HA): his
+	-- 1-4 are the carry's follow-ups, his other moves wait
+	if Kit.HA and Kit.HA.route(player, char, index, aimDir, aimPos) then
+		return
+	end
 	-- (round 74) stopped in DIO's time: nothing
 	if char and char:GetAttribute("TimeStopped") and not (index == Config.BLOCK_INDEX and aimDir ~= true) then
 		return
@@ -20511,6 +30412,30 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 	end
 	if index == Config.PARKOUR_INDEX and Kit.WD and Kit.WD.KINDS[aimDir] then
 		Kit.WD.relay(player, char, aimDir, aimPos)
+		return
+	end
+	-- (round 86) dev flight: the switch, his tier, the beats, a smash, the
+	-- landing - each checked in Kit.DF (before the stun gate: switching off
+	-- and coming down always get through)
+	if index == Config.PARKOUR_INDEX and Kit.DF and Kit.DF.KINDS[aimDir] then
+		Kit.DF.relay(player, char, aimDir, aimPos)
+		return
+	end
+	-- (round 86) Hawks' flight (R): the lift-off, the boosts, back down
+	if index == Config.PARKOUR_INDEX and Kit.HK and Kit.HK.KINDS[aimDir] then
+		Kit.HK.relay(player, char, aimDir, aimPos)
+		return
+	end
+	-- (round 87) through-the-building knockback: a thrown player's own
+	-- machine says where his body went through a wall / splatted on one
+	-- (checked in Kit.Smash; before the stun gate - he's limp, flying)
+	if index == Config.PARKOUR_INDEX and Kit.Smash and Kit.Smash.KINDS[aimDir] then
+		Kit.Smash.relay(player, char, aimDir, aimPos)
+		return
+	end
+	-- (round 90) a dev flying into the Sky Coffin's barrier breaks it (Kit.SB checks it)
+	if index == Config.PARKOUR_INDEX and Kit.SB and Kit.SB.KINDS[aimDir] then
+		Kit.SB.relay(player, char, aimDir, aimPos)
 		return
 	end
 	if index == Config.DASH_INDEX and aimPos == "Evasive" then
@@ -20624,11 +30549,17 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 	if Kit.HF and Kit.HF.refuse(player, char, quirkName, ability) then
 		return
 	end
+	if Kit.HK and Kit.HK.refuse(player, char, quirkName, ability) then
+		return -- (round 86: Hawks without the feathers for it)
+	end
 	if not checkCooldown(player, Config.CooldownKey(quirkName, index, alt, ult, pick), ability.Cooldown) then
 		return
 	end
 	if Kit.HF then
 		Kit.HF.used(player, char, quirkName, ability)
+	end
+	if Kit.HK then
+		Kit.HK.used(player, char, quirkName, ability)
 	end
 	if ability.ActionTime then
 		char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + ((air == true and ability.AirActionTime) or ability.ActionTime))
@@ -20685,8 +30616,11 @@ SelectQuirk.OnServerEvent:Connect(function(player, quirkName)
 	if typeof(quirkName) ~= "string" or not Config.Quirks[quirkName] then
 		return
 	end
-	if Config.Quirks[quirkName].DevOnly and not canUseDev(player) then
-		return -- dev-only quirk: testers and players they've granted
+	if Config.IsDevOnly(quirkName) and not canUseDev(player) then
+		return -- dev-only quirk: testers and players they've granted (round 86: as the roster switch has it)
+	end
+	if Kit.AE and Kit.AE.heroLocked(player) then
+		return -- (round 87) HERO SHUFFLE deals the heroes till it ends
 	end
 	local now = os.clock()
 	if not canTest(player) and not player:GetAttribute("NoCooldowns") and now - (lastSwitch[player] or -math.huge) < SWITCH_COOLDOWN then
@@ -20841,6 +30775,9 @@ xpcall(function()
 		sako = "Compress", mrcompress = "Compress", twice = "Double", jin = "Double", bubaigawara = "Double", gojo = "Limitless", josuke = "CrazyDiamond", cd = "CrazyDiamond",
 		primedeku = "PrimeDeku", primeallmight = "PrimeMight", primemight = "PrimeMight", dio = "TheWorld", theworld = "TheWorld",
 		iida = "Engine", tenya = "Engine", endeavor = "Hellflame", enji = "Hellflame", dabi = "Blueflame", toya = "Blueflame",
+		hawks = "FierceWings", keigo = "FierceWings", takami = "FierceWings", fiercewings = "FierceWings", -- (round 86)
+		saitama = "Saitama", onepunchman = "Saitama", opm = "Saitama", caped = "Saitama", baldy = "Saitama", -- (round 90)
+		inasa = "Whirlwind", yoarashi = "Whirlwind", whirlwind = "Whirlwind", galeforce = "Whirlwind", wind = "Whirlwind", -- (round 92)
 	}
 	local function findHero(word)
 		word = string.lower((string.gsub(word or "", "[%s_%-%.]", "")))
@@ -20965,6 +30902,45 @@ xpcall(function()
 			return string.format("%s %s for %s", sw[3], first and first:GetAttribute(sw[2]) == true and "ON" or "OFF", names(list)), "ok"
 		end)
 	end
+	-- (round 86) dev flight - your own only (it's the owner's and the Devs')
+	add({ "devfly" }, "devfly [on|off]", "Dev flight for you (V flies: Config.DevFlight)", function(player, args)
+		local DF = Kit.DF
+		if not DF or not DF.allowed(player) then
+			return "dev flight is only for the owner and Config.DevFlight.Devs", "err"
+		end
+		DF.setPower(player, onOff(args[1], player:GetAttribute("DevFlight") == true))
+		return "dev flight " .. (player:GetAttribute("DevFlight") == true and "ON" or "OFF"), "ok"
+	end)
+	-- (round 92) FLIGHTGRANT: the dev flight given to others, and taken back (Kit.FG)
+	add({ "giveflight", "gf" }, "giveflight <who|userid> [perm] [full]", "Give someone the dev flight: this server (till they leave), or perm (saved: every server, every visit); full: the bomb, all the way down, the shield too", function(player, args)
+		if not Kit.FG then
+			return "Flight grants aren't running", "err"
+		end
+		return Kit.FG.console(player, "give", args, targets)
+	end)
+	add({ "takeflight", "tf" }, "takeflight <who|userid|all>", "Take a given dev flight back (all: every grant, the saved ones too)", function(player, args)
+		if not Kit.FG then
+			return "Flight grants aren't running", "err"
+		end
+		return Kit.FG.console(player, "take", args, targets)
+	end)
+	add({ "flights" }, "flights", "Who has the dev flight by a grant (here, and saved)", function()
+		if not Kit.FG then
+			return "Flight grants aren't running", "err"
+		end
+		return Kit.FG.describe(), "info"
+	end)
+	-- (round 87) admin-abuse events (Kit.AE) - the owner's and the Devs'
+	add({ "event", "events" }, "event [<name> [seconds] [all]] | event stop [name|all] [all]", "Admin-abuse events for everyone (meteor, lowgrav, giant, tiny, shuffle, money, ult, plusultra, bloodmoon); all: every server. (skybattle / dekudrop: the world events, as before)", function(player, args)
+		local what = string.lower(tostring(args[1] or ""))
+		if what == "skybattle" or what == "dekudrop" then
+			return Console.commands.worldevent.Fn(player, args) -- (the world events: the console's owner, as ever)
+		end
+		if not Kit.AE then
+			return "Admin events aren't running", "err"
+		end
+		return Kit.AE.console(player, args)
+	end)
 	add({ "ult", "fillult" }, "ult [who]", "Fill the ult meter", function(player, args)
 		local err, kind, list = each(player, args[1], function(plr)
 			TestCommands.FillUlt(plr)
@@ -21171,7 +31147,8 @@ xpcall(function()
 		end
 		return "nomu now / nomu kill", "err"
 	end)
-	add({ "event" }, "event <skybattle|dekudrop>", "Start a world event now", function(player, args)
+	-- (round 87: `event` is the admin events' now - it still takes skybattle / dekudrop and passes them here)
+	add({ "worldevent" }, "worldevent <skybattle|dekudrop>", "Start a world event now", function(player, args)
 		local what = string.lower(args[1] or "")
 		if what == "skybattle" then
 			TestCommands.PSSet(player, nil, "SkyBattleNow")
@@ -21220,6 +31197,30 @@ xpcall(function()
 			TestCommands.GrantDev(player, nil, plr.UserId, on)
 		end
 		return "DEV access: " .. names(list), "ok"
+	end)
+	-- (round 86) the roster switch (Kit.Roster), saved and live on every server
+	add({ "roster" }, "roster [<hero> public|dev|default] | roster reset", "Release a DEV ONLY hero to everyone, or pull one back (no args: how it stands)", function(player, args)
+		local R = Kit.Roster
+		if not R then
+			return "The roster switch isn't running", "err"
+		end
+		local word = string.lower(args[1] or "")
+		if word == "" then
+			return R.describe(), "info"
+		end
+		local ok, text
+		if word == "reset" then
+			ok, text = R.request(player, nil, "reset")
+		else
+			local q = findHero(args[1])
+			if not q then
+				return "No hero '" .. tostring(args[1]) .. "' - try: " .. table.concat(Config.QuirkOrder or {}, ", "), "err"
+			end
+			local to = string.lower(args[2] or "")
+			local STATES = { public = "public", pub = "public", release = "public", on = "public", dev = "dev", devonly = "dev", lock = "dev", off = "dev", default = "default", reset = "default" }
+			ok, text = R.request(player, q, STATES[to] or (Config.IsDevOnly(q) and "public" or "dev"))
+		end
+		return text, ok and "ok" or "err"
 	end)
 	add({ "announce", "say" }, "announce <text>", "A notice on everyone's screen", function(_, args)
 		local text = table.concat(args, " ")
@@ -21474,7 +31475,11 @@ local function onPlayer(player)
 			recoverUntil[player] = recoverUntil[player] or {}
 			recoverUntil[player][player:GetAttribute("Quirk")] = os.clock() + (quirk.Special.RecoverTime or 0)
 		end
-		applyPassives(player, char, true)
+		-- (round 86) a hero pulled back to DEV ONLY in their last life goes now
+		-- (Kit.Roster: the switch to a public one does the passives)
+		if not (Kit.Roster and Kit.Roster.respawned(player, char)) then
+			applyPassives(player, char, true)
+		end
 	end
 	player.CharacterAdded:Connect(onCharacter)
 	player.CharacterAppearanceLoaded:Connect(function(char)
@@ -21563,16 +31568,23 @@ end
 -- that powers the barrier and keeps the lot aloft. In front of the main
 -- building: the Sports Festival stage. The place file only carries scripts,
 -- so it's all built here; Kurogiri's warp gates run between it and the
--- plaza by the middle spawn.
+-- plaza by the middle spawn. (round 90) Way up now - 1,575 studs over the
+-- street - over a sea of cloud; knocked off it, the street you'll land on
+-- is streamed in to you on the way down; a dev flying into the barrier
+-- breaks it and the whole shield powers down for a while (Kit.SB, just
+-- before the dev flight).
 ---------------------------------------------------------------------------
 do
-	local SC = { cfg = Config.SkyCoffin or {}, gates = {}, cool = setmetatable({}, { __mode = "k" }), zapped = setmetatable({}, { __mode = "k" }) }
+	-- ((round 90) cool / zapped: [char] = until when - plain tables, not weak
+	-- (round 87's lesson: the engine can drop an Instance key while it lives,
+	-- and a gate would take you straight back); SC.tick clears the old)
+	local SC = { cfg = Config.SkyCoffin or {}, gates = {}, cool = {}, zapped = {} }
 	Kit.SC = SC
 
 	function SC.build()
 		local cfg = SC.cfg
 		local R, RP, BH = cfg.Radius or 425, cfg.Barrier or 418, cfg.BarrierHeight or 290
-		local O = CFrame.new(cfg.Center or Vector3.new(-70, 600, 888)) -- (y = the lawn's surface)
+		local O = CFrame.new(cfg.Center or Vector3.new(-70, 1600, 888)) -- (y = the lawn's surface)
 		local model = Instance.new("Model")
 		model.Name = "SkyCoffin"
 		SC.model = model
@@ -21647,7 +31659,8 @@ do
 			gui.Parent = p
 		end
 		-- a flat triangle out of two wedges (the barrier's roof)
-		local function triangle(a, b, c, color, transparency)
+		-- (round 90: face - which face of the barrier it is, for the break: Kit.SB, VFX.SB)
+		local function triangle(a, b, c, color, transparency, face)
 			local ab, ac, bc = b - a, c - a, c - b
 			local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
 			if abd > acd and abd > bcd then
@@ -21667,6 +31680,7 @@ do
 				local p = ghost(part(w[1], w[2], color, Enum.Material.SmoothPlastic, nil, "WedgePart"))
 				p.Transparency = transparency
 				p.Name = "BarrierRoof"
+				p:SetAttribute("BarrierFace", face)
 			end
 		end
 		local function emitter(parent, props)
@@ -21693,7 +31707,7 @@ do
 			return p
 		end
 		-- the island's ground: what Lemillion's dive stops under (not the city's
-		-- street 600 studs down), and what nobody phases through
+		-- street ~1,575 studs down), and what nobody phases through
 		local function ground(p)
 			p:SetAttribute("SkyFloor", true)
 			p:SetAttribute("NoPhase", true)
@@ -21790,7 +31804,10 @@ do
 			disc(16, BH + 2, base * CFrame.new(0, BH / 2 - 1, 0), BLACK).Name = "Pillar"
 			disc(24, 8, base * CFrame.new(0, 3, 0), BLACK, Enum.Material.Metal)
 			disc(19, 5, base * CFrame.new(0, BH + 2.5, 0), BLACK, Enum.Material.Metal)
-			ghost(disc(17, 2.4, base * CFrame.new(0, BH - 12, 0), GOLD, Enum.Material.Neon))
+			-- ((round 90) its light: it dies when the shield goes down - VFX.SB)
+			local glow = ghost(disc(17, 2.4, base * CFrame.new(0, BH - 12, 0), GOLD, Enum.Material.Neon))
+			glow.Name = "PillarLight"
+			glow:SetAttribute("BarrierPillar", i)
 			tops[i] = (base * CFrame.new(0, BH + 5, 0)).Position
 		end
 		SC.pillar = 8
@@ -21801,6 +31818,11 @@ do
 			local wall = ghost(part(Vector3.new(chord - 14, BH, 0.6), ring(a, inR, BH / 2), GOLD))
 			wall.Transparency = 0.8
 			wall.Name = "BarrierWall"
+			-- (round 90) each face of the field tagged: a dev flying into it
+			-- breaks it there and the shield goes down from there round the
+			-- ring - Kit.SB, VFX.SB - W0..W11 the walls between pillar i and
+			-- i + 1, R0..R11 the roof above them, the Lid)
+			wall:SetAttribute("BarrierFace", "W" .. i)
 			-- (what you actually bump into: invisible, so the camera never snags on
 			-- it, and thick, so nobody knocked into it hard goes through)
 			local solid = part(Vector3.new(chord + 3, BH + 40, 6), ring(a, inR + 3, (BH + 40) / 2 - 2), GOLD)
@@ -21809,8 +31831,9 @@ do
 			solid.CastShadow = false
 			solid.Name = "Barrier"
 			solid:SetAttribute("NoPhase", true) -- (an electromagnetic wall: not matter he can slip through)
+			solid:SetAttribute("BarrierFace", "W" .. i)
 			local j = (i + 1) % 12
-			triangle(tops[i], tops[j], apex, GOLD, 0.8)
+			triangle(tops[i], tops[j], apex, GOLD, 0.8, "R" .. i)
 			bar(tops[i], apex, 1.4, BLACK)
 			bar(tops[i], tops[j], 1.4, BLACK)
 		end
@@ -21821,8 +31844,9 @@ do
 		lid.CastShadow = false
 		lid.Name = "Barrier"
 		lid:SetAttribute("NoPhase", true)
+		lid:SetAttribute("BarrierFace", "Lid")
 		disc(14, 8, CFrame.new(apex), BLACK, Enum.Material.Metal)
-		ghost(disc(15.6, 1.6, CFrame.new(apex), GOLD, Enum.Material.Neon))
+		ghost(disc(15.6, 1.6, CFrame.new(apex), GOLD, Enum.Material.Neon)).Name = "BarrierApex" -- ((round 90) the last light to die)
 
 		-- U.A. HIGH's main building: from above an H - two tall glass wings and
 		-- a lower block between them - white frames over blue glass (floors
@@ -21952,6 +31976,15 @@ do
 			bar(pt(GX + 69, -16, GZ + k * 12), pt(-math.sqrt((R - 2) ^ 2 - zb ^ 2), -16, zb), 5, Color3.fromRGB(66, 68, 76))
 		end
 
+		-- (round 90) a puff of cloud: an ellipsoid (a Ball part is always round
+		-- in the engine, whatever its Size - a sphere mesh fills the part's box)
+		local function puffy(p)
+			p.Shape = Enum.PartType.Block
+			local m = Instance.new("SpecialMesh")
+			m.MeshType = Enum.MeshType.Sphere
+			m.Parent = p
+			return p
+		end
 		-- clouds drifting under it
 		for c = 1, 9 do
 			local a = c / 9 * math.pi * 2 + rng:NextNumber(-0.3, 0.3)
@@ -21960,8 +31993,34 @@ do
 			for _ = 1, 6 do
 				local s = rng:NextNumber(50, 100)
 				local puff = ghost(part(Vector3.new(s, s * 0.42, s * 0.8), at(cx + rng:NextNumber(-60, 60), cy + rng:NextNumber(-8, 12), cz + rng:NextNumber(-45, 45)) * CFrame.Angles(0, rng:NextNumber(0, math.pi), 0), Color3.fromRGB(246, 248, 252), Enum.Material.SmoothPlastic, Enum.PartType.Ball))
+				puffy(puff)
 				puff.Transparency = 0.2
 				puff.Name = "Cloud"
+			end
+		end
+		-- (round 90) THE CLOUD SEA, far below: from up here the city's past the
+		-- place's streaming radius and lost in the haze - over the edge you
+		-- look down on banks of cloud (Config.SkyCoffin.Clouds), from under
+		-- the island out to the horizon. From the street they're clouds high
+		-- in the sky with the island over them. Its own seed: the rest of
+		-- the island is built exactly as before
+		local CL = cfg.Clouds or {}
+		local crng = Random.new(1600)
+		local below, out, sz = CL.Below or { 300, 430 }, CL.Out or { 0.15, 3.3 }, CL.Size or { 70, 170 }
+		for c = 1, CL.Count or 52 do
+			-- (spread evenly round, a little more of them further out)
+			local a = (c + crng:NextNumber(-0.4, 0.4)) / (CL.Count or 52) * math.pi * 2 * 2.618
+			local r = R * (out[1] + (out[2] - out[1]) * math.sqrt(crng:NextNumber()))
+			local cx, cz, cy = math.sin(a) * r, math.cos(a) * r, -crng:NextNumber(below[1], below[2])
+			local big = crng:NextNumber(sz[1], sz[2])
+			for k = 1, crng:NextInteger(3, 5) do
+				local s = big * (k == 1 and 1 or crng:NextNumber(0.5, 0.8))
+				local off = k == 1 and Vector3.zero or Vector3.new(crng:NextNumber(-0.6, 0.6) * big, crng:NextNumber(-0.05, 0.12) * big, crng:NextNumber(-0.4, 0.4) * big)
+				local puff = ghost(part(Vector3.new(s, s * crng:NextNumber(0.32, 0.42), s * crng:NextNumber(0.7, 0.9)), at(cx + off.X, cy + off.Y, cz + off.Z) * CFrame.Angles(0, crng:NextNumber(0, math.pi), 0),
+					Color3.fromRGB(244, 247, 252), Enum.Material.SmoothPlastic))
+				puffy(puff)
+				puff.Transparency = 0.18
+				puff.Name = "CloudSea"
 			end
 		end
 
@@ -22052,7 +32111,7 @@ do
 	-- sky (or down in the city: every ray out there finds the street far below)
 	function SC.keepIn(from, to)
 		local cfg = SC.cfg
-		local center = cfg.Center or Vector3.new(-70, 600, 888)
+		local center = cfg.Center or Vector3.new(-70, 1600, 888)
 		local RP = cfg.Barrier or 418
 		local rel = from - center
 		if Vector3.new(rel.X, 0, rel.Z).Magnitude > RP + 20 or rel.Y < -80 or rel.Y > (cfg.BarrierHeight or 290) + 100 then
@@ -22084,7 +32143,7 @@ do
 	-- (reach: how far this decay will spread in all, so Jeanist lands clear of it)
 	function SC.onDecay(pos, radius, reach)
 		local cfg = SC.cfg
-		local center = cfg.Center or Vector3.new(-70, 600, 888)
+		local center = cfg.Center or Vector3.new(-70, 1600, 888)
 		local rel = pos - center
 		local LR = (cfg.Radius or 425) - 21
 		if not SC.model or math.abs(rel.Y) > 14 or Vector3.new(rel.X, 0, rel.Z).Magnitude > LR + radius then
@@ -22121,14 +32180,19 @@ do
 
 	function SC.tick()
 		local cfg = SC.cfg
-		local center = cfg.Center or Vector3.new(-70, 600, 888)
+		local center = cfg.Center or Vector3.new(-70, 1600, 888)
 		local RP, BH = cfg.Barrier or 418, cfg.BarrierHeight or 290
 		local inR, step = RP * math.cos(math.pi / 12), math.pi / 6
 		local now = os.clock()
 		for _, plr in Players:GetPlayers() do
 			local char = plr.Character
 			local root = char and char:FindFirstChild("HumanoidRootPart")
-			if root and alive(char) then
+			-- (round 86: a dev flying goes straight through the gates and
+			-- isn't zapped by the barrier - its solid wall still stops him;
+			-- (round 88 review) nor the one he carries, held out past it in
+			-- his fist - the server holds that body, the zap's push can't
+			-- move it, it only shocked them over and over)
+			if root and alive(char) and not char:GetAttribute("DevFlying") and not char:GetAttribute("CarriedBy") then
 				local pos = root.Position
 				if not root.Anchored and not char:GetAttribute("Grabbed") and (SC.cool[char] or 0) < now then
 					for _, g in SC.gates do
@@ -22142,7 +32206,8 @@ do
 				local rel = pos - center
 				local flat = Vector3.new(rel.X, 0, rel.Z)
 				local r = flat.Magnitude
-				if r > 1 and r < RP + 12 and rel.Y > -6 and rel.Y < BH + 40 and (SC.zapped[char] or 0) < now then
+				-- ((round 90) not while a dev's flight has the shield down: Kit.SB)
+				if r > 1 and r < RP + 12 and rel.Y > -6 and rel.Y < BH + 40 and (SC.zapped[char] or 0) < now and not (Kit.SB and Kit.SB.isDown()) then
 					-- how far out along the nearest panel's facing, and from the nearest pillar
 					local phi = math.atan2(rel.X, rel.Z)
 					local depth = r * math.cos(phi - (math.floor(phi / step) + 0.5) * step)
@@ -22155,9 +32220,53 @@ do
 						SC.zap(char, root, -UP)
 					end
 				end
+				SC.fallStream(plr, root, rel, now)
+			end
+		end
+		-- (round 90) the cooldowns that are over, and bodies that are gone
+		if now >= (SC.purgeAt or 0) then
+			SC.purgeAt = now + 5
+			for _, list in { SC.cool, SC.zapped } do
+				for char, untilAt in list do
+					if untilAt < now or char.Parent == nil then
+						list[char] = nil
+					end
+				end
 			end
 		end
 	end
+
+	-- (round 90) knocked off it: ~4 s down to a street that isn't streamed in
+	-- up here (the place streams 1024 studs round you) - ask for the street
+	-- where you'll land, on the way down, every Every s (Config.SkyCoffin.FallStream;
+	-- not for anyone already near enough the street to have it - a jump off
+	-- a rooftop in the city under it)
+	SC.fell = {} -- [player] = when it was last asked for (not weak: cleared on PlayerRemoving)
+	function SC.fallStream(plr, root, rel, now)
+		local FS = SC.cfg.FallStream or {}
+		local v = root.AssemblyLinearVelocity
+		local cityY = (SC.cfg.CityGate or Vector3.new(-72, 26, 857)).Y
+		local pos = root.Position
+		if rel.Y > -(FS.Below or 40) or v.Y > -(FS.MinFall or 30) or pos.Y < cityY + (FS.Above or 600)
+			or Vector3.new(rel.X, 0, rel.Z).Magnitude > (SC.cfg.Radius or 425) * 4 or now - (SC.fell[plr] or -1e9) < (FS.Every or 1) then
+			return
+		end
+		SC.fell[plr] = now
+		local g = workspace.Gravity
+		local h = pos.Y - cityY
+		local t = math.clamp((v.Y + math.sqrt(v.Y * v.Y + 2 * g * h)) / math.max(g, 1), 0, 6)
+		local spot = Vector3.new(pos.X + v.X * t, cityY, pos.Z + v.Z * t)
+		if spot == spot then
+			task.spawn(function()
+				pcall(function()
+					plr:RequestStreamAroundAsync(spot, 2)
+				end)
+			end)
+		end
+	end
+	Players.PlayerRemoving:Connect(function(plr)
+		SC.fell[plr] = nil
+	end)
 
 	if SC.cfg.Enabled ~= false then
 		local ok, err = pcall(SC.build)

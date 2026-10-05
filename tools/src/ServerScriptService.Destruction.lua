@@ -56,11 +56,25 @@ pcall(function()
 	for _, other in { "Default", "Characters", "Debris", "Ragdoll", "PhaseDive" } do
 		PhysicsService:CollisionGroupSetCollidable("PhaseDive", other, false)
 	end
+	-- (round 86) DEV FLIGHT: a flying dev's body (his own machine puts it
+	-- in this group) goes through people, rubble and limp bodies - only the
+	-- map stops him (he knocks people aside instead: the server's Ram)
+	PhysicsService:RegisterCollisionGroup("DevFlyer")
+	for _, other in { "Characters", "Debris", "Ragdoll", "PhaseDive", "DevFlyer" } do
+		PhysicsService:CollisionGroupSetCollidable("DevFlyer", other, false)
+	end
 	-- (round 60) a body out of its owner's hands - down, held in a grab, a
 	-- marble - lands on the street but never shoves, lifts or flings anyone
 	PhysicsService:RegisterCollisionGroup("Loose")
-	for _, other in { "Characters", "Debris", "Ragdoll", "Loose", "PhaseDive" } do
+	for _, other in { "Characters", "Debris", "Ragdoll", "Loose", "PhaseDive", "DevFlyer" } do
 		PhysicsService:CollisionGroupSetCollidable("Loose", other, false)
+	end
+	-- (round 87) THROUGH-THE-BUILDING KNOCKBACK: the wall a thrown player's
+	-- machine draws round his hole until the server's lands - solid to the
+	-- camera (it doesn't swing through the wall after him), nothing to anyone
+	PhysicsService:RegisterCollisionGroup("SmashGhost")
+	for _, other in { "Default", "Characters", "Debris", "Ragdoll", "Loose", "PhaseDive", "DevFlyer", "SmashGhost" } do
+		PhysicsService:CollisionGroupSetCollidable("SmashGhost", other, false)
 	end
 end)
 
@@ -97,6 +111,10 @@ local PROFILES = {
 	Nuke = { MinSize = 8, Rim = 4, RimEffect = "scorch", Fling = "radial", Speed = { 90, 180 }, Up = { 60, 140 }, Tint = "burnt", FireChance = 0.35, Debris = 60, Budget = 1100 },
 	HugeExplosion = { MinSize = 5.5, Rim = 3, RimEffect = "scorch", Fling = "radial", Speed = { 60, 130 }, Up = { 50, 110 }, Tint = "burnt", FireChance = 0.3, Debris = 45, Budget = 700 },
 	SmallExplosion = { MinSize = 3.5, Rim = 1.5, RimEffect = "scorch", Fling = "radial", Speed = { 35, 70 }, Up = { 25, 50 }, Tint = "burnt", FireChance = 0.2, Debris = 6, Budget = 60 },
+	-- (round 92) Bakugo's MAX CAPACITY: the gauntlet's blast tearing a
+	-- trench down the street - coarse, scorched, the chunks blown on down
+	-- the aim (Config.Quirks.Explosion.Extra.Budget a cut)
+	BracerBlast = { MinSize = 4, Rim = 2.2, RimEffect = "scorch", Fling = "directional", Speed = { 70, 150 }, Up = { 15, 50 }, Tint = "burnt", FireChance = 0.3, Debris = 24, Budget = 180 },
 	-- Limitless: Blue drags the rubble INTO the point; Hollow Purple erases
 	-- (almost nothing is left to fall, and the cut edge is scorched violet)
 	Implode = { MinSize = 3, Rim = 1.5, RimEffect = "crack", Fling = "inward", Speed = { 45, 95 }, Up = { 4, 18 }, Debris = 26, Budget = 240 },
@@ -112,6 +130,43 @@ local PROFILES = {
 	-- flies off (it's in his pocket)
 	Compress = { MinSize = 2.5, Rim = 0.5, RimEffect = "crack", Fling = "drop", Speed = { 0, 2 }, Up = { 0, 2 }, Debris = 0, Budget = 140 },
 	Shatter = { MinSize = 5, Rim = 2, RimEffect = "crack", Fling = "radial", Speed = { 40, 80 }, Up = { 40, 80 }, Debris = 70, Budget = 600 },
+	-- (round 86) DEV FLIGHT: a body at FAST and up punching clean through a
+	-- building - chunks blown out of the far side and on down the street
+	FlyThrough = { MinSize = 3, Rim = 1.2, RimEffect = "crack", Fling = "directional", Speed = { 60, 140 }, Up = { 5, 25 }, Debris = 14, Budget = 160 },
+	-- (round 87) THROUGH-THE-BUILDING KNOCKBACK (Config.Smash): a body-sized
+	-- hole punched through a wall - a fine cut for the body's outline, a
+	-- cracked rim, the brick and glass blown out the far side along its
+	-- path; Lite when the server's carving a lot already (coarse, a few
+	-- chunks); the splat's crater - cracked round it, the grit dropping
+	-- (blown out ahead of him - faster than he goes on through it, so it's
+	-- in front, not in his camera's way)
+	SmashThrough = { MinSize = 2.2, Rim = 1.4, RimEffect = "crack", Fling = "directional", Speed = { 110, 190 }, Up = { 4, 22 }, Debris = 16, Budget = 150 },
+	SmashThroughLite = { MinSize = 4, Rim = 0.8, RimEffect = "crack", Fling = "directional", Speed = { 100, 160 }, Up = { 4, 18 }, Debris = 3, Budget = 45 },
+	SmashSplat = { MinSize = 1.6, Rim = 1.8, RimEffect = "crack", Fling = "drop", Speed = { 2, 10 }, Up = { 0, 6 }, Debris = 6, Budget = 90 },
+	-- (round 89) THE BOMB (Config.DevFlight.Bomb): a dev flying into the
+	-- street or a building at mach speed - a blast hole in the street and
+	-- whatever stands round it, scorched, the chunks blown out hard (its own
+	-- cap, the size of the biggest blasts': a whole corner of a block goes)
+	FlightBomb = { MinSize = 4.5, Rim = 3, RimEffect = "scorch", Fling = "radial", Speed = { 70, 150 }, Up = { 60, 130 }, Tint = "burnt", FireChance = 0.3, Debris = 48, Budget = 700 },
+	-- (round 89) ALL THE WAY DOWN (Config.DevFlight.Shaft): straight down
+	-- through a building's floors - a body-wide shaft, the slabs' chunks
+	-- driven down it ahead of him. ((round 89 review) its budget is the
+	-- shaft's own - Config.DevFlight.Shaft.Budget by its length - and a
+	-- touch coarser: a 130-stud tower's shaft is ~1000 pieces as it is)
+	FlyShaft = { MinSize = 4, Rim = 1.4, RimEffect = "crack", Fling = "directional", Speed = { 40, 90 }, Up = { 0, 12 }, Debris = 16, Budget = 420 },
+	-- (round 90) SAITAMA'S SERIOUS PUNCH: the trench of holes down the punch's
+	-- line through whatever stands there - coarse (a whole city block at a
+	-- time; every screen's own copy of the city is what's blown away), the
+	-- chunks blasted on down the line hard (Config.Quirks.Saitama's
+	-- TrenchBudget a cut). And the SERIOUS TABLE FLIP: the slab of street
+	-- torn out of its bed - big pieces, thrown up
+	SeriousPunch = { MinSize = 8, Rim = 3, RimEffect = "crack", Fling = "directional", Speed = { 160, 320 }, Up = { 20, 90 }, Debris = 18, Budget = 260 },
+	TableFlip = { MinSize = 4, Rim = 1.5, RimEffect = "crack", Fling = "up", Speed = { 10, 30 }, Up = { 50, 90 }, Debris = 14, Budget = 220 },
+	-- (round 92) LIGHTWIPE (Config.DevFlight.LightWipe): the crater LIGHTSPEED
+	-- leaves in the street - coarse (every screen's own copy of the city is
+	-- what's blown away), the street thrown out hard and high, the rim
+	-- scorched (its own budget: Config's CraterBudget)
+	LightWipe = { MinSize = 8, Rim = 4, RimEffect = "scorch", Fling = "radial", Speed = { 150, 300 }, Up = { 90, 200 }, Tint = "burnt", FireChance = 0.25, Debris = 40, Budget = 1100 },
 }
 Destruction.Profiles = PROFILES
 
@@ -616,10 +671,16 @@ includeParams.FilterDescendantsInstances = { map }
 includeParams.MaxParts = 2000
 
 -- shared (optional): { budget, debris } spent across several carves (a whole spike layout)
-local function carve(shape, profileName, dir, shared, minSize, touched)
+-- opts (optional, round 87): { Above = y: leave alone every part whose top is
+-- at or under it (the floor a body's skidding on), Skip = { [part] = true } }
+-- ((round 89 review) opts.Budget: this carve's own budget in place of the
+-- profile's - a dev flight's shaft by its length, a bomb by what's left)
+local function carve(shape, profileName, dir, shared, minSize, touched, opts)
 	if not Settings.Enabled then
 		return
 	end
+	local above = opts and tonumber(opts.Above)
+	local skip = opts and type(opts.Skip) == "table" and opts.Skip or nil
 	local prof = PROFILES[profileName] or PROFILES.Impact
 	local pad = Vector3.one * (prof.Rim + 0.1)
 	local mn, mx = shape.min - pad, shape.max + pad
@@ -628,13 +689,15 @@ local function carve(shape, profileName, dir, shared, minSize, touched)
 		shape = shape,
 		profile = prof,
 		dir = typeof(dir) == "Vector3" and dir or Vector3.zero,
-		budget = shared and shared.budget or prof.Budget or 200,
+		budget = shared and shared.budget or (opts and tonumber(opts.Budget)) or prof.Budget or 200,
 		debris = shared and shared.debris or prof.Debris or 20,
 		minSize = minSize or prof.MinSize,
 		touched = touched, -- (optional: the originals this carve took, for a hold)
 	}
 	for _, part in parts do
-		if part.Parent and part:IsA("Part") and part:GetAttribute("Destroyable") == true then
+		if part.Parent and part:IsA("Part") and part:GetAttribute("Destroyable") == true
+			and not (skip and skip[part]) and not (above and part.Position.Y + (math.abs(part.CFrame.RightVector.Y) * part.Size.X
+				+ math.abs(part.CFrame.UpVector.Y) * part.Size.Y + math.abs(part.CFrame.LookVector.Y) * part.Size.Z) / 2 <= above) then
 			local ok, err = pcall(processPart, part, ctx)
 			if not ok then
 				warn("[Destruction] " .. tostring(err))
@@ -651,12 +714,13 @@ end
 -- Public API
 ---------------------------------------------------------------------------
 
-function Destruction.Sphere(center, radius, profileName, dir)
-	carve(sphereShape(center, radius), profileName, dir)
+-- (round 87) opts: carve()'s (Above / Skip: the floor left alone)
+function Destruction.Sphere(center, radius, profileName, dir, opts)
+	carve(sphereShape(center, radius), profileName, dir, nil, nil, nil, opts)
 end
 
-function Destruction.Capsule(a, b, radius, profileName, dir)
-	carve(capsuleShape(a, b, radius), profileName, dir)
+function Destruction.Capsule(a, b, radius, profileName, dir, opts)
+	carve(capsuleShape(a, b, radius), profileName, dir, nil, nil, nil, opts)
 end
 
 function Destruction.Box(cf, size, profileName, dir)
@@ -961,6 +1025,79 @@ function Destruction.RegenerateAll()
 		end
 	end
 	debrisFolder:ClearAllChildren()
+end
+
+-- (round 94) THE CITY BACK WITH A WIPE'S REWIND (the server's
+-- Kit.wipeRebuild: the LIGHTSPEED crash, the Serious Punch). Every broken
+-- part of the map within radius studs (flat) of center - from opts.Below
+-- studs under it to opts.Above over it - put back now, its fragments gone.
+-- opts:
+--   Folders = { [folder] = true }: only parts from inside these
+--   MinTop = y: only parts whose top is over it
+--   Bodies = { model }: a part that would come back on one of these is left
+--     to the usual regrow (nothing's rebuilt on top of anyone)
+--   Batch = n: a frame's break every n parts put back (it yields)
+-- A part in someone's marble (Held) stays there; one whose structure has
+-- gone is left for the regrow loop to throw away. Returns how many came back.
+function Destruction.RestoreArea(center, radius, opts)
+	opts = opts or {}
+	local above, below = tonumber(opts.Above) or math.huge, tonumber(opts.Below) or math.huge
+	local minTop = tonumber(opts.MinTop)
+	local params
+	if type(opts.Bodies) == "table" and #opts.Bodies > 0 then
+		params = OverlapParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = opts.Bodies
+		params.MaxParts = 1
+	end
+	local function within(parent)
+		if type(opts.Folders) ~= "table" then
+			return true
+		end
+		for f in opts.Folders do
+			if parent == f or parent:IsDescendantOf(f) then
+				return true
+			end
+		end
+		return false
+	end
+	-- (picked first, put back after: the list can't change under the pick)
+	local list = {}
+	for orig, rec in originals do
+		if not rec.Held and stillInWorld(rec.Parent) and within(rec.Parent) then
+			local cf, size = orig.CFrame, orig.Size
+			local q = obbClosest(cf, size / 2, center)
+			local flat = Vector3.new(q.X - center.X, 0, q.Z - center.Z).Magnitude
+			local top = cf.Position.Y + (math.abs(cf.RightVector.Y) * size.X + math.abs(cf.UpVector.Y) * size.Y + math.abs(cf.LookVector.Y) * size.Z) / 2
+			if flat <= radius and q.Y - center.Y <= above and center.Y - q.Y <= below
+				and not (minTop and top <= minTop) and not (params and blocked(orig, params)) then
+				table.insert(list, orig)
+			end
+		end
+	end
+	local n = 0
+	local batch = tonumber(opts.Batch)
+	for i, orig in list do
+		local rec = originals[orig]
+		if rec and not rec.Held and stillInWorld(rec.Parent) then
+			for frag in rec.Fragments do
+				fragOrigin[frag] = nil
+				frag:Destroy()
+			end
+			originals[orig] = nil
+			if pcall(function()
+				orig.Parent = rec.Parent
+			end) then
+				n += 1
+			else
+				pcall(orig.Destroy, orig)
+			end
+		end
+		if batch and batch > 0 and i % batch == 0 and i < #list then
+			task.wait()
+		end
+	end
+	return n
 end
 
 function Destruction.SetEnabled(on)

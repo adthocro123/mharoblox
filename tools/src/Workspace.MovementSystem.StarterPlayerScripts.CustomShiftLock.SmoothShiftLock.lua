@@ -307,8 +307,9 @@ function SmoothShiftLock:ToggleShiftLock(enable : boolean, keepWanted : boolean?
 			--// (patched for this game) parkour moves the body itself
 			--// (and a move that holds the body itself - BodyLocked: Bakugo's blitz
 			--// flies him flat out, then hangs him upside down)
+			--// (patched, round 86) nor a dev in flight: his body lies along where he flies (DevFlyLocal: his own machine's, at once)
 			if (ENABLED) and not self.Character:GetAttribute("Stunned") and not self.Character:GetAttribute("Parkour")
-				and not self.Character:GetAttribute("BodyLocked") then
+				and not self.Character:GetAttribute("BodyLocked") and not self.Character:GetAttribute("DevFlyLocal") then
 				--// (patched for this game) a controller turns the camera with a stick, on
 				--// and on: easing the body after it left him always a few degrees
 				--// behind where he was looking. On a controller he turns with it.

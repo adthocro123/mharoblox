@@ -5,7 +5,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 84, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 94, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
@@ -15,7 +15,55 @@ videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tool
 
 ---
 
-## Where things stand (Round 84)
+## Where things stand (Round 94)
+
+Rounds 85–93 were made in another session, on top of Round 84 (the dev
+flight, LIGHTSPEED, the light wipe, Saitama, Bakugo's Max Capacity and
+more). Round 94 is built on the owner's place with those rounds in it. It
+changed four scripts (`QuirkConfig`, `VFX`, `Destruction`, `QuirkServer`);
+nothing else in the place changed.
+
+**The city comes back whole after a wipe.** The owner: "when doing the
+hyperspace dev flying and then crashing into the ground, the map is
+purposely wiped out and then brought back. but the map does not look right
+cosmetically speaking, it looks like it is missing parts of it." There were
+two causes.
+- **Streaming (every screen).** The place has `StreamingEnabled` with
+  opportunistic stream-out past 1,024 studs, and the city is about 1,250
+  across. A part that streams out is only parented to nil, and it streams
+  back in later as the same part, with whatever local look it had. The
+  wipe engine (`VFX.ST.World`) hides each part with
+  `LocalTransparencyModifier = 1`. When the city came back, `WS.unhide`
+  skipped any part that was streamed out at that moment, so those parts
+  came back invisible for good. Now it gives every part its look back,
+  streamed out or not (`WS.unhide`).
+- **The server's carving.** The light wipe carves a real crater and six
+  240-stud furrows out from it; the Serious Punch carves a 640-stud
+  trench. These stayed out for Destruction's `RegenTime` (40 s after the
+  last hit), but every screen rebuilds the city about 12–15 s after the
+  blast. The city came back with trenches through it, and the cut pieces
+  had no lights. Now the server rebuilds with the rewind
+  (`Kit.wipeRebuild` → `Destruction.RestoreArea`), in two steps:
+  - **Mid:** halfway through the empty plain, everything broken in the
+    wiped folders that stands over the foundations. On every screen it
+    arrives hidden and comes back with the rest of the city.
+  - **End:** as the rewind ends, the rest (the crater in the street, the
+    low pieces).
+  - Left alone: a piece in someone's marble, anything that would come back
+    on a dummy, a double, the raid's Nomu or someone still ragdolled (the
+    usual regrow takes those), and everything when **Destruction Respawns**
+    is off (`MapRegen`).
+- **Code:**
+  - **Client:** `WS.unhide` in VFX's Serious Punch block (`VFX.ST.World`).
+  - **Server:** `Kit.wipeRebuild` and `LW.style` in the light wipe's block
+    of `QuirkServer` (`Kit.LW`). `LW.blast` and `ST.blast` call it. The
+    tests reach it as `Destruction.LightWipe.rebuild`, with the last plan
+    in `.lastPlan`.
+  - **Destruction:** `Destruction.RestoreArea(center, radius, opts)`.
+- The labels jump from 84 to 94 because the other session used 85–93 in
+  its code comments.
+
+### Round 84
 
 Rounds 79–83 were made in another session, on the owner's `final.rbxl`.
 Round 84 is built on that place. It changed four scripts (`QuirkClient`,
@@ -204,6 +252,7 @@ cd tests
 lune run compile_all.luau ../src     # every script compiles at every optimisation/debug level (Studio uses full debug info)
 lune run server_tests.luau ../src    # ~1,800 checks, ~25 min
 lune run client_tests.luau ../src    # the client, VFX and HUD, ~60 min; prints "N problem(s)"
+lune run destruction_tests.luau ../src   # the real Destruction module on a small map (carving, restoring), seconds
 ```
 
 The harness is a mock: sounds never end, `Debris` never removes anything,
@@ -216,11 +265,41 @@ round 84:
   The round 84 slam test drives Heartbeat itself.
 - Nothing applies gravity: a root keeps whatever velocity it was last given.
 
+Found in round 94:
+- Lune's parts have no default `LocalTransparencyModifier`, and they don't
+  work out `Position` from `CFrame`. Tests set both on the parts they make.
+- Parenting doesn't fire `DescendantAdded`. The round 94 wipe test fires it
+  itself to stand in for a part streaming back in.
+- The server tests can't reach `Kit`. They reach the light wipe through
+  the stubbed Destruction module (`Destruction.LightWipe`).
+
 These checks have failed on and off for many rounds and aren't caused by
 recent work:
 - the two back-dash checks
 - "FLOAT 75: touching down…"
 - the snack machine's "…nobody else can take it"
+
+**Failing on the owner's rounds 85–93 place** (found in round 94; every
+one fails the same way on the place as uploaded, before round 94). The
+other session changed these kits, so the old tests are out of date:
+- Bakugo: his 4th is Max Capacity now, not Scorched Earth, and his numbers
+  changed ("his 4th move (V) is Scorched Earth", "BAKUGO, nerfed hard",
+  "…out of the ult, 4 is still Scorched Earth").
+- Crazy Diamond's BREAK has no `Hold` any more ("…and RESTORE: it all
+  comes flying home").
+- Rivet Storm's `Hold` is `LiftHold` now ("Rivet Storm lifts them 9
+  studs…", "caught on a rivet…").
+- The emote wheel and emote rolls ("7 new emotes on the wheel…" and the
+  roll and Robux checks after it), THE JIGGY's BPM, and "R6 bodies:
+  Roblox's clips…".
+- "the M1 finisher … puts them down for 0.02s".
+- The harness now runs each server test section in a `pcall`, so a stale
+  section counts as one failure ("section errored: …") and the run goes
+  on.
+- On the client, from round 17's section ("lock-on, scope, erased") a
+  raycast stub error repeats every frame and the run stalls there. It does
+  the same on the uploaded place, so it's a harness problem, not the game.
+  The sections before it run; the round 94 one is among them.
 
 **Failing on the owner's rounds 79–83 place.** These fail on the upload as
 it came, before round 84. The changes there behind them look deliberate, so

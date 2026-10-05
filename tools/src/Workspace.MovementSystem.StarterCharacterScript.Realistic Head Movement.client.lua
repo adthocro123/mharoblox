@@ -41,7 +41,8 @@ runService.RenderStepped:Connect(function (dt)
 	local updateSpeed = 1 - math.exp(-math.min(tonumber(dt) or 1 / 60, 0.1) * followRate)
 
 	-- Check if every required body part exists and whether the CurrentCamera's CameraSubject is the Humanoid
-	if torso and head and ((isR6 and neck) or (neck and waist)) and cam.CameraSubject == hum then
+	-- (patched, round 86) not while he's in dev flight: the flight's pose looks where he's going
+	if torso and head and ((isR6 and neck) or (neck and waist)) and cam.CameraSubject == hum and not char:GetAttribute("DevFlyLocal") then
 
 		local camCF = cam.CFrame
 		local headCF = head.CFrame

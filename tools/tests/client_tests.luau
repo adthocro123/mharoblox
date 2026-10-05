@@ -10920,7 +10920,7 @@ local ok78, err78 = pcall(function()
 	local RS78 = game:GetService("ReplicatedStorage")
 	local anims78
 	if not RS78:FindFirstChild("Animations") then
-		anims78 = r.deserializeModel(fs.readFile(process.env.ANIM_RBXM or "Animations.rbxm"))[1]
+		anims78 = r.deserializeModel(fs.readFile(process.env.ANIM_RBXM or "../anim/out78/Animations_r78.rbxm"))[1]
 		anims78.Parent = RS78
 	end
 	-- the lunge's push (the harness's Debris never removes anything: other
@@ -11357,6 +11357,143 @@ local ok84, err84 = pcall(function()
 end)
 if not ok84 then
 	problem("round 84 tests errored: " .. tostring(err84))
+end
+end
+
+
+print("== round 94: THE CITY BACK AFTER A WIPE (a streaming place; the server's rebuild)")
+do
+local ok85, err85 = pcall(function()
+	local WS = VFX.ST.World
+	local LWX = VFX.LWX
+	local LWC = Config.DevFlight.LightWipe
+	local map = workspace:FindFirstChild("Map")
+	if not map then
+		map = Instance.new("Folder")
+		map.Name = "Map"
+		map.Parent = workspace
+	end
+	local function folder(name)
+		local f = map:FindFirstChild(name)
+		if not f then
+			f = Instance.new("Folder")
+			f.Name = name
+			f.Parent = map
+		end
+		return f
+	end
+	folder("Roads")
+	local buildings = folder("Buildings")
+	-- far from this screen's body (nobody's pushed out of it), on the street
+	local origin = Vector3.new(900, 25.5, 900)
+	local street = WS.street(origin, map)
+	local block = Instance.new("Model")
+	block.Name = "Block85"
+	block.Parent = buildings
+	local parts = {}
+	for i = 1, 6 do
+		local p = Instance.new("Part")
+		p.Name = "Floor85_" .. i
+		p.Anchored = true
+		p.Size = Vector3.new(12, 10, 12)
+		p.CFrame = r.CFrame.new(origin + Vector3.new(60, street - origin.Y + 5 + (i - 1) * 10, 0))
+		p.Color = r.Color3.fromRGB(150, 140, 130)
+		p.LocalTransparencyModifier = 0 -- (the harness's parts have no default for it)
+		p.CanQuery = true
+		p.Parent = block
+		parts[i] = p
+	end
+	local lamp = Instance.new("SurfaceLight")
+	lamp.Enabled = true
+	lamp.Parent = parts[2]
+	local function stepFor(st, elapsed, frames)
+		st.at = workspace:GetServerTimeNow() - elapsed
+		for _ = 1, frames or 3 do
+			if st.finished then
+				return
+			end
+			WS.step(st, 1 / 60)
+		end
+	end
+
+	local st = WS.go(origin, Vector3.new(0, 0, -1), workspace:GetServerTimeNow(), LWC.Wave, nil, LWX.opts())
+	if not (st and st.radial and st.kind == "light") then
+		problem("WIPE 94: a light wipe runs on this screen")
+		return
+	end
+	stepFor(st, 1.5, 4)
+	local hidden = 0
+	for _, p in parts do
+		if p.LocalTransparencyModifier >= 1 and not p.CanCollide then
+			hidden += 1
+		end
+	end
+	if hidden < #parts or lamp.Enabled then
+		problem("WIPE 94: the wave hides the block, its light off (" .. hidden .. " of " .. #parts .. ")")
+	end
+	-- THE STREAMING PLACE (Workspace.StreamingEnabled, opportunistic
+	-- stream-out): two of its floors stream out while the city's gone - a
+	-- part streamed out is only parented to nil, and streams back in as the
+	-- same part
+	parts[2].Parent = nil
+	parts[5].Parent = nil
+	-- the server's rebuild halfway through the hold: a part the blast carved
+	-- comes back (a new one on this screen) - hidden till the rewind
+	stepFor(st, 3.5, 4)
+	if st.phase ~= "hold" then
+		problem("WIPE 94: ...the empty plain (" .. tostring(st.phase) .. ")")
+	end
+	local back = Instance.new("Part")
+	back.Name = "Restored85"
+	back.Anchored = true
+	back.Size = Vector3.new(12, 10, 12)
+	back.LocalTransparencyModifier = 0
+	back.CFrame = r.CFrame.new(origin + Vector3.new(-60, street - origin.Y + 15, 0))
+	back.Parent = block
+	signalOf(map, "DescendantAdded"):Fire(back)
+	task.wait()
+	if back.LocalTransparencyModifier < 1 then
+		problem("WIPE 94: a part the server rebuilds during the hold stays hidden till the rewind")
+	end
+	-- the rewind, and the end
+	stepFor(st, (st.holdEnd or 11) + 0.02, 2)
+	if st.phase ~= "rewind" then
+		problem("WIPE 94: ...the rewind (" .. tostring(st.phase) .. ")")
+	end
+	stepFor(st, (st.rewindEnd or 16) + 0.5, 3)
+	if not st.finished then
+		WS.finish(st)
+		problem("WIPE 94: ...and it's over")
+	end
+	if back.LocalTransparencyModifier ~= 0 or not back.CanCollide then
+		problem("WIPE 94: ...and comes back with the city")
+	end
+	-- streamed back in after it's over: as it was, not invisible for good
+	parts[2].Parent = block
+	parts[5].Parent = block
+	local wrong = {}
+	for i, p in parts do
+		if p.LocalTransparencyModifier ~= 0 or not p.CanCollide or not p.CanQuery then
+			table.insert(wrong, i .. ":" .. p.LocalTransparencyModifier)
+		end
+	end
+	if #wrong > 0 then
+		problem("WIPE 94: every floor's back as it was - streamed out meanwhile or not (wrong: " .. table.concat(wrong, ", ") .. ")")
+	end
+	if not lamp.Enabled then
+		problem("WIPE 94: ...its light on again")
+	end
+	if next(WS.held) ~= nil then
+		local n = 0
+		for _ in WS.held do
+			n += 1
+		end
+		problem("WIPE 94: nothing's still held hidden (" .. n .. ")")
+	end
+	block:Destroy()
+end)
+if not ok85 then
+	problem("round 94 tests errored: " .. tostring(err85))
 end
 end
 

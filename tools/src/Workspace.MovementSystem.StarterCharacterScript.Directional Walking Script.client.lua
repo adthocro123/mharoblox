@@ -57,6 +57,9 @@ function Calculate( dt, HumanoidRootPart, Humanoid, Torso )
 	if Humanoid.Health <= 0 or Humanoid.Parent:GetAttribute("Ragdolled") then
 		return -- (patched) a limp body belongs to the ragdoll
 	end
+	if Humanoid.Parent:GetAttribute("DevFlying") or Humanoid.Parent:GetAttribute("DevFlyLocal") or Humanoid.Parent:GetAttribute("HawksFlying") then
+		return -- (patched, round 86) a dev flying holds his own pose: no walking lean at flight speeds
+	end
 	local RightHipResult = Scaled(RightHipOriginalC0, Torso) * CFrame.new(-XResultXZ, 0, -math.abs(XResultXZ) + math.abs( -XResultXZ ) ) * CFrame.Angles( 0, -XResult, 0 )
 	local LeftHipResult = Scaled(LeftHipOriginalC0, Torso) * CFrame.new(-XResultXZ, 0, -math.abs(-XResultXZ) + math.abs( -XResultXZ ) ) * CFrame.Angles( 0, -XResult, 0 )
 	local RootJointResult = Scaled(RootJointOriginalC0, Torso) * CFrame.Angles( 0, 0, -XResultTorso )
