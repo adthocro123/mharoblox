@@ -30618,6 +30618,11 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 		Kit.DF.relay(player, char, aimDir, aimPos)
 		return
 	end
+	-- (round 96) DISMANTLE: a dev's drawn cut (checked in Kit.DM)
+	if index == Config.PARKOUR_INDEX and Kit.DM and Kit.DM.KINDS[aimDir] then
+		Kit.DM.relay(player, char, aimDir, aimPos)
+		return
+	end
 	-- (round 86) Hawks' flight (R): the lift-off, the boosts, back down
 	if index == Config.PARKOUR_INDEX and Kit.HK and Kit.HK.KINDS[aimDir] then
 		Kit.HK.relay(player, char, aimDir, aimPos)
@@ -34463,6 +34468,386 @@ xpcall(function()
 	end)
 end, function(err)
 	warn("[QuirkServer] ranked duels: " .. tostring(err))
+end)
+
+---------------------------------------------------------------------------
+-- (round 96) DISMANTLE (Config.Dismantle) - the owner: "Make it so when I
+-- draw click my mouse across a building it slices like sukuna dismantle and
+-- causes the building destruction". His machine sends the line he drew as
+-- his camera saw it (UseAbility, PARKOUR_INDEX, "Dismantle", { O = the
+-- camera, A, B = the rays through the line's two ends }), checked here: the
+-- dev flight's people (Kit.DF.allowed), alive, Cooldown, the camera within
+-- Reach of his body (not while he's in another body: Kit.PS has those),
+-- two real directions at most MaxAngle apart. The cut is the sheet through
+-- O and both rays (Pad degrees past each end), out to Range:
+--   every unit of the map's Folders it goes through (where the sheet cuts
+--   each one's box, inside the drawn stretch) - nearest first - to
+--   Destruction.Slice (Budget parts; none while MaxMoving are still coming
+--   down), each group off with Destruction.Collapse;
+--   anyone in it (BodyWidth either side; never him) takes Damage;
+--   where it meets the street (Rays samples down it) a gash (Gash: a
+--   stretch every Spacing studs, Max a cut, Budget parts each);
+--   everyone's told - Dismantle (where the line shows: the samples' first
+--   hits; the units it went through, for the flash), DismantleSlide as a
+--   top starts to come off, DismantleImpact as it lands (anyone within
+--   Impact.Radius of it hit and thrown; not him).
+-- Destruction.Dismantle = DM (the tests). (A function of its own: the main
+-- chunk is at its local limit.)
+---------------------------------------------------------------------------
+xpcall(function()
+	local DC = Config.Dismantle or {}
+	local DM = {
+		KINDS = { Dismantle = true },
+		last = {}, -- [player] = os.clock() of his last cut
+		list = nil, -- the units the cut can go through, each's box (DM.units)
+		listAt = -1e9,
+		n = 0, -- (cuts so far)
+	}
+	Kit.DM = DM
+	Destruction.Dismantle = DM
+
+	function DM.allowed(player)
+		return DC.Enabled ~= false and Kit.DF ~= nil and Kit.DF.allowed(player) == true
+	end
+	-- a real, finite vector (NaN / huge refused)
+	function DM.vec(v)
+		if typeof(v) ~= "Vector3" or v ~= v then
+			return nil
+		end
+		local m = v.Magnitude
+		return m == m and m < 1e6 and v or nil
+	end
+
+	-- every unit of the map's Folders (a building, a tree...) and its box
+	-- (world axes: C its middle, H half its size), kept 20 s
+	function DM.units()
+		local now = os.clock()
+		if DM.list and now - DM.listAt < 20 then
+			return DM.list
+		end
+		local map = workspace:FindFirstChild("Map")
+		local list = {}
+		for _, name in DC.Folders or {} do
+			local folder = map and map:FindFirstChild(name)
+			for _, unit in folder and folder:GetChildren() or {} do
+				if unit:IsA("Model") or unit:IsA("Folder") then
+					local lo, hi
+					for _, p in unit:GetDescendants() do
+						if p:IsA("BasePart") then
+							local cf, h = p.CFrame, p.Size / 2
+							local r, u, l = cf.RightVector, cf.UpVector, cf.LookVector
+							local ext = Vector3.new(
+								math.abs(r.X) * h.X + math.abs(u.X) * h.Y + math.abs(l.X) * h.Z,
+								math.abs(r.Y) * h.X + math.abs(u.Y) * h.Y + math.abs(l.Y) * h.Z,
+								math.abs(r.Z) * h.X + math.abs(u.Z) * h.Y + math.abs(l.Z) * h.Z
+							)
+							local c = cf.Position
+							lo = lo and Vector3.new(math.min(lo.X, c.X - ext.X), math.min(lo.Y, c.Y - ext.Y), math.min(lo.Z, c.Z - ext.Z)) or c - ext
+							hi = hi and Vector3.new(math.max(hi.X, c.X + ext.X), math.max(hi.Y, c.Y + ext.Y), math.max(hi.Z, c.Z + ext.Z)) or c + ext
+						end
+					end
+					if lo then
+						table.insert(list, { Unit = unit, C = (lo + hi) / 2, H = (hi - lo) / 2 })
+					end
+				end
+			end
+		end
+		DM.list, DM.listAt = list, now
+		return list
+	end
+
+	-- the sheet: through O, square to N (A x B); A to B is Span radians round it
+	function DM.sheet(O, A, B)
+		local n = A:Cross(B)
+		if n.Magnitude < 1e-5 then
+			return nil
+		end
+		n = n.Unit
+		return {
+			O = O, A = A, B = B, N = n, Span = math.atan2(n:Dot(A:Cross(B)), A:Dot(B)),
+			Pad = math.rad(DC.Pad or 2), Range = DC.Range or 900,
+		}
+	end
+	-- does the sheet reach something round c (radius rad), no further than
+	-- slack off it?
+	function DM.crosses(w, c, rad, slack)
+		local off = (c - w.O):Dot(w.N)
+		if math.abs(off) > slack then
+			return false
+		end
+		local v = c - w.N * off - w.O
+		local dist = v.Magnitude
+		if dist <= rad then
+			return true
+		end
+		if dist - rad > w.Range then
+			return false
+		end
+		local u = v / dist
+		local ang = math.atan2(w.N:Dot(w.A:Cross(u)), w.A:Dot(u))
+		local tol = math.asin(math.min(rad / dist, 1)) + w.Pad
+		return ang >= -tol and ang <= w.Span + tol
+	end
+	-- where the sheet goes through a box (centre c, half-size h, world
+	-- axes): its corners in order round it, or nil
+	function DM.section(w, c, h)
+		local axes = { Vector3.new(1, 0, 0), Vector3.new(0, 1, 0), Vector3.new(0, 0, 1) }
+		local hs = { h.X, h.Y, h.Z }
+		local pts = {}
+		for i = 1, 3 do
+			local a, b, d = axes[i], axes[i % 3 + 1], axes[(i + 1) % 3 + 1]
+			for _, sb in { -1, 1 } do
+				for _, sd in { -1, 1 } do
+					local p0 = c + b * (hs[i % 3 + 1] * sb) + d * (hs[(i + 1) % 3 + 1] * sd) - a * hs[i]
+					local p1 = p0 + a * (2 * hs[i])
+					local d0, d1 = (p0 - w.O):Dot(w.N), (p1 - w.O):Dot(w.N)
+					if (d0 <= 0) ~= (d1 <= 0) and math.abs(d0 - d1) > 1e-6 then
+						table.insert(pts, p0:Lerp(p1, d0 / (d0 - d1)))
+					end
+				end
+			end
+		end
+		return #pts >= 3 and pts or nil
+	end
+	-- does the drawn stretch of the sheet (A to B, Pad either side, out to
+	-- Range) go through the box? (its section, angle by angle round O)
+	function DM.crossesBox(w, c, h)
+		local pts = DM.section(w, c, h)
+		if not pts then
+			return false
+		end
+		local function ang(p)
+			local u = p - w.O
+			return math.atan2(w.N:Dot(w.A:Cross(u)), w.A:Dot(u))
+		end
+		local mid = Vector3.zero
+		for _, p in pts do
+			mid += p
+		end
+		mid /= #pts
+		local m = ang(mid)
+		local lo, hi, near = 0, 0, math.huge
+		for _, p in pts do
+			local d = (ang(p) - m + math.pi) % (2 * math.pi) - math.pi
+			lo, hi = math.min(lo, d), math.max(hi, d)
+			near = math.min(near, (p - w.O).Magnitude)
+		end
+		if hi - lo >= math.pi - 1e-3 then
+			return true -- (the camera's inside it)
+		end
+		return near <= w.Range and m + hi >= -w.Pad and m + lo <= w.Span + w.Pad
+	end
+	-- the i-th of n directions from A to B (round the sheet)
+	function DM.ray(w, i, n)
+		local a = n > 1 and w.Span * (i - 1) / (n - 1) or w.Span / 2
+		return CFrame.fromAxisAngle(w.N, a):VectorToWorldSpace(w.A)
+	end
+	-- everyone the cut can reach (Saitama's list: players, dummies, doubles, the Nomu)
+	function DM.bodies()
+		if Kit.ST and Kit.ST.bodies then
+			return Kit.ST.bodies()
+		end
+		local list = {}
+		for _, plr in Players:GetPlayers() do
+			if plr.Character then
+				table.insert(list, plr.Character)
+			end
+		end
+		return list
+	end
+
+	function DM.relay(player, char, kind, data)
+		if not DM.KINDS[kind] or not DM.allowed(player) or type(data) ~= "table" then
+			return
+		end
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not root or not hum or hum.Health <= 0 then
+			return
+		end
+		local now = os.clock()
+		if now - (DM.last[player] or -1e9) < (DC.Cooldown or 0.5) then
+			return
+		end
+		local O, A, B = DM.vec(data.O), DM.vec(data.A), DM.vec(data.B)
+		if not (O and A and B) or A.Magnitude < 0.5 or B.Magnitude < 0.5 then
+			return
+		end
+		if (O - root.Position).Magnitude > (DC.Reach or 450) then
+			return
+		end
+		A, B = A.Unit, B.Unit
+		local angle = math.deg(math.acos(math.clamp(A:Dot(B), -1, 1)))
+		if angle < 0.3 or angle > (DC.MaxAngle or 150) then
+			return
+		end
+		DM.last[player] = now
+		return DM.cut(player, char, O, A, B)
+	end
+
+	-- the cut itself: what it goes through, who's in it, the street, the word
+	function DM.cut(player, char, O, A, B)
+		local w = DM.sheet(O, A, B)
+		if not w then
+			return nil
+		end
+		DM.n += 1
+		local out = { Id = DM.n, Units = {}, Groups = {}, Hit = {}, Points = {}, Gash = {} }
+		-- where it shows (the samples' first hits) and where it meets the street
+		local map = workspace:FindFirstChild("Map")
+		local street = {}
+		for _, name in { "Roads", "Ground" } do
+			local f = map and map:FindFirstChild(name)
+			if f then
+				table.insert(street, f)
+			end
+		end
+		-- (what it can cut and the street - not the invisible border)
+		local hitList = table.clone(street)
+		for _, name in DC.Folders or {} do
+			local f = map and map:FindFirstChild(name)
+			if f then
+				table.insert(hitList, f)
+			end
+		end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = hitList
+		local rays = math.clamp(math.floor(DC.Rays or 40), 2, 80)
+		local runs, run = {}, nil
+		for i = 1, rays do
+			local hit = #hitList > 0 and workspace:Raycast(O, DM.ray(w, i, rays) * w.Range, params)
+			if hit then
+				table.insert(out.Points, hit.Position)
+				local onStreet = false
+				for _, f in street do
+					if hit.Instance and hit.Instance:IsDescendantOf(f) then
+						onStreet = true
+						break
+					end
+				end
+				if onStreet then
+					if run and (hit.Position - run[#run]).Magnitude <= ((DC.Gash or {}).MaxGap or 30) then
+						table.insert(run, hit.Position)
+					else
+						run = { hit.Position }
+						table.insert(runs, run)
+					end
+				else
+					run = nil
+				end
+			else
+				run = nil
+			end
+		end
+		-- what it goes through, nearest first
+		local found = {}
+		for _, u in DM.units() do
+			if u.Unit.Parent and DM.crossesBox(w, u.C, u.H) then
+				table.insert(found, { u.Unit, (u.C - O).Magnitude, u })
+			end
+		end
+		table.sort(found, function(a, b)
+			return a[2] < b[2]
+		end)
+		for _, f in found do
+			table.insert(out.Units, f[1])
+		end
+		-- anyone in it (never him)
+		for _, model in DM.bodies() do
+			local r = model ~= char and model:FindFirstChild("HumanoidRootPart")
+			if r and DM.crosses(w, r.Position, 2.5, DC.BodyWidth or 3.5) then
+				table.insert(out.Hit, model)
+				damage(player, model, DC.Damage or 30, { Heavy = true, From = O })
+				broadcast("DismantleHit", nil, { Target = model, P = r.Position, N = w.N })
+			end
+		end
+		-- the street's gash: a stretch every Spacing studs along where it
+		-- meets it (Max of them a cut, Budget parts each)
+		local G = DC.Gash or {}
+		for _, list in runs do
+			local pts = { list[1] }
+			for i = 2, #list do
+				if i == #list or (list[i] - pts[#pts]).Magnitude >= (G.Spacing or 24) then
+					table.insert(pts, list[i])
+				end
+			end
+			for i = 1, math.max(#pts - 1, 1) do
+				if #out.Gash >= (G.Max or 10) then
+					break
+				end
+				local a, b = pts[i], pts[i + 1] or pts[i]
+				table.insert(out.Gash, { a, b })
+				Destruction.Capsule(a, b, G.Radius or 1.4, "DismantleGash", (b - a).Magnitude > 0.1 and (b - a).Unit or w.N, { Budget = G.Budget or 60 })
+			end
+		end
+		-- the cut
+		local moving = Destruction.MovingCount and Destruction.MovingCount() or 0
+		local budget = math.min(DC.Budget or 3000, (DC.MaxMoving or 7000) - moving)
+		if budget > 0 and #out.Units > 0 and Destruction.Slice then
+			out.Groups = Destruction.Slice(out.Units, O, w.N, {
+				Step = DC.Step, MinSize = DC.MinSize, PerPart = DC.PerPart, Budget = budget, Upright = DC.Upright,
+				Flat = (DC.Slide or {}).Flat, ClearPad = (DC.Slide or {}).ClearPad, Stroke = B - A,
+			}) or {}
+		end
+		out.Refused = budget <= 0 and #out.Units > 0 or nil
+		for _, g in out.Groups do
+			Destruction.Collapse(g, {
+				Slide = DC.Slide, Fall = DC.Fall, Topple = DC.Topple, Impact = DC.Impact,
+				OnSlide = DM.onSlide,
+				OnImpact = function(at, group)
+					DM.impact(player, char, at, group)
+				end,
+			})
+		end
+		-- the word: the line, for everyone's flash
+		local flash = {}
+		for i, f in found do
+			if i > 12 then
+				break
+			end
+			table.insert(flash, { C = f[3].C, S = f[3].H * 2 })
+		end
+		broadcast("Dismantle", nil, { O = O, A = A, B = B, N = w.N, Points = out.Points, Units = flash, Id = out.Id })
+		return out
+	end
+
+	-- a top starting to come off
+	function DM.onSlide(group)
+		broadcast("DismantleSlide", nil, { P = group.Centre, D = group.Dir, S = group.Hi - group.Lo, Mode = group.Mode })
+	end
+	-- ...and landing: anyone round it hit and thrown out (never him)
+	function DM.impact(player, char, at, group)
+		if typeof(at) ~= "Vector3" then
+			return
+		end
+		local I = DC.Impact or {}
+		local radius = I.Radius or 32
+		local hits = {}
+		for _, model in DM.bodies() do
+			local r = model ~= char and model:FindFirstChild("HumanoidRootPart")
+			if r then
+				local v = r.Position - at
+				local flat = Vector3.new(v.X, 0, v.Z)
+				if flat.Magnitude <= radius and math.abs(v.Y) <= radius then
+					table.insert(hits, model)
+					damage(player, model, I.Damage or 25, { Heavy = true, From = at })
+					local out = flat.Magnitude > 0.1 and flat.Unit or Vector3.new(1, 0, 0)
+					knockback(model, out * (I.Push or 90) + Vector3.new(0, I.Lift or 60, 0), 0.35)
+				end
+			end
+		end
+		local size = group and group.Hi and (group.Hi - group.Lo) or Vector3.one * 20
+		broadcast("DismantleImpact", nil, { P = at, S = size, N = group and #group.Movers or 0 })
+		DM.lastImpact = { At = at, Hits = hits }
+		return hits
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		DM.last[player] = nil
+	end)
+end, function(err)
+	warn("[QuirkServer] dismantle: " .. tostring(err))
 end)
 
 Players.PlayerRemoving:Connect(function(player)

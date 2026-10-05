@@ -81203,4 +81203,210 @@ end)()
 	end
 end)()
 
+---------------------------------------------------------------------------
+-- (round 96) DISMANTLE (Config.Dismantle; the server's Kit.DM): Sukuna's
+-- cut. Dismantle (everyone): a white-hot line, red at its edges, where the
+-- cut shows on the walls (the server's samples: data.Points) and round
+-- every building it went through at the cut (the cut sheet - through data.O,
+-- square to data.N - across each one's box: data.Units), sparks off it, the
+-- metal shing, a jolt; it thins out and fades. DismantleSlide: the top
+-- grinding off - dust out of the cut, the rumble. DismantleImpact: the
+-- crash - a dust cloud the size of it, a ring blown out, rocks, cracks, the
+-- boom, the ground shaking. DismantleHit: a body the cut went through.
+---------------------------------------------------------------------------
+;(function()
+	local DMV = {}
+	VFX.DismantleKit = DMV
+	local WHITE = Color3.fromRGB(255, 252, 250)
+	local EDGE = Color3.fromRGB(255, 44, 58)
+	local DUST = Color3.fromRGB(150, 140, 132)
+	local function vec(v)
+		return typeof(v) == "Vector3" and v == v and v or nil
+	end
+	-- one stretch of the line: a white core, a red glow round it, thinning out
+	function DMV.segment(a, b, width, hold)
+		local len = (b - a).Magnitude
+		if len < 0.05 then
+			return
+		end
+		local cf = CFrame.lookAt((a + b) / 2, b)
+		local core = newPart(Vector3.new(width, width, len), cf, WHITE, Enum.Material.Neon)
+		core.Name = "DismantleLine"
+		local glow = newPart(Vector3.new(width * 2.6, width * 2.6, len + width), cf, EDGE, Enum.Material.Neon)
+		glow.Name = "DismantleGlow"
+		glow.Transparency = 0.45
+		tween(core, 0.55, { Size = Vector3.new(0.04, 0.04, len), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, hold or 0.12)
+		tween(glow, 0.45, { Size = Vector3.new(0.05, 0.05, len), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, hold or 0.12)
+		cleanup(core, (hold or 0.12) + 0.6)
+		cleanup(glow, (hold or 0.12) + 0.5)
+		return core, glow
+	end
+	-- where the sheet (through o, square to n) goes round a box (c, size s):
+	-- its corners in order round it, or nil
+	function DMV.ring(c, s, o, n)
+		local h = s / 2
+		local axes = { Vector3.new(1, 0, 0), Vector3.new(0, 1, 0), Vector3.new(0, 0, 1) }
+		local hs = { h.X, h.Y, h.Z }
+		local pts = {}
+		for i = 1, 3 do
+			local a, b, d = axes[i], axes[i % 3 + 1], axes[(i + 1) % 3 + 1]
+			local ha, hb, hd = hs[i], hs[i % 3 + 1], hs[(i + 1) % 3 + 1]
+			for _, sb in { -1, 1 } do
+				for _, sd in { -1, 1 } do
+					local p0 = c + b * (hb * sb) + d * (hd * sd) - a * ha
+					local p1 = p0 + a * (2 * ha)
+					local d0, d1 = (p0 - o):Dot(n), (p1 - o):Dot(n)
+					if (d0 <= 0) ~= (d1 <= 0) and math.abs(d0 - d1) > 1e-6 then
+						table.insert(pts, p0:Lerp(p1, d0 / (d0 - d1)))
+					end
+				end
+			end
+		end
+		if #pts < 3 then
+			return nil
+		end
+		local mid = Vector3.zero
+		for _, p in pts do
+			mid += p
+		end
+		mid /= #pts
+		local u = pts[1] - mid
+		if u.Magnitude < 1e-3 then
+			return nil
+		end
+		u = u.Unit
+		local v = n:Cross(u)
+		table.sort(pts, function(p, q)
+			return math.atan2((p - mid):Dot(v), (p - mid):Dot(u)) < math.atan2((q - mid):Dot(v), (q - mid):Dot(u))
+		end)
+		return pts, mid
+	end
+
+	function Effects.Dismantle(_, data)
+		local o, n = vec(data.O), vec(data.N)
+		if not (o and n) or n.Magnitude < 0.5 then
+			return
+		end
+		n = n.Unit
+		local low = IceKit.lowEnd()
+		local points = type(data.Points) == "table" and data.Points or {}
+		local mid
+		-- where it shows on the walls (the samples, in order): close ones joined
+		local drawn = 0
+		for i = 1, #points - 1 do
+			local a, b = vec(points[i]), vec(points[i + 1])
+			if a and b and (b - a).Magnitude <= 26 then
+				local toEye = o - (a + b) / 2
+				local lift = toEye.Magnitude > 0.1 and toEye.Unit * 0.35 or Vector3.zero
+				DMV.segment(a + lift, b + lift, 0.32)
+				drawn += 1
+			end
+			mid = mid or a
+		end
+		-- round everything it went through, at the cut (a hair outside the box)
+		local units = type(data.Units) == "table" and data.Units or {}
+		for i, u in units do
+			if low and i > 4 then
+				break
+			end
+			local c, size = vec(u.C), vec(u.S)
+			local ring, centre = nil, nil
+			if c and size then
+				ring, centre = DMV.ring(c, size + Vector3.one * 0.8, o, n)
+			end
+			if ring then
+				mid = mid or centre
+				for k = 1, #ring do
+					DMV.segment(ring[k], ring[k % #ring + 1], 0.45, 0.16)
+				end
+				if not low then
+					for k = 1, math.min(#ring, 3) do
+						sparks(ring[k], 0.6, WHITE, EDGE, 10)
+					end
+				end
+			end
+		end
+		-- sparks along the line, a star at its brightest
+		local EK = VFX.EngineKit
+		for k = 1, math.min(#points, low and 2 or 6) do
+			local p = vec(points[math.max(1, math.floor(k * #points / (low and 2 or 6)))])
+			if p then
+				sparks(p, 0.5, WHITE, EDGE, low and 5 or 9)
+			end
+		end
+		if EK and EK.starSpark and points[1] then
+			local p = vec(points[math.max(1, math.floor(#points / 2))])
+			if p then
+				EK.starSpark(p, { size = 6, life = 0.12, color = EDGE, color2 = WHITE, spikes = 4 })
+			end
+		end
+		mid = mid or (o + (vec(data.A) or Vector3.new(0, 0, -1)) * 80)
+		VFX.PlaySound("DismantleCut", mid, 1)
+		VFX.ShakeAt(mid, 1.4, 320, 0.35)
+		DMV.lastCut = { Lines = drawn, Units = #units, At = mid }
+	end
+
+	function Effects.DismantleSlide(_, data)
+		local p, size = vec(data.P), vec(data.S) or Vector3.one * 20
+		if not p then
+			return
+		end
+		local low = IceKit.lowEnd()
+		local foot = p - Vector3.new(0, size.Y / 2, 0)
+		VFX.PlaySound("DismantleSlide", foot, 1)
+		local reach = math.clamp(math.max(size.X, size.Z) / 2, 4, 60)
+		for _ = 1, low and 3 or 7 do
+			local at = foot + Vector3.new(rand(-reach, reach), 0, rand(-reach, reach))
+			dustPuffs(at, math.clamp(reach / 18, 0.8, 2.2), low and 2 or 3, DUST, 1.6, Color3.fromRGB(96, 88, 82))
+		end
+		VFX.ShakeAt(foot, 1.1, 300, 1.8)
+		DMV.lastSlide = { At = foot }
+	end
+
+	function Effects.DismantleImpact(_, data)
+		local p, size = vec(data.P), vec(data.S) or Vector3.one * 20
+		if not p then
+			return
+		end
+		local low = IceKit.lowEnd()
+		local big = math.clamp(size.Magnitude / 50, 0.8, 3)
+		local EK = VFX.EngineKit
+		VFX.PlaySound("DismantleImpact", p, 1)
+		if EK and EK.cloud then
+			EK.cloud(p, 2.2 * big, DUST, 0.3)
+		end
+		shockDisc(p + Vector3.new(0, 1.5, 0), UP, 6, 60 * big, 0.7, DUST)
+		for _ = 1, low and 4 or 10 do
+			local a = rand(0, math.pi * 2)
+			local at = p + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(4, 16) * big
+			dustPuffs(at, 1.4 * big, low and 1 or 2, DUST, 2.2, Color3.fromRGB(96, 88, 82))
+		end
+		rocks(p + Vector3.new(0, 2, 0), 1.6 * big, low and 5 or 12)
+		if EK and EK.cracks then
+			EK.cracks(p + Vector3.new(0, 2, 0), 10 * big, 10)
+		end
+		VFX.ShakeAt(p, 3.2, 450, 1.1)
+		DMV.lastImpact = { At = p, Big = big }
+	end
+
+	function Effects.DismantleHit(_, data)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local root = target and target:FindFirstChild("HumanoidRootPart")
+		local p = (root and root.Position) or vec(data.P)
+		local n = vec(data.N)
+		if not p then
+			return
+		end
+		-- the slash across them, in the cut's sheet
+		local across = n and n:Cross(UP) or Vector3.new(1, 0, 0)
+		if across.Magnitude < 0.05 then
+			across = Vector3.new(1, 0, 0)
+		end
+		across = across.Unit
+		DMV.segment(p - across * 3.5, p + across * 3.5, 0.22, 0.05)
+		sparks(p, 0.5, WHITE, EDGE, 12)
+		VFX.PlaySound("DismantleHit", p, 1)
+	end
+end)()
+
 return VFX

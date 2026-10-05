@@ -3855,6 +3855,62 @@ function Config.RankedDelta(winnerRating, loserRating, kWinner, kLoser)
 	return gain, loss
 end
 
+---------------------------------------------------------------------------
+-- (round 96) DISMANTLE (Kit.DM) - the owner: "Make it so when I draw click
+-- my mouse across a building it slices like sukuna dismantle and causes the
+-- building destruction". The dev flight's people only (Kit.DF.allowed).
+-- Key (U) - or the test menu's DISMANTLE - arms it: the mouse is freed (the
+-- shift lock's off till it's put away) and a left-click DRAG draws the cut
+-- on the screen; letting go cuts. The cut is the flat sheet through the
+-- camera and the drawn line: everything it crosses in the drawn stretch
+-- (Pad degrees past each end), out to Range studs from the camera, is cut
+-- along it, right through - buildings, trees, streetlights, benches, bins,
+-- bushes (Folders).
+--   Over a slanted or flat cut the top SLIDES OFF down the cut (a cut
+--   flatter than Slide.Flat: along the drawn line) - Slide.Delay first,
+--   the cut glowing, then from Start studs/s, Accel (down a slope: x its
+--   steepness, at least 0.35 of it) up to Max - till it's
+--   clear of what's left under it (+ ClearPad), then FALLS, tipping over
+--   (Fall.Spin rad/s, at most Fall.Tilt), onto the street or whatever's
+--   under it: it smashes (Impact.Debris chunks flung, a Crater, the dust)
+--   and anyone within Impact.Radius is hit and thrown. An upright cut
+--   (|normal.Y| under Upright) TOPPLES the smaller side over, away from
+--   the cut (Topple). Anyone the sheet passes through (BodyWidth either
+--   side) takes Damage; where it meets the street it leaves a gash (Gash:
+--   a stretch every Spacing studs, Max a cut, Budget parts each).
+--   The cut: pieces at most Step studs off the true cut (a fine staircase
+--   on a slanted one), never under MinSize, PerPart pieces at most out of
+--   one part, Budget new parts a cut (past it a part goes whole to the side
+--   its middle's on); no new cut while MaxMoving pieces are still moving.
+--   It all grows back as anything broken does (Config.Destruction's
+--   RegenTime after it lands).
+---------------------------------------------------------------------------
+Config.Dismantle = {
+	Enabled = true,
+	Key = Enum.KeyCode.U,
+	MinStroke = 40, -- (pixels: a shorter drag is a click, not a cut)
+	Range = 900, -- (studs from the camera)
+	Reach = 450, -- (the camera at most this far from his body)
+	MaxAngle = 150, -- (degrees: the widest drawn stretch)
+	Pad = 2, -- (degrees past each end of the drawn line)
+	Cooldown = 0.5,
+	Rays = 40, -- (samples along the cut: where it shows, where it meets the street)
+	Folders = { "Buildings", "Trees", "Streetlights", "Benches", "Dumpster", "Bushes" },
+	Upright = 0.3,
+	Step = 1.2,
+	MinSize = 3,
+	PerPart = 256,
+	Budget = 3000,
+	MaxMoving = 7000,
+	Damage = 30,
+	BodyWidth = 3.5,
+	Slide = { Delay = 0.35, Start = 3, Accel = 34, Max = 55, MaxTime = 3.5, ClearPad = 4, Flat = 0.26, Sink = 3 },
+	Fall = { Spin = 0.7, Tilt = 1.2, MaxTime = 6 },
+	Topple = { Gap = 1.5, Accel = 2.4, Angle = 82 },
+	Impact = { Debris = 50, Crater = 14, Damage = 25, Radius = 32, Push = 90, Lift = 60 },
+	Gash = { Radius = 1.4, MaxGap = 30, Spacing = 24, Max = 10, Budget = 60 },
+}
+
 -- Map destruction (parts with the Destroyable attribute set to true)
 Config.Destruction = {
 	Enabled = true,
@@ -6866,6 +6922,25 @@ Config.Sounds = {
 	RankedRound = { { Id = S.Ping, Volume = 0.8, Speed = 1.2 } },
 	RankedFight = { { Id = S.Stinger, Volume = 0.9, Speed = 1.1 }, { Id = L.CrowdRoar, Volume = 0.7, Speed = 1, Length = 2.5 } },
 	RankedWin = { { Id = S.Victory, Volume = 1 }, { Id = L.CrowdWhoops, Volume = 0.6, Speed = 1, Delay = 0.2, Length = 2.5 } },
+	-- (round 96) DISMANTLE: armed (a blade drawn), the cut (a thin metal
+	-- shing through the air, the edge's ring after it), the top grinding off
+	-- down the cut, the crash, and a body the cut goes through
+	DismantleArm = { { Id = L.BladeScrape, Volume = 0.45, Speed = 1.4, Length = 0.6 } },
+	DismantleCut = {
+		{ Id = L.SwordShing, Volume = 1, Speed = 1.1 },
+		{ Id = L.AirySlice, Volume = 0.9, Speed = 0.9 },
+		{ Id = L.BladeRing, Volume = 0.55, Speed = 1.2, Delay = 0.05, Length = 1.4 },
+		Range = 900,
+	},
+	DismantleSlide = { { Id = L.StoneGrind, Volume = 1, Speed = 0.7, Length = 2.5 }, { Id = L.Quake, Volume = 0.7, Speed = 0.9, Length = 2.5 }, Range = 700 },
+	DismantleImpact = {
+		{ Id = L.PowerBoomLong, Volume = 1, Speed = 0.85 },
+		{ Id = L.DirtBurst, Volume = 0.9, Speed = 0.9, Delay = 0.05 },
+		{ Id = L.Quake, Volume = 0.8, Speed = 0.8, Length = 3 },
+		{ Id = L.GlassSmash, Volume = 0.5, Speed = 0.9, Delay = 0.1 },
+		Range = 1100,
+	},
+	DismantleHit = { { Id = L.SwordShing, Volume = 0.8, Speed = 1.3 }, { Id = L.CrackThud, Volume = 0.6, Speed = 1.1 } },
 	-- (round 86) the roster switch: a hero released to everyone (the NEW HERO
 	-- banner), your hero pulled back to DEV ONLY, a switch flipped on the panel.
 	-- (review) The release is a debut, not a rank-up (RankUp is Victory +

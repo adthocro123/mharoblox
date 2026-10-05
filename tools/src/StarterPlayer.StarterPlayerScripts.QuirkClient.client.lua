@@ -4928,6 +4928,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		return -- (round 87: directing, a click picks a target - no M1, menu or item)
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if CombatInput.dismantle then
+			return -- (round 96: DISMANTLE's armed - the left button draws the cut)
+		end
 		m1Held = true
 		useM1()
 	elseif input.KeyCode == Config.MenuKey then
@@ -13007,6 +13010,270 @@ do
 	end
 end
 
+---------------------------------------------------------------------------
+-- (round 96) DISMANTLE (Config.Dismantle; the server's Kit.DM decides it
+-- all) - the owner: "Make it so when I draw click my mouse across a
+-- building it slices like sukuna dismantle". The dev flight's people
+-- (DevFlyer). U - or the test menu's DISMANTLE - arms it: the mouse is free
+-- (the movement pack's shift lock off, given back after), a chip up top
+-- says so, and the left button doesn't punch (CombatInput.dismantle; his
+-- other keys are still his).
+-- Press and DRAG: a white line from where he pressed to the mouse; let go
+-- and, MinStroke px or longer, it's sent (UseAbility, PARKOUR_INDEX,
+-- "Dismantle": the camera, and the rays through the line's two ends) and
+-- the line flashes. U again puts it away - so do dying, the director
+-- camera, being in another body, losing DevFlyer. (DevFly.DM, the tests'
+-- VFX.DevFly.DM.)
+---------------------------------------------------------------------------
+xpcall(function()
+	local DMC = Config.Dismantle or {}
+	local DM = { armed = false, drawing = false, from = nil, to = nil, sentAt = -1e9, savedShift = nil }
+	DevFly.DM = DM
+	function DM.allowed()
+		return DMC.Enabled ~= false and player:GetAttribute("DevFlyer") == true
+	end
+	-- in another body (POSSESS) or directing: not now
+	function DM.free()
+		return not FreeCam.directing and not (DevFly.PS and DevFly.PS.body ~= nil)
+	end
+	-- the chip and the line: a screen of its own, over the HUD
+	function DM.gui()
+		if DM.screen and DM.screen.Parent then
+			return DM.screen
+		end
+		local pg = player:FindFirstChildOfClass("PlayerGui")
+		if not pg then
+			return nil
+		end
+		local sg = Instance.new("ScreenGui")
+		sg.Name = "DismantleGui"
+		sg.ResetOnSpawn = false
+		sg.IgnoreGuiInset = true -- (the mouse's own coordinates)
+		sg.DisplayOrder = 40
+		sg.Enabled = false
+		local chip = Instance.new("TextLabel")
+		chip.Name = "Chip"
+		chip.AnchorPoint = Vector2.new(0.5, 0)
+		chip.Position = UDim2.new(0.5, 0, 0, 58)
+		chip.Size = UDim2.fromOffset(360, 30)
+		chip.BackgroundColor3 = Color3.fromRGB(16, 10, 12)
+		chip.BackgroundTransparency = 0.15
+		chip.TextColor3 = Color3.fromRGB(255, 238, 238)
+		chip.Font = Enum.Font.GothamBlack
+		chip.TextSize = 14
+		chip.RichText = true
+		chip.Text = "DISMANTLE  ·  drag across a building  ·  <b>U</b> put away"
+		chip.Parent = sg
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = chip
+		local edge = Instance.new("UIStroke")
+		edge.Color = Color3.fromRGB(210, 34, 44)
+		edge.Thickness = 1.5
+		edge.Parent = chip
+		local line = Instance.new("Frame")
+		line.Name = "Line"
+		line.AnchorPoint = Vector2.new(0.5, 0.5)
+		line.BackgroundColor3 = Color3.new(1, 1, 1)
+		line.BorderSizePixel = 0
+		line.Visible = false
+		line.Parent = sg
+		local glow = Instance.new("UIStroke")
+		glow.Color = Color3.fromRGB(255, 60, 72)
+		glow.Thickness = 2
+		glow.Transparency = 0.35
+		glow.Parent = line
+		sg.Parent = pg
+		DM.screen, DM.chip, DM.line = sg, chip, line
+		return sg
+	end
+	-- a line on the screen from a to b (Vector2s), thick px
+	function DM.lay(frame, a, b, thick)
+		local d = b - a
+		frame.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+		frame.Size = UDim2.fromOffset(d.Magnitude, thick or 3)
+		frame.Rotation = math.deg(math.atan2(d.Y, d.X))
+		frame.Visible = d.Magnitude > 1
+	end
+	-- the movement pack's shift lock: off while armed, back after (as the director)
+	function DM.shiftLock(on)
+		pcall(function()
+			local pack = workspace:FindFirstChild("MovementSystem")
+			local holder = pack and pack:FindFirstChild("StarterPlayerScripts")
+			local lockScript = holder and holder:FindFirstChild("CustomShiftLock")
+			local module = lockScript and lockScript:FindFirstChild("SmoothShiftLock")
+			if not module then
+				return
+			end
+			local lock = require(module)
+			local toggle, edit = module:FindFirstChild("ToggleShiftLock"), module:FindFirstChild("EditConfig")
+			if not on then
+				DM.savedShift = lock:IsEnabled()
+				if edit then
+					edit:Fire("MANUALLY_TOGGLEABLE", false)
+				end
+				if DM.savedShift and toggle then
+					toggle:Fire(false)
+				end
+			else
+				if edit then
+					edit:Fire("MANUALLY_TOGGLEABLE", true)
+				end
+				if DM.savedShift and toggle then
+					toggle:Fire(true)
+				end
+				DM.savedShift = nil
+			end
+		end)
+	end
+	function DM.cancel()
+		DM.drawing = false
+		DM.from, DM.to = nil, nil
+		if DM.line then
+			DM.line.Visible = false
+		end
+	end
+	function DM.set(on)
+		on = on == true and DM.allowed() and DM.free()
+		if on == DM.armed then
+			return DM.armed
+		end
+		DM.armed = on
+		CombatInput.dismantle = on or nil
+		local sg = DM.gui()
+		if sg then
+			sg.Enabled = on
+		end
+		DM.cancel()
+		if on then
+			DM.shiftLock(false)
+			pcall(VFX.PlaySound, "DismantleArm", nil, 1)
+		else
+			DM.shiftLock(true)
+		end
+		HUD.SetTestToggle("Dismantle", on)
+		return on
+	end
+	function DM.toggle()
+		return DM.set(not DM.armed)
+	end
+	function DM.begin(at)
+		if not DM.armed or typeof(at) ~= "Vector2" then
+			return
+		end
+		DM.drawing = true
+		DM.from, DM.to = at, at
+	end
+	-- let go: sent if it's long enough (true), the line flashing white
+	function DM.finish(at)
+		local a, b = DM.from, typeof(at) == "Vector2" and at or DM.to
+		local was = DM.drawing
+		DM.cancel()
+		local cam = workspace.CurrentCamera
+		if not was or not (a and b and cam) or (b - a).Magnitude < (DMC.MinStroke or 40) then
+			return false
+		end
+		if os.clock() - DM.sentAt < (DMC.Cooldown or 0.5) then
+			return false
+		end
+		DM.sentAt = os.clock()
+		local ra, rb = cam:ViewportPointToRay(a.X, a.Y), cam:ViewportPointToRay(b.X, b.Y)
+		UseAbility:FireServer(Config.PARKOUR_INDEX, "Dismantle", { O = cam.CFrame.Position, A = ra.Direction, B = rb.Direction })
+		DM.flash(a, b)
+		return true
+	end
+	-- the drawn line cut in: a white-hot slash that thins out and fades
+	function DM.flash(a, b)
+		local sg = DM.gui()
+		if not sg then
+			return
+		end
+		local d = b - a
+		local u = d.Magnitude > 0 and d / d.Magnitude or Vector2.new(1, 0)
+		local slash = Instance.new("Frame")
+		slash.Name = "Slash"
+		slash.AnchorPoint = Vector2.new(0.5, 0.5)
+		slash.BackgroundColor3 = Color3.new(1, 1, 1)
+		slash.BorderSizePixel = 0
+		DM.lay(slash, a - u * 30, b + u * 30, 7)
+		local glow = Instance.new("UIStroke")
+		glow.Color = Color3.fromRGB(255, 48, 60)
+		glow.Thickness = 3
+		glow.Parent = slash
+		slash.Parent = sg
+		local len = d.Magnitude + 60
+		TweenService:Create(slash, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Size = UDim2.fromOffset(len * 1.08, 0), BackgroundTransparency = 1,
+		}):Play()
+		TweenService:Create(glow, TweenInfo.new(0.32), { Transparency = 1 }):Play()
+		task.delay(0.4, function()
+			slash:Destroy()
+		end)
+	end
+
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if input.KeyCode == (DMC.Key or Enum.KeyCode.U) then
+			if not processed and DM.allowed() and DM.free() then -- (typing in a box: processed)
+				DM.toggle()
+			end
+		elseif DM.armed and not processed and input.UserInputType == Enum.UserInputType.MouseButton1 then
+			DM.begin(UserInputService:GetMouseLocation())
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if DM.drawing and input.UserInputType == Enum.UserInputType.MouseButton1 then
+			DM.finish(UserInputService:GetMouseLocation())
+		end
+	end)
+	-- each frame armed: still allowed, the mouse free (but while the right
+	-- button turns the camera), the line following it
+	function DM.step()
+		if not DM.armed then
+			return
+		end
+		if not DM.allowed() or not DM.free() then
+			DM.set(false)
+			return
+		end
+		if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+			pcall(function()
+				if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+					UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+				end
+			end)
+		end
+		if DM.drawing and DM.from and DM.line then
+			DM.to = UserInputService:GetMouseLocation()
+			DM.lay(DM.line, DM.from, DM.to, 3)
+		end
+	end
+	RunService:BindToRenderStep("QuirkDismantle", Enum.RenderPriority.Input.Value + 2, DM.step)
+	player.CharacterAdded:Connect(function()
+		DM.set(false)
+	end)
+	player:GetAttributeChangedSignal("DevFlyer"):Connect(function()
+		if not DM.allowed() then
+			DM.set(false)
+		end
+		DM.menu()
+	end)
+	-- the test menu: DISMANTLE (Dev only), shown to those it's for
+	table.insert(TEST_ITEMS, 1, { Id = "Dismantle", Label = "DISMANTLE", Toggle = true, Group = "Dev only" })
+	function DM.menu()
+		HUD.ShowTestRow("Dismantle", DM.allowed())
+		HUD.SetTestToggle("Dismantle", DM.armed)
+		HUD.SetTestInfo("Dismantle", "DISMANTLE", {
+			"<b>U</b>  arm / put away  -  the mouse is freed",
+			"<b>Drag</b> with the left button across a building, let go: cut",
+			"The top slides off down the cut and comes down",
+			"An upright cut topples the smaller side over",
+			"Anyone the cut goes through is hit; it all grows back",
+		})
+	end
+end, function(err)
+	warn("[QuirkClient] dismantle: " .. tostring(err))
+end)
+
 local function refreshTestToggles()
 	HUD.SetTestToggle("GodMode", player:GetAttribute("GodMode") == true)
 	HUD.SetTestToggle("NoCooldowns", player:GetAttribute("NoCooldowns") == true)
@@ -13023,6 +13290,9 @@ local function refreshTestToggles()
 	end
 	if DevFly.PS and DevFly.PS.menu then
 		DevFly.PS.menu() -- (round 87: POSSESS - devs only too)
+	end
+	if DevFly.DM and DevFly.DM.menu then
+		DevFly.DM.menu() -- (round 96: DISMANTLE - the same people)
 	end
 end
 
@@ -13058,6 +13328,10 @@ local function setupTestMenu()
 		end
 		if id == "DirectorCam" then
 			FreeCam.Director.toggle() -- (round 87: it checks the same)
+			return
+		end
+		if id == "Dismantle" and DevFly.DM then
+			DevFly.DM.toggle() -- (round 96: it checks the same)
 			return
 		end
 		if id == "ResetCooldowns" or id == "NoCooldowns" then

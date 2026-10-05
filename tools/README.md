@@ -5,7 +5,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 95, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 96, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
@@ -15,11 +15,85 @@ videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tool
 
 ---
 
-## Where things stand (Round 95)
+## Where things stand (Round 96)
+
+Round 96 is built on Round 95. It changed five scripts (`QuirkConfig`,
+`VFX`, `QuirkClient`, `QuirkServer`, `Destruction`); nothing else in the
+place changed. Not playtested in Studio yet.
+
+**Dismantle** (`Config.Dismantle`, the server's `Kit.DM`, the cut itself in
+`Destruction.Slice` / `Collapse` / `Crumble`). The owner: "Make it so when I
+draw click my mouse across a building it slices like sukuna dismantle and
+causes the building destruction".
+- **Who.** The dev flight's people only (`Kit.DF.allowed`; `DevFlyer` on
+  the client).
+- **Using it.** U, or the test menu's DISMANTLE row, arms it. The mouse is
+  freed (the shift lock goes off and comes back when it's put away), a chip
+  shows at the top, and the left button stops punching. Press and drag
+  draws a white line; let go and the cut is sent if the line is at least
+  40 px. U again puts it away. Mouse only for now (no touch or controller).
+- **The cut.** The flat sheet through the camera and the drawn line, out
+  to 900 studs, and 2° past each end of the line. Everything in the map's
+  Buildings, Trees, Streetlights, Benches, Dumpster and Bushes folders
+  that the sheet crosses inside the drawn stretch is cut right through,
+  nearest first.
+  - A part square to the cut is split exactly at it. A part at an angle is
+    first halved across its other axes until the cut is within 1.2 studs
+    (`Step`), never under 3 studs (`MinSize`), at most 256 pieces a part.
+  - Each piece is a fragment of the original part, so it grows back like
+    any broken part.
+  - At most 3,000 new parts a cut (`Budget`); past that, a part goes whole
+    to the side its middle is on. No new cut while 7,000 pieces are still
+    moving (`MaxMoving`).
+- **What comes off.**
+  - **Slanted or flat cut:** the top slides off. Down the slope on a
+    slanted cut, along the drawn line on a flat one (under 15° or so).
+    It holds for 0.35 s with the cut glowing, slides until it's clear of
+    what's left, then falls, tipping forward, and smashes into whatever
+    is under it.
+  - **Upright cut:** the smaller side topples over, away from the cut.
+  - The moving side is welded into one body and steered by the server
+    (rigid `AlignPosition` / `AlignOrientation` on its biggest piece).
+    Nothing collides with it or finds it while it moves. Whole parts move
+    as copies (lights and decals come along) while the originals wait in
+    storage, held from regrowing until it lands.
+  - **The landing:** 50 chunks flung, a 14-stud crater, a dust cloud, and
+    anyone within 32 studs hit (25) and thrown. Everything grows back 40 s
+    later, as any broken part does.
+- **People.** Anyone the sheet passes through (3.5 studs either side) takes
+  30. Never the dev.
+- **The street.** Where the cut meets Roads or Ground it leaves a gash: a
+  capsule every 24 studs, at most 10 a cut, 60 parts each.
+- **Checks on the server.** Alive, 0.5 s cooldown, the camera within 450
+  studs of his body, two real directions at most 150° apart. Not while
+  he's in another body.
+- **On every screen.** A white-hot line with red edges where the cut shows
+  on walls and round each building it went through, sparks, a metal shing
+  (`DismantleCut`). Then the grinding slide (`DismantleSlide`), the crash
+  (`DismantleImpact`) and a slash on any body it cut (`DismantleHit`).
+
+**Tests (round 96).**
+- **New checks:** 23 server checks for `Kit.DM`, 24 destruction checks for
+  `Slice` / `Collapse` / `Crumble` on a small tower, and a client section
+  (arming, the line, the request, the effects). All three fail on round
+  95's sources and pass now.
+- **Full server suite:** 1,884 passed, 40 failed: round 94's 40. The
+  snack machine's "…nobody else can take it" passed this time.
+- **Destruction suite:** 36 passed (the 12 old checks and the 24 new ones).
+- **Full client suite:** the same problems as round 95 up to the round 17
+  stall (the round 96 section runs before it), apart from the timing
+  checks that flip from run to run (BACK DASH 66 failed this time; FLOAT
+  75, M1Brawler3 and PAD SENSITIVITY 68 passed).
+- **A dev check on the real city** (not part of the suites): the cut run
+  on buildings from the place itself. A flat cut is exact. A 10° one is
+  within 1.2 studs, a steep 35° diagonal within about 1.5, an upright one
+  within 1. Volume is kept exactly. About 300–1,150 new parts a building,
+  15–80 ms each in Lune.
+
+### Round 95
 
 Round 95 is built on Round 94. It changed four scripts (`QuirkConfig`,
 `HUD`, `QuirkClient`, `QuirkServer`); nothing else in the place changed.
-Not playtested in Studio yet.
 
 **Ranked duels on the Sky Coffin** (`Config.Ranked`, the server's `Kit.RK`).
 The owner picked this from the list of ideas ("Let's do 3!").
@@ -364,6 +438,20 @@ Found in round 95:
 - On the client, a method can be implemented only once
   (`r.implementMethod`), so `UnbindAction` stays a no-op. The tests check
   what the code tracks instead.
+
+Found in round 96:
+- Dismantle is reached the same way: `Destruction.Dismantle` (`Kit.DM`).
+  The server tests stub `Slice`, `Collapse`, `MovingCount` and `Capsule`
+  and check what `Kit.DM` asks of them.
+- Lune throws on reading a property of a destroyed instance (Roblox gives
+  `nil`). The new Destruction code asks for `Parent` through a `pcall`.
+- The Destruction module's own loops keep Lune running, so an error at the
+  top level of `destruction_tests.luau` hangs the run instead of ending
+  it. The round 96 section runs in a `pcall`.
+- There's no `workspace:Raycast` in the destruction tests, so a falling top
+  lands on its building's foot.
+- On the client, Lune's `UserInputService` has no `GetFocusedTextBox`, and
+  reading `MouseBehavior` throws. UDim offsets are whole pixels.
 
 These checks have failed on and off for many rounds and aren't caused by
 recent work:

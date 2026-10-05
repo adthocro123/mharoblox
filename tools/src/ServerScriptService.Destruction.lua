@@ -130,6 +130,11 @@ local PROFILES = {
 	-- flies off (it's in his pocket)
 	Compress = { MinSize = 2.5, Rim = 0.5, RimEffect = "crack", Fling = "drop", Speed = { 0, 2 }, Up = { 0, 2 }, Debris = 0, Budget = 140 },
 	Shatter = { MinSize = 5, Rim = 2, RimEffect = "crack", Fling = "radial", Speed = { 40, 80 }, Up = { 40, 80 }, Debris = 70, Budget = 600 },
+	-- (round 96) DISMANTLE: the cut's gash in the street (a fine, cracked
+	-- line), and the top of a building coming down - the chunks off it
+	-- thrown out round where it lands, and its crater
+	DismantleGash = { MinSize = 2, Rim = 0.8, RimEffect = "crack", Fling = "directional", Speed = { 30, 60 }, Up = { 5, 20 }, Debris = 6, Budget = 160 },
+	Collapse = { MinSize = 4, Rim = 2, RimEffect = "crack", Fling = "radial", Speed = { 25, 65 }, Up = { 25, 60 }, Debris = 50, Budget = 320 },
 	-- (round 86) DEV FLIGHT: a body at FAST and up punching clean through a
 	-- building - chunks blown out of the far side and on down the street
 	FlyThrough = { MinSize = 3, Rim = 1.2, RimEffect = "crack", Fling = "directional", Speed = { 60, 140 }, Up = { 5, 25 }, Debris = 14, Budget = 160 },
@@ -330,6 +335,9 @@ local function stillInWorld(parent)
 	return ok and inside
 end
 local fragOrigin = {} -- [fragment] = original part
+-- (round 96) a piece of a Dismantle cut that's coming off: [part] = its
+-- group (Slice / Collapse / Crumble, below) - no carve touches it meanwhile
+local moving = {}
 
 -- Take a part out of the world. Originals are kept for regen; fragments are destroyed.
 local function retire(part)
@@ -695,7 +703,7 @@ local function carve(shape, profileName, dir, shared, minSize, touched, opts)
 		touched = touched, -- (optional: the originals this carve took, for a hold)
 	}
 	for _, part in parts do
-		if part.Parent and part:IsA("Part") and part:GetAttribute("Destroyable") == true
+		if part.Parent and part:IsA("Part") and part:GetAttribute("Destroyable") == true and not moving[part]
 			and not (skip and skip[part]) and not (above and part.Position.Y + (math.abs(part.CFrame.RightVector.Y) * part.Size.X
 				+ math.abs(part.CFrame.UpVector.Y) * part.Size.Y + math.abs(part.CFrame.LookVector.Y) * part.Size.Z) / 2 <= above) then
 			local ok, err = pcall(processPart, part, ctx)
@@ -1098,6 +1106,583 @@ function Destruction.RestoreArea(center, radius, opts)
 		end
 	end
 	return n
+end
+
+---------------------------------------------------------------------------
+-- (round 96) DISMANTLE (Config.Dismantle; the server's Kit.DM decides who,
+-- where and what): a flat cut through whole structures, and what's over it
+-- coming off
+---------------------------------------------------------------------------
+-- Destruction.Slice(units, point, normal, opts) -> groups
+--   units: models (a building, a tree, a bench...) the sheet through point,
+--   square to normal, goes through - each cut along it, right through. A
+--   part across it is split: along its own axis nearest the normal, AT the
+--   cut (exact for a part square to it; on a slanted cut it's first halved
+--   across its other axes - not under opts.MinSize - till the cut's at most
+--   opts.Step studs off: a fine staircase), opts.PerPart pieces at most,
+--   every piece a fragment of it (it regrows like any broken part). The
+--   side that comes off: over a slanted or flat cut, the top; an upright
+--   one (|normal.Y| under opts.Upright), the smaller side. All of that side
+--   - whole parts too (a copy moves, its lights and decals with it; the part
+--   itself waits in storage) - is the group's MOVERS, kept from regrowing
+--   (Held) till it's come down (Crumble).
+--   opts: Step, MinSize, PerPart, Budget (new parts in all; past it a part
+--   goes whole to the side its middle's on), Upright, Flat (a cut flatter
+--   than this slope: its top slides along Stroke - the drawn line - not
+--   down it), Stroke, ClearPad.
+--   A group: { Unit, Movers, Root (the biggest), Mode ("Slide" down the
+--   cut, or "Topple" over away from it), Dir, Normal (toward the side that
+--   comes off), Clear (how far it slides to be clear of what's left under
+--   it), Ground (the unit's foot), Centre, Lo, Hi (the movers' box), Holds
+--   ([original] = true), Pieces (parts made), Stroked (it slides along the
+--   drawn line) }.
+-- Destruction.Collapse(group, opts): it comes off - its movers welded to the
+--   Root, unanchored, the server's (nothing collides with them or finds
+--   them), steered each frame (rigid AlignPosition / AlignOrientation):
+--   Slide: held opts.Delay (the cut shows), then down the cut (Dir) from
+--     Slide.Start studs/s, Accel (down a slope: x its steepness, never under
+--     0.35 of it) up to Max, till it's slid Clear (or MaxTime, or it's sunk Sink under the
+--     street), then FALLS: on at its speed, gravity, tipping forward (Fall:
+--     Spin rad/s up to Tilt) till its lowest corner's down on what's under
+--     its middle (a ray down; else Ground) - or Fall.MaxTime
+--   Topple: Topple.Gap out along Dir, then over about its far bottom edge
+--     (Accel rad/s^2) to Angle degrees
+--   then it crumbles there (Crumble with opts.Impact) and opts.OnImpact(
+--   point, group); opts.OnSlide(group) as it starts. Runs on its own.
+-- Destruction.Crumble(group, at, opts): the movers gone - opts.Debris
+--   chunks of them flung from `at`, a Crater of opts.Crater studs there -
+--   their originals free to regrow from now. (Put back meanwhile - the test
+--   menu's rebuild, Crazy Diamond - it just lets go.)
+-- Destruction.MovingCount(): pieces still coming off, all cuts.
+do
+	local groups = {} -- the ones still coming off, oldest first
+	-- still in the world? (a piece put back meanwhile - the test menu's
+	-- rebuild, Crazy Diamond - is gone; asked so it can't throw)
+	local function present(inst)
+		local ok, parent = pcall(function()
+			return inst.Parent
+		end)
+		return ok and parent ~= nil
+	end
+	-- how far a box reaches either side of its middle along n
+	local function reach(cf, half, n)
+		return math.abs(cf.RightVector:Dot(n)) * half.X + math.abs(cf.UpVector:Dot(n)) * half.Y + math.abs(cf.LookVector:Dot(n)) * half.Z
+	end
+	-- the boxes one box makes, cut by the sheet through P square to M:
+	-- { cf, size, side (1: M's side, -1: the other) } each
+	local function cutBox(cf, size, P, M, opts)
+		local out = {}
+		local step, minSize = tonumber(opts.Step) or 1.2, tonumber(opts.MinSize) or 3
+		local maxHalvings = math.max(math.floor((tonumber(opts.PerPart) or 64) / 2) - 1, 0)
+		local halvings = 0
+		local queue, qi = { { cf, size } }, 1
+		while qi <= #queue do
+			local bcf, bsize = queue[qi][1], queue[qi][2]
+			qi += 1
+			local d = (bcf.Position - P):Dot(M)
+			-- (its local X, Y, Z: LookVector is -Z)
+			local a = { bcf.RightVector:Dot(M), bcf.UpVector:Dot(M), -bcf.LookVector:Dot(M) }
+			local h = { bsize.X / 2, bsize.Y / 2, bsize.Z / 2 }
+			local r = math.abs(a[1]) * h[1] + math.abs(a[2]) * h[2] + math.abs(a[3]) * h[3]
+			if d >= r - EPS then
+				table.insert(out, { bcf, bsize, 1 })
+			elseif d <= -r + EPS then
+				table.insert(out, { bcf, bsize, -1 })
+			else
+				-- the axis nearest the normal: cut across it, at the cut
+				local k = 1
+				for i = 2, 3 do
+					if math.abs(a[i]) > math.abs(a[k]) then
+						k = i
+					end
+				end
+				-- how far off the cut that'd be at the box's edges; halve it
+				-- across the axis that's worst while it's over Step
+				local off, j, worst = 0, nil, 0
+				for i = 1, 3 do
+					if i ~= k then
+						local e = math.abs(a[i]) * h[i]
+						off += e
+						if e > worst and h[i] * 2 > minSize then
+							j, worst = i, e
+						end
+					end
+				end
+				if j and off > step and halvings < maxHalvings then
+					halvings += 1
+					local ax, len = AXES[j], h[j] * 2
+					local half = bsize - ax * (len / 2)
+					table.insert(queue, { bcf * CFrame.new(ax * (len / 4)), half })
+					table.insert(queue, { bcf * CFrame.new(ax * (-len / 4)), half })
+				else
+					local t = math.clamp(-d / a[k], -h[k], h[k])
+					local lo, hi = t + h[k], h[k] - t
+					local ax = AXES[k]
+					local up = a[k] > 0 and 1 or -1 -- (the side of the piece toward +axis)
+					if lo < 0.2 then
+						table.insert(out, { bcf, bsize, up })
+					elseif hi < 0.2 then
+						table.insert(out, { bcf, bsize, -up })
+					else
+						local rest = bsize - ax * (2 * h[k])
+						table.insert(out, { bcf * CFrame.new(ax * ((t - h[k]) / 2)), rest + ax * lo, -up })
+						table.insert(out, { bcf * CFrame.new(ax * ((t + h[k]) / 2)), rest + ax * hi, up })
+					end
+				end
+			end
+		end
+		return out
+	end
+
+	local function sliceUnit(unit, P, N, opts, budget)
+		local parts = {}
+		for _, d in unit:GetDescendants() do
+			if d:IsA("BasePart") and d:GetAttribute("Destroyable") == true and not moving[d] and d.Parent then
+				table.insert(parts, d)
+			end
+		end
+		if #parts == 0 then
+			return nil
+		end
+		-- which side comes off: the top - or, an upright cut, the smaller side
+		local upright = math.abs(N.Y) < (tonumber(opts.Upright) or 0.3)
+		local M = N.Y >= 0 and N or -N
+		local foot = math.huge
+		local sides = { 0, 0 }
+		for _, p in parts do
+			local cf, size = p.CFrame, p.Size
+			local mn = aabbOf(cf, size / 2)
+			foot = math.min(foot, mn.Y)
+			if upright then
+				local v = size.X * size.Y * size.Z
+				local i = (cf.Position - P):Dot(N) >= 0 and 1 or 2
+				sides[i] += v
+			end
+		end
+		if upright then
+			M = sides[1] <= sides[2] and N or -N
+		end
+		local movers, base, holds = {}, {}, {}
+		local made = 0
+		-- a part that goes whole: a fragment moves itself; an original sends
+		-- a copy (and waits in storage)
+		local function takeWhole(part)
+			local orig = fragOrigin[part]
+			if orig then
+				holds[orig] = true
+				table.insert(movers, part)
+				return
+			end
+			local parent = part.Parent
+			local okCopy, copy = pcall(part.Clone, part)
+			local props = (not okCopy or not copy) and snapshot(part) or nil
+			orig = retire(part)
+			if props then
+				copy = makeFragment(props, orig.CFrame, orig.Size, parent, orig)
+			else
+				copy:SetAttribute("Fragment", true)
+				copy.Parent = parent
+				fragOrigin[copy] = orig
+				local rec = originals[orig]
+				if rec then
+					rec.Fragments[copy] = true
+				end
+			end
+			holds[orig] = true
+			made += 1
+			budget.left -= 1
+			table.insert(movers, copy)
+		end
+		for _, part in parts do
+			local cf, size = part.CFrame, part.Size
+			local d = (cf.Position - P):Dot(M)
+			local r = reach(cf, size / 2, M)
+			if d >= r - EPS then
+				takeWhole(part)
+			elseif d <= -r + EPS then
+				table.insert(base, part)
+			elseif not (part:IsA("Part") and part.Shape == Enum.PartType.Block) or budget.left <= 0 then
+				-- (a wedge, a ball - or the cut's spent its parts: whole, by its middle)
+				if d >= 0 then
+					takeWhole(part)
+				else
+					table.insert(base, part)
+				end
+			else
+				local boxes = cutBox(cf, size, P, M, opts)
+				local props = snapshot(part)
+				local parent = part.Parent
+				local orig = retire(part)
+				for _, b in boxes do
+					local f = makeFragment(props, b[1], b[2], parent, orig)
+					if b[3] > 0 then
+						holds[orig] = true
+						table.insert(movers, f)
+					else
+						table.insert(base, f)
+					end
+				end
+				made += #boxes
+				budget.left -= #boxes
+			end
+		end
+		if #movers == 0 then
+			return nil
+		end
+		-- the group: its biggest piece leads, its box, where it goes
+		local root, best = nil, -1
+		local lo, hi = Vector3.one * math.huge, -Vector3.one * math.huge
+		for _, m in movers do
+			local v = m.Size.X * m.Size.Y * m.Size.Z
+			if v > best then
+				root, best = m, v
+			end
+			local mn, mx = aabbOf(m.CFrame, m.Size / 2)
+			lo, hi = vmin(lo, mn), vmax(hi, mx)
+		end
+		local mode, dir, stroked
+		if upright then
+			mode = "Topple"
+			dir = flatUnit(M, Vector3.new(1, 0, 0))
+		else
+			mode = "Slide"
+			local down = Vector3.new(0, -1, 0)
+			local slope = down - M * down:Dot(M)
+			local stroke = typeof(opts.Stroke) == "Vector3" and opts.Stroke - M * opts.Stroke:Dot(M) or Vector3.zero
+			if slope.Magnitude < (tonumber(opts.Flat) or 0.26) and stroke.Magnitude > 0.05 then
+				dir = stroke.Unit
+				stroked = true
+			elseif slope.Magnitude > 1e-3 then
+				dir = slope.Unit
+			else
+				dir = M:Cross(Vector3.new(1, 0, 0)).Unit
+			end
+		end
+		-- how far it slides to be clear of what's left under it
+		local far, near = -math.huge, math.huge
+		for _, p in base do
+			if present(p) then
+				far = math.max(far, p.CFrame.Position:Dot(dir) + reach(p.CFrame, p.Size / 2, dir))
+			end
+		end
+		for _, m in movers do
+			near = math.min(near, m.CFrame.Position:Dot(dir) - reach(m.CFrame, m.Size / 2, dir))
+		end
+		local clear = (far > -math.huge and math.max(far - near, 0) or 0) + (tonumber(opts.ClearPad) or 4)
+		local group = {
+			Unit = unit, Movers = movers, Root = root, Mode = mode, Dir = dir, Normal = M, Clear = clear,
+			Ground = foot < math.huge and foot or lo.Y, Centre = (lo + hi) / 2, Lo = lo, Hi = hi, Holds = holds,
+			Pieces = made, Born = os.clock(), Stroked = stroked,
+		}
+		for _, m in movers do
+			moving[m] = group
+		end
+		for orig in holds do
+			local rec = originals[orig]
+			if rec then
+				rec.Held = (rec.Held or 0) + 1
+			end
+		end
+		table.insert(groups, group)
+		return group
+	end
+
+	function Destruction.Slice(units, point, normal, opts)
+		opts = type(opts) == "table" and opts or {}
+		if not Settings.Enabled or type(units) ~= "table" or typeof(point) ~= "Vector3" or typeof(normal) ~= "Vector3" or normal.Magnitude < 0.5 then
+			return {}
+		end
+		local N = normal.Unit
+		local budget = { left = tonumber(opts.Budget) or 3000 }
+		local out = {}
+		for _, unit in units do
+			if budget.left <= 0 then
+				break
+			end
+			if typeof(unit) == "Instance" and present(unit) then
+				local ok, g = pcall(sliceUnit, unit, point, N, opts, budget)
+				if not ok then
+					warn("[Destruction] slice: " .. tostring(g))
+				elseif g then
+					table.insert(out, g)
+				end
+			end
+		end
+		return out
+	end
+
+	function Destruction.MovingCount()
+		local n = 0
+		for _, g in groups do
+			n += #g.Movers
+		end
+		return n
+	end
+
+	function Destruction.Crumble(group, at, opts)
+		if type(group) ~= "table" or group.Done then
+			return 0
+		end
+		group.Done = true
+		local i = table.find(groups, group)
+		if i then
+			table.remove(groups, i)
+		end
+		opts = type(opts) == "table" and opts or {}
+		local now = os.clock()
+		local live = {}
+		for _, m in group.Movers do
+			if moving[m] == group then
+				moving[m] = nil
+			end
+			if present(m) then
+				table.insert(live, m)
+			end
+		end
+		-- chunks of it thrown out from where it came down (spread through it)
+		local want = typeof(at) == "Vector3" and math.min(math.floor(tonumber(opts.Debris) or 40), #live) or 0
+		if want > 0 then
+			local ctx = { profile = PROFILES.Collapse, shape = { center = at }, dir = typeof(opts.Dir) == "Vector3" and opts.Dir or Vector3.zero }
+			local stride = #live / want
+			for n = 1, want do
+				local m = live[math.floor((n - 1) * stride) + 1]
+				if m then
+					spawnDebris(snapshot(m), m.CFrame, m.Size, ctx)
+				end
+			end
+		end
+		for _, m in group.Movers do
+			local orig = fragOrigin[m]
+			if orig then
+				fragOrigin[m] = nil
+				local rec = originals[orig]
+				if rec then
+					rec.Fragments[m] = nil
+				end
+			end
+			if present(m) then
+				m:Destroy()
+			end
+		end
+		for orig in group.Holds do
+			local rec = originals[orig]
+			if rec then
+				rec.LastHit = now
+				if rec.Held then
+					rec.Held = rec.Held > 1 and rec.Held - 1 or nil
+				end
+			end
+		end
+		local crater = tonumber(opts.Crater) or 0
+		if typeof(at) == "Vector3" and crater > 0 then
+			carve(sphereShape(at, crater), "Crater", nil)
+		end
+		return #live
+	end
+
+	-- what's under a point (the map; the pieces coming off aren't found)
+	local function under(p)
+		local ok, hit = pcall(function()
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Include
+			params.FilterDescendantsInstances = { map }
+			return workspace:Raycast(p, Vector3.new(0, -1500, 0), params)
+		end)
+		return ok and hit and hit.Position.Y or nil
+	end
+
+	-- one body round the Root, steered (still anchored till it moves)
+	local function rig(group)
+		local root = group.Root
+		for _, m in group.Movers do
+			if present(m) then
+				m.CanCollide = false
+				m.CanQuery = false
+				m.CanTouch = false
+				if m ~= root then
+					local w = Instance.new("WeldConstraint")
+					w.Name = "DismantleWeld"
+					w.Part0 = root
+					w.Part1 = m
+					w.Parent = m
+				end
+			end
+		end
+		local att = Instance.new("Attachment")
+		att.Name = "DismantleAt"
+		att.Parent = root
+		local ap = Instance.new("AlignPosition")
+		ap.Name = "DismantleMove"
+		ap.Mode = Enum.PositionAlignmentMode.OneAttachment
+		ap.Attachment0 = att
+		ap.RigidityEnabled = true
+		ap.Position = root.CFrame.Position
+		ap.Parent = root
+		local ao = Instance.new("AlignOrientation")
+		ao.Name = "DismantleTurn"
+		ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		ao.Attachment0 = att
+		ao.RigidityEnabled = true
+		ao.CFrame = root.CFrame.Rotation
+		ao.Parent = root
+		group.Align = { P = ap, O = ao }
+	end
+
+	function Destruction.Collapse(group, opts)
+		if type(group) ~= "table" or group.Done or not group.Root then
+			return
+		end
+		opts = type(opts) == "table" and opts or {}
+		local SL = type(opts.Slide) == "table" and opts.Slide or {}
+		local FA = type(opts.Fall) == "table" and opts.Fall or {}
+		local TP = type(opts.Topple) == "table" and opts.Topple or {}
+		task.spawn(function()
+			local ok, err = pcall(function()
+				local root = group.Root
+				rig(group)
+				local c0 = group.Centre
+				local rootOff = CFrame.new(c0):ToObjectSpace(root.CFrame)
+				local lo, hi = group.Lo - c0, group.Hi - c0
+				local corners = {}
+				for _, k in CORNERS do
+					table.insert(corners, Vector3.new(k.X > 0 and hi.X or lo.X, k.Y > 0 and hi.Y or lo.Y, k.Z > 0 and hi.Z or lo.Z))
+				end
+				local function lowest(cf)
+					local y = math.huge
+					for _, k in corners do
+						y = math.min(y, (cf * k).Y)
+					end
+					return y
+				end
+				local function alive()
+					return not group.Done and present(root)
+				end
+				-- (where its middle is now: group.Pivot; the Root steered to match)
+				local function place(cf)
+					group.Pivot = cf
+					local target = cf * rootOff
+					group.Align.P.Position = target.Position
+					group.Align.O.CFrame = target.Rotation
+				end
+				group.Pivot = CFrame.new(c0)
+				group.Phase = "Hold"
+				local t0 = os.clock()
+				while alive() and os.clock() - t0 < (tonumber(opts.Delay) or tonumber(SL.Delay) or 0.35) do
+					task.wait()
+				end
+				if not alive() then
+					Destruction.Crumble(group) -- (put back meanwhile: it just lets go)
+					return
+				end
+				for _, m in group.Movers do
+					if present(m) then
+						m.Anchored = false
+					end
+				end
+				pcall(function()
+					root:SetNetworkOwner(nil)
+				end)
+				if opts.OnSlide then
+					task.spawn(opts.OnSlide, group)
+				end
+				local dir = group.Dir
+				local at
+				if group.Mode == "Topple" then
+					group.Phase = "Topple"
+					-- out a little from the cut, then over its far bottom edge
+					local gap = tonumber(TP.Gap) or 1.5
+					local farOut = -math.huge
+					for _, k in corners do
+						farOut = math.max(farOut, k:Dot(dir))
+					end
+					local hinge = c0 + dir * (farOut + gap)
+					hinge = Vector3.new(hinge.X, group.Lo.Y, hinge.Z)
+					local axis = UP:Cross(dir)
+					axis = axis.Magnitude > 1e-3 and axis.Unit or Vector3.new(0, 0, 1)
+					local base = CFrame.new(hinge)
+					local off = base:ToObjectSpace(CFrame.new(c0 + dir * gap))
+					local maxA = math.rad(tonumber(TP.Angle) or 82)
+					local t1 = os.clock()
+					while alive() do
+						local t = os.clock() - t1
+						local a = math.min(0.5 * (tonumber(TP.Accel) or 2.4) * t * t, maxA)
+						local cf = base * CFrame.fromAxisAngle(axis, a) * off
+						place(cf)
+						if a >= maxA then
+							at = Vector3.new(cf.Position.X, hinge.Y, cf.Position.Z)
+							break
+						end
+						task.wait()
+					end
+				else
+					group.Phase = "Slide"
+					-- (down a slope: as steep as it is; along the drawn line: full)
+					local slope = group.Stroked and 1 or math.sqrt(math.max(1 - group.Normal.Y * group.Normal.Y, 0))
+					local accel = (tonumber(SL.Accel) or 34) * math.clamp(slope, 0.35, 1)
+					local v, dist = tonumber(SL.Start) or 3, 0
+					local sink = math.min(lowest(CFrame.new(c0)), group.Ground) - (tonumber(SL.Sink) or 3)
+					local t1, last = os.clock(), os.clock()
+					while alive() do
+						task.wait()
+						local now = os.clock()
+						local dt = now - last
+						last = now
+						v = math.min(v + accel * dt, tonumber(SL.Max) or 55)
+						dist += v * dt
+						local cf = CFrame.new(c0 + dir * dist)
+						place(cf)
+						if lowest(cf) < sink then
+							at = Vector3.new(cf.Position.X, group.Ground, cf.Position.Z)
+							break
+						end
+						if dist >= group.Clear or now - t1 >= (tonumber(SL.MaxTime) or 3) then
+							break
+						end
+					end
+					if not at and alive() then
+						-- off the edge: falling, tipping forward
+						group.Phase = "Fall"
+						local start = c0 + dir * dist
+						local vel = dir * v
+						local flat = Vector3.new(dir.X, 0, dir.Z)
+						local axis = flat.Magnitude > 0.05 and UP:Cross(flat.Unit).Unit or nil
+						local ground = under(start) or group.Ground
+						local g = workspace.Gravity
+						local t2 = os.clock()
+						while alive() do
+							task.wait()
+							local t = os.clock() - t2
+							local pos = start + vel * t - UP * (0.5 * g * t * t)
+							local cf = CFrame.new(pos)
+							if axis then
+								cf *= CFrame.fromAxisAngle(axis, math.min((tonumber(FA.Spin) or 0.7) * t, tonumber(FA.Tilt) or 1.2))
+							end
+							place(cf)
+							if lowest(cf) <= ground + 0.5 or t >= (tonumber(FA.MaxTime) or 6) then
+								at = Vector3.new(pos.X, ground, pos.Z)
+								break
+							end
+						end
+					end
+				end
+				if not alive() then
+					Destruction.Crumble(group)
+					return
+				end
+				group.Phase = "Down"
+				local impact = type(opts.Impact) == "table" and table.clone(opts.Impact) or {}
+				impact.Dir = impact.Dir or dir
+				Destruction.Crumble(group, at, impact)
+				if opts.OnImpact then
+					task.spawn(opts.OnImpact, at, group)
+				end
+			end)
+			if not ok then
+				warn("[Destruction] collapse: " .. tostring(err))
+				Destruction.Crumble(group)
+			end
+		end)
+	end
 end
 
 function Destruction.SetEnabled(on)

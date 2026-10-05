@@ -11803,6 +11803,172 @@ end
 end
 
 
+print("== round 96: DISMANTLE (U arms it; a drag draws the cut; letting go sends it; the effects)")
+do
+local ok96, err96 = pcall(function()
+	local DM = VFX.DevFly and VFX.DevFly.DM
+	if not DM then
+		problem("DISMANTLE 96: the client's Dismantle code (VFX.DevFly.DM)")
+		return
+	end
+	local uis = game:GetService("UserInputService")
+	local function key(k)
+		signalOf(uis, "InputBegan"):Fire({ KeyCode = k, UserInputType = Enum.UserInputType.Keyboard }, false)
+		task.wait()
+	end
+	local function mouse(began, at)
+		mouseAt62 = at
+		local input = { KeyCode = Enum.KeyCode.Unknown, UserInputType = Enum.UserInputType.MouseButton1, Position = Vector3.new(at.X, at.Y, 0) }
+		if began then
+			signalOf(uis, "InputBegan"):Fire(input, false)
+		else
+			signalOf(uis, "InputEnded"):Fire(input, false)
+		end
+		task.wait()
+	end
+	local function sentSince(n, kind)
+		local out = {}
+		for i = n + 1, #fired do
+			local e = fired[i]
+			if e[1] == "UseAbility" and (kind == nil or e[3] == kind) then
+				table.insert(out, e)
+			end
+		end
+		return out
+	end
+	local DC = Config.Dismantle
+	if VFX.DevFly.PS and VFX.DevFly.PS.body ~= nil then
+		problem("DISMANTLE 96: (setup) still in a body from the possess tests")
+	end
+
+	-- not one of the dev flight's people: U does nothing
+	setAttr(localPlayer, "DevFlyer", nil)
+	key(DC.Key)
+	if DM.armed then
+		problem("DISMANTLE 96: only the dev flight's people can arm it")
+	end
+	-- one of them: U arms it
+	setAttr(localPlayer, "DevFlyer", true)
+	key(DC.Key)
+	local gui = playerGui:FindFirstChild("DismantleGui")
+	local chip = gui and gui:FindFirstChild("Chip")
+	if not DM.armed or not gui or not gui.Enabled or not chip or not string.find(chip.Text, "DISMANTLE") then
+		problem("DISMANTLE 96: U arms it - the chip up top says so (" .. tostring(DM.armed) .. ")")
+	end
+	if gui and not gui.IgnoreGuiInset then
+		problem("DISMANTLE 96: ...its screen in the mouse's own coordinates (IgnoreGuiInset)")
+	end
+
+	-- THE DRAG: a line from the press to the mouse
+	local n0 = #fired
+	DM.sentAt = -1e9
+	mouse(true, Vector2.new(100, 200))
+	if not DM.drawing then
+		problem("DISMANTLE 96: pressing the left button starts the line")
+	end
+	if #sentSince(n0) > 0 then
+		problem("DISMANTLE 96: ...and doesn't punch (no M1 while it's armed)")
+	end
+	mouseAt62 = Vector2.new(400, 260)
+	DM.step()
+	local line = gui and gui:FindFirstChild("Line")
+	local want = math.sqrt(300 * 300 + 60 * 60)
+	if not line or not line.Visible or math.abs(line.Size.X.Offset - want) > 1 -- (whole pixels)
+		 or math.abs(line.Rotation - math.deg(math.atan2(60, 300))) > 0.1
+		or math.abs(line.Position.X.Offset - 250) > 0.5 or math.abs(line.Position.Y.Offset - 230) > 0.5 then
+		problem("DISMANTLE 96: ...a line from where he pressed to the mouse (" .. tostring(line and line.Size.X.Offset) .. ")")
+	end
+	-- let go: sent, the line flashes
+	mouse(false, Vector2.new(400, 260))
+	local sent = sentSince(n0, "Dismantle")
+	local d = sent[1] and sent[1][4]
+	if #sent ~= 1 or sent[1][2] ~= Config.PARKOUR_INDEX or type(d) ~= "table" or typeof(d.O) ~= "Vector3" or typeof(d.A) ~= "Vector3" or typeof(d.B) ~= "Vector3" then
+		problem("DISMANTLE 96: letting go sends the cut (UseAbility, PARKOUR_INDEX, Dismantle: O, A, B) (" .. #sent .. ")")
+	end
+	if DM.drawing or (line and line.Visible) then
+		problem("DISMANTLE 96: ...the line put away")
+	end
+	if not (gui and gui:FindFirstChild("Slash")) then
+		problem("DISMANTLE 96: ...and it flashes as a slash")
+	end
+	-- a click (or a short drag) isn't a cut
+	n0 = #fired
+	DM.sentAt = -1e9
+	mouse(true, Vector2.new(100, 100))
+	mouse(false, Vector2.new(110, 105))
+	if #sentSince(n0, "Dismantle") ~= 0 then
+		problem("DISMANTLE 96: a drag under MinStroke (" .. DC.MinStroke .. " px) isn't sent")
+	end
+	-- once each Cooldown
+	DM.sentAt = os.clock()
+	mouse(true, Vector2.new(100, 100))
+	mouse(false, Vector2.new(500, 100))
+	if #sentSince(n0, "Dismantle") ~= 0 then
+		problem("DISMANTLE 96: ...nor one inside the Cooldown")
+	end
+	-- U again: put away
+	key(DC.Key)
+	if DM.armed or (gui and gui.Enabled) then
+		problem("DISMANTLE 96: U again puts it away")
+	end
+	-- losing DevFlyer puts it away
+	DM.set(true)
+	setAttr(localPlayer, "DevFlyer", nil)
+	task.wait()
+	if DM.armed then
+		problem("DISMANTLE 96: no longer one of the dev flight's people: put away")
+	end
+	setAttr(localPlayer, "DevFlyer", true)
+	local okMenu = pcall(DM.menu)
+	if not okMenu then
+		problem("DISMANTLE 96: the test menu's DISMANTLE row (DM.menu)")
+	end
+
+	-- THE EFFECTS
+	for _, cue in { "DismantleArm", "DismantleCut", "DismantleSlide", "DismantleImpact", "DismantleHit" } do
+		local c = Config.Sounds[cue]
+		if type(c) ~= "table" or #c == 0 then
+			problem("DISMANTLE 96: the sound cue " .. cue)
+		end
+	end
+	local K = VFX.DismantleKit
+	local ring = K and K.ring(Vector3.new(0, 30, -100), Vector3.new(40, 60, 40), Vector3.new(0, 30, 0), Vector3.new(0, 1, 0))
+	if not ring or #ring ~= 4 then
+		problem("DISMANTLE 96: a flat cut goes round a box's four sides (" .. tostring(ring and #ring) .. ")")
+	end
+	local function lines()
+		local n = 0
+		for _, p in VFX.Folder:GetDescendants() do
+			if p.Name == "DismantleLine" then
+				n += 1
+			end
+		end
+		return n
+	end
+	local before = lines()
+	local pts = {}
+	for i = 0, 9 do
+		table.insert(pts, Vector3.new(-20 + i * 4, 30, -80))
+	end
+	VFX.Play("Dismantle", nil, { O = Vector3.new(0, 30, 0), N = Vector3.new(0, 1, 0), A = Vector3.new(-0.2, 0, -1).Unit, B = Vector3.new(0.2, 0, -1).Unit,
+		Points = pts, Units = { { C = Vector3.new(0, 30, -100), S = Vector3.new(40, 60, 40) } } }, false)
+	task.wait(0.05)
+	local cut = K and K.lastCut
+	if not cut or cut.Lines ~= 9 or cut.Units ~= 1 or lines() - before ~= 9 + 4 then
+		problem("DISMANTLE 96: Dismantle draws the line where it shows (9) and round the building it went through (4) (" .. tostring(lines() - before) .. ")")
+	end
+	VFX.Play("DismantleSlide", nil, { P = Vector3.new(0, 40, -100), S = Vector3.new(40, 20, 40) }, false)
+	VFX.Play("DismantleImpact", nil, { P = Vector3.new(30, 0, -100), S = Vector3.new(40, 20, 40), N = 200 }, false)
+	task.wait(0.05)
+	if not (K.lastSlide and K.lastImpact and K.lastImpact.Big >= 0.8) then
+		problem("DISMANTLE 96: the slide and the crash play")
+	end
+end)
+if not ok96 then
+	problem("DISMANTLE 96: errored: " .. tostring(err96))
+end
+end
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")

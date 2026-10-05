@@ -13043,6 +13043,195 @@ end)
 	hChar.Parent = nil
 end)
 
+---------------------------------------------------------------------------
+-- Round 96: DISMANTLE - a dev's drawn cut (Kit.DM, as Destruction.Dismantle):
+-- checked; the map units it goes through, nearest first; the people in it;
+-- the street's gash; the word to everyone; the landing
+---------------------------------------------------------------------------
+;M.section(function()
+	local X = 96500
+	print("== round 96: DISMANTLE (a drawn cut: what it goes through, who's in it, the landing)")
+	local DM = dx.Dismantle
+	check(DM ~= nil and type(DM.relay) == "function" and type(DM.cut) == "function" and DM.KINDS.Dismantle == true,
+		"the Dismantle code is there (Kit.DM)")
+	if not DM then
+		return
+	end
+	local DC = Config.Dismantle
+	local PI = Config.PARKOUR_INDEX
+	check(DC ~= nil and DC.Key == Enum.KeyCode.U and DC.Budget > 0 and DC.MaxMoving >= DC.Budget, "Config.Dismantle: U, a part budget, a cap on what's moving")
+	-- the Destruction side, recorded (the harness stubs the module)
+	local calls = { slice = {}, collapse = {}, capsule = {}, moving = 0 }
+	local sliceWas, collapseWas, movingWas, capsuleWas = dx.Slice, dx.Collapse, dx.MovingCount, dx.Capsule
+	dx.Slice = function(units, point, normal, opts)
+		table.insert(calls.slice, { Units = units, P = point, N = normal, Opts = opts })
+		local groups = {}
+		for _, u in units do
+			local part = u:GetChildren()[1]
+			local c = part and part.CFrame.Position or point
+			table.insert(groups, { Unit = u, Movers = { 1, 2, 3 }, Centre = c, Lo = c - Vector3.new(20, 10, 20), Hi = c + Vector3.new(20, 10, 20), Dir = Vector3.new(1, 0, 0), Mode = "Slide" })
+		end
+		return groups
+	end
+	dx.Collapse = function(g, opts)
+		table.insert(calls.collapse, { G = g, Opts = opts })
+	end
+	dx.MovingCount = function()
+		return calls.moving
+	end
+	dx.Capsule = function(a, b, radius, profile, dir)
+		table.insert(calls.capsule, { a, b, radius, profile })
+	end
+	local allowedWas = DM.allowed
+	DM.allowed = function(p)
+		return p == A
+	end
+	-- a little city: the near block, a tall one behind it, one off to the side
+	local buildings = map:FindFirstChild("Buildings") or M.new("Folder", "Buildings")
+	buildings.Parent = map
+	local roads = map:FindFirstChild("Roads") or M.new("Folder", "Roads")
+	roads.Parent = map
+	local function building(name, centre, size)
+		local m = M.new("Model", name)
+		local p = M.new("Part", "Wall")
+		p.Size = size
+		p.CFrame = CFrame.new(centre)
+		p.Anchored = true
+		p:SetAttribute("Destroyable", true)
+		p.Parent = m
+		m.Parent = buildings
+		return m
+	end
+	local near = building("Near96", Vector3.new(X, 30, -100), Vector3.new(40, 60, 40))
+	local behind = building("Behind96", Vector3.new(X, 60, -300), Vector3.new(40, 120, 40))
+	local aside = building("Aside96", Vector3.new(X + 300, 30, 0), Vector3.new(40, 60, 40))
+	local beside = building("Beside96", Vector3.new(X + 80, 30, -100), Vector3.new(40, 60, 40)) -- (the next block over: the line wasn't drawn across it)
+	local road = M.new("Part", "Road96")
+	road.Size = Vector3.new(400, 1, 400)
+	road.CFrame = CFrame.new(X, -0.5, -100)
+	road.Parent = roads
+	DM.list = nil
+	-- him, on the cut's own line (it never cuts him); a dummy in it, one under it, one off to the side
+	for _, c in { aChar, bChar } do
+		if c then
+			c.Parent = nil
+		end
+	end
+	aChar, aHum, aRoot = spawnChar(A, CFrame.new(X, 15, -20))
+	bChar, bHum, bRoot = spawnChar(B, CFrame.new(X + 40, 3, 60))
+	local function dummy(name, pos)
+		local m, h = makeCharacter(name, CFrame.new(pos))
+		m.Parent = dummies
+		h.MaxHealth, h.Health = 300, 300
+		return m, h
+	end
+	local inCut, inHum = dummy("InCut96", Vector3.new(X, 20, -40))
+	local under, underHum = dummy("Under96", Vector3.new(X, 3, -40))
+	local side, sideHum = dummy("Side96", Vector3.new(X + 300, 10, 0))
+	-- the stroke: across the near block's face, 30 up, from a camera 10 up
+	local O = Vector3.new(X, 10, 0)
+	local dA = (Vector3.new(X - 30, 30, -80) - O).Unit
+	local dB = (Vector3.new(X + 30, 30, -80) - O).Unit
+
+	-- nobody else
+	clearSent()
+	fire(UseAbility, B, PI, "Dismantle", { O = bRoot.Position + Vector3.new(0, 5, 0), A = dA, B = dB })
+	check(#calls.slice == 0 and #sentTo(B, "Dismantle") == 0, "only the dev flight's people can cut (nothing for anyone else)")
+	-- bad asks
+	DM.last[A] = nil
+	fire(UseAbility, A, PI, "Dismantle", { O = O + Vector3.new(DC.Reach + 50, 0, 0), A = dA, B = dB })
+	check(#calls.slice == 0 and DM.last[A] == nil, "...not from a camera past Reach from his body")
+	fire(UseAbility, A, PI, "Dismantle", { O = O, A = Vector3.new(0 / 0, 0, 1), B = dB })
+	check(#calls.slice == 0 and DM.last[A] == nil, "...not a broken direction (NaN)")
+	fire(UseAbility, A, PI, "Dismantle", { O = O, A = Vector3.new(1, 0, 0), B = Vector3.new(-1, 0, 0.01) })
+	check(#calls.slice == 0 and DM.last[A] == nil, "...not wider than MaxAngle")
+	fire(UseAbility, A, PI, "Dismantle", { O = O, A = dA, B = dA })
+	check(#calls.slice == 0 and DM.last[A] == nil, "...not a dot (no line)")
+
+	-- THE CUT
+	clearSent()
+	local h0, u0, s0, a0 = inHum.Health, underHum.Health, sideHum.Health, aHum.Health
+	fire(UseAbility, A, PI, "Dismantle", { O = O, A = dA, B = dB })
+	local sl = calls.slice[1]
+	check(sl ~= nil and #sl.Units == 2 and sl.Units[1] == near and sl.Units[2] == behind,
+		"the cut goes through the near block and the tall one behind it, nearest first - not the next block over, nor one off to the side (" .. tostring(sl and #sl.Units) .. ")")
+	if sl then
+		local n = dA:Cross(dB).Unit
+		check(math.abs(math.abs(sl.N:Dot(n)) - 1) < 1e-4 and (sl.P - O).Magnitude < 1e-3, "...along the sheet through his camera and the line he drew")
+		check(sl.Opts.Budget == DC.Budget and sl.Opts.Step == DC.Step and sl.Opts.PerPart == DC.PerPart and typeof(sl.Opts.Stroke) == "Vector3",
+			"...with Config.Dismantle's budget, step, per-part cap and the drawn line's direction")
+	end
+	check(#calls.collapse == 2 and calls.collapse[1].Opts.Slide == DC.Slide and type(calls.collapse[1].Opts.OnImpact) == "function",
+		"...each group comes off (Destruction.Collapse, Config.Dismantle's slide / fall / impact)")
+	check(inHum.Health < h0, "anyone in the cut is hit (" .. h0 .. " -> " .. inHum.Health .. ")")
+	check(underHum.Health == u0 and sideHum.Health == s0, "...not someone under it, nor off past its ends")
+	check(aHum.Health == a0, "...never him (he's on its line)")
+	check(#sentTo(A, "DismantleHit") == 1, "...the cut on the body (DismantleHit)")
+	local word = sentTo(B, "Dismantle")[1]
+	check(word ~= nil and typeof(word.N) == "Vector3" and type(word.Points) == "table" and type(word.Units) == "table" and #word.Units == 2,
+		"everyone's told (Dismantle: the sheet, where it shows, the units for the flash)")
+
+	-- once each Cooldown
+	fire(UseAbility, A, PI, "Dismantle", { O = O, A = dA, B = dB })
+	check(#calls.slice == 1, "...one cut each Cooldown (" .. DC.Cooldown .. " s)")
+
+	-- coming off, and landing: anyone round it hit and thrown (never him)
+	clearSent()
+	local g = calls.collapse[1] and calls.collapse[1].G
+	if g then
+		calls.collapse[1].Opts.OnSlide(g)
+		check(#sentTo(B, "DismantleSlide") == 1, "a top coming off: DismantleSlide for everyone")
+		local landHum = underHum.Health
+		aRoot.CFrame = CFrame.new(X + 6, 3, -40)
+		local hits = DM.impact(A, aChar, Vector3.new(X, 0, -40), g)
+		check(underHum.Health < landHum and table.find(hits, under) ~= nil, "...where it lands, anyone round it is hit (" .. landHum .. " -> " .. underHum.Health .. ")")
+		check(table.find(hits, aChar) == nil, "...not him")
+		check(#sentTo(B, "DismantleImpact") == 1, "...and the crash for everyone (DismantleImpact)")
+		aRoot.CFrame = CFrame.new(X, 15, -20)
+	end
+
+	-- the street: a cut down across it leaves a gash (DismantleGash)
+	local rayWas = workspace.Raycast
+	workspace.Raycast = function(_, origin, dir)
+		if dir.Y < -0.01 then
+			local t = -origin.Y / dir.Y
+			if t > 0 and t <= dir.Magnitude then
+				return { Position = origin + dir * t, Instance = road }
+			end
+		end
+		return nil
+	end
+	DM.last[A] = nil
+	local before = #calls.slice
+	local out = DM.relay(A, aChar, "Dismantle", { O = O, A = (Vector3.new(X - 20, 0, -40) - O).Unit, B = (Vector3.new(X + 20, 0, -40) - O).Unit })
+	workspace.Raycast = rayWas
+	local gashed = 0
+	for _, c in calls.capsule do
+		if c[4] == "DismantleGash" then
+			gashed += 1
+		end
+	end
+	check(out ~= nil and #out.Points == DC.Rays and #out.Gash > 0 and gashed == #out.Gash and #out.Gash <= DC.Gash.Max,
+		"a cut down across the street gashes it, along where it meets it (" .. gashed .. " stretches, Max " .. DC.Gash.Max .. ")")
+
+	-- too much still coming down: no new cut (MaxMoving)
+	calls.moving = DC.MaxMoving
+	DM.last[A] = nil
+	before = #calls.slice
+	out = DM.relay(A, aChar, "Dismantle", { O = O, A = dA, B = dB })
+	check(#calls.slice == before and out ~= nil and out.Refused == true, "no new cut while MaxMoving pieces are still coming down")
+	calls.moving = 0
+
+	-- tidy
+	DM.allowed = allowedWas
+	dx.Slice, dx.Collapse, dx.MovingCount, dx.Capsule = sliceWas, collapseWas, movingWas, capsuleWas
+	for _, m in { near, behind, aside, beside, road, inCut, under, side } do
+		m.Parent = nil
+	end
+	DM.list = nil
+	DM.last[A] = nil
+end)
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}
