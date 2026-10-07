@@ -78090,7 +78090,14 @@ end)()
 -- ball in his fist, swelling on the hits (33-36) - drawn back (37-38) and
 -- hurled into the sky (39-40), where it goes off on the last hit while he
 -- laughs (41-42); and the power steaming out of him as he shrinks back to
--- himself with the song's fade (43-46). 28.75 s.
+-- himself with the song's fade (43-46). 28.75 s. (round 103) And the world
+-- goes with him, as in the 2018 film's shot of it: on LEGENDARY he's inside
+-- a column of green light going up into a black-red sky that closed over
+-- the city through the surge; red-hot seams race out across the map from
+-- him over scorched black ground; the street's rubble rises and hangs round
+-- him, dropping when the sky goes off - on every screen near him, the world
+-- tinted red on theirs too. The server's side is real: a crater blown out
+-- of the city on each drop and a shockwave shoving everyone back (Kit.FF).
 -- His bulk is a copy of him on each screen (anchored, touching nothing,
 -- posed from his real limbs every frame and scaled about his feet, up to
 -- x3.2 - and thickened, his limbs turned on his own joints) while his real
@@ -79619,6 +79626,11 @@ end)()
 		end
 	end
 	function FF.unscreen(st)
+		local wg = st.world and st.world.grade
+		if wg then
+			st.world.grade = nil
+			pcall(wg.Destroy, wg)
+		end
 		for _, k in { "grade", "bloom" } do
 			local e = st[k]
 			st[k] = nil
@@ -80077,6 +80089,296 @@ end)()
 	end
 
 	---------------------------------------------------------------------------
+	-- (round 103) THE WORLD (Config.FinalForm.World), from the 2018 film's
+	-- shot: him inside a column of green light going up into a black-red
+	-- sky, the land round him scorched black and split by red-hot seams, the
+	-- rubble rising. On every screen near him, not only his: the column, the
+	-- sky and the red world for anyone in Range; the seams, the scorch and
+	-- the rubble for anyone not far off. (The craters and the shockwave are
+	-- the server's: Kit.FF.)
+	---------------------------------------------------------------------------
+	local function vcyl(bag, d, h, cf, color, material)
+		-- a cylinder standing up: d studs across, h tall, its base at cf
+		return EM.part(bag, Vector3.new(h, d, d), cf * CFrame.new(0, h / 2, 0) * CFrame.Angles(0, 0, math.pi / 2), color, material, Enum.PartType.Cylinder)
+	end
+	function FF.world(st)
+		local W = CFG.World
+		if not W then
+			return nil
+		end
+		local w = st.low and 2 or 1
+		local bag, g = st.bag, st.g
+		local wd = { layers = {}, streaks = {}, seams = {}, rocks = {}, sky = {} }
+		-- the column, hidden until LEGENDARY
+		local P = W.Pillar
+		for i, L in P.Layers do
+			local p = vcyl(bag, 1, P.Height, CFrame.new(g - UP * 2), i == #P.Layers and P.Core or P.Color, Enum.Material[L[1]])
+			p.Transparency = 1
+			table.insert(wd.layers, { part = p, k = L[2], tr = L[3] })
+		end
+		local Sk = P.Streaks
+		for i = 1, Sk.Count[w] do
+			local p = EM.part(bag, Sk.Size, CFrame.new(g), P.Core, Enum.Material.Neon)
+			p.Transparency = 1
+			table.insert(wd.streaks, { part = p, a = i / Sk.Count[w] * math.pi * 2 + rand(-0.2, 0.2), r = rand(0.18, 0.46), off = rand(0, 200) })
+		end
+		wd.base = EM.part(bag, Vector3.new(0.4, P.Base[1], P.Base[1]), CFrame.new(g + UP * 0.06) * CFrame.Angles(0, 0, math.pi / 2), P.Color, Enum.Material.Neon, Enum.PartType.Cylinder)
+		wd.base.Transparency = 1
+		if not st.low then
+			wd.light = Instance.new("PointLight")
+			wd.light.Color = P.Color
+			wd.light.Range = P.Light[1]
+			wd.light.Brightness = 0
+			wd.light.Parent = wd.base
+		end
+		-- the sky
+		local S = W.Sky
+		for i = 1, 2 do
+			local p = EM.part(bag, Vector3.new(S.Thick[i], S.Size[i], S.Size[i]), CFrame.new(g + UP * S.Height[i]) * CFrame.Angles(0, 0, math.pi / 2), S.Colors[i], nil, Enum.PartType.Cylinder)
+			p.Transparency = 1
+			wd.sky[i] = p
+		end
+		-- everyone else's screen within Range: the world dark and red
+		if not st.mine then
+			local cam = workspace.CurrentCamera
+			local away = cam and (cam.Focus.Position - st.root.Position).Magnitude or math.huge
+			if away < W.Grade.Range then
+				wd.grade = Instance.new("ColorCorrectionEffect")
+				wd.grade.Name = "FinalFormWorld"
+				wd.grade.Parent = cam
+			end
+		end
+		if st.skip then
+			return wd -- (far off: the column, the sky and the red only)
+		end
+		-- the land: red-hot seams out across the map, each over a black streak
+		local Lv = W.Lava
+		local function seam(a, from, reach, segs, start, parent)
+			local s = { segs = {}, total = 0, start = start or 0, parent = parent }
+			local pos, ang = g + Vector3.new(math.cos(a), 0, math.sin(a)) * from, a
+			local step = (reach - from) / segs
+			for j = 1, segs do
+				ang = math.clamp(ang + math.rad(rand(-Lv.Jag, Lv.Jag)), a - math.rad(40), a + math.rad(40))
+				local len = step * rand(0.8, 1.2)
+				local dir = Vector3.new(math.cos(ang), 0, math.sin(ang))
+				local k = j / segs
+				local width = Lv.Width[2] + (Lv.Width[1] - Lv.Width[2]) * k
+				local hot = Lv.Hot:Lerp(Lv.Color, math.min(k * 1.6, 1))
+				local glow = EM.part(bag, Vector3.new(width, 0.06, len), CFrame.new(pos), hot, Enum.Material.Neon)
+				glow.Transparency = 1
+				local char
+				if not st.low then
+					char = EM.part(bag, Vector3.new(width * Lv.Char, 0.04, len * 1.04), CFrame.new(pos), Lv.Char3)
+					char.Transparency = 1
+				end
+				table.insert(s.segs, { glow = glow, char = char, from = pos, dir = dir, len = len, at = s.total, w = width, color = hot })
+				s.total += len
+				pos += dir * len
+			end
+			table.insert(wd.seams, s)
+			return s
+		end
+		local n = Lv.Count[w]
+		local mains = {}
+		for i = 1, n do
+			table.insert(mains, seam(i / n * math.pi * 2 + rand(-0.15, 0.15), Lv.From, rand(Lv.Reach[1], Lv.Reach[2]), Lv.Segs))
+		end
+		for _ = 1, Lv.Branches[w] do
+			local m = mains[rng:NextInteger(1, #mains)]
+			local j = rng:NextInteger(2, math.max(2, #m.segs - 2))
+			local sg = m.segs[j]
+			local a = math.atan2(sg.dir.Z, sg.dir.X) + math.rad(rand(25, 45)) * (rng:NextNumber() < 0.5 and -1 or 1)
+			local origin = sg.from
+			local b = seam(a, 0, (m.total - sg.at) * rand(0.35, 0.55), math.max(3, math.floor(Lv.Segs / 2)), sg.at, m)
+			-- (re-rooted where it leaves its parent)
+			local shift = origin - g
+			for _, x in b.segs do
+				x.from += shift
+			end
+		end
+		-- the scorch under him, from LEGENDARY
+		wd.scorch = EM.part(bag, Vector3.new(0.06, W.Scorch[1], W.Scorch[1]), CFrame.new(g + UP * 0.016) * CFrame.Angles(0, 0, math.pi / 2), Lv.Char3, nil, Enum.PartType.Cylinder)
+		wd.scorch.Transparency = 1
+		-- the rubble lifting off the street all round him
+		local D = W.Debris
+		for i = 1, D.Count[w] do
+			local sz = rand(D.Size[1], D.Size[2])
+			local a = i / D.Count[w] * math.pi * 2 + rand(-0.3, 0.3)
+			local r = rand(D.Ring[1], D.Ring[2])
+			local p = EM.part(bag, Vector3.new(sz, sz * rand(0.5, 1), sz * rand(0.7, 1.3)), CFrame.new(g - UP * 4), C.Rock:Lerp(Lv.Char3, rand(0, 0.5)), Enum.Material.Slate)
+			p.Transparency = 1
+			table.insert(wd.rocks, {
+				part = p, at = rand(D.Rise[1], D.Rise[2]), top = rand(D.Top[1], D.Top[2]), spin = rng:NextUnitVector() * rand(0.3, 1.2),
+				pos = g + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r), phase = rand(0, math.pi * 2),
+			})
+		end
+		return wd
+	end
+	-- the seams' visible length at t: a share of each one, growing through the
+	-- surge, all of it at LEGENDARY
+	function FF.lavaReach(t)
+		local Lv = CFG.World.Lava
+		if t < Lv.Grow[1] then
+			return 0
+		elseif t < Lv.Burst then
+			return 0.55 * quadOut((t - Lv.Grow[1]) / (Lv.Grow[2] - Lv.Grow[1]))
+		end
+		return 0.55 + 0.45 * quadOut((t - Lv.Burst) / 0.3)
+	end
+	function FF.worldFrame(st, t)
+		local wd = st.world
+		if not wd then
+			return
+		end
+		local W = CFG.World
+		local g = st.g
+		-- the column
+		local P = W.Pillar
+		local on = t >= P.From and t < P.Out
+		if on or wd.pillarOn then
+			wd.pillarOn = on
+			local grow = quadOut((t - P.From) / P.Grow)
+			local out = math.clamp((t - P.Hold) / (P.Out - P.Hold), 0, 1)
+			local breathe = 0.5 + 0.5 * math.cos((t - P.From) / B * math.pi * 2)
+			local d = (P.Width[1] + (P.Width[2] - P.Width[1]) * breathe) * (0.06 + 0.94 * grow) * (1 - out * 0.96)
+			for _, L in wd.layers do
+				L.part.Size = Vector3.new(P.Height, d * L.k, d * L.k)
+				L.part.Transparency = on and (L.tr + (1 - L.tr) * out) or 1
+			end
+			for _, sk in wd.streaks do
+				local y = (t * P.Streaks.Speed + sk.off) % 220
+				local r = sk.r * d
+				FF.put(st, sk.part, CFrame.new(g + Vector3.new(math.cos(sk.a) * r, y, math.sin(sk.a) * r)))
+				sk.part.Transparency = on and (P.Streaks.Transparency + (1 - P.Streaks.Transparency) * out) or 1
+			end
+			wd.base.Transparency = on and (P.Base[2] + (1 - P.Base[2]) * math.max(out, 1 - grow)) or 1
+			if wd.light then
+				wd.light.Brightness = on and P.Light[2] * grow * (1 - out) or 0
+			end
+		end
+		-- the sky
+		local S = W.Sky
+		if t >= S.In[1] and t <= S.Out[2] + 0.1 then
+			local k = math.clamp((t - S.In[1]) / (S.In[2] - S.In[1]), 0, 1)
+			local out = math.clamp((t - S.Out[1]) / (S.Out[2] - S.Out[1]), 0, 1)
+			local turn = CFrame.Angles(0, math.rad(S.Spin * t), 0) * CFrame.Angles(0, 0, math.pi / 2)
+			for i, p in wd.sky do
+				local tr = 1 + (S.Show[i] - 1) * k
+				p.Transparency = tr + (1 - tr) * out
+				FF.put(st, p, CFrame.new(g + UP * S.Height[i]) * (i == 1 and turn or turn:Inverse()))
+			end
+		end
+		-- everyone else's screen: the world red
+		local gr = wd.grade
+		if gr then
+			local cam = workspace.CurrentCamera
+			local away = cam and (cam.Focus.Position - st.root.Position).Magnitude or math.huge
+			local R = W.Grade.Range
+			local f = 1 - math.clamp((away - R / 2) / (R / 2), 0, 1)
+			local a, b, k = FF.keyed(W.Grade.Keys, t)
+			gr.Brightness, gr.Contrast = mix(a[2], b[2], k) * f, mix(a[3], b[3], k) * f
+			gr.Saturation = mix(a[4], b[4], k) * f
+			gr.TintColor = Color3.new(1, 1, 1):Lerp(mix(a[5], b[5], k), f)
+			if cam and gr.Parent ~= cam then
+				pcall(function()
+					gr.Parent = cam
+				end)
+			end
+		end
+		if st.skip then
+			return
+		end
+		-- the seams
+		local Lv = W.Lava
+		local reach = FF.lavaReach(t)
+		local cool = math.clamp((t - Lv.Cool[1]) / (Lv.Cool[2] - Lv.Cool[1]), 0, 1)
+		if reach ~= wd.reach then
+			wd.reach = reach
+			for _, s in wd.seams do
+				local visible
+				if s.parent then
+					local P2 = s.parent.total
+					visible = math.max(reach * P2 - s.start, 0) / math.max(P2 - s.start, 1e-3) * s.total
+				else
+					visible = reach * s.total
+				end
+				for _, x in s.segs do
+					local len = math.clamp(visible - x.at, 0, x.len)
+					local was = x.shown or 0
+					if math.abs(len - was) > 0.01 then
+						x.shown = len
+						if len <= 0.01 then
+							x.glow.Transparency = 1
+							if x.char then
+								x.char.Transparency = 1
+							end
+						else
+							local mid = x.from + x.dir * (len / 2) + UP * 0.085 -- (over the craters' scorches)
+							x.glow.Size = Vector3.new(x.w, 0.06, len)
+							FF.put(st, x.glow, CFrame.lookAt(mid, mid + x.dir))
+							x.glow.Transparency = 0
+							if x.char then
+								x.char.Size = Vector3.new(x.w * Lv.Char, 0.04, len * 1.04)
+								FF.put(st, x.char, CFrame.lookAt(mid - UP * 0.02, mid - UP * 0.02 + x.dir))
+								x.char.Transparency = Lv.CharT
+							end
+						end
+					end
+				end
+			end
+		end
+		-- ...cooling as the power goes out of him (every other frame)
+		if cool > 0 and (cool >= 1 or math.floor(t * 30) % 2 == 0) and cool ~= wd.cool then
+			wd.cool = cool
+			for _, s in wd.seams do
+				for _, x in s.segs do
+					if (x.shown or 0) > 0.01 then
+						x.glow.Color = x.color:Lerp(Lv.Char3, cool * 0.8)
+						x.glow.Transparency = cool
+						if x.char then
+							x.char.Transparency = Lv.CharT + (1 - Lv.CharT) * cool
+						end
+					end
+				end
+			end
+		end
+		-- the scorch under him
+		if wd.scorch then
+			local tr = t < LEGEND and 1 or (W.Scorch[2] + (1 - W.Scorch[2]) * cool)
+			if tr ~= wd.scorchT then
+				wd.scorchT = tr
+				wd.scorch.Transparency = tr
+			end
+		end
+		-- the rubble: up off the street, hanging there, dropped when the sky goes off
+		local D = W.Debris
+		for _, r in wd.rocks do
+			if not r.gone and t >= r.at then
+				local spin = CFrame.Angles(r.spin.X * t, r.spin.Y * t, r.spin.Z * t)
+				if t < D.Drop then
+					local k = quadOut((t - r.at) / D.RiseTime)
+					local y = -1 + (r.top + 1) * k + math.sin(t * 1.6 + r.phase) * D.Bob * k
+					r.y = y
+					FF.put(st, r.part, CFrame.new(r.pos + UP * y) * spin)
+					if not r.up then
+						r.up = true
+						r.part.Transparency = 0
+					end
+				else
+					local dt = t - D.Drop
+					if dt >= D.Fall then
+						r.gone = true
+						pcall(r.part.Destroy, r.part)
+					else
+						FF.put(st, r.part, CFrame.new(r.pos + UP * ((r.y or 0) - 0.5 * 90 * dt * dt)) * spin)
+						r.part.Transparency = dt / D.Fall
+					end
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
 	-- the run start to finish
 	---------------------------------------------------------------------------
 	function FF.timeline(st)
@@ -80237,6 +80539,7 @@ end)()
 		st.hum = char:FindFirstChildOfClass("Humanoid")
 		FF.body(st)
 		FF.timeline(st)
+		st.world = FF.world(st) -- ((round 103) the column, the sky, the red - for far-off screens too)
 		if st.skip then
 			return
 		end
@@ -80278,6 +80581,7 @@ end)()
 	function FF.frame(st, t, frac)
 		st.t = t
 		FF.fire(st, t)
+		FF.worldFrame(st, t)
 		if not st.skip then
 			FF.hold(st)
 			local s = (st.dbl and FF.size(t)) or 1

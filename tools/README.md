@@ -5,7 +5,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 102, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 103, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
@@ -15,7 +15,75 @@ videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tool
 
 ---
 
-## Where things stand (Round 102)
+## Where things stand (Round 103)
+
+Round 103 is built on Round 102. It changed three scripts (`QuirkConfig`,
+`VFX`, `QuirkServer`); nothing else in the place changed. Not playtested
+in Studio yet.
+
+The owner sent a still from the 2018 Broly film (Broly inside a column of
+green light going up into a dark sky, the ground scorched black and split
+by glowing red cracks): "This emote should be powerful and affect the map
+and world".
+
+**FINAL FORM changes the world** (`Config.FinalForm.World`; VFX: `FF.world`
+/ `FF.worldFrame`; the server's `Kit.FF`).
+- **The column of light** (`Pillar`): from LEGENDARY (15.0 s) he's inside
+  a green column 34-40 studs across and 900 tall, breathing on the beat,
+  with light racing up inside it, a glow where it meets the street and a
+  light. It holds through the roar and the glare, then draws in to
+  nothing by 20.0 s, as the Eraser Cannon starts. A pitched-up rumble
+  roars under it (the `Pillar` bed).
+- **The sky** (`Sky`): a black-red storm ceiling 950 studs across, 175
+  over the street, closes over the city through the surge (9-15 s),
+  turns slowly, and goes with the power (25.6-28 s).
+- **The land** (`Lava`, `Scorch`): 18 red-hot seams (8 on a low-end
+  machine) race out across the map from him, each over a scorched black
+  streak, out to 80-170 studs with branches. They grow through the surge,
+  reach all the way out at LEGENDARY, and cool from 26.25 s. The ground
+  under him is scorched black, 80 studs across.
+- **The rubble** (`Debris`): 34 chunks lift off the street 16-85 studs
+  round him from 10 s, hang there bobbing through the hold, and drop
+  when the sky goes off (25.0 s).
+- **Everyone's screen** (`Grade`): anyone else within 700 studs gets the
+  world dark and red (a `FinalFormWorld` ColorCorrection on their camera,
+  full within 350 studs). His own grade went red for the second stage
+  too. Far-off screens (past `Skip`) still get the column, the sky and
+  the red, but not the seams or the rubble.
+- **The server, for real** (`Server`, `Kit.FF`): on the song's first drop
+  a 14-stud crater (the `Crater` profile), and on LEGENDARY a 38-stud one
+  (`FlightCrater`, GODSPEED's kind). Both are rebuilt after
+  `Config.Destruction.RegenTime` like any move's damage. Each one shoves
+  everyone near him back and up (24 / 46 studs; no damage, not knocked
+  down; the game's own knockback scaling applies). They only happen while
+  he's still in it: alive, within `Drift` (3) studs of where he started,
+  and no other emote, move, dash or guard since. `Server.Enabled = false`
+  keeps the visuals only.
+
+**Known gaps.**
+- The sky ceiling is a flat disk at 175 studs. A building taller than
+  that pokes through it, and from more than ~475 studs away it's a disk
+  in the sky.
+- The seams lie flat at his street level: they pass under buildings
+  (hidden inside them), and on a slope they float or sink.
+- The server can't see his emote break off. It goes by where he stands
+  and what he's pressed, so a player who freezes in place and presses
+  nothing gets the craters even if his screen dropped the emote.
+
+**Tests (round 103).**
+- Client: three bodies at once (yours, someone's 60 studs off, someone's
+  520 off) - the column, the sky, the seams out across the map, the
+  scorch, the rubble rising and dropping, the red on someone else's
+  screen and not on yours, the far one's world without seams or rubble,
+  and everything gone at the end. Server: both craters with their
+  profiles and the shove, nothing when he walked off, pressed a move or
+  started another emote, and nothing with `Enabled = false`. Both fail on
+  round 102's sources and pass now.
+- Round 102's client section still passes on round 103's sources.
+- Full server suite: still running when this was committed; its result
+  goes in the next commit.
+
+### Round 102
 
 Round 102 is built on the owner's upload (`FINAL.rbxl`), which is round 98
 plus another session's rounds 99-101. Those three rounds aren't in this

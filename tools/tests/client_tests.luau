@@ -12663,6 +12663,230 @@ print("== round 102: FINAL FORM - Broly's Legendary Super Saiyan: the whole song
 	end
 end)()
 
+print("== round 103: FINAL FORM changes the world - the column of light, the black-red sky, the seams across the map, the rubble, everyone's screen red")
+-- (in a function of its own: the main chunk is at its 200-register limit here)
+;(function()
+	local EM = VFX.EMOTES
+	local FF = EM and EM.FF
+	local W = Config.FinalForm and Config.FinalForm.World
+	if not (FF and W and FF.world and FF.worldFrame) then
+		problem("FINAL FORM 103: the world (Config.FinalForm.World, FF.world / FF.worldFrame)")
+		return
+	end
+	local function r6(pos)
+		local model = Instance.new("Model")
+		model.Name = "Broly"
+		local function bp(name, size, cf)
+			local p = Instance.new("Part")
+			p.Name = name
+			p.Size = size
+			p.CFrame = cf
+			p.Position = cf.Position
+			p.AssemblyLinearVelocity = Vector3.zero
+			p.Parent = model
+			return p
+		end
+		local at = r.CFrame.new(pos)
+		local root = bp("HumanoidRootPart", Vector3.new(2, 2, 1), at)
+		root.Transparency = 1
+		local torso = bp("Torso", Vector3.new(2, 2, 1), at)
+		local head = bp("Head", Vector3.new(2, 1, 1), at * r.CFrame.new(0, 1.5, 0))
+		local face = Instance.new("Decal")
+		face.Name = "face"
+		face.Parent = head
+		local function j(name, p0, p1, c0, c1, holder)
+			local m = Instance.new("Motor6D")
+			m.Name = name
+			m.Part0, m.Part1 = p0, p1
+			m.C0, m.C1 = c0, c1
+			m.Transform = r.CFrame.new()
+			m.Parent = holder
+			return m
+		end
+		j("RootJoint", root, torso, r.CFrame.new(), r.CFrame.new(), root)
+		j("Neck", torso, head, r.CFrame.new(0, 1, 0), r.CFrame.new(0, -0.5, 0), torso)
+		for _, sp in {
+			{ "Right Arm", "Right Shoulder", Vector3.new(1.5, 0, 0), Vector3.new(1, 0.5, 0), Vector3.new(-0.5, 0.5, 0) },
+			{ "Left Arm", "Left Shoulder", Vector3.new(-1.5, 0, 0), Vector3.new(-1, 0.5, 0), Vector3.new(0.5, 0.5, 0) },
+			{ "Right Leg", "Right Hip", Vector3.new(0.5, -2, 0), Vector3.new(1, -1, 0), Vector3.new(0.5, 1, 0) },
+			{ "Left Leg", "Left Hip", Vector3.new(-0.5, -2, 0), Vector3.new(-1, -1, 0), Vector3.new(-0.5, 1, 0) },
+		} do
+			local limb = bp(sp[1], Vector3.new(1, 2, 1), at * r.CFrame.new(sp[3]))
+			j(sp[2], torso, limb, r.CFrame.new(sp[4]), r.CFrame.new(sp[5]), torso)
+		end
+		-- a hat on his head (welded: it rides the head, not the bulk)
+		local acc = Instance.new("Accessory")
+		acc.Name = "Cap"
+		local handle = bp("Handle", Vector3.new(1.2, 0.4, 1.2), at * r.CFrame.new(0, 2.2, 0))
+		handle.Parent = acc
+		local w = Instance.new("Weld")
+		w.Name = "AccessoryWeld"
+		w.Part0, w.Part1 = handle, head
+		w.Parent = handle
+		acc.Parent = model
+		local hum = InstanceShim.new("Humanoid")
+		hum.RigType = Enum.HumanoidRigType.R6
+		hum.Parent = model
+		Instance.new("Animator").Parent = hum
+		model.PrimaryPart = root
+		model.Parent = workspace
+		return model, hum, root, torso, head
+	end
+
+	-- yours, someone's 60 studs off, someone's 520 off (past Skip: far off)
+	local mine, hum, root, torso, head = r6(Vector3.new(700, 3, 700))
+	local near = r6(Vector3.new(760, 3, 700))
+	local far = r6(Vector3.new(1220, 3, 700))
+	local wasChar = localPlayer.Character
+	localPlayer.Character = mine
+	local camWas, focusWas = cam.CFrame, cam.Focus
+	cam.Focus = r.CFrame.new(head.Position)
+	cam.CFrame = r.CFrame.lookAt(head.Position + Vector3.new(0, 2, 12.5), head.Position)
+	for _, m in { mine, near, far } do
+		for _, d in m:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 0
+			end
+		end
+	end
+	local runs = {}
+	local realStart = FF.start
+	FF.start = function(st)
+		runs[st.char] = st
+		return realStart(st)
+	end
+	for _, m in { mine, near, far } do
+		VFX.ReleasePose(m, 0)
+		VFX.Play("Emote", m, { Id = "FinalForm" }, false)
+	end
+	local seen = {}
+	local function worldGrade()
+		return cam:FindFirstChild("FinalFormWorld")
+	end
+	local t0 = os.clock()
+	while os.clock() - t0 < 30.5 do
+		local st = runs[mine]
+		local t = st and st.t or 0
+		if t > 16.3 and t < 17 and not seen.legend then
+			seen.legend = true
+			local wd = st.world
+			local P = W.Pillar
+			local d = wd and wd.layers[1] and wd.layers[1].part.Size.Y or 0
+			seen.pillar = wd and d >= P.Width[1] * 0.9 and d <= P.Width[2] * 1.05 and wd.layers[1].part.Transparency < 0.5
+			local streaks = 0
+			for _, sk in wd and wd.streaks or {} do
+				if sk.part.Transparency < 1 then
+					streaks += 1
+				end
+			end
+			seen.streaks = streaks
+			seen.sky = wd and wd.sky[1].Transparency < 0.3 and wd.sky[2].Transparency < 0.4
+			-- the seams: all the way out, far across the map
+			local farthest, shown = 0, 0
+			for _, s in wd and wd.seams or {} do
+				for _, x in s.segs do
+					if (x.shown or 0) > 0.01 then
+						shown += 1
+						local tip = x.from + x.dir * x.shown
+						farthest = math.max(farthest, (Vector3.new(tip.X, 0, tip.Z) - Vector3.new(st.g.X, 0, st.g.Z)).Magnitude)
+					end
+				end
+			end
+			seen.farthest, seen.shown = farthest, shown
+			seen.scorch = wd and wd.scorch and wd.scorch.Transparency < 0.5
+			local up = 0
+			for _, rk in wd and wd.rocks or {} do
+				if rk.up and (rk.y or 0) > 3 then
+					up += 1
+				end
+			end
+			seen.rocks = up
+			-- someone else's screen: the world dark and red
+			local gr = worldGrade()
+			seen.grade = gr and gr.Brightness < -0.02 and gr.TintColor.G < 0.95
+			seen.mineGrade = st.world and st.world.grade == nil
+			local fs = runs[far]
+			seen.far = fs and fs.skip and fs.world and #fs.world.seams == 0 and #fs.world.rocks == 0 and fs.world.layers[1].part.Transparency < 0.5
+			local ns = runs[near]
+			seen.nearSeams = ns and ns.world and #ns.world.seams > 0
+		end
+		if t > 20.3 and t < 21 and seen.closed == nil then
+			local wd = st.world
+			seen.closed = wd and wd.layers[1].part.Transparency >= 0.99 and wd.base.Transparency >= 0.99
+		end
+		if t > 26.6 and t < 27.2 and seen.dropped == nil then
+			local left = 0
+			for _, rk in st.world and st.world.rocks or {} do
+				if not rk.gone then
+					left += 1
+				end
+			end
+			seen.dropped = left
+		end
+		task.wait()
+	end
+	FF.start = realStart
+	task.wait(0.6)
+	if not seen.legend then
+		problem("FINAL FORM 103: the run never reached LEGENDARY")
+	else
+		if not seen.pillar then
+			problem("FINAL FORM 103: LEGENDARY - him inside a column of green light " .. W.Pillar.Width[1] .. "-" .. W.Pillar.Width[2] .. " studs across")
+		end
+		if (seen.streaks or 0) < W.Pillar.Streaks.Count[1] then
+			problem("FINAL FORM 103: ...light racing up inside it (" .. tostring(seen.streaks) .. ")")
+		end
+		if not seen.sky then
+			problem("FINAL FORM 103: the sky closed over the city, black-red")
+		end
+		if not (seen.farthest and seen.farthest >= W.Lava.Reach[1] * 0.9 and seen.shown >= W.Lava.Count[1] * W.Lava.Segs) then
+			problem(string.format("FINAL FORM 103: red-hot seams all the way out across the map (out to %.0f studs, %d pieces)", seen.farthest or 0, seen.shown or 0))
+		end
+		if not seen.scorch then
+			problem("FINAL FORM 103: the ground under him scorched black")
+		end
+		if (seen.rocks or 0) < W.Debris.Count[1] * 0.7 then
+			problem("FINAL FORM 103: the rubble lifted off the street round him (" .. tostring(seen.rocks) .. ")")
+		end
+		if not seen.grade then
+			problem("FINAL FORM 103: someone else's screen near him goes dark and red (FinalFormWorld)")
+		end
+		if not seen.mineGrade then
+			problem("FINAL FORM 103: ...not his own (his has its own grade)")
+		end
+		if not seen.far then
+			problem("FINAL FORM 103: far off (past Skip): the column and the sky still, not the seams or the rubble")
+		end
+		if not seen.nearSeams then
+			problem("FINAL FORM 103: someone else's near: the seams on their screen too")
+		end
+		if not seen.closed then
+			problem("FINAL FORM 103: the column drawn in to nothing before the Eraser Cannon")
+		end
+		if seen.dropped ~= 0 then
+			problem("FINAL FORM 103: the rubble dropped when the sky went off (" .. tostring(seen.dropped) .. " still up)")
+		end
+	end
+	if worldGrade() then
+		problem("FINAL FORM 103: the red let go of everyone's screen at the end")
+	end
+	local left = 0
+	for _, d in VFX.Folder:GetDescendants() do
+		if d.Name == "EmoteProps" then
+			left += 1
+		end
+	end
+	if left > 0 then
+		problem("FINAL FORM 103: every bag gone at the end (" .. left .. " left)")
+	end
+	localPlayer.Character = wasChar
+	cam.CFrame, cam.Focus = camWas, focusWas
+	for _, m in { mine, near, far } do
+		VFX.ReleasePose(m, 0)
+		m:Destroy()
+	end
+end)()
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")

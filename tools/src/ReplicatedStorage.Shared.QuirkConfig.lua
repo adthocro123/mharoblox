@@ -220,9 +220,11 @@ Config.Emotes = {
 	-- silent beat, and LEGENDARY on the second drop - three times his size,
 	-- the hair gone green, a crater twice as wide; the roar, the green ball
 	-- hurled into the sky to go off on the last hit, the laugh, and the
-	-- steam as he shrinks back. Its props' numbers: Config.FinalForm, after
-	-- the sound library) 46 beats to APM's "Anthemic Step Music" (a dubstep
-	-- sting, 30 s).
+	-- steam as he shrinks back. (round 103) And the world with him: a column
+	-- of green light into a black-red sky, red-hot seams across the map, the
+	-- rubble rising, and real craters and a shockwave on the server. Its
+	-- props' numbers: Config.FinalForm, after the sound library) 46 beats to
+	-- APM's "Anthemic Step Music" (a dubstep sting, 30 s).
 	{ Id = "FinalForm", Rarity = "Legendary", Name = "FINAL FORM", Icon = "🌟", Song = "rbxassetid://1836098839", SongStart = 0.02, Volume = 0.65, Bpm = 96 },
 	-- K-POP IDOL: on stage with a headset mic - the big heart, the point
 	-- steps, a body roll, a hair flip, the hook, a spin and a finger heart at
@@ -7059,16 +7061,16 @@ Config.FinalForm = {
 		{ 5.4, 0.02, 0.12, 0.15, Color3.fromRGB(238, 255, 226), ease = "out" },
 		-- ((round 102) the surge: the storm closing in, greener on every hit)
 		{ 6.25, 0.02, 0.12, 0.15, Color3.fromRGB(238, 255, 226) },
-		{ 13.75, -0.1, 0.2, 0.05, Color3.fromRGB(200, 255, 190) },
-		{ 14.375, -0.1, 0.2, 0.05, Color3.fromRGB(200, 255, 190) },
-		{ 14.475, -0.26, 0.2, -0.7, Color3.fromRGB(196, 255, 196) }, -- (the silent beat: darker still)
-		{ 14.999, -0.26, 0.2, -0.7, Color3.fromRGB(196, 255, 196) },
+		{ 13.75, -0.1, 0.2, 0.05, Color3.fromRGB(255, 220, 205) },
+		{ 14.375, -0.1, 0.2, 0.05, Color3.fromRGB(255, 220, 205) },
+		{ 14.475, -0.26, 0.2, -0.7, Color3.fromRGB(255, 205, 200) }, -- (the silent beat: darker still)
+		{ 14.999, -0.26, 0.2, -0.7, Color3.fromRGB(255, 205, 200) },
 		{ 15.0, 0.45, 0.12, 0.4, Color3.fromRGB(220, 255, 200) }, -- (LEGENDARY: the whiteout)
-		{ 15.5, 0.04, 0.16, 0.25, Color3.fromRGB(228, 255, 214), ease = "out" },
-		{ 24.999, 0.04, 0.16, 0.25, Color3.fromRGB(228, 255, 214) },
+		{ 15.5, -0.06, 0.22, 0.15, Color3.fromRGB(255, 212, 198), ease = "out" }, -- ((round 103) the world red and dark)
+		{ 24.999, -0.06, 0.22, 0.15, Color3.fromRGB(255, 212, 198) },
 		{ 25.0, 0.3, 0.1, 0.3, Color3.fromRGB(220, 255, 205) }, -- (the sky going off)
-		{ 25.5, 0.03, 0.14, 0.2, Color3.fromRGB(232, 255, 220), ease = "out" },
-		{ 26.25, 0.03, 0.14, 0.2, Color3.fromRGB(232, 255, 220) },
+		{ 25.5, -0.04, 0.18, 0.12, Color3.fromRGB(255, 216, 204), ease = "out" },
+		{ 26.25, -0.04, 0.18, 0.12, Color3.fromRGB(255, 216, 204) },
 		{ 28.4, 0, 0, 0, Color3.fromRGB(255, 255, 255), ease = "sine" },
 	},
 	-- { t, Intensity, Size, Threshold } (not on a low-end machine)
@@ -7216,8 +7218,86 @@ Config.FinalForm = {
 			Scream2 = { L.FlyScream, 12.875, { { 12.875, 2.6 }, { 14.3, 2.6 }, { 14.375, 0, ramp = true } }, { { 0, 1 } }, 14.4 },
 			Inhale = { L.SuckIn, 4.04, { { 4.04, 1.6 } }, { { 0, 1 } }, 5.2 },
 			Inhale2 = { L.SuckIn, 14.15, { { 14.15, 1.8 } }, { { 0, 0.9 } }, 15.05 },
+			-- ((round 103) the column of light roaring, pitched up over the rumble)
+			Pillar = { L.FlyHyperRumble, 15.0, { { 15.0, 2.2 }, { 19.4, 2.2 }, { 20.0, 0, ramp = true } }, { { 0, 1.35 } }, 20.1 },
 		},
 		Range = { 16, 220 }, -- (the beds' roll-off)
+	},
+	-- ((round 103) THE WORLD: what FINAL FORM does to the map, from the 2018
+	-- film's shot of it - Broly inside a column of green light going up into
+	-- a black-red sky, the land round him scorched black and split by
+	-- glowing red seams. On every screen near him (not only his), and on the
+	-- server: real craters and the shockwave. t: seconds, as above)
+	World = {
+		-- the column of light: from LEGENDARY, him inside it through the roar
+		-- and the glare, then drawn in to nothing as the Eraser Cannon starts.
+		-- Layers: { material, of its width, Transparency }; Streaks: light
+		-- racing up inside it; Base: the glow where it meets the street
+		-- (studs across, Transparency); Light: { range, brightness }
+		Pillar = {
+			From = 15.0, Grow = 0.35, Hold = 19.4, Out = 20.0,
+			Height = 900, Width = { 34, 40 }, -- (studs across, breathing between them on the beat)
+			Layers = { { "ForceField", 1.0, 0.2 }, { "Neon", 0.84, 0.74 }, { "Neon", 0.38, 0.6 } },
+			Streaks = { Count = { 26, 10 }, Size = Vector3.new(0.7, 34, 0.7), Speed = 110, Transparency = 0.3 },
+			Base = { 60, 0.3 },
+			Light = { 60, 6 },
+			Color = Color3.fromRGB(96, 255, 150), Core = Color3.fromRGB(225, 255, 235),
+		},
+		-- the sky: a storm ceiling over the city, black-red, turning slowly
+		-- (studs over the street, across, thick; Show: its Transparency at
+		-- full), drawn in over the surge, gone with the power
+		Sky = {
+			Height = { 175, 165 }, Size = { 950, 680 }, Thick = { 6, 4 }, Show = { 0.12, 0.25 },
+			Colors = { Color3.fromRGB(58, 10, 8), Color3.fromRGB(22, 4, 4) },
+			In = { 9.0, 15.0 }, Out = { 25.6, 28.0 }, Spin = 3,
+		},
+		-- the land: red-hot seams racing out across the map from him (Reach
+		-- studs; Segs jagged pieces, up to +- Jag degrees each; a branch off
+		-- some), each over a scorched black streak; growing through the
+		-- surge, all the way out at LEGENDARY, cooling as he powers down.
+		-- Count: { a machine that keeps up's, a low-end one's }
+		Lava = {
+			Count = { 18, 8 }, Branches = { 10, 3 }, From = 7, Reach = { 80, 170 }, Segs = 9, Jag = 24,
+			Width = { 0.5, 1.3 }, Char = 3.2, CharT = 0.35, -- (the scorched streak: times the seam's width, its Transparency)
+			Grow = { 6.25, 14.375 }, Burst = 15.0, Cool = { 26.25, 28.4 },
+			Color = Color3.fromRGB(255, 64, 18), Hot = Color3.fromRGB(255, 176, 60), Char3 = Color3.fromRGB(16, 12, 12),
+		},
+		-- the ground under him scorched black at LEGENDARY (studs across, Transparency)
+		Scorch = { 80, 0.25 },
+		-- the city's loose rubble lifting off the street all round him and
+		-- hanging in the air through the hold (Ring: studs out; Top: studs up;
+		-- Bob: +- studs), dropped when the sky goes off
+		Debris = { Count = { 34, 12 }, Ring = { 16, 85 }, Size = { 0.8, 3.6 }, Rise = { 10.0, 15.0 }, RiseTime = 2.5, Top = { 5, 30 }, Bob = 1.2, Drop = 25.0, Fall = 1.6 },
+		-- everyone else's screen within Range studs of him: the world dark and
+		-- red (a ColorCorrection on their camera, named FinalFormWorld; full
+		-- inside half the Range, gone at it). Keys as Grade's
+		Grade = {
+			Range = 700,
+			Keys = {
+				{ 0, 0, 0, 0, Color3.fromRGB(255, 255, 255) },
+				{ 9.0, 0, 0, 0, Color3.fromRGB(255, 255, 255) },
+				{ 14.375, -0.12, 0.12, -0.15, Color3.fromRGB(255, 214, 204) },
+				{ 14.999, -0.2, 0.15, -0.3, Color3.fromRGB(255, 205, 195) },
+				{ 15.0, 0.3, 0.1, 0.1, Color3.fromRGB(235, 255, 225) }, -- (LEGENDARY's flash)
+				{ 15.6, -0.1, 0.2, 0.05, Color3.fromRGB(255, 208, 196), ease = "out" },
+				{ 24.999, -0.1, 0.2, 0.05, Color3.fromRGB(255, 208, 196) },
+				{ 25.0, 0.25, 0.1, 0.1, Color3.fromRGB(235, 255, 225) }, -- (the sky going off)
+				{ 25.6, -0.08, 0.16, 0.05, Color3.fromRGB(255, 212, 200), ease = "out" },
+				{ 26.25, -0.08, 0.16, 0.05, Color3.fromRGB(255, 212, 200) },
+				{ 28.4, 0, 0, 0, Color3.fromRGB(255, 255, 255), ease = "sine" },
+			},
+		},
+		-- the server (Kit.FF): { 0-based beat, crater radius (studs), the
+		-- Destruction profile, Push = { studs, out studs/s, up } } - only while
+		-- he's still in it (within Drift studs of where he started, nothing
+		-- else pressed). Enabled = false: the visuals only
+		Server = {
+			Enabled = true, Drift = 3, Lead = 0.05,
+			Hits = {
+				{ Beat = 8, Radius = 14, Profile = "Crater", Push = { 24, 45, 22 } },
+				{ Beat = 24, Radius = 38, Profile = "FlightCrater", Push = { 46, 85, 40 } },
+			},
+		},
 	},
 }
 -- (round 77) whose punches sound like their own (by the attacker's quirk):

@@ -31285,9 +31285,95 @@ for _, e in Config.Emotes or {} do
 end
 Kit.lastEmote = setmetatable({}, { __mode = "k" }) -- [player] = os.clock()
 
+-- (round 103) FINAL FORM CHANGES THE MAP: the emote's bursts are real on the
+-- server too (Config.FinalForm.World.Server.Hits) - on the song's first drop
+-- a crater blown out of the city round him, on LEGENDARY one far bigger (the
+-- Destruction module's, rebuilt after RegenTime like any move's), and each
+-- shoving everyone near him back (no damage, not knocked down). Only while
+-- he's still in it: alive, on his feet within Drift studs of where he
+-- started, and no other emote, move, dash or block since.
+Kit.FF = {
+	runs = setmetatable({}, { __mode = "k" }), -- [player] = this run of it
+	acted = setmetatable({}, { __mode = "k" }), -- [player] = os.clock() of his last move / dash / block
+}
+function Kit.FF.spec()
+	local W = (Config.FinalForm or {}).World
+	return W and W.Server
+end
+function Kit.FF.start(player, char)
+	local S = Kit.FF.spec()
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not (S and S.Enabled ~= false and root) then
+		return
+	end
+	local entry
+	for _, e in Config.Emotes or {} do
+		if e.Id == "FinalForm" then
+			entry = e
+		end
+	end
+	local B = 60 / ((entry and entry.Bpm) or 96)
+	local run = { char = char, at = root.Position, t0 = os.clock(), mark = Kit.lastEmote[player] }
+	Kit.FF.runs[player] = run
+	for _, hit in S.Hits or {} do
+		task.delay(math.max(hit.Beat * B - (S.Lead or 0), 0), function()
+			if Kit.FF.still(player, run) then
+				Kit.FF.hit(run, hit)
+			end
+		end)
+	end
+end
+-- still in it? (the same run, the same body, alive and where he was; no
+-- other emote, nothing else pressed since)
+function Kit.FF.still(player, run)
+	local S = Kit.FF.spec() or {}
+	local char = run.char
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if Kit.FF.runs[player] ~= run or player.Character ~= char or not root or not alive(char) then
+		return false
+	end
+	if Kit.lastEmote[player] ~= run.mark or (Kit.FF.acted[player] or 0) > run.t0 then
+		return false
+	end
+	if char:GetAttribute("Ragdolled") or char:GetAttribute("Grabbed") or char:GetAttribute("Stunned") or char:GetAttribute("Holding") then
+		return false
+	end
+	local d = root.Position - run.at
+	local drift = S.Drift or 3
+	return Vector3.new(d.X, 0, d.Z).Magnitude <= drift and math.abs(d.Y) <= drift * 2
+end
+-- a hit: the crater in the street under him, everyone near shoved away
+function Kit.FF.hit(run, hit)
+	local char = run.char
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	local g = groundBelow(root.Position, char)
+	if (hit.Radius or 0) > 0 then
+		pcall(Destruction.Sphere, g, hit.Radius, hit.Profile or "Crater", Vector3.new(0, 1, 0))
+	end
+	local P = hit.Push -- { studs, out (studs/s), up }
+	if P then
+		for _, model in queryRadius(char, root.Position, P[1]) do
+			local r = model:FindFirstChild("HumanoidRootPart")
+			if model ~= char and r then
+				local away = r.Position - root.Position
+				away = Vector3.new(away.X, 0, away.Z)
+				away = away.Magnitude > 0.1 and away.Unit or Vector3.new(0, 0, -1)
+				knockback(model, away * P[2] + Vector3.new(0, P[3], 0), hit.PushTime or 0.25, false, true)
+			end
+		end
+	end
+end
+
 function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, deferred)
 	if typeof(index) ~= "number" then
 		return
+	end
+	-- (round 103) a move, a dash or the guard going up ends FINAL FORM's run (Kit.FF)
+	if index ~= Config.EMOTE_INDEX and not (index == Config.BLOCK_INDEX and aimDir ~= true) then
+		Kit.FF.acted[player] = os.clock()
 	end
 	deferred = deferred == Kit.DEFERRED
 	local char = player.Character
@@ -31457,6 +31543,9 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 			and not char:GetAttribute("Holding") and not char:GetAttribute("Grabbed") then
 			Kit.lastEmote[player] = os.clock()
 			broadcast("Emote", char, { Id = aimDir }, player)
+			if aimDir == "FinalForm" then
+				Kit.FF.start(player, char) -- (round 103: its bursts are real)
+			end
 		end
 		return
 	end

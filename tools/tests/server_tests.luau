@@ -14018,6 +14018,139 @@ end)
 	MOD.records[A.UserId], MOD.records[B.UserId] = nil, nil
 end)
 
+---------------------------------------------------------------------------
+-- Round 103: FINAL FORM CHANGES THE MAP - the emote's bursts are real on the
+-- server (Kit.FF): a crater on each drop (Destruction.Sphere), everyone near
+-- shoved back - only while he's still in it
+---------------------------------------------------------------------------
+;M.section(function()
+	print("== round 103: FINAL FORM - real craters and a shockwave, only while he's still in it")
+	local S = Config.FinalForm and Config.FinalForm.World and Config.FinalForm.World.Server
+	check(S ~= nil and S.Enabled ~= false and #(S.Hits or {}) == 2, "FINAL FORM's server side is set up (Config.FinalForm.World.Server: two hits)")
+	if not S then
+		return
+	end
+	check(S.Hits[1].Beat == 8 and S.Hits[2].Beat == 24 and S.Hits[2].Radius > S.Hits[1].Radius and S.Hits[2].Profile == "FlightCrater",
+		"...on the song's two drops (beats 8 and 24), LEGENDARY's the bigger crater")
+	-- (the beats cut short for the test: 0.625 s and 1.25 s in)
+	local hits = S.Hits
+	S.Hits = {
+		{ Beat = 1, Radius = hits[1].Radius, Profile = hits[1].Profile, Push = hits[1].Push },
+		{ Beat = 2, Radius = hits[2].Radius, Profile = hits[2].Profile, Push = hits[2].Push },
+	}
+	local calls = {}
+	local realSphere = dx.Sphere
+	dx.Sphere = function(center, radius, profile, ...)
+		table.insert(calls, { center = center, radius = radius, profile = profile })
+		return realSphere(center, radius, profile, ...)
+	end
+	local ids = {}
+	for _, e in Config.Emotes do
+		table.insert(ids, e.Id)
+	end
+	A:SetAttribute("EmotesOwned", table.concat(ids, ","))
+	local X = 900
+	local function fresh()
+		for _, old in { A.Character, B.Character } do
+			if old then
+				old.Parent = nil
+			end
+		end
+		local ac, _, ar = spawnChar(A, CFrame.new(X, 3, 0))
+		local bc, _, br = spawnChar(B, CFrame.new(X + 12, 3, 0))
+		task.wait(0.6) -- (past the emote spam guard)
+		return ac, ar, bc, br
+	end
+	local function pushOf(root)
+		for _, d in root:GetChildren() do
+			if d.Name == "Knockback" then
+				return d
+			end
+		end
+		return nil
+	end
+
+	-- standing still through it: both craters, and B shoved away each time
+	local ac, ar, bc, br = fresh()
+	table.clear(calls)
+	fire(UseAbility, A, Config.EMOTE_INDEX, "FinalForm")
+	task.wait(0.66) -- (each push lasts 0.25 s: checked just after each hit)
+	local first = calls[1]
+	local kb = pushOf(br)
+	check(#calls == 1 and first.profile == "Crater" and first.radius == hits[1].Radius and (first.center - Vector3.new(X, 0, 0)).Magnitude < 4,
+		"the first drop: a crater blown out of the street round him (" .. #calls .. " so far)")
+	check(kb ~= nil and kb.VectorVelocity.X > 20 and kb.VectorVelocity.Y > 0, "...and Bravo, 12 studs off, shoved away from him and up (" .. tostring(kb and kb.VectorVelocity) .. ")")
+	local firstX = kb and kb.VectorVelocity.X or 0
+	if kb then
+		kb:Destroy()
+	end
+	task.wait(0.6)
+	local second = calls[2]
+	check(#calls == 2 and second.profile == "FlightCrater" and second.radius == hits[2].Radius, "LEGENDARY: the big crater (GODSPEED's kind, " .. hits[2].Radius .. " studs)")
+	kb = pushOf(br)
+	check(kb ~= nil and kb.VectorVelocity.X > firstX * 1.5, "...and the shockwave throws Bravo much harder (" .. tostring(kb and kb.VectorVelocity) .. ")")
+	check(bc:GetAttribute("Ragdolled") ~= true, "...without knocking him down, or hurting him")
+	check(pushOf(ar) == nil, "...and never Alpha himself")
+
+	-- walked off: nothing
+	ac, ar, bc, br = fresh()
+	table.clear(calls)
+	fire(UseAbility, A, Config.EMOTE_INDEX, "FinalForm")
+	task.wait(0.1)
+	ar.CFrame = ar.CFrame + Vector3.new(10, 0, 0)
+	ar.Position = ar.CFrame.Position
+	task.wait(1.4)
+	check(#calls == 0 and pushOf(br) == nil, "walked off (the emote's broken): no crater, no shove (" .. #calls .. ")")
+
+	-- a move pressed after it: nothing
+	ac, ar, bc, br = fresh()
+	table.clear(calls)
+	fire(UseAbility, A, Config.EMOTE_INDEX, "FinalForm")
+	task.wait(0.1)
+	fire(UseAbility, A, 1, ar.CFrame.LookVector, ar.Position + ar.CFrame.LookVector * 10)
+	task.wait(1.4)
+	local craters = 0
+	for _, c in calls do
+		if c.radius == hits[1].Radius or c.radius == hits[2].Radius then
+			craters += 1
+		end
+	end
+	check(craters == 0, "a move after it (the emote's broken): no FINAL FORM crater (" .. craters .. ")")
+
+	-- another emote after it: nothing
+	ac, ar, bc, br = fresh()
+	table.clear(calls)
+	fire(UseAbility, A, Config.EMOTE_INDEX, "FinalForm")
+	task.wait(0.5)
+	fire(UseAbility, A, Config.EMOTE_INDEX, "Wave")
+	task.wait(1.0)
+	craters = 0
+	for _, c in calls do
+		if c.radius == hits[2].Radius then
+			craters += 1
+		end
+	end
+	check(craters == 0, "another emote after it: no LEGENDARY crater (" .. craters .. ")")
+
+	-- switched off: the visuals only
+	ac, ar, bc, br = fresh()
+	table.clear(calls)
+	S.Enabled = false
+	fire(UseAbility, A, Config.EMOTE_INDEX, "FinalForm")
+	task.wait(1.5)
+	check(#calls == 0, "World.Server.Enabled = false: nothing on the server")
+	S.Enabled = true
+
+	dx.Sphere = realSphere
+	S.Hits = hits
+	A:SetAttribute("EmotesOwned", "")
+	for _, old in { A.Character, B.Character } do
+		if old then
+			old.Parent = nil
+		end
+	end
+end)
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}
