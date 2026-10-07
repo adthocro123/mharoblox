@@ -531,6 +531,7 @@ local function env(scriptInst)
 		Vector2 = Vector2,
 		CFrame = r.CFrame,
 		Color3 = r.Color3,
+		Font = r.Font, -- (round 102: the HUD uses Font.new since the owner's round 100)
 		ColorSequence = r.ColorSequence,
 		ColorSequenceKeypoint = r.ColorSequenceKeypoint,
 		NumberSequence = r.NumberSequence,
@@ -12315,6 +12316,352 @@ if restore98 then
 	task.wait()
 end
 end
+
+print("== round 102: FINAL FORM - Broly's Legendary Super Saiyan: the whole song, the giant (bulked) double, his camera on it")
+-- (in a function of its own: the main chunk is at its 200-register limit here)
+;(function()
+	local EM = VFX.EMOTES
+	local FF = EM and EM.FF
+	local FFC = Config.FinalForm
+	local B = 60 / 96
+	local function near(a, b, tol)
+		return math.abs(a - b) <= (tol or 1e-3)
+	end
+	if not (FF and FFC and FF.size and FF.bulk and FF.dark) then
+		problem("FINAL FORM 102: the FF kit (size, bulk, dark) and Config.FinalForm")
+	else
+		-- the motion and the props: 46 beats (28.75 s of the song's 30)
+		local entry = EM.entry("FinalForm")
+		local len = EM.length(entry)
+		if not near(len, 46 * B, 0.01) or FFC.Beats ~= 46 then
+			problem(string.format("FINAL FORM 102: the motion runs 46 beats, 28.75 s (%.3f s, Beats %s)", len, tostring(FFC.Beats)))
+		end
+		-- his size: the awakening as before (up to Go), then the surge, the
+		-- silent beat, LEGENDARY, the shrink back to exactly 1
+		local D = FFC.Double
+		if FF.size(0) ~= 1 or not near(FF.size(5.0 + D.GoTime), D.Full, 0.002) then
+			problem(string.format("FINAL FORM 102: 1 at the start, Full (%.2f) at Go (%.3f, %.3f)", D.Full, FF.size(0), FF.size(5.0 + D.GoTime)))
+		end
+		local last = D.Full
+		for i, p in D.Surge do
+			local now = FF.size(p[1] + D.SurgeTime + 0.01)
+			if not (now > last and near(now, p[2], p[2] * 0.015)) then
+				problem(string.format("FINAL FORM 102: the surge's hit %d pumps him to %.2f (%.3f)", i, p[2], now))
+			end
+			last = now
+		end
+		if not near(FF.size(14.375 + 0.5), D.Squeeze2[2], 0.04) then
+			problem(string.format("FINAL FORM 102: squeezed to %.2f on the silent beat (%.3f)", D.Squeeze2[2], FF.size(14.875)))
+		end
+		local legend, top = FF.size(15.0 + D.LegendTime + 0.01), 0
+		for t = 15.0, 26.25, 0.01 do
+			top = math.max(top, FF.size(t))
+		end
+		if not (near(legend, 3.2, 0.06) and top >= 3.2 and top < 3.6) then
+			problem(string.format("FINAL FORM 102: LEGENDARY x3.2 on the second drop (%.3f, peak %.3f)", legend, top))
+		end
+		-- a flex on each hit after it
+		local h = 18.75
+		if not (FF.size(h + 0.07) > FF.size(h - 0.01) + 0.1) then
+			problem(string.format("FINAL FORM 102: a flex on the hits after LEGENDARY (%.3f -> %.3f)", FF.size(h - 0.01), FF.size(h + 0.07)))
+		end
+		local mid = FF.size(27.2)
+		if FF.size(28.125) ~= 1 or FF.size(29) ~= 1 or not (mid > 1.2 and mid < 3) then
+			problem(string.format("FINAL FORM 102: shrinks back to exactly 1 by 28.125 s (%.4f, %.4f; at 27.2: %.3f)", FF.size(28.125), FF.size(29), mid))
+		end
+		if not (FF.bulk(1) == 1 and near(FF.bulk(3.2), 1 + D.Bulk * 2.2, 1e-6)) then
+			problem("FINAL FORM 102: his bulk (1 at his size, 1.33 at 3.2)")
+		end
+		if not (FF.dark(4.8) and not FF.dark(5.1) and FF.dark(14.5) and not FF.dark(15.01) and not FF.dark(10)) then
+			problem("FINAL FORM 102: the two silent beats (the hush, the song's silent beat)")
+		end
+		-- the crown at LEGENDARY: green, wilder
+		local shown, _, color, pop, k = FF.crownAt(16.5)
+		local CC = FFC.Colors
+		if not (shown and near(pop, FFC.Crown.Legend.Grow, 0.01) and k > 1.9 and near(color.G, CC.Legend.G, 0.01) and near(color.R, CC.Legend.R, 0.01)) then
+			problem("FINAL FORM 102: the crown at LEGENDARY - green and x" .. FFC.Crown.Legend.Grow)
+		end
+
+		-- the whole run on a properly built R6 body (his own: the camera's his)
+		local function r6(pos)
+			local model = Instance.new("Model")
+			model.Name = "Broly"
+			local function bp(name, size, cf)
+				local p = Instance.new("Part")
+				p.Name = name
+				p.Size = size
+				p.CFrame = cf
+				p.Position = cf.Position
+				p.AssemblyLinearVelocity = Vector3.zero
+				p.Parent = model
+				return p
+			end
+			local at = r.CFrame.new(pos)
+			local root = bp("HumanoidRootPart", Vector3.new(2, 2, 1), at)
+			root.Transparency = 1
+			local torso = bp("Torso", Vector3.new(2, 2, 1), at)
+			local head = bp("Head", Vector3.new(2, 1, 1), at * r.CFrame.new(0, 1.5, 0))
+			local face = Instance.new("Decal")
+			face.Name = "face"
+			face.Parent = head
+			local function j(name, p0, p1, c0, c1, holder)
+				local m = Instance.new("Motor6D")
+				m.Name = name
+				m.Part0, m.Part1 = p0, p1
+				m.C0, m.C1 = c0, c1
+				m.Transform = r.CFrame.new()
+				m.Parent = holder
+				return m
+			end
+			j("RootJoint", root, torso, r.CFrame.new(), r.CFrame.new(), root)
+			j("Neck", torso, head, r.CFrame.new(0, 1, 0), r.CFrame.new(0, -0.5, 0), torso)
+			for _, sp in {
+				{ "Right Arm", "Right Shoulder", Vector3.new(1.5, 0, 0), Vector3.new(1, 0.5, 0), Vector3.new(-0.5, 0.5, 0) },
+				{ "Left Arm", "Left Shoulder", Vector3.new(-1.5, 0, 0), Vector3.new(-1, 0.5, 0), Vector3.new(0.5, 0.5, 0) },
+				{ "Right Leg", "Right Hip", Vector3.new(0.5, -2, 0), Vector3.new(1, -1, 0), Vector3.new(0.5, 1, 0) },
+				{ "Left Leg", "Left Hip", Vector3.new(-0.5, -2, 0), Vector3.new(-1, -1, 0), Vector3.new(-0.5, 1, 0) },
+			} do
+				local limb = bp(sp[1], Vector3.new(1, 2, 1), at * r.CFrame.new(sp[3]))
+				j(sp[2], torso, limb, r.CFrame.new(sp[4]), r.CFrame.new(sp[5]), torso)
+			end
+			-- a hat on his head (welded: it rides the head, not the bulk)
+			local acc = Instance.new("Accessory")
+			acc.Name = "Cap"
+			local handle = bp("Handle", Vector3.new(1.2, 0.4, 1.2), at * r.CFrame.new(0, 2.2, 0))
+			handle.Parent = acc
+			local w = Instance.new("Weld")
+			w.Name = "AccessoryWeld"
+			w.Part0, w.Part1 = handle, head
+			w.Parent = handle
+			acc.Parent = model
+			local hum = InstanceShim.new("Humanoid")
+			hum.RigType = Enum.HumanoidRigType.R6
+			hum.Parent = model
+			Instance.new("Animator").Parent = hum
+			model.PrimaryPart = root
+			model.Parent = workspace
+			return model, hum, root, torso, head
+		end
+		local body, hum, root, torso, head = r6(Vector3.new(400, 3, 400))
+		local wasChar = localPlayer.Character
+		localPlayer.Character = body
+		local camWas, focusWas = cam.CFrame, cam.Focus
+		cam.Focus = r.CFrame.new(head.Position)
+		cam.CFrame = r.CFrame.lookAt(head.Position + Vector3.new(0, 2, 12.34), head.Position)
+		local d0 = (cam.CFrame.Position - cam.Focus.Position).Magnitude
+		local minWas, maxWas = localPlayer.CameraMinZoomDistance, localPlayer.CameraMaxZoomDistance
+		hum.CameraOffset = Vector3.new(0.3, 0, 0)
+		local theirs = hum.CameraOffset -- (as stored: Lune's Vector3 properties don't keep every bit)
+		local realParts = {}
+		for _, d in body:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 0
+				table.insert(realParts, d)
+			end
+		end
+		local seen = { words = {} }
+		local function sample(t, st)
+			local s = st.s
+			seen.top = math.max(seen.top or 0, s)
+			for _, d in VFX.Folder:GetDescendants() do
+				if d:IsA("TextLabel") and (d.Text == "LEGENDARY" or d.Text == "FINAL FORM" or d.Text == "HAHAHAHAHA!" or d.Text == "AAAAAAAAAHHH!!") then
+					seen.words[d.Text] = true
+				end
+			end
+			local Dd = st.dbl
+			if t > 16.4 and t < 17.2 and Dd and not seen.giant then
+				seen.giant = true
+				local b = FF.bulk(s)
+				local T, Hd, R = Dd.torso, Dd.head, Dd.right
+				seen.s16 = s
+				if not (near(T.copy.Size.X, 2 * s * b, 0.02) and near(T.copy.Size.Y, 2 * s, 0.02) and near(T.copy.Size.Z, s * b, 0.02)) then
+					problem(string.format("FINAL FORM 102: the giant's torso thick, not tall (%s at x%.2f, bulk %.2f)", tostring(T.copy.Size), s, b))
+				end
+				if not near(Hd.copy.Size.X, 2 * s, 0.02) then
+					problem("FINAL FORM 102: his head scaled, not bulked (the face and crown ride it)")
+				end
+				-- the right arm out on the thicker torso's side, its top at the shoulder
+				local rel = T.cf:PointToObjectSpace(R.cf.Position)
+				if not (R and near(rel.X, 1.5 * s * b, 0.05) and near(rel.Y, 0, 0.05) and near(R.copy.Size.Y, 2 * s, 0.02) and near(R.copy.Size.X, s * b, 0.02)) then
+					problem(string.format("FINAL FORM 102: his arm on his shoulder, thick not long (%s; want x %.2f)", tostring(rel), 1.5 * s * b))
+				end
+				-- his legs: their soles on the street
+				for _, L in Dd.legs do
+					local sole = st.F:PointToObjectSpace(L.cf * Vector3.new(0, -L.copy.Size.Y / 2, 0)).Y
+					if math.abs(sole) > 0.05 then
+						problem(string.format("FINAL FORM 102: the giant's soles on the street (%.3f)", sole))
+					end
+				end
+				-- the hat riding his head
+				local hat
+				for _, rec in Dd.twins do
+					if rec.real.Name == "Handle" then
+						hat = rec
+					end
+				end
+				if not (hat and hat.host == Hd and near(Hd.cf:PointToObjectSpace(hat.cf.Position).Y, 0.7 * s, 0.05)) then
+					problem("FINAL FORM 102: his hat rides his head (the giant's)")
+				end
+				-- his camera: lifted and zoomed out with him, his offset kept
+				local off = hum.CameraOffset
+				local want = math.clamp(d0 * s ^ FFC.Camera.Pow, FFC.Camera.Least, FFC.Camera.Most)
+				seen.lift, seen.min = off.Y, localPlayer.CameraMinZoomDistance
+				if not (near(off.Y, FFC.Camera.Lift * (s - 1), 0.15) and near(off.X, 0.3, 1e-3)) then
+					problem(string.format("FINAL FORM 102: his camera lifted with him, his own offset kept (%s at x%.2f)", tostring(off), s))
+				end
+				if not (near(localPlayer.CameraMinZoomDistance, want, 1) and localPlayer.CameraMaxZoomDistance >= localPlayer.CameraMinZoomDistance) then
+					problem(string.format("FINAL FORM 102: his camera zoomed out to take the giant in (min %.1f, want %.1f, max %.1f)", localPlayer.CameraMinZoomDistance, want, localPlayer.CameraMaxZoomDistance))
+				end
+				-- the crown green, the second crater, the hair
+				local gr = st.ground
+				if not (gr and #gr.craters == 2) then
+					problem("FINAL FORM 102: a second crater at LEGENDARY, twice the size")
+				end
+			end
+			if t > 12 and t < 12.4 and st.ground and not seen.rocks2 then
+				local up = 0
+				for _, rk in st.ground.rocks2 do
+					if rk.up then
+						up += 1
+					end
+				end
+				for _, sb in st.ground.slabs2 do
+					if sb.up then
+						up += 1
+					end
+				end
+				seen.rocks2 = up
+			end
+			if t > 21.5 and t < 22 and not seen.orb then
+				local o = st.orb
+				seen.orb = o and o.size > 0.5 * st.s and o.core.Parent ~= nil and not o.fly
+				seen.orbAt = o and o.pos
+			end
+			if t > 24.4 and t < 24.8 and not seen.fly then
+				local o = st.orb
+				seen.fly = o and o.fly and seen.orbAt and o.pos.Y > seen.orbAt.Y + 20
+			end
+			if t > 25.3 and t < 25.8 and seen.boom == nil then
+				seen.boom = st.orb and st.orb.gone == true and st.orb.core.Parent == nil
+			end
+			if t > 28.2 and t < 28.6 and seen.after == nil then
+				seen.after = st.dbl == nil and st.cam == nil
+				seen.minAfter = localPlayer.CameraMinZoomDistance
+			end
+		end
+		VFX.ReleasePose(body, 0)
+		VFX.Play("Emote", body, { Id = "FinalForm" }, false)
+		local t0 = os.clock()
+		local st0
+		while os.clock() - t0 < 31 do
+			local st = FF.last
+			if st and st.char == body then
+				st0 = st
+				pcall(sample, st.t, st)
+			elseif st0 and os.clock() - t0 > 29.5 then
+				break
+			end
+			task.wait()
+		end
+		if not st0 then
+			problem("FINAL FORM 102: the props never ran on an R6 body")
+		else
+			if not (seen.top and seen.top >= 3.2 and seen.giant) then
+				problem(string.format("FINAL FORM 102: he went LEGENDARY in the run (top x%.2f)", seen.top or 0))
+			end
+			for _, w in { "FINAL FORM", "LEGENDARY", "AAAAAAAAAHHH!!", "HAHAHAHAHA!" } do
+				if not seen.words[w] then
+					problem("FINAL FORM 102: the word " .. w)
+				end
+			end
+			if not (seen.rocks2 and seen.rocks2 >= 6) then
+				problem("FINAL FORM 102: the surge's rocks and slabs up round the giant (" .. tostring(seen.rocks2) .. ")")
+			end
+			if not seen.orb then
+				problem("FINAL FORM 102: the Eraser Cannon - the green ball in his fist")
+			end
+			if not seen.fly then
+				problem("FINAL FORM 102: ...hurled into the sky")
+			end
+			if not seen.boom then
+				problem("FINAL FORM 102: ...and gone off up there on the last hit")
+			end
+			if not (seen.after and near(seen.minAfter or -1, minWas, 1e-3)) then
+				problem("FINAL FORM 102: himself again at 28.125 s - the double gone, his camera given back (min " .. tostring(seen.minAfter) .. ")")
+			end
+		end
+		task.wait(0.5)
+		-- all of it given back exactly
+		local hidden = 0
+		for _, p in realParts do
+			if p.LocalTransparencyModifier ~= 0 then
+				hidden += 1
+			end
+		end
+		if hidden > 0 or body:FindFirstChild("FinalFormDouble", true) or workspace:FindFirstChild("FinalFormDouble", true) then
+			problem("FINAL FORM 102: his own body back, no double left (" .. hidden .. " still hidden)")
+		end
+		if not (hum.CameraOffset == theirs and localPlayer.CameraMinZoomDistance == minWas and localPlayer.CameraMaxZoomDistance == maxWas) then
+			problem(string.format("FINAL FORM 102: his camera given back exactly (offset %s, min %.2f, max %.2f)", tostring(hum.CameraOffset), localPlayer.CameraMinZoomDistance, localPlayer.CameraMaxZoomDistance))
+		end
+		if FF.last ~= nil then
+			problem("FINAL FORM 102: the run let go (FF.last)")
+		end
+
+		-- broken off while he's a giant: everything back at once
+		VFX.ReleasePose(body, 0)
+		VFX.Play("Emote", body, { Id = "FinalForm" }, false)
+		t0 = os.clock()
+		while os.clock() - t0 < 17 do
+			local st = FF.last
+			if st and st.char == body and st.t > 16 then
+				break
+			end
+			task.wait()
+		end
+		local big = FF.last and FF.last.s or 0
+		local lifted = hum.CameraOffset.Y
+		VFX.ReleasePose(body, 0)
+		task.wait(0.6)
+		hidden = 0
+		for _, p in realParts do
+			if p.LocalTransparencyModifier ~= 0 then
+				hidden += 1
+			end
+		end
+		if big < 3 or lifted < 5 then
+			problem(string.format("FINAL FORM 102 (broken off): he was a lifted giant first (x%.2f, offset %.2f)", big, lifted))
+		end
+		if hidden > 0 or FF.last ~= nil or hum.CameraOffset ~= theirs or localPlayer.CameraMinZoomDistance ~= minWas or localPlayer.CameraMaxZoomDistance ~= maxWas then
+			problem(string.format("FINAL FORM 102 (broken off): his body and camera back at once (%d hidden; offset %s, min %.2f, max %.2f)", hidden, tostring(hum.CameraOffset), localPlayer.CameraMinZoomDistance, localPlayer.CameraMaxZoomDistance))
+		end
+
+		-- someone else's camera setting while it runs is theirs: kept, and not undone
+		VFX.ReleasePose(body, 0)
+		VFX.Play("Emote", body, { Id = "FinalForm" }, false)
+		t0 = os.clock()
+		while os.clock() - t0 < 17 do
+			local st = FF.last
+			if st and st.char == body and st.t > 15.6 then
+				break
+			end
+			task.wait()
+		end
+		localPlayer.CameraMaxZoomDistance = 300 -- (a settings menu, say)
+		task.wait(0.3)
+		local kept = localPlayer.CameraMaxZoomDistance
+		VFX.ReleasePose(body, 0)
+		task.wait(0.6)
+		if kept ~= 300 or localPlayer.CameraMaxZoomDistance ~= 300 or localPlayer.CameraMinZoomDistance ~= minWas or hum.CameraOffset ~= theirs then
+			problem(string.format("FINAL FORM 102: a most-zoom set meanwhile is kept (%.1f then %.1f; min %.2f)", kept, localPlayer.CameraMaxZoomDistance, localPlayer.CameraMinZoomDistance))
+		end
+		localPlayer.CameraMaxZoomDistance = maxWas
+
+		localPlayer.Character = wasChar
+		cam.CFrame, cam.Focus = camWas, focusWas
+		body:Destroy()
+	end
+end)()
 
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do

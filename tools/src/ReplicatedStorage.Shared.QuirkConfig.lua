@@ -210,10 +210,19 @@ Config.Emotes = {
 	-- him: the crab walk, a spin, the drop, a low shuffle and claws to the
 	-- sky. 16 beats to Noisestorm - "Crab Rave" (Monstercat).
 	{ Id = "CrabRave", Rarity = "Epic", Name = "CRAB RAVE", Icon = "🦀", Song = "rbxassetid://5410086218", SongStart = 30.72, Volume = 0.5, Bpm = 125 },
-	-- FINAL FORM: the battlegrounds power-up - feet planted, the ground
-	-- shaking, rocks lifting, a scream, lightning, then a golden aura and a
-	-- pillar of light into the sky; he comes out of it in a stance. 12 beats
-	-- to APM's "Anthemic Step Music" (a dubstep sting).
+	-- FINAL FORM: ((round 101) remade as a rage transformation: a monster
+	-- waking up - the eyes going red and shattering to blank white, his body
+	-- pumping bigger, a green aura with a gold rim, the storm, the scream, the
+	-- light drained into him and the burst on the song's drop: the gold
+	-- crown, a pillar into the sky; the menace after, in a crater. (round
+	-- 102) Then Broly's Legendary Super Saiyan, the whole song long: bigger
+	-- on every hit of the drop, the light drained into him again on its
+	-- silent beat, and LEGENDARY on the second drop - three times his size,
+	-- the hair gone green, a crater twice as wide; the roar, the green ball
+	-- hurled into the sky to go off on the last hit, the laugh, and the
+	-- steam as he shrinks back. Its props' numbers: Config.FinalForm, after
+	-- the sound library) 46 beats to APM's "Anthemic Step Music" (a dubstep
+	-- sting, 30 s).
 	{ Id = "FinalForm", Rarity = "Legendary", Name = "FINAL FORM", Icon = "🌟", Song = "rbxassetid://1836098839", SongStart = 0.02, Volume = 0.65, Bpm = 96 },
 	-- K-POP IDOL: on stage with a headset mic - the big heart, the point
 	-- steps, a body roll, a hair flip, the hook, a spin and a finger heart at
@@ -272,10 +281,11 @@ Config.EmoteShop = {
 	-- what the button says until Roblox tells the game the product's own
 	-- price (set the real price on the dashboard).
 	Robux = {
-		[1] = { Product = 0, Price = 25 },
-		[2] = { Product = 0, Price = 49 },
-		[5] = { Product = 0, Price = 119 },
-		[10] = { Product = 0, Price = 229 },
+		-- (round 100: the owner's products, on sale at these prices)
+		[1] = { Product = 3716930704, Price = 25 },
+		[2] = { Product = 3716930748, Price = 45 },
+		[5] = { Product = 3716930780, Price = 99 },
+		[10] = { Product = 3716930823, Price = 179 },
 	},
 	-- (round 72) WIPE: everyone's emotes - what they own, their wheel, their
 	-- free picks - are taken away once, the first time they join after this
@@ -863,7 +873,10 @@ Config.DevFlight.Control = {
 	Hold = { Settle = 2, Still = 0.2, K = 6, Max = 12, Lost = 25 },
 	Lock = { K = 9, Max = 30, Nudge = 12, NudgeK = 10, Pitch = 55, Fov = 62, Lost = 25 },
 }
-Config.DevFlight.Bounds = { Floor = -340, Cushion = 60, Ceiling = 9000, Center = Vector3.new(5, 25, 888), Radius = 18000, Turn = 1.2 }
+-- (round 99) SPACE: Ceiling 9000 -> 14000 - OUTER SPACE starts at 4200 over
+-- the city (Config.Space), the asteroid field runs up to 10200 and the moon's
+-- top is at ~10100 (10500 out): room over all of it to fly flat out
+Config.DevFlight.Bounds = { Floor = -340, Cushion = 60, Ceiling = 14000, Center = Vector3.new(5, 25, 888), Radius = 18000, Turn = 1.2 }
 -- LIGHTSPEED - the tier over HYPERSONIC. At HYPERSONIC (sprint and W held)
 -- the burst key HELD (Q / Y / the phone's DASH - a tap is still the burst)
 -- charges the LIGHT BARRIER for Charge s: the burst goes, his body starts to
@@ -1558,7 +1571,9 @@ Config.CosmeticsB = {
 	Shigaraki = {
 		-- each move's charge, s from the press to its release (the moves' own
 		-- beats; a move's Windup is used where it has one)
-		Charge = { DecayWave = 0.22, Sinkhole = 0.35, DecayGrasp = 0.2, Collapse = 0.5, RivetStab = 0.2, RadioWaves = 0.45, RivetStorm = 0.3, TotalDecay = 1.3, Awaken = 0.6 },
+		-- ((round 101, awaken_m) Awaken 0.6 -> 0.3: the claw through his
+		-- awakening's gather, springing open ON its hit, Config.Awaken.HitAt)
+		Charge = { DecayWave = 0.22, Sinkhole = 0.35, DecayGrasp = 0.2, Collapse = 0.5, RivetStab = 0.2, RadioWaves = 0.45, RivetStorm = 0.3, TotalDecay = 1.3, Awaken = 0.3 },
 		In = 0.08, -- s into the claw
 		Settle = 0.34, -- s springing open and back after the release
 		Curl = 28, -- degrees each finger lifts at the knuckle
@@ -1770,6 +1785,7 @@ Config.Uno = {
 Config.Discord = {
 	Enabled = true,
 	Invite = "discord.gg/ZUACwx6S3", -- (also what the kiosk's screen shows, to those allowed)
+	Tab = true, -- (round 100) the DISCORD tab in the top bar (only for players Roblox allows Discord links)
 	Spots = {
 		-- the middle spawn's crossing, its north-east corner (14 studs from the
 		-- spawn, back to the hedge's corner, the lanes left 17+ studs wide),
@@ -1878,187 +1894,432 @@ Config.CycloneLook = {
 }
 
 ---------------------------------------------------------------------------
--- (round 92) LIGHTWIPE - LIGHTSPEED INTO THE GROUND: THE END OF THE MAP. The
--- owner: "if you do lightspeed into the ground, way bigger destruction.
--- whole map gone." A dev who crashes at LIGHTSPEED (Config.DevFlight.Light -
--- the only way past the burst's 980) into the street, or down onto a
--- building, doesn't make the bomb (Config.DevFlight.Bomb): he ends the map.
--- A blinding impact and a pillar of light, a shock dome racing out from the
--- crater over the whole city, every building ripped up and flung straight
--- out from it, the sky going to ash, a mushroom of dust climbing over him, a
--- huge sound, every screen shaking - then the empty plain, and the city
--- flying back together. The Serious Punch's engine (VFX.ST.World) run as a
--- blast from a point (Config.LightWave). Server: Kit.LW (DF.land asks it
--- first); his machine: DevFly.LW; every screen: VFX.LWX.
---   Speed: his machine's speed at the crash, studs/s (LIGHTSPEED is 1400;
---     the burst tops out at 980 and the dive at 760: nothing else gets here)
---   MinSeen: the server's own view of him (its peak - over the burst's
---     cap), asked again Retry.Times times, Retry.Wait s apart, before it's
---     the bomb after all (round 89's lesson: his machine meets the street
---     before the server's view of him has caught up)
---   Cooldown: s - once a server, whoever flies (the map's everyone's);
---     inside it a crash at LIGHTSPEED is the bomb, as ever
---   Drop: the city's street must be under where he hit within this many
---     studs (a roof - the city's tallest are ~130 up - is; the Sky Coffin's
---     floor, 1600 up, isn't the map: the bomb there). Coming down on a
---     building he's put down on the street under it: it's gone anyway
---   Hold: s he stays down in the crater (the crash's own is 1.45)
---   Wave: the shock front out of the crater - one law for the server (who's
---     hit, when) and every screen (what goes, when): Reach studs at Time s
---     (+ Delay), r = Reach x (t / Time) ^ Power: explosive at first, slowing
---     as it spreads, as a blast wave does (the middle of the city to its
---     corners, ~620 studs: 1 s; one corner to the other, ~1250: 2.5 s)
---   THE HITS (the server, each as the wave gets to them): everyone within
---     Radius studs (flat) of the crater, from Below under it to Above over
---     it (not the Sky Coffin up at 1600, not the Vestige Realm), by the
---     rules every hit goes by (Kit.DF.canKnock: god mode, a dodge, a grab, a
---     finisher, a clash, the UNO table, his own double... - lying down is no
---     shield): Damage.Near within Damage.Full studs, falling off to
---     Damage.Far at Wave.Reach (Curve: how fast), never more than MaxShare
---     of their max health - nobody's one-shot; thrown straight out from it
---     (Push / Lift: Near -> Far, over PushTime s) but never off the edge of
---     the city (Kit.ST.keepOn: Edge studs inside it), off their feet Down s
---     (Near -> Far). Never him.
---   THE REAL MAP (the server's - (round 94) put back with every screen's
---     rewind: Kit.wipeRebuild, halfway through the empty plain and as the
---     rewind ends; it used to wait out Destruction's 40 s and the city came
---     back with the furrows still through it):
---     the Crater at the impact (studs: the Profile, its own CraterBudget)
---     and Furrows torn straight out from it (FurrowLength studs from
---     FurrowStart, FurrowRadius, each its FurrowBudget, carved as the wave
---     gets there; the street itself is left) - the Serious Punch's crater-
---     and-trench budget, no more
---   World: every screen's city (VFX.ST.World: Config.Saitama.Wipe's
---     numbers, these on top). Speed / Up: each piece's flight straight out
---     from the crater - Near at it, Far from Fade studs on. Hold s of empty
---     plain, then the rewind (RewindSpan, RewindTime). PrimeHold: s a screen
---     keeps the city it read ahead (someone broke the light barrier: the
---     crash could come any moment - read a little a frame, ScanBudget, not
---     all at once at the impact). The dust wall (Wall), the scorch marks
---     (Scour), the grade (Grade: the impact's white-out - Windup - then ash),
---     the sky (Sky: ash clouds rolling in over Time s; no vortex), how it
---     feels where you are (Hit, Fov, Flash), seen from Range studs
---   Look (VFX.LWX; half as much on a low-end machine): Flash - the white-out
---     clearing (s: his own, the nearest, the farthest); Pillar - the column
---     of light up out of the crater (Height, Radius from -> to, Life s);
---     Fireball (studs across from -> to in Rise s, gone in Life s); Prism -
---     the colour rings racing out over the street (studs, Life s); Dome - the
---     shock dome riding the front (its transparency at the crater -> at its
---     biggest: a part's 2048 studs - faded out by then); Front - the ring of
---     light at its foot (Segments, Low); Mushroom - the cloud over the
---     crater: its cap (a ring of rolling puffs, a crown over it) climbing to
---     Height (Rise s to most of it, then Drift x Height a second), spreading
---     to Width across, Stem puffs up it, Cap round it, and a Collar of
---     condensation round the stem part way up (Low*: a low-end machine's),
---     Glow s of fire in it; held over the empty plain, sucked back down into
---     the crater with the rewind. Shake: the impact (how hard, felt how
---     far, s); Rumble: the cloud going up, near it. Title: everyone else
---     told who; Cinematic: his own camera pulled up over the city as it goes
-Config.DevFlight.LightWipe = {
+-- (round 99) CRATERS - LIGHTSPEED AND GODSPEED INTO THE GROUND. The owner,
+-- asked what hitting the ground at GODSPEED should do: "get rid of lightwipe
+-- just make the crater bigger, for both lightspeed and godspeed". Round 92's
+-- LIGHTWIPE (the whole map wiped and put back) is gone. A crash at
+-- LIGHTSPEED is a CRATER now - the mach burst's bomb (Config.DevFlight.Bomb)
+-- grown far past it - and at GODSPEED a bigger one again: the strongest
+-- impact in the game short of the Serious Punch's map wipe. One design,
+-- three sizes: the bomb -> LIGHTSPEED (Light) -> GODSPEED (God). Each: a
+-- huge blast and fireball, the shock ring racing out over the streets, the
+-- crater torn into the street and the buildings round it ripped apart (the
+-- real map - it grows back on Destruction's own timer), debris thrown high,
+-- a dust wall rolling out, a mushroom of dust climbing over it, the
+-- deepest boom (late by the distance), the shake felt across the city
+-- (harder close), everyone near blown away. Server: Kit.CT (DF.land asks it
+-- before the bomb); his machine: DevFly.CT (and DevFly.God's impact); every
+-- screen: VFX.CTX (Effects.DevFly Kind Crater). Every number measured on
+-- the real city first: r99/out/craters_sims.txt (r99/scratch_craters/sim).
+--   WHO: FULL POWER only (Kit.DF.fullPower: a dev, or a grant with it) - the
+--     bomb's rule: anyone else's crash is what the bomb does for them (the
+--     flight's plain crater)
+--   WHERE ((round 99 review) the city's only, as LIGHTWIPE had it): the
+--     city's street (the map's Roads / Ground) under the crash within Snap
+--     studs - a roof, the street. Not the Sky Coffin's floor (1600 up: the
+--     ranked duels' stage, Destroyable - a 90-stud crater would take the
+--     whole stage out from under a duel), nor anywhere off the map (space,
+--     the moon): the bomb there, as ever
+--   Light: his machine says he hit at LIGHTSPEED (DevLand's Crater "Light",
+--     at Speed+ - only LIGHTSPEED gets there: the burst tops out at 980, the
+--     dive at 760; a dive or a fall down a building's shaft from LIGHTSPEED
+--     keeps his speed) and the server's own view of him is MinSeen+ - asked
+--     again Retry.Times times, Retry.Wait s apart (round 89's lesson: his
+--     machine meets the street before the server's view of him catches up),
+--     then the bomb after all; seen no faster than a bomb's: the crash as ever
+--   God: his machine says GODSPEED (Crater "God") and the server's seen him
+--     at MinSeen+ (Kit.GOD.impactOk: now, or as he came out of it) - else
+--     it's LIGHTSPEED's
+--   Each tier:
+--     Radius: the crater (studs; its middle Lift x it over the street - the
+--       street and whatever stands round it blown out: Profile, at most
+--       Budget pieces - on the real city's densest corners a whole crater
+--       needs less, so it's never left with a strip of street across it)
+--     Rips: the buildings round it ripped apart - Count lines out from the
+--       crater, the first building part each meets within Reach studs (at
+--       Height x Radius over the street), blown open there (a sphere of
+--       Radius pushed into it, Profile, Budget each) as the ring gets there
+--     Reach: who's hit - everyone within it of the crater (the rules every
+--       hit goes by: Kit.DF.canKnock - one the flight's own ram knocked down
+--       a moment ago too, Crater.RamGrace; a ranked duel's two left alone;
+--       never him), as the ring gets to them: Damage.Near at the crater
+--       falling off straight to Damage.Far at the reach, never more than
+--       MaxShare of their max health (the bomb's cap: nobody one-shot - most
+--       of the crater's own ground takes the cap); thrown straight out (Out / Up:
+--       Near -> Far, over PushTime s; never off the city - Kit.ST.keepOn,
+--       KeepEdge studs inside it), off their feet Down s (Near -> Far)
+--     Ring: the shock ring's law - Reach studs in Time s (+ Delay), r =
+--       Reach x (t / Time) ^ Power: explosive at first, slowing as a blast
+--       does - one law for the hits, the rips, every screen's ring and dust
+--     Hold: s he stays down in the crater (the crash's own is 1.45)
+--     Look (VFX.CTX; half as much on a low-end machine): Flash - the
+--       white-out (s: his own, the nearest, the farthest - by FlashFar
+--       studs); Fireball - studs across from -> to in Rise s, gone in Life
+--       s; Dome - the shock dome (studs across, s); Ring - the ring of light
+--       on the street (Segments / Low); Dust - the dust wall rolling out to
+--       Reach studs (Height studs from -> to, Puffs / Low, Life s);
+--       Mushroom - the cloud over the crater climbing to Height (Rise s to
+--       most of it), Width across, Stem / Cap puffs, fire in it Glow s, gone
+--       over Life s (on his own screen only its cap: he's in its stem);
+--       Bowl - the crater on the street (Slabs round its rim, Cracks out to
+--       x Radius, the scorch; it Stays s); Debris - chunks thrown high
+--       (Count, Speed studs/s, Up: how much of it up, Size studs, Life s);
+--       Embers; Shake - how hard, felt how far (studs: across the city), s -
+--       harder close, Mine x it on his own screen; Rumble - the ground
+--       shaking near it as the cloud goes up; OwnDust - the crash's dust
+--       burst on his own screen no bigger than this (he's in the middle of
+--       it); Sound - the boom (Cue), the cloud's rumble (Rumble). (GODSPEED's
+--       own over it: Glow, and VFX.GSX.impact's rings, lightning and GodImpact.)
+--       Range ((round 99 review)): a screen further off than this (studs:
+--       the moon, deep space) plays none of it - no white-out, no boom, no
+--       ~800 parts for something it can't see (his own always)
+--       What a crater costs a screen (the parts it makes, most short-lived):
+--       r99/out/craters.md - measured, and checked by the client snippet
+--   Carve: the server's own bucket for every crater (the map's everyone's):
+--     Rate pieces a second, Burst at once; with less than Min left the
+--     crater still hurts and shows but doesn't carve (the bomb's rule). On
+--     the real city a LIGHTSPEED crater carves 560-770 pieces (+ its rips,
+--     at most 720), a GODSPEED one 810-1340 (+ its rips, at most 840): at
+--     most 1820 / 2340 - every crater under the Serious Punch's 2400 (and
+--     IT'S A NUKE's 3300; the biggest single carve the size of the nuke's
+--     last ring); a full bucket is one GODSPEED crater
+--   Snap: the crater goes on what's under the crash (the map, at most Snap
+--     studs down): the server's view of him is a beat behind at these speeds
+--     - over the roof he came down on, or up in the air (round 92's review)
+--   Keep: s his machine remembers a crash at GODSPEED (the way down a
+--     building's shaft comes first, then the crater at the bottom)
+Config.DevFlight.Crater = {
 	Enabled = true,
-	Speed = 1100,
-	MinSeen = 1000, Retry = { Times = 3, Wait = 0.1 },
-	Cooldown = 30,
-	Drop = 220,
-	-- ((round 92 review) the server puts the crater on the city's street
-	-- straight under where it has the crash, looking at most Snap studs
-	-- down: its view of him is a beat behind at 1400 studs/s - over the
-	-- roof he came down on, or up in the air)
+	Retry = { Times = 3, Wait = 0.1 },
 	Snap = 600,
-	Hold = 2.2,
-	LateWait = 1.5, -- (s after a screen loads before it looks for one going on: the map streams in first)
-	Wave = { Reach = 1300, Time = 2.6, Power = 0.72, Delay = 0.05 },
-	Radius = 1800, Above = 320, Below = 140,
-	Damage = { Near = 70, Far = 14, Full = 40, Curve = 2 }, MaxShare = 0.3,
-	Push = { Near = 260, Far = 110 }, Lift = { Near = 140, Far = 70 }, PushTime = 0.35, Edge = 40,
-	Down = { Near = 2.8, Far = 1.8 },
-	Crater = 34, Profile = "LightWipe", CraterBudget = 1100,
-	Furrows = 6, FurrowStart = 30, FurrowLength = 240, FurrowRadius = 14, FurrowBudget = 210, FurrowProfile = "SeriousPunch",
-	World = {
-		Speed = { Near = 1150, Far = 360, Fade = 1300 }, SpeedJitter = 0.25,
-		Up = { Near = 280, Far = 70 },
-		Hold = 8, RewindSpan = 1.6, RewindTime = 1.6, MaxTime = 32,
-		ScanBudget = 600, PrimeHold = 40,
-		-- ((round 92 review) a screen reads the city ahead from a point on its
-		-- street: under where the light barrier broke, this camera or this
-		-- screen's body - looking at most PrimeDepth studs down)
-		PrimeDepth = 4000,
-		Wall = { Segments = 56, LowSegments = 28, Height = 12, Size = { 26, 90 }, Reach = 1600 },
-		Scour = { Count = 40, LowCount = 18, Length = { 120, 520 }, Width = { 8, 26 } },
-		Grade = {
-			Windup = { Brightness = 0.55, Contrast = 0.35, Saturation = -0.6, Tint = Color3.fromRGB(240, 246, 255) }, -- (the white-out: the engine's own, the punch's)
-			After = { Brightness = -0.07, Contrast = 0.2, Saturation = -0.38, Tint = Color3.fromRGB(255, 214, 178) },
-			AfterDelay = 0.05, AfterTime = 0.6, -- (the white-out clears faster than the punch's: the blast's to be seen)
-			SunRays = { Intensity = 0.22, Spread = 0.9 },
+	Keep = 1.5,
+	RamGrace = 0.75,
+	Carve = { Rate = 450, Burst = 2400, Min = 200 },
+	Light = {
+		Speed = 1100, MinSeen = 1000,
+		Radius = 60, Lift = 0.2, Profile = "FlightCrater", Budget = 1100,
+		Rips = { Count = 6, Reach = 130, Height = 0.35, Radius = 16, Budget = 120, Profile = "CraterRip" },
+		Reach = 200, Damage = { Near = 120, Far = 20 }, MaxShare = 0.3,
+		Out = { Near = 300, Far = 90 }, Up = { Near = 170, Far = 55 }, PushTime = 0.35, KeepEdge = 40,
+		Down = { Near = 3, Far = 1.4 },
+		Ring = { Reach = 640, Time = 1.1, Power = 0.62, Delay = 0.02 },
+		Hold = 1.9,
+		Look = {
+			Flash = { 0.45, 0.35, 0.1 }, FlashFar = 2000, Range = 6000,
+			Fireball = { 30, 240, Rise = 0.35, Life = 1.6 },
+			Dome = { 560, 0.8 },
+			Ring = { Segments = 32, Low = 16 },
+			Dust = { Reach = 300, Height = { 10, 34 }, Puffs = 32, Low = 16, Life = 6 },
+			Mushroom = { Height = 360, Rise = 1.6, Width = 280, Stem = 10, LowStem = 6, Cap = 14, LowCap = 8, Glow = 1.6, Life = 10 },
+			Bowl = { Slabs = 20, Cracks = 2.2, Stay = 18 },
+			Debris = { Count = 34, Speed = { 150, 320 }, Up = 1.8, Size = { 1, 4 }, Life = 6 },
+			Embers = 220,
+			Shake = { 5, 1600, 1.6 }, Mine = 0.8,
+			Rumble = { 0.5, 600, 3 },
+			OwnDust = 14,
+			Sound = { Cue = "DevFlyCrater", Rumble = "DevFlyCraterRumble" },
 		},
-		Sky = {
-			Cover = 0.82, Density = 0.78, Color = Color3.fromRGB(92, 78, 70), Time = 2.6, ClearTime = 1.3,
-			Vortex = 0, LowVortex = 0, Height = 260, Radius = { 700, 140 }, Size = { 190, 80 },
-			Dark = Color3.fromRGB(70, 60, 56), Light = Color3.fromRGB(150, 140, 132),
-		},
-		Hit = 7, Fov = 16, Flash = 0.3,
-		Range = 2800,
 	},
-	Look = {
-		Flash = { 1.1, 0.75, 0.3 },
-		Pillar = { Height = 1600, Radius = { 10, 70 }, Life = 1.6 },
-		Fireball = { 30, 230, Rise = 0.35, Life = 1.6 },
-		Prism = { 900, Life = 1 },
-		Dome = { 0.25, 0.9 },
-		Front = { Segments = 40, Low = 20 },
-		Mushroom = { Height = 520, Rise = 1.9, Drift = 0.015, Width = 380, Stem = 16, LowStem = 8, Cap = 18, LowCap = 10, Collar = 10, LowCollar = 6, Glow = 1.8 },
-		Shake = { 5, 2600, 1.6 }, Rumble = { 0.6, 700, 3.5 },
-		Title = true,
-		Cinematic = true,
-		-- (his cinematic: each shot T s, From / To = { where, looking at } in
-		-- his space as he hit - X right, Y up, -Z ahead; Fov from -> to: him in
-		-- the crater as the white clears, the crane up and back over the city
-		-- as it goes, the cloud climbing over him from the empty street)
-		Shots = {
-			{ T = 0.6, From = { Vector3.new(3, 2, -9), Vector3.new(0, 1, 0) }, To = { Vector3.new(4, 3, -12), Vector3.new(0, 1.5, 0) }, Fov = { 70, 74 } },
-			{ T = 3.2, Cut = true, From = { Vector3.new(0, 60, 160), Vector3.new(0, 30, -60) }, To = { Vector3.new(0, 520, 640), Vector3.new(0, 0, -420) }, Fov = { 72, 80 }, Style = Enum.EasingStyle.Quad },
-			{ T = 1.6, Cut = true, From = { Vector3.new(-220, 8, -300), Vector3.new(0, 230, 0) }, To = { Vector3.new(-240, 12, -330), Vector3.new(0, 280, 0) }, Fov = { 76, 74 } },
+	God = {
+		MinSeen = 2000,
+		Radius = 90, Lift = 0.15, Profile = "FlightCrater", Budget = 1500,
+		Rips = { Count = 7, Reach = 200, Height = 0.3, Radius = 20, Budget = 120, Profile = "CraterRip" },
+		Reach = 320, Damage = { Near = 140, Far = 25 }, MaxShare = 0.3,
+		Out = { Near = 360, Far = 110 }, Up = { Near = 200, Far = 65 }, PushTime = 0.35, KeepEdge = 40,
+		Down = { Near = 3.4, Far = 1.6 },
+		Ring = { Reach = 1000, Time = 1.4, Power = 0.6, Delay = 0.02 },
+		Hold = 2.3,
+		Look = {
+			Flash = { 0.6, 0.45, 0.14 }, FlashFar = 2600, Range = 8000,
+			Fireball = { 50, 360, Rise = 0.42, Life = 2 },
+			Dome = { 900, 1 },
+			Ring = { Segments = 40, Low = 20 },
+			Dust = { Reach = 460, Height = { 14, 48 }, Puffs = 44, Low = 22, Life = 7 },
+			Mushroom = { Height = 560, Rise = 2, Width = 440, Stem = 12, LowStem = 7, Cap = 18, LowCap = 10, Glow = 2.2, Life = 12 },
+			Bowl = { Slabs = 26, Cracks = 2.2, Stay = 22 },
+			Debris = { Count = 44, Speed = { 200, 420 }, Up = 2, Size = { 1.2, 5 }, Life = 7 },
+			Embers = 320,
+			Shake = { 6.5, 2800, 2 }, Mine = 0.8,
+			Rumble = { 0.7, 900, 3.5 },
+			OwnDust = 14,
+			-- (the crater glowing white-hot and cooling - Radius studs, Life s -
+			-- its gold and electric-blue rings, lightning thrown up: GODSPEED's
+			-- own over it, VFX.GSX.impact)
+			Glow = { Radius = 54, Life = 9 },
+			Sound = { Cue = "DevFlyCrater", Rumble = "DevFlyCraterRumble" },
 		},
 	},
 }
 do
-	local LWC = Config.DevFlight.LightWipe
-	-- the last one, as the server keeps it on workspace (LightWipe): every
-	-- machine's cooldown, and a late joiner's screen plays what's left of it
-	function LWC.encode(id, origin, at)
-		return string.format("%d|%.2f|%.2f|%.2f|%.3f", id, origin.X, origin.Y, origin.Z, at)
+	local CT = Config.DevFlight.Crater
+	-- a tier's numbers by name ("Light" / "God"), or nil
+	function CT.tier(name)
+		return (name == "Light" or name == "God") and CT[name] or nil
 	end
-	function LWC.decode(s)
-		if type(s) ~= "string" then
+	-- when the shock ring gets d studs out (s after the impact), and how far
+	-- out it is t s after it
+	function CT.arrive(T, d)
+		local R = T.Ring or {}
+		local a = math.max(tonumber(d) or 0, 0) / math.max(R.Reach or 640, 1)
+		return (R.Delay or 0) + (R.Time or 1.1) * a ^ (1 / math.max(R.Power or 0.62, 0.05))
+	end
+	function CT.reach(T, t)
+		local R = T.Ring or {}
+		local a = math.max(((tonumber(t) or 0) - (R.Delay or 0)) / math.max(R.Time or 1.1, 1e-3), 0)
+		return (R.Reach or 640) * a ^ math.max(R.Power or 0.62, 0.05)
+	end
+	-- whether someone d studs from the crater is in its reach, and how much
+	-- of it gets to them (1 at the crater, 0 at the reach); nil: past it
+	function CT.falloff(T, d)
+		d = tonumber(d) or math.huge
+		local reach = T.Reach or 200
+		if d ~= d or d > reach then
 			return nil
 		end
-		local id, x, y, z, at = string.match(s, "^(%d+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)$")
-		x, y, z, at = tonumber(x), tonumber(y), tonumber(z), tonumber(at)
-		if not (id and x and y and z and at) or x ~= x or y ~= y or z ~= z or at ~= at or math.abs(x) > 1e6 or math.abs(y) > 1e6 or math.abs(z) > 1e6 then
-			return nil
-		end
-		return { Id = tonumber(id), Origin = Vector3.new(x, y, z), At = at }
+		return 1 - math.max(d, 0) / reach
 	end
-	-- how long one lasts on a screen: the wave out to the city's far side,
-	-- the empty plain, the rewind (s after the impact)
-	function LWC.span()
-		local W, V = LWC.World, LWC.Wave
-		return (V.Delay or 0) + (V.Time or 2.1) * 1.4 + 0.3 + (W.Hold or 8) + (W.RewindSpan or 1.6) + (W.RewindTime or 1.6)
+	-- that much of it: the damage (before the cap), the throw out, the lift,
+	-- how long off their feet - each Near at the crater to Far at the reach
+	-- (all 0: past it)
+	function CT.amounts(T, d)
+		local g = CT.falloff(T, d)
+		if not g then
+			return 0, 0, 0, 0
+		end
+		local function at(t, near, far)
+			t = t or {}
+			return (t.Far or far) + ((t.Near or near) - (t.Far or far)) * g
+		end
+		return at(T.Damage, 120, 20), at(T.Out, 300, 90), at(T.Up, 170, 55), at(T.Down, 3, 1.4)
 	end
 end
 
--- (round 92) THE LIGHT WIPE's wave - the Serious Punch's law (Config.
--- SeriousWave) for a blast from a point: when it reaches pos (s after the
--- impact), never "in a line", no front (0), how far (flat). spec: the
--- LightWipe's Wave. And how far out the front is t s after it.
-function Config.LightWave(spec, origin, _d, pos)
-	local dist = Vector3.new(pos.X - origin.X, 0, pos.Z - origin.Z).Magnitude
-	local reach = math.max(spec.Reach or 1300, 1)
-	return (spec.Delay or 0) + (spec.Time or 2.1) * (dist / reach) ^ (1 / math.max(spec.Power or 0.7, 0.05)), false, 0, dist
-end
-function Config.LightReach(spec, t)
-	local a = math.max(((tonumber(t) or 0) - (spec.Delay or 0)) / math.max(spec.Time or 2.1, 1e-3), 0)
-	return (spec.Reach or 1300) * a ^ math.max(spec.Power or 0.7, 0.05)
+---------------------------------------------------------------------------
+-- (round 99) GODSPEED - THE LAST SPEED: THE STRONGEST THING IN THE GAME
+-- GOING OFF. The owner, on round 99's first GODSPEED (a time stop): "godspeed
+-- looks weird and is broken i think. i was thinking more of powerful thing
+-- rather than including time. think of just a huge impact and BOOM!!!
+-- godspeed." So: raw power, no time in it anywhere. Server: Kit.GOD
+-- (DF.relay's DevGodCharge / DevGod / DevGodOut, DF.smash's holes at it,
+-- THE BOOM's knock and the wake); his machine: DevFly.God; every screen:
+-- VFX.GSX (and its crater: VFX.CTX - Config.DevFlight.Crater.God); his HUD: the meter's GODSPEED,
+-- HUD.FlightGod / GodBoom / GodOut. Every number measured first:
+-- r99/out/godspeed2_sims.txt (r99/scratch_gs2/sims2.py, on the real city);
+-- the flight itself (the speed, the steering, the leash, the floor) as
+-- round 99's first build measured it: r99/out/godspeed_sims.txt.
+--   THE CHARGE: at LIGHTSPEED (W and sprint held) the burst key held AGAIN
+--     (Q / Y / the phone's DASH - a new press: LIGHTSPEED's own hold was
+--     spent on its break) for Charge s - the power building in him: his
+--     body crackling white-gold, lightning forking off it (Look.Charge),
+--     the air round him warping, a rising roar and a deep rumble, his
+--     camera shaking harder and harder and the view tightening (ChargeFov),
+--     dust and debris pulled up off the street toward him if he's low. Let
+--     go early: it drains, nothing goes off. Who: whoever flies at
+--     LIGHTSPEED (LIGHTSPEED's own gates: a dev, or a grant -
+--     Kit.DF.canFly); never while he carries someone; a BOOM every Cooldown
+--     s at most; the server shows it only at a speed it's seen him reach
+--     itself (Seen x LIGHTSPEED, asked again Retry times - round 89's lesson)
+--   THE BOOM (the release): a white flash; a shock sphere blasting out from
+--     him (Look.Boom.Sphere studs across: seen from anywhere in the city); a
+--     ring torn through the clouds over him; a shock ring racing over the
+--     streets under him; glass and loose debris blown off the buildings
+--     near him (each screen's own); every screen shaking (harder the
+--     closer) and the boom heard by everyone - late by the distance, like
+--     the sonic boom; anyone within Boom.Reach blown off their feet (the
+--     server, by the rules every knock goes by - Kit.DF.canKnock - a ranked
+--     duel's two left alone; a hit only with FULL POWER, and small:
+--     Boom.Damage, never more than MaxShare of their max health). His
+--     camera kicked (Kick, BoomFov), and he's gone at Speed in Jump s.
+--   AT GODSPEED (W and sprint held, as long as he likes): a blazing plasma
+--     sheath round him (white-gold core, electric-blue edge), a huge shock
+--     cone, booms going off behind him in a chain, a thick contrail laid
+--     across the sky that lingers (everyone sees where he went), the street
+--     torn up in a wake when he skims low, buildings he hits EXPLODING open
+--     (Smash: bigger holes than LIGHTSPEED's - FULL POWER's; without it
+--     LIGHTSPEED's own hole - inside the server's carve bucket), people
+--     near his line blown away (Wake: the server's own view of his path; a
+--     hit only with FULL POWER, and small). Nothing but the city's street
+--     stops him: anything else in his way is opened on his screen as he
+--     comes (the Sky Coffin's field keeps the flight's own rules: FULL POWER
+--     breaks it, else it stops him - and he drops out of it). His sound: a
+--     roaring power bed over LIGHTSPEED's (Sound.Beds GodRoar / GodGrowl),
+--     a whomp and a boom as he goes past you. Steering: the heading swung to
+--     the camera's look at Steer.K x how far off it is, never faster than
+--     Steer.Max rad/s; the leash round the city (Leash - only while he's
+--     within Leash.Up studs over the street: higher, the flight's own Bounds
+--     do); never through the flight's ceiling or the void's floor, not even
+--     for a frame; the server asks for the map round where he's going (Stream)
+--   INTO THE GROUND ((round 99, craters) the owner: "get rid of lightwipe
+--     just make the crater bigger, for both lightspeed and godspeed"):
+--     FULL POWER only - GODSPEED's CRATER (Config.DevFlight.Crater.God: the
+--     biggest of the three - the bomb's, LIGHTSPEED's, this - the server
+--     calls it that only having seen him at its MinSeen; its caps: nobody
+--     one-shot). Without FULL POWER: out of it, and the crash at LIGHTSPEED's.
+--   OUT OF IT (the burst pressed again - back to LIGHTSPEED, the meter's
+--     way out; letting go of W or sprint - LIGHTSPEED let go of too, as ever;
+--     the brake, the dive, a move, a hit, a grab, V, death, a wall that
+--     won't open): back to LIGHTSPEED's speed
+--     with a closing boom; his body never left going faster than LIGHTSPEED
+--     (the flight lets go of it for a move or a hit, and V drops him with
+--     some of his speed - at GODSPEED's that threw him off the map); never
+--     out of the flight's own collision group (round 99's first build put
+--     him through the street when a hit took him at it); everything his look
+--     put on any screen gone and put back exactly.
+Config.DevFlight.God = {
+	Enabled = true,
+	-- (2.1 x LIGHTSPEED - the first build's sims: at 3000 a U-turn is 566
+	-- studs across, inside the city's 880-stud block; faster is only more of
+	-- his time out over the void, and more of the map to stream ahead)
+	Speed = 3000, Charge = 1.8, Jump = 0.18, Cooldown = 5,
+	-- (the meter at LIGHTSPEED: LIGHT BARRIER BROKEN for HintAfter s, then the way on)
+	HintAfter = 1.2,
+	-- the steering: the heading swung at K x how far off his look it is,
+	-- never faster than Max rad/s (a 90-degree flick in 0.18 s, 418 studs wide)
+	Steer = { K = 12, Max = 12 },
+	-- the leash round the city: past Soft studs (flat) from its middle
+	-- (Bounds.Center) the way out is taken off what he wants - all of it at
+	-- Hard (he slides round). Only while he's under Up studs over the street
+	-- (gone over Fade more): higher up the flight's own Bounds hold - up there
+	-- is open sky (and space)
+	Leash = { Soft = 1250, Hard = 1650, Up = 2000, Fade = 500 },
+	Floor = 5, -- (studs over the flight's Bounds.Floor: never under it, even for a frame)
+	-- the camera: Fov at it (BoomFov thrown wider on THE BOOM, ChargeFov the
+	-- view tightened to as it charges), trailing Lag studs, rolled Roll into
+	-- turns, Kick studs left behind at THE BOOM; his body: Bank / Align / HeadUp
+	Fov = 118, ChargeFov = 90, BoomFov = 30, Lag = 7, Roll = 10, Bank = 60, Align = 14, HeadUp = 0, Kick = 22, Shake = 0.55,
+	-- the server shows the charge and THE BOOM only once it's seen him at
+	-- Seen x LIGHTSPEED (asked again Retry.Times, Retry.Wait s apart); at
+	-- GODSPEED till his tier's said something else Grace s (or he's down)
+	Seen = 0.6, Retry = { Times = 3, Wait = 0.1 }, Grace = 0.8,
+	-- the map round where he's going: Ahead s down his path every Every s,
+	-- the city's middle every Middle s; at most Most asks on their way
+	Stream = { Every = 0.1, Ahead = { 0.12, 0.3, 0.5 }, Middle = 0.5, Timeout = 1, Most = 6 },
+	-- THE BOOM's knock: everyone within Reach (not him) thrown out from him
+	-- (Push near -> far, Lift), off their feet Down s; FULL POWER's hit
+	-- Damage near -> far, never more than MaxShare of their max health
+	-- (the sims: everyone it reaches goes over Ragdoll.MinSpeed)
+	Boom = { Reach = 150, Push = { 210, 90 }, Lift = { 120, 50 }, PushTime = 0.35, Down = { 2.4, 1.2 }, Damage = { 12, 4 }, MaxShare = 0.1, Edge = 40 },
+	-- AT GODSPEED, people within Width studs of his line (the server's own
+	-- view of it, swept between its looks at him) blown away from it - on
+	-- along it (Along x the push), up - each at most once every Every s
+	Wake = { Width = 30, Every = 1, Push = { 170, 90 }, Along = 0.6, Lift = { 90, 50 }, PushTime = 0.3, Down = { 2, 1.2 }, Damage = { 8, 3 }, MaxShare = 0.1, Edge = 40 },
+	-- buildings he goes through: one hole asked for a building (his machine:
+	-- at most Rate a second, Look s of flight ahead of him), the server's
+	-- clamped to where it sees him. FULL POWER: they EXPLODE - a Sphere of
+	-- Radius x SphereK at the way in (SphereBudget) and a Capsule of Radius on
+	-- through it Length studs (CapsuleBudget), the Profile's (scorched, blown
+	-- out) - out of his carve bucket (Carve: Rate a second, Burst at once;
+	-- too little left: the plain hole). The plain hole: LIGHTSPEED's own
+	-- (PlainRadius, PlainProfile, PlainBudget). Never the street (Above)
+	Smash = {
+		Radius = 15, SphereK = 1.2, Length = 70, Profile = "FlightBomb", SphereBudget = 320, CapsuleBudget = 200,
+		PlainRadius = 8, PlainProfile = "FlyThrough", PlainBudget = 160,
+		Carve = { Rate = 900, Burst = 2700 }, Rate = 12, Look = 0.08, Gap = 0.5,
+	},
+	-- ((round 99, craters) INTO THE GROUND: GODSPEED's crater - Config.
+	-- DevFlight.Crater.God; LIGHTWIPE's end of the map, its old impact, is gone)
+	Look = {
+		Core = Color3.fromRGB(255, 250, 236), Gold = Color3.fromRGB(255, 212, 104), Deep = Color3.fromRGB(255, 160, 54), Blue = Color3.fromRGB(92, 170, 255),
+		-- THE CHARGE on him (every screen): his shake from -> to (his screen,
+		-- every ShakeEvery s), Bolts lightning forks a second (from -> to;
+		-- each BoltLen studs long, BoltWidth thick, there BoltLife s), the
+		-- air warping round him (Warp: studs across from -> to), the glow
+		-- round him (studs), Pull - dust and debris pulled up off the street
+		-- within Height studs under him (Rate a second at full, from Reach
+		-- studs round). (The renders: at the first sizes it was a speck from
+		-- the street under him - bigger, so it reads from down there)
+		Charge = {
+			Shake = { 0.2, 1.7 }, ShakeEvery = 0.08,
+			Bolts = { 10, 40 }, LowBolts = { 5, 18 }, BoltLen = { 6, 32 }, BoltWidth = { 0.2, 0.65 }, BoltLife = 0.1,
+			-- ((round 99 review) Glow.Mine: how much of the glow his own screen
+			-- gets - the camera looks down his line through it, and at 0.6 it hung
+			-- a white-gold blob over where he was about to go)
+			Warp = { 8, 40 }, Glow = { Length = 11, Width = 5.6, Mine = 0.35 },
+			Pull = { Height = 220, Rate = 36, LowRate = 16, Reach = 70 },
+		},
+		-- THE BOOM: Flash s (his own, the nearest, the farthest - by Far
+		-- studs); the shock Sphere (studs across - a part's 2048 at most - in
+		-- SphereTime s); its Core fireball; the Cloud ring (Rise studs over him,
+		-- at least Min over the street; out to Radius in Time s, Puffs - each
+		-- at least Overlap x the gap to the next, Flat as tall as wide: one
+		-- unbroken ring, not a ring of dots); the
+		-- Street ring (out to Radius in Time s, Segments; only with the
+		-- street within Depth under him); the Glass blown off the buildings
+		-- round him (Range studs, Rays, at most Most bursts); the Shake (how
+		-- hard, felt how far, s); its sound late by the distance at most Delay s
+		Boom = {
+			Flash = { 0.4, 0.28, 0.1 }, Far = 2600,
+			Sphere = 2040, SphereTime = 1.25, Core = 130,
+			-- ((round 99 review) the cloud ring lit by the flash - Glow: how see-through
+			-- it starts. Plain white puffs were shaded grey underneath, the side
+			-- everyone on the street sees: a chain of grey sausages over the city)
+			Cloud = { Rise = 260, Min = 520, Radius = 1800, Time = 2.6, Puffs = 32, LowPuffs = 16, Size = { 90, 180 }, Overlap = 1.5, Flat = 0.4, Glow = 0.3 },
+			Street = { Radius = 1600, Time = 1.6, Segments = 40, LowSegments = 20, Depth = 1500 },
+			Glass = { Range = 280, Rays = 28, LowRays = 14, Most = 10 },
+			Shake = { 6, 3200, 1.4 }, Delay = 3.2,
+		},
+		-- AT GODSPEED: the plasma Sheath (studs: long, wide, a little ahead of
+		-- him); the shock Cone (studs: long, round at its back; Facets x2
+		-- wedges); the Chain of booms behind him (one every Every s; its ring
+		-- studs across; heard and felt within Range); the Contrail (a piece
+		-- every Every studs he goes, Fresh.Width thick right behind him,
+		-- Width's first in Fresh.Time s -> its second, held Life s, at most
+		-- Max pieces; its gold Core a moment); the Wake when
+		-- he's within Height studs of the street (a burst every Every studs);
+		-- his screen's Grade and Streaks. (No contrail within Contrail.Low studs
+		-- of the street: down there it filled the street for its Life - the wake's)
+		-- ((round 99 review) Mine: how much of the sheath his own screen gets -
+		-- the camera's behind him looking down his line through it: at 0.5 a
+		-- glowing blob over the middle of his view, bloomed white, where the
+		-- buildings come at him 50 studs a frame. LIGHTSPEED's own is ~0.15)
+		Sheath = { Length = 15, Width = 6, Ahead = 1.6, Mine = 0.28 },
+		Cone = { Length = 46, Radius = 17, Facets = 10, LowFacets = 6, Transparency = 0.7 },
+		Chain = { Every = 0.2, LowEvery = 0.35, Ring = 80, Range = 1800 },
+		Contrail = { Every = 60, Width = { 18, 44 }, Fresh = { Width = 5, Time = 0.35 }, Life = 14, Max = 140, LowMax = 70, Low = 150, Core = { Width = 3, Life = 1.2 } },
+		-- ((round 99 review) the wake: a burst every Every studs - but never more
+		-- than Most a second (at 3000 studs/s Every alone was one a frame on every
+		-- screen: ~40 parts each, its cracks living 7 s - 500 cracks after one
+		-- 0.3 s pass down a street, thousands over a low run). Each: a Furrow
+		-- torn along the street from the last one (Width studs, its hot Seam a
+		-- moment, gone over Life s) - one part for the whole stretch - Chunks
+		-- thrown up, Cracks round it (CrackLife s), dust
+		Wake = { Height = 70, Every = 45, Most = 14, Chunks = 5, Cracks = 3, CrackLife = 3.5, Furrow = { Width = 8, Life = 6, Seam = 0.7 } },
+		-- ((round 99 review) Bloom 1.1 at Threshold 0.85 bloomed the sky itself
+		-- white over LIGHTSPEED's own 0.7 fading out: LIGHTSPEED's threshold)
+		Grade = { Saturation = 0.22, Contrast = 0.2, Brightness = 0.03, Tint = Color3.fromRGB(255, 240, 220), Bloom = 0.8, Threshold = 0.9 },
+		Streaks = { Count = 44, Len = { 70, 170 }, Round = { 14, 90 }, Ahead = { 140, 900 }, Width = 0.003 },
+		-- a building blown open (Blast: the fireball's studs across)
+		Blast = { Fire = 50, Chunks = 18 },
+		-- OUT OF IT: the closing boom's ring (studs)
+		Out = { Ring = 110 },
+	},
+}
+Config.DevFlight.Tiers.God = Config.DevFlight.God -- (a tier like the others: TIERS.God)
+do
+	local GC = Config.DevFlight.God
+	-- the turn at GODSPEED: how fast (rad/s) the heading swings toward his
+	-- look when it's `ang` radians off - K x it, never faster than Max.
+	-- Shared, so his machine and the sims agree (r99/gs/sims.py)
+	function GC.turnRate(ang)
+		local ST = GC.Steer or {}
+		return math.min((ST.K or 12) * math.max(tonumber(ang) or 0, 0), ST.Max or 12)
+	end
+	-- how much of the leash holds at height h (studs over the street): all of
+	-- it under Up, none past Up + Fade
+	function GC.leashK(h)
+		local LS = GC.Leash or {}
+		local up, fade = LS.Up or 2000, math.max(LS.Fade or 500, 1)
+		return 1 - math.clamp(((tonumber(h) or 0) - up) / fade, 0, 1)
+	end
+	-- a knock's numbers d studs from where it came from (reach R): the push,
+	-- the lift, how long down, the hit (before its cap) - near -> far
+	function GC.knock(spec, d, R)
+		local k = 1 - math.clamp((tonumber(d) or 0) / math.max(R or 1, 1), 0, 1)
+		local function at(pair)
+			return pair[2] + (pair[1] - pair[2]) * k
+		end
+		return at(spec.Push or { 0, 0 }), at(spec.Lift or { 0, 0 }), at(spec.Down or { 1, 1 }), at(spec.Damage or { 0, 0 }), k
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -2172,50 +2433,80 @@ Config.Inasa = {
 	-- own: short black hair under the cap, big wide eyes, thick brows and a
 	-- huge toothy grin (Face; wilder in the ult). Over: how far the coat
 	-- stands off the body.
+	-- (round 99) the colours brought in line with the anime (r99
+	-- inasa_research 3.1): the sleeve on the gloved arm is the coat's
+	-- burgundy, the fur near-white, the cap navy with a red-orange band, the
+	-- right sleeve navy with a gold stripe, the glove tan with brass knuckle
+	-- caps (Pipe) and a black nozzle block on the back of the hand
+	-- (GloveUnit), the shoulder plate and the knee pads cream (Plate) - the
+	-- pads with two black holes each (PadHole), like a gas mask - navy
+	-- shins below burgundy trousers (Shin), maroon-brown boots, a tan
+	-- webbing belt (Belt, a gunmetal Buckle), dark hose coils on the hips and
+	-- round the ankles (Hose)
 	Look = {
 		Coat = Color3.fromRGB(128, 28, 46),
 		CoatDark = Color3.fromRGB(92, 18, 32), -- (the cape's lining and edge)
-		Button = Color3.fromRGB(242, 198, 52),
-		Fur = Color3.fromRGB(234, 220, 188),
-		Sleeve = Color3.fromRGB(112, 74, 48),
-		Glove = Color3.fromRGB(214, 176, 122),
-		Pipe = Color3.fromRGB(150, 156, 166),
-		Under = Color3.fromRGB(44, 74, 150),
-		Pants = Color3.fromRGB(84, 22, 36),
-		Shoe = Color3.fromRGB(90, 56, 34),
-		Plate = Color3.fromRGB(118, 124, 134),
-		Cap = Color3.fromRGB(24, 28, 38),
-		Band = Color3.fromRGB(128, 28, 46),
-		Visor = Color3.fromRGB(12, 12, 16),
-		Badge = Color3.fromRGB(242, 198, 52),
-		Hair = Color3.fromRGB(24, 20, 20),
+		Button = Color3.fromRGB(232, 190, 80),
+		Fur = Color3.fromRGB(245, 244, 238),
+		Sleeve = Color3.fromRGB(116, 26, 42),
+		Glove = Color3.fromRGB(214, 190, 148),
+		Pipe = Color3.fromRGB(196, 160, 72),
+		GloveUnit = Color3.fromRGB(34, 34, 38),
+		Under = Color3.fromRGB(36, 46, 92),
+		Stripe = Color3.fromRGB(220, 180, 70),
+		Pants = Color3.fromRGB(110, 24, 40),
+		Shin = Color3.fromRGB(34, 44, 86),
+		Shoe = Color3.fromRGB(106, 50, 38),
+		Sole = Color3.fromRGB(200, 200, 200),
+		Plate = Color3.fromRGB(228, 222, 204),
+		PadHole = Color3.fromRGB(20, 20, 24),
+		Hose = Color3.fromRGB(80, 82, 90),
+		Belt = Color3.fromRGB(214, 196, 156),
+		Buckle = Color3.fromRGB(96, 98, 106),
+		Cap = Color3.fromRGB(34, 42, 84),
+		Band = Color3.fromRGB(214, 84, 48),
+		Visor = Color3.fromRGB(18, 18, 22),
+		Badge = Color3.fromRGB(230, 186, 70),
+		Goggles = Color3.fromRGB(226, 222, 206),
+		Lens = Color3.fromRGB(60, 60, 70),
+		Hair = Color3.fromRGB(40, 30, 26),
 		Over = 0.05,
-		SleeveShare = 0.72, GloveShare = 0.4, ShoeShare = 0.3,
+		SleeveShare = 0.72, GloveShare = 0.4, ShoeShare = 0.26,
+		PantsShare = 0.5, -- (round 99: the trousers to the knee, the navy shin under them)
+		Buttons = 5, -- (round 99: a column, two columns down the chest)
 	},
 	-- THE CAP, in the head's visible size (v = 1.2 studs across for an R6
 	-- head): the Crown sitting Lift over the head's middle, the flared Top
-	-- (tipped back TopTilt degrees), the Band round its foot, the long wide
-	-- Visor out front tipped down VisorTilt degrees, the school's gold Badge
+	-- (tipped back TopTilt degrees), the Band round its foot, the Visor out
+	-- front tipped down VisorTilt degrees, the school's gold Badge.
+	-- (round 99) A taller crown, a shorter visor (the anime's), and the cream
+	-- GOGGLES strapped across the crown's front (Goggle: each of the two
+	-- frames, Lens: the dark glass in it, GoggleY: how high on the crown)
 	Cap = {
-		Crown = Vector3.new(1.24, 0.52, 1.24), Lift = 0.5,
-		Top = Vector3.new(1.42, 0.14, 1.46), TopTilt = 6,
+		Crown = Vector3.new(1.24, 0.6, 1.24), Lift = 0.52,
+		Top = Vector3.new(1.44, 0.14, 1.48), TopTilt = 6,
 		Band = 0.16,
-		Visor = Vector3.new(1.18, 0.07, 0.62), VisorTilt = 16,
-		Badge = Vector3.new(0.26, 0.24, 0.04),
+		Visor = Vector3.new(1.08, 0.07, 0.42), VisorTilt = 11,
+		Badge = Vector3.new(0.22, 0.16, 0.04), BadgeY = 0.2,
+		Goggle = Vector3.new(0.44, 0.24, 0.1), Lens = Vector3.new(0.32, 0.15, 0.04), GoggleY = -0.02, GoggleX = 0.25,
 	},
 	-- HIS FACE (the head's visible size, on its front): big round eyes (the
-	-- white, a gold Iris, a small Pupil), the brows thick and slanted down to
-	-- the middle (BrowTilt degrees), the grin - the mouth's dark rim with the
-	-- Teeth in it and a line between the rows. In the ult it's wilder (Wild x
-	-- the grin and the brows' slant).
+	-- white, a small Pupil), the brows thick and slanted down to the middle
+	-- (BrowTilt degrees), the grin - the mouth's dark rim with the Teeth in it
+	-- and a line between the rows. In the ult it's wilder (Wild x the grin).
+	-- (round 99, inasa_ult) ...the anime's hyped face (r99 inasa_research
+	-- 3.2) in place of the gold irises (canon's eyes are plain): the whites
+	-- WildEye times bigger, the pupils shrunk to pin dots (WildPupil), the
+	-- brows slanted hard (WildBrow degrees), the grin a clenched one of big
+	-- square teeth (WildTeeth x their height; Gaps: the lines between them)
 	Face = {
 		EyeX = 0.21, EyeY = 0.06,
-		Eye = Vector3.new(0.24, 0.22, 0.03), Iris = Vector3.new(0.13, 0.13, 0.02), Pupil = Vector3.new(0.06, 0.07, 0.02),
+		Eye = Vector3.new(0.24, 0.22, 0.03), Pupil = Vector3.new(0.06, 0.07, 0.02),
 		Brow = Vector3.new(0.3, 0.075, 0.03), BrowY = 0.25, BrowTilt = 12,
 		Mouth = Vector3.new(0.58, 0.22, 0.03), MouthY = -0.25,
 		Teeth = Vector3.new(0.5, 0.15, 0.02), TeethLine = 0.022,
-		Ink = Color3.fromRGB(20, 16, 18), White = Color3.fromRGB(250, 250, 246), IrisColor = Color3.fromRGB(236, 176, 40),
-		Wild = 1.15,
+		Ink = Color3.fromRGB(20, 16, 18), White = Color3.fromRGB(250, 250, 246),
+		Wild = 1.15, WildEye = 1.12, WildPupil = 0.66, WildBrow = 24, WildTeeth = 1.3, Gaps = { -0.15, 0, 0.15 },
 	},
 	-- THE CAPE off his shoulders (the long coat's tail): Segments (Width,
 	-- Height studs) hinged at their top edges and swung by every screen from
@@ -2225,13 +2516,23 @@ Config.Inasa = {
 	-- Side: the swing out on turns; Blend: how fast it follows. Within Cull
 	-- studs of the camera (LowCull on a low-end machine). Collar: the fur
 	-- round the top of the torso (Front, Back and each Side piece).
+	-- (round 99) The cape floor-length (the anime's: three segments, widening
+	-- to a bell at the hem, just off the street), the fur collar bigger with
+	-- spiky Tufts round its top (the lion's mane that frames his face), and
+	-- the driver answering his own wind harder: WindLift degrees of lift at a
+	-- full gust (a move's gust may carry its own cap past Max: IN.gust's
+	-- 4th argument - the bow's cape lifted over his back), WindWhip (a faster
+	-- flutter in a gale), and Breeze: the always-on wind's stir (Breeze
+	-- degrees of flutter at the hem, BreezeLift of lift; Config.Inasa.Aura)
 	Coat = {
-		Segments = { { 2.3, 1.45 }, { 2.5, 1.55 } },
+		Segments = { { 2.3, 1.3 }, { 2.5, 1.3 }, { 2.7, 1.2 } },
 		Thick = 0.14,
 		Rest = 5, Lift = 1.8, Max = 72, Fall = 1.2, Side = 1,
-		Flutter = 2.5, FlutterSpeed = 0.22, Rate = 1.4, Wind = 24, Blend = 9,
+		Flutter = 2.5, FlutterSpeed = 0.22, Rate = 1.4, Wind = 30, Blend = 9,
+		WindLift = 64, WindWhip = 1.6, Breeze = 4, BreezeLift = 3,
 		Cull = 160, LowCull = 80,
-		Collar = { Front = Vector3.new(1.7, 0.42, 0.36), Back = Vector3.new(2.2, 0.56, 0.42), Side = Vector3.new(0.4, 0.5, 1.15) },
+		Collar = { Front = Vector3.new(1.8, 0.46, 0.4), Back = Vector3.new(2.4, 0.62, 0.48), Side = Vector3.new(0.46, 0.56, 1.2) },
+		Tuft = Vector3.new(0.44, 0.5, 0.34), -- (each of the 4 spiky tufts on the collar's top)
 	},
 	-- HIS WIND on every screen: the streaks (Air; Pale: their shaded side),
 	-- the street's Dust, the leaves and paper caught up in it (Leaves:
@@ -2244,6 +2545,69 @@ Config.Inasa = {
 		Bits = 10, LowBits = 4,
 		-- the coat snapping in his gusts: how hard (0..1) and how long, a move
 		Gust = 0.7, GustTime = 1.2,
+		-- (round 99) the anime's wind (r99 inasa_research 2.3 and 8): matte
+		-- white bands (Air, Core: the brightest lines) with a pale
+		-- blue-lavender inner edge against the sky (Shade) or a cool grey one
+		-- against the street (ShadeGround), the translucent Haze, the Final
+		-- War's storm ropes (Storm, StormDark, Hatch: the dark streaks in
+		-- them), the street's Rubble (RubbleLight), the aftermath's charcoal
+		-- Smoke and red Embers, the ult's Passion shade, the "wind field"
+		-- sky (SkyDeep -> SkyMid), Grass flattened under a big gust
+		Core = Color3.fromRGB(255, 255, 255),
+		Shade = Color3.fromRGB(175, 200, 235), ShadeGround = Color3.fromRGB(198, 202, 208),
+		Haze = Color3.fromRGB(225, 232, 242),
+		Storm = Color3.fromRGB(178, 168, 148), StormDark = Color3.fromRGB(104, 98, 88), Hatch = Color3.fromRGB(60, 56, 52),
+		Rubble = Color3.fromRGB(110, 110, 115), RubbleLight = Color3.fromRGB(150, 150, 150),
+		Smoke = Color3.fromRGB(62, 58, 62), Ember = Color3.fromRGB(220, 60, 50), Passion = Color3.fromRGB(196, 44, 66),
+		SkyDeep = Color3.fromRGB(25, 55, 165), SkyMid = Color3.fromRGB(70, 120, 210),
+		Grass = Color3.fromRGB(58, 84, 40),
+	},
+	-- (round 99) THE WIND KIT (VFX.WindKit) on every screen: the most one
+	-- call makes (Caps; a low-end machine gets half of each), how the bands
+	-- are lit (Light: LightEmission - matte, the anime's wind doesn't glow;
+	-- Influence: LightInfluence; Bright), how near the camera a band thins
+	-- away (Near: gone at the first, whole from the second - his own screen
+	-- is never whited out), and how many moving pieces the kit runs at once
+	-- on a screen (Live: past it the oldest goes)
+	Kit = {
+		Caps = {
+			Streaks = 12, Curls = 8, Bands = 3, Rings = 10, RingBands = 3, Carried = 4, Debris = 12,
+			TubeRings = 14, Strands = 3, CurtainStreaks = 18, RopeStrands = 3, RopeTurns = 8, Loops = 4, Vents = 8,
+		},
+		Light = 0.12, Influence = 0.3, Bright = 1.2,
+		Near = { 2.5, 6 },
+		Live = 160,
+	},
+	-- (round 99) HIS ALWAYS-ON WIND (VFX.WindKit's driver: every screen
+	-- draws it on every Inasa within Cull studs of its camera - LowCull on
+	-- a low-end machine - scanning for them every Scan seconds). Standing:
+	-- faint streaks circling his feet (Loops: radius, turns a second, how
+	-- see-through, width, each one's arc in degrees), dust curling up at
+	-- them (Dust a second), a curl rising past his shoulders every Curl
+	-- seconds, the cape stirring (Breeze.Idle: Coat.Breeze's share).
+	-- Running (from RunFrom studs/s, full at FullAt): streaks peeling off his
+	-- shoulders (Wake: each streak's life, On seconds drawn then Off apart,
+	-- how see-through, its width), dust kicked up behind him (RunDust a
+	-- second at full), a curl off the cape's hem every HemCurl seconds past
+	-- HemFrom studs/s. In the ult (UltOn): two rings of bands round him
+	-- (Ult: their heights off his root, radius, turns a second, how
+	-- see-through, Bands a ring) with the passion shade, red embers drifting
+	-- up (Embers a second), the cape lifted (Lift degrees) and stirring
+	-- harder. Charge (WK.aura's "charge" mode, a move's windup): a spiral of
+	-- streaks rising round him (Charge: Turns, Period seconds a turn, Radius)
+	Aura = {
+		Cull = 160, LowCull = 80, Scan = 0.5,
+		Loops = { Radius = 2.5, Spin = 0.3, Transparency = 0.7, Width = 0.3, Arc = 150 },
+		Dust = 0.5, RunDust = 8, Curl = { 1.2, 1.8 },
+		RunFrom = 6, FullAt = 24,
+		Wake = { Life = 0.24, On = 0.16, Off = 0.09, Transparency = 0.5, Width = 0.45 },
+		HemFrom = 20, HemCurl = 0.4,
+		Breeze = { Idle = 0.6, Run = 1 },
+		UltOn = true,
+		-- ((round 99, inasa_ult) the ult's rings a touch wider, faster and
+		-- stronger, more embers, the cape held higher: it reads at 30-60 studs)
+		Ult = { Heights = { -0.7, 1.5 }, Radius = 3.9, Spin = 0.7, Transparency = 0.32, Bands = 3, Embers = 6, Breeze = 2, Lift = 36 },
+		Charge = { Turns = 1.5, Period = 0.5, Radius = 2.3 },
 	},
 	-- THE SKYBREAKER CYCLONE's world, on every screen (who's hit and how hard
 	-- is the server's: Config.Quirks.Whirlwind.Ult's SkyCyclone). The funnel:
@@ -2281,6 +2645,257 @@ Config.Inasa = {
 	-- the SKYBREAKER CYCLONE's titles (his screen: big; everyone else's:
 	-- smaller, with whose it is - Who, %s his name)
 	Titles = { Call = "SKYBREAKER...", Hurl = "CYCLONE!!!", Who = "%s: SKYBREAKER CYCLONE" },
+	-- (round 99) INASA_STRIKES: how his strikes LOOK (VFX.IN.strikes - what
+	-- they do is Config.Quirks.Whirlwind's and Config.M1's, untouched).
+	-- M1: the straight's pop at the knuckles (Puff studs) and the crescent
+	-- thrown off it (Jab: Range, Cone degrees, Width), the palm's burst
+	-- (Palm) and the air it shoves on (PalmGust), the gloved hook's curl of
+	-- wind (Hook: radius, degrees it trails, width, life), the GALE
+	-- HAYMAKER's gust front (Gale: Range, Cone, Width, the Burst off the
+	-- glove, the Street whirl), the
+	-- rising gale's column (Up: Height, Radius at the street, Top, Life,
+	-- Grow: seconds it climbs out of the street; (round 99 review) the Pop
+	-- of air off the glove on the contact, the Dust ring under them, the
+	-- Jet of streaks shot up through them),
+	-- the downdraft's street whirl when he lands (Down: Street, looked for
+	-- Wait seconds); his own camera's FOV punch and Kick on the 4th.
+	-- Gust (SLICING GUST): a crescent gust front a pulse, out to its range
+	-- in Speed seconds, Width studs at its middle (the last LastWidth; FURY
+	-- x Fury, in the FuryShade), each pulse's Tilt (degrees round the aim:
+	-- the slashes rise to the side the arm throws them), FURY's fifth an X
+	-- of two at +- X; the burst on each body caught (Hit; the last
+	-- LastHit); his own camera's Fov punch and Kick; the Street whirl at his
+	-- feet on the last.
+	-- Cannon (GALE CANNON): the packed air between his hands (Ball: from ->
+	-- to studs; TYPHOON's from TyphoonBall), the burst off his fist (Muzzle /
+	-- TyphoonMuzzle), the street blown out under him (Street /
+	-- TyphoonStreet), his own camera (the Squeeze FOV in the draw, the Fov /
+	-- TyphoonFov punch and the Kick back on the punch; TYPHOON's impact
+	-- Frame), the tunnel (Gap: studs between its rings; drawn from Lead
+	-- studs out, Scale of the blast's width - its eye clear; Core: the
+	-- streak lines racing down its middle), the gust on each
+	-- body it reaches (Body / TyphoonBody, its impact frame Frame /
+	-- TyphoonFrame on the two screens), and how long his own screen's
+	-- blast waits to adopt the server's word (Adopt seconds); (round 99
+	-- review) the haze of air the head leaves hanging along the tunnel
+	-- (Veil: puffs Spread x the width across, at their thickest Alpha,
+	-- living Life s, one every Gap studs - not on a low-end machine).
+	-- Updraft: the Burst off his feet and the streaks shot down off them
+	-- (Jet studs), the Column of wind left under him (Height, Base / Top
+	-- radius, Width: its bands' x, Life, Grow: seconds it takes to climb out
+	-- of the street), his own camera's Fov punch, the cape thrown up (Lift
+	-- degrees); the landing: the street whirled out (Land.Whirl x
+	-- LandRadius), its ring of curls (Land.Curl studs, born Land.CurlFrom
+	-- studs out) and the cape (Land.Lift).
+	-- Sendoff (SKY-HIGH SEND-OFF): the whirl wrapped round them (Wrap),
+	-- tightened as he uppercuts (Tight), the column erupting under them on
+	-- the launch (Column), the ring of air off the street (Burst) and its
+	-- whirl (Street), the Twinkle seconds after.
+	-- KO: the burst round the body, the cape lifted over his back for the
+	-- bow (Lift degrees, Hold seconds)
+	Strikes = {
+		M1 = {
+			Puff = 1.5, Palm = 2,
+			Jab = { Range = 7, Cone = 16, Width = 0.9 },
+			PalmGust = { Range = 8, Cone = 22, Width = 1.1 },
+			Hook = { Radius = 3, Arc = 130, Width = 1.1, Life = 0.24 },
+			Gale = { Range = 14, Cone = 20, Width = 1.8, Burst = 2.4, Street = 4 },
+			Up = { Height = 9, Radius = 1.2, Top = 2.4, Life = 0.35, Grow = 0.05, Pop = 2.2, Dust = 3.5, Jet = 12 },
+			Down = { Street = 7, Wait = 0.8 },
+			Fov = 4, Kick = 0.5,
+		},
+		Gust = {
+			Speed = 0.16, Width = 1.5, LastWidth = 1.9, Fury = 1.3, FuryShade = Color3.fromRGB(226, 150, 170),
+			Tilt = { 0, -22, 22, 0 }, X = 34, Hit = 3, LastHit = 6, Fov = 3, Kick = 0.6, Street = 5,
+		},
+		Cannon = {
+			Ball = { 1.8, 0.7 }, TyphoonBall = 2.4, Muzzle = 3, TyphoonMuzzle = 4.5, Street = 4, TyphoonStreet = 6,
+			Squeeze = -4, Fov = 8, TyphoonFov = 11, Kick = 0.7, Frame = 0.05, TyphoonFrame = 0.08, Gap = 4.5, Lead = 3, Scale = 0.85, Core = 36,
+			Body = 5.5, TyphoonBody = 7, Adopt = 0.8, Veil = { Spread = 0.5, Alpha = 0.45, Life = 0.55, Gap = 2.5 },
+		},
+		Updraft = {
+			Burst = 6, Jet = 8, Column = { Height = 12, Base = 1.2, Top = 2.8, Width = 1.25, Life = 0.45, Grow = 0.18 }, Fov = 6, Lift = 120,
+			Land = { Whirl = 0.8, Curl = 2.4, CurlFrom = 3, Lift = 70 },
+		},
+		Sendoff = {
+			Wrap = { Height = 8, Base = 2.2, Top = 3.6, Spin = 2.4 },
+			Tight = { Height = 14, Base = 1.6, Top = 3, Spin = 4 },
+			Column = { Height = 40, Base = 2, Top = 5.5, Spin = 5, Life = 1.1 },
+			Burst = 7, Street = 6, Twinkle = 1.2,
+		},
+		KO = { Burst = 12, Lift = 150, Hold = 1.3 },
+	},
+}
+-- (round 99) INASA_STORM: how DRAGON WHIRLWIND, WIND WALL, WIND RIDE /
+-- STORM RIDE, his dash and his idle LOOK (VFX.InasaStorm, on the WIND KIT -
+-- what they do is Config.Quirks.Whirlwind's and isn't changed here).
+-- Every beat waits on its clip's key (anim/moves_inasa_w.py) on his pose
+-- clock; a low-end machine gets half of everything.
+Config.Inasa.Storm = {
+	-- DRAGON WHIRLWIND. The whirl on his palm from the clip's Spin key
+	-- (Palm: studs over his hand, its height and radii, turns a second from
+	-- Spin[1] up to Spin[2] by the throw), flung off his hand on the Hit
+	-- (Fling seconds to where it's set down, Arc studs up on the way), and
+	-- there the tornado (Rings of Bands, BaseR at the street out to TopShare
+	-- of the pull's radius at its Height, Spin turns a second, Sway, Debris
+	-- pieces wheeling up it, Dust a second at its foot) climbs up out of the
+	-- street in Grow seconds. Landing: a street whirl and dust ring
+	-- (Land.Radius), his own screen's FOV punch and kick. Rolling: a flat whirl
+	-- left on the street every Track seconds (LowTrack on a low-end machine),
+	-- a curl sliding in from the pull's edge every Suck seconds (you see it
+	-- pull). Someone it holds (the server's DragonWhirlwindHeld): two bands
+	-- round them (Held.Radius, Held.Spin) and a curl burst every Held.Curls.
+	-- The burst (an End with Late seconds or less of its Life left, he's
+	-- up): the rings thrown up and out, a pressure ring of Burst.Radius,
+	-- debris flung out, a shake (Burst.Shake out to ShakeRange); an End
+	-- earlier, or with him down, unwinds it
+	Whirl = {
+		Palm = { Lift = 0.3, Height = 2.4, BaseR = 0.25, TopR = 1.3, Spin = { 1, 4.5 } },
+		Fling = 0.09, Arc = 3,
+		Rings = 10, Bands = 3, BaseR = 3, TopShare = 0.62, Spin = 1.6, Sway = 2.5, Debris = 8, Dust = 26, Grow = 0.25,
+		Land = { Radius = 8, Fov = 4, Kick = 0.5 },
+		Track = 0.22, LowTrack = 0.45, Suck = 0.2,
+		Held = { Radius = 2.4, Spin = 3, Curls = 0.3 },
+		Burst = { Radius = 18, Shake = 2.2, ShakeRange = 120 },
+		Late = 0.35,
+	},
+	-- WIND WALL. The curtain's foot Out studs in front of him, bowed out by
+	-- Bow of its width, pouring down from over his head in Drop seconds on
+	-- the clip's Hit (his palms vent, dust splashes along its foot), the
+	-- kit's curtain with Streaks running up it; while it stands Bands
+	-- crescents pour down off its top one after another (each Climb seconds
+	-- down its top half - (round 99 review) not all the way down: stacked
+	-- the full height they read as a ladder; poured off the top they're the
+	-- anime's wedge, widest up there), haze washes up it every Haze seconds, a streak runs off each
+	-- palm into it every Palm seconds, his coat streams back (Cape degrees)
+	-- and its roar plays (Roar: the bed's gain).
+	-- A hit stopped on it ripples it; a puncher gets a short gust front out
+	-- of it (Shove: range, cone); a shot sent back bulges it and is spat back
+	-- down the line as a small drill of wind (Spit: width, a ring every Gap
+	-- studs, each ring's Life) at the wall's ReflectSpeed. It lifts away in
+	-- Lift seconds. His own screen: an FOV punch and a kick back as it drops
+	Wall = {
+		Out = 4.5, Bow = 0.26, Drop = 0.1, Palm = 0.15, Cape = 80, Roar = 0.9, Bands = 2, Climb = 0.5, Haze = 0.2, Streaks = 12,
+		Shove = { Range = 7, Cone = 24 },
+		Spit = { Width = 3.6, Gap = 3, Life = 0.25 },
+		Lift = 0.25, Fov = 3, Kick = 0.4,
+	},
+	-- WIND RIDE / STORM RIDE. The take-off on the clip's Crouch: a flat whirl
+	-- spinning up under his feet, his back unit and ankle rings venting
+	-- down; on the Hit (Launch) a column of wind punches up under him
+	-- (Column: height, radius, life) and he's off on his funnel: a small
+	-- tornado lying back and down along his path under his feet (Funnel: its
+	-- tip Back studs behind and Down under his feet, its mouth TopR under
+	-- them, Rings, Spin, Debris; Storm: STORM RIDE's - Scale times bigger,
+	-- its mouth TopR, two storm ropes coiling up out of it either side of
+	-- him RopeR out, the warm shade, leaves and grit off his wake every
+	-- Debris seconds) - his always-on wind held off while it carries him.
+	-- Streaks left hanging along his line (TrailLength studs, one every
+	-- TrailEvery) and ((round 99 review) what reads from 40-60 studs)
+	-- Ribbons trails spiralling off the funnel's rim (RibbonSpin turns a
+	-- second, RibbonLife seconds long): a jet stream behind him. Under Wake studs
+	-- over the street the dust furrows under him (a streak and a puff
+	-- every WakeEvery). His own
+	-- screen: the FOV pushed out by Fov (in FovIn, back in FovOut). The
+	-- let-go on the clip's Let: the funnel bursts into curls; near the street
+	-- (Ground studs) a soft ring
+	Ride = {
+		Column = { Height = 7, Radius = 2.2, Life = 0.3 },
+		Funnel = { Back = 3, Down = 3.8, Height = 5, BaseR = 0.6, TopR = 3.6, Rings = 5, Spin = 3, Debris = 2 },
+		Storm = { Scale = 1.25, TopR = 4.6, Rings = 7, Ropes = 2, RopeR = 2.6, Debris = 0.25 },
+		Wake = 15, WakeEvery = 0.1, Ground = 8, TrailEvery = 0.07, TrailLength = 10, Ribbons = 2, RibbonLife = 0.35, RibbonSpin = 2.2,
+		Fov = 10, FovIn = 0.15, FovOut = 0.35,
+	},
+	-- THE DASH: a gust bursts off his ankle rings down at the street behind
+	-- him (a flat whirl of Radius where he pushed off, its dust), streaks
+	-- left along his line, Curls peeling off his heels, the coat streamed
+	-- back (Cape degrees)
+	Dash = { Radius = 3.4, Curls = 2, Cape = 95 },
+	-- HIS IDLE: standing still After seconds (not mid-move), a breath of wind
+	-- now and then (Every seconds, random between): it gathers round his
+	-- feet - a faint street whirl (Radius), a few Leaves lifted into a slow
+	-- ordered orbit round him, the coat lifted (Lift degrees) and settling,
+	-- a soft whoosh (Gain). Only within Range studs of this camera
+	Idle = { After = 3, Every = { 4.5, 6.5 }, Range = 70, Radius = 3.4, Leaves = 3, Lift = 40, Gain = 0.35 },
+}
+-- (round 99) INASA_ULT: how PASSION STORM, his look in the ult and the
+-- SKYBREAKER CYCLONE are drawn (VFX.IN.U; looks only - every gameplay number
+-- is Config.Quirks.Whirlwind's and the server's). The beats wait on his
+-- clips' keys (anim/moves_inasa_u.py), so they aren't here.
+Config.Inasa.Ult = {
+	-- THE AWAKENING ((round 101, awaken_e) on the awakening kit, VFX.AK:
+	-- the air sucked in to his feet, the music, the impact frame and the
+	-- shots are Config.Awaken's now - Shove / Suck / SuckRadius / SuckCurls /
+	-- MusicIn / Impact retired). Still: how long his own
+	-- wind is held off (it goes dead still for the bow; the ult's rings take
+	-- over from his storm); CapeMax: degrees his cape's thrown off his back
+	-- (past 90: lifted up over it - the tall triangle);
+	-- Lift: when his storm lifts off him up into the sky (LiftTime seconds:
+	-- it climbs and opens out); Settle: when his own wind's let back on (the
+	-- ult's rings round him) - both from the press. Storm: the whirlwind
+	-- that erupts round him (Height, BaseR -> OpenBase and TopR -> OpenTop as
+	-- it opens out, Rings, Spin turns a second, Rise, Grow seconds up out of
+	-- the street, Debris, Dust a second, Width, Life) - the street whirled
+	-- flat and cracked Ground studs round him, the Burst of air off him
+	Passion = {
+		Still = 1.4, CapeMax = 150, Lift = 0.95, LiftTime = 0.5, Settle = 1.35,
+		Storm = {
+			Height = 28, BaseR = 3.2, TopR = 9, OpenBase = 4.6, OpenTop = 13, Rings = 10, Spin = 2.4, Rise = 0.9,
+			Grow = 0.2, Debris = 10, Dust = 34, Width = 0.95, Life = 2.4, Ground = 12, Burst = 8,
+		},
+	},
+	-- IN THE ULT, under him: the hover's flat whirl turning round his feet
+	-- (Loops of bands out to Radius, Width, Spin turns a second, how
+	-- see-through), his glove venting every Vent seconds - on top of the
+	-- kit's ult aura (Config.Inasa.Aura.Ult)
+	Whirl = { Loops = 3, Radius = 5, Width = 0.9, Spin = 0.9, Transparency = 0.3, Vent = { 1.8, 3 } },
+	-- IN THE ULT, wind coiled round the arm(s) that throw each move - the
+	-- effect it goes with, the arms (M1: the set's own fist), let go off the
+	-- hand on the move's beat (At: the ability's key - its Startup, Windup -
+	-- or seconds); Spin turns a second; Cull studs from the camera.
+	-- ((round 99 review) not DRAGON WHIRLWIND: inasa_storm's own spin-up
+	-- already coils his right arm, in the ult too - a second coil here
+	-- would double it once the streams are merged)
+	Throws = {
+		SlicingGust = { "Left", "Right" }, GaleCannon = { "Left", "Right" }, WindWall = { "Left", "Right" },
+		Punch = "M1",
+		At = { SlicingGust = "Startup", GaleCannon = "Windup", WindWall = 0.08 },
+		Spin = 3, Cull = 160,
+	},
+	-- THE SKYBREAKER CYCLONE. Low: the funnel's foot out of the street (to
+	-- Height, flaring to TopR, its lower Storm share in the Final War's
+	-- dusty palette, band Width, Spin, Sway, Rise: how fast its rings climb,
+	-- Dust a second); High: the funnel on up out of it to the clouds (From
+	-- studs up, Height, BaseR, Bands a ring, Width, Spin, Rise; started At of the way into
+	-- its Form); Ropes storm twisters round its foot (up to RopeHeight,
+	-- turning RopeOrbit a second); the city's rubble climbing it in Lanes
+	-- rings one over the other (the lowest LaneLow up, LaneGap apart,
+	-- PerLane round each), the leaves up to LeafTop; CloudRate (the smoke
+	-- banks over it). THE GATHER POINT: KnotLead seconds before the burst
+	-- everything it carries is pulled into one knot KnotHeight up it (the
+	-- server throws from 48-84 up), KnotRadius across, its roar gone quiet
+	-- RoarQuiet seconds before; the burst's KnotBurst, Shock (off the eye),
+	-- Ground and Disc rings; RadialNear (the radial streaks on a screen this
+	-- near, and his own). His windup: SuckRadius (the street's air dragged
+	-- in to him), CapeMax, StrainEvery (his wind venting off him as he
+	-- holds it). Shots: Far (the far wide shot's distance)
+	Sky = {
+		Low = { Height = 220, TopR = 46, Storm = 0.35, Width = 3.2, Spin = 1.1, Sway = 6, Rise = 0.32, Dust = 70 },
+		High = { From = 190, Height = 710, BaseR = 40, Bands = 2, Width = 3, Spin = 0.45, Rise = 0.18, At = 0.35 },
+		Ropes = 2, RopeHeight = 150, RopeOrbit = 0.22,
+		-- ((round 99 review) each rope wound round the outside of the funnel:
+		-- its twist R0 -> R1 studs out, Pitch studs a turn, strands Width
+		-- wide (about the twist's own size: braided - wider is a solid pole,
+		-- thinner a spring); its
+		-- foot Foot x the funnel's foot radius out, its top Top x the funnel's
+		-- radius there, Lean radians on round it)
+		Rope = { R0 = 2, R1 = 4, Pitch = 28, Width = 3.8, Foot = 1.7, Top = 1.15, Lean = 1.1 },
+		Lanes = 6, LaneLow = 34, LaneGap = 22, PerLane = 12, LeafTop = 200, CloudRate = 0.32,
+		KnotLead = 0.45, KnotHeight = 66, KnotRadius = 16, RoarQuiet = 1.6,
+		KnotBurst = 26, Shock = 46, Ground = 60, Disc = 220, RadialNear = 140,
+		SuckRadius = 30, CapeMax = 120, StrainEvery = 0.75,
+		Far = 120,
+	},
 }
 
 ---------------------------------------------------------------------------
@@ -3433,6 +4048,7 @@ Config.M1 = {
 		Manifest = "Mixed", -- a tentacle lash, a talon kick, a clam fist, a crab-shell kick
 		Creation = "Weapon", -- (round 60) Creati swings the staff / sword / spear in her hand
 		FierceWings = "Feather", -- (round 86) Hawks: his two longest primaries drawn as swords (VFX.WeaponKit.Feather)
+		Whirlwind = "Whirlwind", -- (round 99) Inasa: his own (VFX M1_SETS.Whirlwind: a straight, the gloved hook, the palm, the gale haymaker; his own uppercut and downslam)
 	},
 }
 
@@ -3735,7 +4351,10 @@ Config.Ult = {
 	StudioChargeMultiplier = 1, -- (1: Studio charges like a live server - the test menu can fill it)
 	ActivationRadius = 26, -- activating blasts nearby enemies away
 	ActivationDamage = 12,
-	ActivationArmor = 1.3, -- popping it: untouchable through the awakening
+	-- popping it: untouchable through the awakening. (round 101) 1.3 -> 1.75:
+	-- the whole activation (Config.Awaken.Release, 1.6, locked) and a little
+	-- ping after it - JJS's are untouchable from the press to the end
+	ActivationArmor = 1.75,
 	MoveArmor = 0.6, -- an ult move can't be traded mid-swing (at least this, or its ActionTime)
 }
 
@@ -4085,10 +4704,10 @@ end
 ---------------------------------------------------------------------------
 Config.GamePasses = {
 	Order = { "EmoteSlots", "AwakeningOutfits", "VIP", "DoubleBucks" },
-	EmoteSlots = { Id = 0, Price = 99, Name = "+8 EMOTE SLOTS", Info = "A second ring on your emote wheel - 16 emotes at once!", Icon = "🎭", Color = Color3.fromRGB(240, 120, 170), Extra = 8 },
-	AwakeningOutfits = { Id = 0, Price = 149, Name = "AWAKENING OUTFITS", Info = "Wear one of your saved Roblox outfits every time you awaken!", Icon = "👕", Color = Color3.fromRGB(80, 130, 230), FreeUntilSetUp = true },
-	VIP = { Id = 0, Price = 199, Name = "VIP", Info = "A gold VIP tag over your name and in chat - and 25% more Bucks!", Icon = "⭐", Color = Color3.fromRGB(255, 200, 60), Tag = "VIP", BucksBonus = 0.25 },
-	DoubleBucks = { Id = 0, Price = 249, Name = "2x BUCKS", Info = "Double Bucks from every KO, raid, UNO win and money rain!", Icon = "💵", Color = Color3.fromRGB(90, 200, 110), Multiplier = 2 },
+	EmoteSlots = { Id = 2004933844, Price = 99, Name = "+8 EMOTE SLOTS", Info = "A second ring on your emote wheel - 16 emotes at once!", Icon = "🎭", Color = Color3.fromRGB(240, 120, 170), Extra = 8 },
+	AwakeningOutfits = { Id = 2006229877, Price = 149, Name = "AWAKENING OUTFITS", Info = "Wear one of your saved Roblox outfits every time you awaken!", Icon = "👕", Color = Color3.fromRGB(80, 130, 230), FreeUntilSetUp = true },
+	VIP = { Id = 2006553848, Price = 199, Name = "VIP", Info = "A gold VIP tag over your name and in chat - and 25% more Bucks!", Icon = "⭐", Color = Color3.fromRGB(255, 200, 60), Tag = "VIP", BucksBonus = 0.25 },
+	DoubleBucks = { Id = 2009360260, Price = 249, Name = "2x BUCKS", Info = "Double Bucks from every KO, raid, UNO win and money rain!", Icon = "💵", Color = Color3.fromRGB(90, 200, 110), Multiplier = 2 },
 }
 
 -- Map destruction (parts with the Destroyable attribute set to true)
@@ -4503,6 +5122,440 @@ do
 	end
 end
 
+---------------------------------------------------------------------------
+-- (round 100) STARK STREET: the UI's look, in one place. Two colours and one
+-- lean: ink and paper, every container a parallelogram leaning 12 degrees
+-- forward, and the only colour your hero's brush slash (spec:
+-- r99/ui/street/spec.md). HUD.ST (the kit) builds everything from these.
+---------------------------------------------------------------------------
+Config.UI = {
+	Street = {
+		Ink = Color3.fromRGB(12, 12, 13), -- every slab
+		Ink2 = Color3.fromRGB(30, 30, 32), -- raised ink: secondary buttons, zebra rows, empty halves and ticks
+		Paper = Color3.fromRGB(244, 241, 234), -- all text, filled bars, the selected / primary state
+		Ash = Color3.fromRGB(142, 140, 135), -- numbers in lists, kickers, inactive labels
+		Hatch = Color3.fromRGB(52, 52, 54), -- cooldown stripes on ink
+		Red = Color3.fromRGB(234, 46, 36), -- damage, HP under 25%, guard broken, K.O. Nothing else.
+		HudT = 0.16, -- ink on the HUD (0.84 opaque)
+		MenuT = 0.05, -- ink on full menus (0.95)
+		ScrimT = 0.65, -- the world dims behind full menus: ink at 0.35
+		HatchT = 0, -- the stripes (image) / the plain cover (no image: HatchFlatT)
+		HatchFlatT = 0.25,
+		Lean = 12, -- degrees: every slab, list and touch grid leans this far
+		ShadowOffset = 2, -- text over the world: a second label offset (2, 2) in ink
+		-- the four faces (Roblox fits a font's whole line into TextSize, so the em
+		-- is TextSize / K: the kit's sizes are em px, the spec's numbers, and it
+		-- sets TextSize = size * K. Adv = ASCII 32-126 advances in 1/1000 em, to
+		-- measure text without TextService)
+		Fonts = {
+			Display = {
+				Family = "rbxasset://fonts/families/Oswald.json",
+				Weight = "Bold",
+				K = 1.482,
+				Ascent = 1.193,
+				Cap = 0.81,
+				Adv = { 256, 257, 360, 534, 485, 1006, 570, 170, 338, 328, 423, 448, 238, 386, 244, 422, 550, 389, 514, 514, 524, 509, 538, 439, 521, 538, 278, 285, 398, 443, 398, 484, 950, 551, 588, 563, 586, 447, 434, 582, 610, 301, 349, 567, 443, 704, 561, 586, 571, 586, 600, 514, 445, 588, 526, 697, 515, 493, 433, 332, 422, 324, 476, 368, 307, 476, 506, 468, 503, 470, 320, 501, 509, 265, 277, 541, 274, 753, 507, 483, 505, 504, 383, 424, 354, 504, 421, 597, 442, 448, 392, 374, 262, 379, 481 },
+			},
+			Body = {
+				Family = "rbxasset://fonts/families/BuilderSans.json",
+				Weight = "Medium",
+				K = 1.26,
+				Ascent = 0.98,
+				Cap = 0.7,
+				Adv = { 263, 243, 413, 697, 563, 852, 687, 236, 343, 343, 414, 502, 239, 334, 239, 405, 613, 386, 570, 572, 585, 571, 588, 519, 604, 588, 267, 267, 502, 502, 502, 522, 899, 654, 630, 673, 682, 549, 549, 683, 706, 260, 479, 612, 542, 875, 707, 738, 603, 738, 626, 558, 529, 669, 675, 889, 611, 609, 549, 350, 405, 350, 451, 402, 248, 546, 588, 526, 592, 562, 380, 590, 592, 236, 242, 498, 236, 870, 592, 578, 588, 592, 392, 471, 373, 582, 535, 750, 498, 535, 456, 437, 275, 437, 581 },
+			},
+			Mono = { Family = "rbxasset://fonts/families/BuilderMono.json", Weight = "Bold", K = 1.26, Ascent = 0.98, Cap = 0.7, Fixed = 600 },
+			Note = {
+				Family = "rbxasset://fonts/families/PermanentMarker.json",
+				Weight = "Regular",
+				K = 1.427,
+				Ascent = 1.109,
+				Cap = 0.74,
+				Adv = { 370, 261, 492, 703, 493, 644, 600, 266, 361, 361, 674, 579, 204, 609, 229, 401, 687, 322, 650, 562, 582, 580, 501, 576, 537, 529, 241, 245, 625, 587, 635, 557, 732, 702, 687, 611, 589, 627, 575, 789, 695, 516, 669, 776, 633, 974, 685, 744, 640, 744, 646, 576, 607, 695, 584, 994, 623, 493, 664, 388, 353, 403, 519, 709, 755, 581, 573, 514, 497, 521, 455, 652, 582, 320, 534, 646, 533, 814, 564, 629, 524, 625, 541, 464, 479, 585, 485, 825, 507, 400, 548, 448, 332, 481, 581 },
+			},
+		},
+		-- sizes at 1280x720 (UIScale 1), em px (the spec's section 2 and 4)
+		Sizes = {
+			CutInTitle = 172, HeroName = 58, WindowTitle = 40, RosterName = 26, ListItem = 21, SlotName = 16, Tab = 16,
+			Small = 13, Minimum = 11, Sentence = 15, SentenceSmall = 14, KeyHint = 11, Note = 19,
+			TopBar = 34, TopBarPhone = 28, TabGap = 4, PhoneMinimum = 11,
+		},
+		-- motion: snap, hold, settle (spec section 5). Seconds.
+		Motion = {
+			MenuIn = 0.14, MenuOut = 0.1, RowsAfter = 0.06, Dim = 0.1, Slide = 48, -- (px along the lean)
+			Hover = 0.06, HoverNudge = 8, SlashPaint = 0.12, UltGain = 0.25, UltPulse = 1.5, CooldownHz = 10,
+			Flash = 0.12, ChipHold = 0.4, ChipDrain = 0.3, FeedSlide = 0.12, FeedLife = 6, StampFrom = 1.12, Stamp = 0.06,
+		},
+		-- the B/W world for ults and the K.O. screen (Lighting ColorCorrection)
+		Mono = { Saturation = -1, Contrast = 0.7, Brightness = -0.06, In = 0.06, Out = 0.2 },
+		-- one UIScale per ScreenGui: PC / console / tablet min(vpX/1280, vpY/720) * Size,
+		-- kept within Min and Max; a phone (touch on, the short side under PhoneBelow) gets
+		-- its own layout at clamp(vpY/375, PhoneMin, PhoneMax)
+		-- ((round 101) SIZE IS THE ONE KNOB for how big the UI is on PC and console:
+		-- 1 = the mockups' size, 0.85 = 15% smaller (a 1080p window: 1.19 - it was
+		-- 1.40). Phones and touch tablets keep their own size (their buttons stay
+		-- under a thumb). Readable: the knob never takes it
+		-- under this (11 px type stays 9 real px) unless the window itself is smaller.
+		-- Max 1.25: a big monitor doesn't blow it up.)
+		Scale = {
+			Size = 0.85, Min = 0.75, Readable = 0.82, Max = 1.25, BaseX = 1280, BaseY = 720,
+			PhoneBelow = 500, PhoneBaseY = 375, PhoneMin = 0.85, PhoneMax = 1.3,
+		},
+		-- the screen's lanes at 1280x720 (spec section 4): { y from, y to }, so nothing collides
+		Lanes = {
+			Top = { 0, 56 }, Toast = { 62, 96 }, Status = { 104, 150 }, Feed = { 58, 170 }, Moment = { 200, 470 },
+			Side = { 300, 400 }, Bottom = { 560, 700 },
+		},
+		-- the same lanes on a phone (812x375 points, spec section 7)
+		PhoneLanes = {
+			Top = { 0, 40 }, Toast = { 40, 62 }, Status = { 66, 96 }, Feed = { 40, 100 }, Moment = { 100, 280 },
+			Side = { 44, 140 }, Bottom = { 270, 375 },
+		},
+		-- the toast (its own ScreenGui QuirkToasts, over the top bar): one at a time, queued
+		Toast = {
+			Order = 5, Y = 66, H = 30, Text = 16, Kicker = 12, PhoneY = 40, PhoneH = 22, PhoneText = 12, PhoneKicker = 10,
+			Drop = 8, In = 0.1, Hold = 3.5, HoldBusy = 1.6, Out = 0.1, Queue = 4, Recent = 8,
+		},
+		-- the moment lane (centre, y 200-470): one at a time; a higher priority goes
+		-- first; a moment that waited longer than its Wait is dropped (a stale PARRY!)
+		Moments = {
+			Order = 4,
+			-- ((round 100, ui_moments) Down: the K.O. screen - yours, over everything)
+			Priority = { Down = 0, KO = 1, RankUp = 2, Callout = 3, NewHero = 4 },
+			Wait = { Down = 2, KO = 3, RankUp = 8, Callout = 0.8, NewHero = 30 },
+			Queue = 6,
+		},
+	},
+	-- The five images (white on transparent, tinted in-engine). "" until the owner
+	-- uploads them (r100/assets/): every use has an image-free stand-in, so the UI
+	-- looks right either way. Paste each rbxassetid:// here after the upload.
+	Images = {
+		Slash = "rbxassetid://111298021045086", -- (round 100: uploaded) slash.png 1024x128: the one hand-made thing
+		Numerals = "rbxassetid://93569430168776", -- (round 100: uploaded) numerals.png 1024x512: Oswald Bold sheared 12 degrees (NumeralMap)
+		Hatch = "rbxassetid://113786568611711", -- (round 100: uploaded) hatch.png 64x32: the cooldown stripes (tiled 32x32; the spare 32 px shifts their phase)
+		Wedge = "rbxassetid://77752245514321", -- (round 100: uploaded) wedge.png 128x64: anti-aliased slab ends (left half: a left end, right half: a right end)
+		Icons = "rbxassetid://84246212027576", -- (round 100: uploaded) icons.png 256x256: the gear (IconMap)
+		Robux = "rbxasset://textures/ui/common/robux.png", -- Roblox's own (ships with the client)
+		SlashSize = { 1024, 128 },
+		-- the numeral sheet: glyphs drawn at Em px, each in a Cell px tall rect with
+		-- its baseline Base px down; per glyph { x, y, w, advance, origin } (origin =
+		-- the pen's x inside the rect). (round 100 review) Every glyph's ink sits 4+ px
+		-- inside its rect and rects are 4 px apart, so a small numeral (drawn from the
+		-- sheet's smaller mip levels) never picks up a neighbour's edge.
+		NumeralMap = {
+			Em = 112,
+			Cell = 124,
+			Base = 100,
+			Glyphs = {
+				["0"] = { 4, 2, 92, 61.5, 5.37 }, ["1"] = { 100, 2, 73, 43.5, 5.0 }, ["2"] = { 177, 2, 88, 57.5, 5.0 }, ["3"] = { 269, 2, 88, 57.5, 5.37 }, ["4"] = { 361, 2, 89, 58.75, 5.0 }, ["5"] = { 454, 2, 87, 57.0, 5.37 },
+				["6"] = { 545, 2, 91, 60.25, 5.32 }, ["7"] = { 640, 2, 79, 49.25, 5.0 }, ["8"] = { 723, 2, 89, 58.25, 5.32 }, ["9"] = { 816, 2, 91, 60.25, 5.32 }, ["."] = { 911, 2, 41, 27.25, 5.0 }, [","] = { 956, 2, 44, 26.75, 8.35 },
+				["%"] = { 4, 130, 143, 112.75, 5.05 }, ["/"] = { 151, 130, 77, 47.25, 5.0 }, ["+"] = { 232, 130, 75, 50.25, 5.0 }, ["-"] = { 311, 130, 63, 43.25, 5.0 }, ["x"] = { 378, 130, 74, 49.5, 5.0 }, [":"] = { 456, 130, 55, 31.25, 5.0 },
+				["Q"] = { 515, 130, 100, 65.75, 8.83 }, ["R"] = { 619, 130, 97, 67.25, 5.0 }, ["F"] = { 720, 130, 78, 48.5, 5.0 }, ["G"] = { 802, 130, 96, 65.25, 5.32 }, ["M"] = { 902, 130, 109, 78.75, 5.0 }, ["B"] = { 4, 258, 96, 65.75, 5.0 },
+				["H"] = { 104, 258, 98, 68.25, 5.0 }, ["L"] = { 206, 258, 79, 49.5, 5.0 }, ["E"] = { 289, 258, 80, 50.0, 5.0 }, ["K"] = { 373, 258, 93, 63.5, 5.0 }, ["O"] = { 470, 258, 96, 65.75, 5.32 }, ["N"] = { 570, 258, 93, 62.75, 5.0 },
+				["o"] = { 667, 258, 79, 54.0, 5.27 }, ["P"] = { 750, 258, 94, 64.0, 5.0 }, ["T"] = { 848, 258, 80, 49.75, 5.0 }, ["V"] = { 4, 386, 89, 59.0, 5.0 }, ["A"] = { 97, 386, 92, 61.75, 5.0 }, ["S"] = { 193, 386, 88, 57.5, 5.32 },
+				["D"] = { 285, 386, 96, 65.75, 5.0 }, ["W"] = { 385, 386, 108, 78.0, 5.0 }, ["C"] = { 497, 386, 93, 63.0, 5.32 }, ["U"] = { 594, 386, 96, 65.75, 5.32 }, ["Y"] = { 694, 386, 85, 55.25, 5.0 },
+			},
+		},
+		-- icons.png: name = { x, y, w, h }
+		IconMap = { Gear = { 0, 0, 64, 64 } },
+	},
+}
+
+-- (round 100) STARK STREET: THE COMBAT HUD's places and sizes (spec sections 4
+-- and 7, mockups 01 and 02). PC in 1280x720 units, a phone (Phone = { ... },
+-- over the PC numbers) in 812x375 points: each ScreenGui's scaled root does the
+-- rest (HUD.ST). Type sizes are em px. Offsets in Vitals are from X and Base.
+Config.UI.Hud = {
+	-- the tabs (QuirkTopBar), from where Roblox's own buttons end (TopbarInset)
+	TopBar = { X = 8, Y = 13, H = 34, Text = 16, KeyText = 11, Gap = 4, Phone = { X = 6, Y = 9, H = 28, Text = 13, Gap = 3 } },
+	-- the wallet, the rank (its foot: the way to the next one) and the streak, top right
+	Corner = {
+		Right = 12, Y = 13, H = 34, Gap = 4, Rank = 16, KO = 12, Bucks = 20, Streak = 3, Foot = 3,
+		Phone = { Right = 8, Y = 9, H = 28, Rank = 13, KO = 11, Bucks = 16 },
+		-- ((round 100 review) Clear: the least gap to the tabs - short of it the
+		-- streak goes, then the KO, then the corner drops Drop under the tabs' row)
+		Clear = 10, Drop = 6,
+	},
+	-- the kill feed (right column, newest on top). OldAfter: a row fades to Old (opacity) that long in
+	Feed = {
+		Right = 12, Y = 58, H = 24, Gap = 4, Max = 4, Text = 14, Tag = 11, Slash = { 34, 22 }, SlashTilt = -14, Life = 6, -- ((round 101) Tag 11: 10 went under 9 real px)
+		OldAfter = 3, Old = 0.6, Slide = 24, SlabT = 0.2, YouT = 0.05,
+		Slack = 0.05, -- ((round 101) room after each word: a few % of it, as type drawn at whole pixels runs wider)
+		-- ((round 100 review) a phone's text is 11 at the least (spec 7): its rows say
+		-- FINISHED but leave the streak's callout and ENDED to the PC's longer rows)
+		Phone = { Right = 8, Y = 42, H = 20, Gap = 3, Max = 2, Text = 11, Tag = 11, Slash = { 28, 18 }, Extras = false },
+	},
+	-- the vitals, bottom left: the hero's name on the slash (the ult meter), the
+	-- resource line, health with its RED chip, the guard's segments and the evade bar
+	Vitals = {
+		X = 24, Base = 688, Box = { 440, 160 },
+		Name = 58, NameBase = -80, NameFit = 412, NameMin = 34, Shadow = 3, Mode = 13, ModeGap = 7,
+		SlashX = -10, SlashY = -12, SlashW = 430, SlashH = 50, SlashTilt = -2.5, GhostT = 0.1,
+		Pct = 26, PctSign = 14, Ready = 22, ReadyKey = 19, PulseFlash = 0.05, LowSeconds = 5,
+		BarW = 330, BarGap = 8, ResY = -68, ResH = 6, ResT = 0.28, ResText = 12,
+		HealthY = -56, HealthH = 26, HealthT = 0.22, Hp = 30, HpMax = 13, Low = 0.25,
+		GuardY = -22, GuardW = 200, GuardH = 10, EvadeGap = 14, BarT = 0.28, Label = 11, LabelBase = 4,
+		Phone = {
+			X = 176, Base = 362, Box = { 300, 96 }, Name = 34, NameBase = -44, NameFit = 250, NameMin = 22, Shadow = 2, Mode = 11, ModeGap = 5,
+			SlashX = -8, SlashY = -7, SlashW = 262, SlashH = 30, Pct = 0,
+			BarW = 212, BarGap = 6, ResY = -38, ResH = 4, ResText = 11, HealthY = -30, HealthH = 17, Hp = 20, HpMax = 11,
+			GuardY = -8, GuardW = 130, GuardH = 7, EvadeGap = 10, Label = 0,
+			-- ((round 100 review) a narrower phone (667 points): the vitals stop GridGap
+			-- short of the touch grid - X down to XMin (clear of the stick), bars down
+			-- to BarMin, a long name down to NameMinTight)
+			GridGap = 10, XMin = 160, BarMin = 100, NameMinTight = 18,
+		},
+		-- (a touch tablet: the PC layout, the vitals moved right off the left thumb's stick)
+		Tablet = { X = 260 },
+	},
+	-- the move slots (PC): Q, 1-3, 4, R; each an ink slab, the key top left, the
+	-- name bottom left (two lines broken by hand), the seconds top right
+	Moves = {
+		X = 452, Y = 622, H = 68, Gap = 6, Width = 586, Q = 74, Move = 98, R = 90, T = 0.16,
+		Key = 22, KeyLong = 14, KeyT = 0.3, Name = 16, NameMin = 11, NameX = 9, NameFoot = 7, Lines = 1.06, OneLine = 0.8,
+		Seconds = 22, CoolingT = 0.22, Sub = 3, Form = 3,
+	},
+	-- the bag (items), left side; the name is the icon
+	Bag = {
+		X = 24, Y = 318, W = 118, H = 34, Gap = 6, Name = 15, Count = 18, Key = 16, T = 0.2,
+		Phone = { X = 10, Y = 48, W = 92, H = 27, Gap = 5, Name = 13, Count = 15, Key = 0 },
+	},
+	-- the combo, right side (its own lane): the count's right edge at Right, baselines down
+	Combo = {
+		Right = 1150, Base = 372, Num = 66, Shadow = 4, Hits = 22, HitsBase = 344, Dmg = 15, DmgBase = 370, Gap = 6,
+		Phone = { Right = 62, Base = 170, Num = 40, Shadow = 3, Hits = 14, HitsBase = 152, Dmg = 11, DmgBase = 169, Gap = 4 },
+	},
+	-- THE TOUCH GRID (a phone; a tablet's the same, Tablet times bigger): leaning
+	-- 12 degrees round Roblox's jump button, each row up 14 pt further right.
+	-- Cells { x, y, w, h }: the top-left from the jump button's centre, in points
+	-- (mockup 02's, drawn with the jump at 762, 322); Shift moves the whole grid.
+	Touch = {
+		Cells = {
+			QuirkPunch = { -122, -32, 86, 68 }, QuirkUlt = { -258, -30, 62, 64 }, QuirkSpecial = { -190, -30, 62, 64 },
+			QuirkAbility1 = { -244, -96, 62, 58 }, QuirkAbility2 = { -176, -96, 62, 58 }, QuirkAbility3 = { -108, -96, 62, 58 },
+			QuirkExtra = { -40, -96, 62, 58 },
+			QuirkFinish = { -230, -154, 62, 52 }, QuirkSprint = { -162, -154, 62, 52 }, QuirkBlock = { -94, -154, 62, 52 },
+			QuirkDash = { -26, -154, 62, 52 },
+			QuirkDevFly = { -148, -208, 62, 46 }, QuirkHoverLock = { -80, -208, 62, 46 },
+		},
+		Shift = { -6, 0 }, Tablet = 1.3, T = 0.2,
+		Labels = { FLY = "AIR" }, -- (a button's word when it isn't its name)
+		Text = { Move = 11, Verb = 13, Hit = 21, Ult = 15, UltPct = 14, Key = 0, Seconds = 15 },
+	},
+	-- the bag's words (the item's own name is too long for a 118 px slab)
+	ItemShort = {
+		Soda = "SODA", Sniper = "SNIPER", Bomb = "BOMB", AllMightHair = "HAIR", Trigger = "TRIGGER", CaptureScarf = "SCARF",
+		GrapeBalls = "GRAPES", ZeroGravity = "ZERO-G", Chips = "CHIPS", CandyBar = "CHOCO", PizzaSlice = "SLICE",
+		GarlicKnots = "KNOTS", WholePizza = "PIZZA",
+	},
+	-- one-time TIP toasts: the how-tos that used to sit on the bars ([K] = a key cap;
+	-- %s = the key, as the input has it)
+	Tips = {
+		Sweat = "[%s] HOLD TO FLY", DriedUp = "LAND TO SWEAT AGAIN", Hungry = "[R] EAT SOMETHING",
+		Overheated = "TOO HOT. YOUR FIRE WON'T COME.", Plucked = "PLUCKED. THEY GROW BACK.", Bars = "GUARD LEFT. EVADE RIGHT.",
+	},
+}
+
+-- (round 100) THE MENUS (the ui_menus stream; spec r99/ui/street/spec.md, mockups
+-- 03 / 03b / 04 / 05 / 06 / 07): the hero picker, the shop, TOP HEROES, settings,
+-- the emote picker, the outfit window and RANKED, each opened from its top bar
+-- tab (HUD.MenuRoute). Places are em px at 1280x720 (a phone: points at 812x375)
+-- and y is a text baseline unless it says otherwise; every list starts on a
+-- margin that leans 12 degrees with its sheet. The copy is in the street voice:
+-- big words in caps, one short sentence, at most one hand note a screen.
+Config.UI.Menus = {
+	-- the top bar's tabs, left to right (HUD.MenuOrder)
+	Order = { "Heroes", "Emotes", "Shop", "Ranked", "Top", "Settings" },
+	-- THE HERO PICKER (03): one sheet from the left edge, TopW wide at the top
+	Picker = {
+		TopW = 712, T = 0.06, Margin = 40,
+		ListY = 98, ListBottom = 520, Pitch = 34, MinPitch = 26, Column = 284, Name = 26, Num = 12, Rows = 8,
+		DevGap = 30, DevPitch = 21, DevName = 16, DevNum = 11, -- ((round 101) DevNum 11: 10 went under 9 real px)
+		Ghost = 300, GhostY = 330, GhostColor = Color3.fromRGB(22, 22, 24), -- the shown hero's number, huge, behind the list
+		DetailY = 610, Kicker = 14, Mode = 12, Title = 48, Sentence = 14, Move = 13, MoveKey = 14, MoveRow = 19, MoveCol = 236,
+		Play = { 168, 46 }, Outfit = { 112, 46 }, ButtonsY = 650, Right = 1256, -- PLAY / OUTFIT by your character
+		Phone = {
+			TopW = 470, Margin = 22, ListY = 74, Pitch = 34, Name = 22, Num = 11, DevPitch = 26, DevName = 16, DevNum = 10,
+			Detail = { 470, 170, 330, 140 }, Title = 28, Sentence = 11, Move = 11, MoveKey = 12,
+			Play = { 150, 44 }, Outfit = { 94, 44 },
+		},
+		Playing = "PLAYING", DevOnly = "DEV ONLY", New = "new!",
+	},
+	-- THE SHOP (04): one leaning sheet X..X+W at the top; the list column, the keeper
+	Shop = {
+		X = 236, W = 940, Top = 66, Bottom = 700, Margin = 38, Column = 600, Tab = 30, TabsY = 116,
+		Title = 38, Row = 28, Sentence = 15, SentenceSmall = 14, Price = 22, PriceH = 32, PriceW = 150, PriceGap = 4,
+		Odds = 300, OddsH = 8, OddsShades = { Color3.fromRGB(96, 95, 92), Color3.fromRGB(150, 148, 143), Color3.fromRGB(205, 202, 196) },
+		Tile = { 290, 76 }, Item = 20,
+		Keeper = { 900, 142, 196, 214 }, NoteSize = 21, Wallet = 46,
+		Copy = {
+			Tabs = { "SHOP", "EMOTES", "CODES" },
+			Roll = "EMOTE ROLL", RollInfo = "One emote you don't have yet. Never a repeat.", PickNote = "x%d: you pick the %dth",
+			Soda = "SODA DROP", SodaInfo = "A drink, dropped wherever you are.",
+			Item = "ITEM DROP", ItemInfo = "A random item, dropped on you.",
+			Passes = "PASSES", Items = "ITEMS", Footer = "1 KO = 1 BUCK", Bucks = "BUCKS",
+			Code = "TYPE A CODE", Redeem = "REDEEM", CodeInfo = "Codes come with updates and events.",
+			Wheel = "YOUR WHEEL", Ring1 = "RING 1", Ring2 = "RING 2", MoreSlots = "+%d SLOTS", Free = "PICK A FREE EMOTE",
+			Newest = "NEWEST", AZ = "A-Z", Search = "SEARCH", NoneYet = "No emotes yet. Roll one on the SHOP tab.",
+			OnWheel = "ON %d", Equip = "EQUIP", PutIn = "TO %d", Full = "Your wheel's full. Tap a slot to swap one.",
+			Owned = "OWNED", Gifted = "GIFTED", NoId = "NO ID YET", FreeNoId = "FREE (NO ID)",
+			Got = "YOU GOT", Nice = "NICE", PickTitle = "PICK ONE", PickInfo = "On the house. Any one you don't have.", Later = "LATER",
+		},
+		-- (short versions of the passes for their tiles; Config.GamePasses keeps the rest)
+		PassInfo = {
+			EmoteSlots = "A second pair on your wheel.", AwakeningOutfits = "Awaken in your own fit.",
+			VIP = "Gold tag. +25% Bucks.", DoubleBucks = "Every KO pays double.",
+		},
+	},
+	-- THE KEEPER: his one line, in marker (spec section 6)
+	Keeper = {
+		Greet = { "no refunds. ever.", "you buying or what." },
+		Poke = { "hey.", "HEY.", "i will close this shop." },
+		Roll = { "not bad." },
+		Legend = "...ok that's actually crazy.",
+		Thanks = { "pleasure." },
+		No = { "nope.", "can't do that." },
+		CodeOk = "lucky.", CodeNo = "never heard of it.",
+	},
+	-- TOP HEROES (05)
+	Top = {
+		X = 236, W = 940, Top = 66, Bottom = 700, Margin = 38, TitleY = 122, Title = 40, Width = 560,
+		First = 84, Second = 50, Row = 26, NameW = 236, Ladder = 250, Rung = 46,
+		Title1 = "TOP HEROES", Kicker = "ALL-TIME KOs, EVERY SERVER", Ranks = "HERO RANKS", You = "YOU",
+		Note = "nobody's above you.", NoteNext = "%d to %s.",
+	},
+	-- SETTINGS (07): a narrower sheet
+	Settings = {
+		X = 420, W = 580, Top = 66, Bottom = 700, Margin = 36, TitleY = 122, Row = 62, Label = 21, Sentence = 14,
+		Switch = { 112, 30 }, Title = "SETTINGS", Controller = "CONTROLLER",
+	},
+	-- THE EMOTE PICKER (06): two leaning columns either side of you (+8 slots: a second pair further out)
+	Emotes = {
+		Center = { 640, 318 }, Gap = 150, Slot = { 176, 48 }, Pitch = 60, Outer = 20, Name = 20, Num = 14, Nudge = 8,
+		Dim = 0.58, HintOpens = 3, Hint = "HOLD B, AIM, LET GO", HintPad = "STICK TO AIM, %s TO PLAY", More = "MORE IN THE SHOP",
+		Phone = { Center = { 406, 172 }, Gap = 84, Slot = { 132, 44 }, Pitch = 52, Outer = 10, Name = 16, Num = 12 },
+	},
+	-- THE OUTFIT WINDOW
+	Outfits = {
+		Card = { 128, 150 }, Gap = 10, Cols = 4, Title = "AWAKEN IN", Default = "YOUR AVATAR", Loading = "checking your closet...",
+		Pass = "AWAKENING OUTFITS", PassInfo = "Wear one of your saved outfits when you awaken.", Get = "GET IT",
+		Allow = "ALLOW", -- (asking Roblox again)
+		None = "No saved outfits yet. Make one in the avatar editor.",
+		Unavailable = "Outfits aren't available here.",
+		NoAccess = "The game can't see your outfits. Press ALLOW.",
+		NotSent = "Roblox didn't send them. Try again in a moment.",
+	},
+	-- RANKED (the owner's app, round 95): your tier, the tiers, the top 10, the queue
+	Ranked = {
+		X = 236, W = 940, Top = 66, Bottom = 700, Margin = 38, TitleY = 122,
+		Title = "RANKED", Kicker = "ONE ON ONE ON THE SKY COFFIN. FIRST TO 2.", Tiers = "TIERS", Board = "TOP 10, EVERY SERVER",
+		Find = "FIND A MATCH", Searching = "SEARCHING %d:%02d", Cancel = "CANCEL", Duel = "IN A DUEL",
+		Unranked = "UNRANKED", Placement = "PLACEMENT %d / %d", ToNext = "%d to %s", TopTier = "THE TOP TIER",
+	},
+}
+
+-- (round 100, ui_moments) THE MOMENTS in Stark Street (HUD.MO): the ult
+-- cut-in, the letterbox, the K.O. screen and the KO popup, rank-ups,
+-- callouts, NEW HERO, ADMIN ABUSE and its chips, HERO SHUFFLE's reel, the
+-- ranked scoreboard / calls / cards, the moderators' warning, the FINISH
+-- overhead, the dev flight's meter, space's chip and banner. Positions are on
+-- the mockups' frame - 1280x720, a phone's 812x375 (Phone*), centred in the
+-- screen - sizes are em px (the kit's), times are seconds. The cut-in's
+-- coordinates are mockup 08's, the K.O. screen's mockup 09's.
+Config.UI.Moments = {
+	CinemaOrder = 6, -- QuirkCinema (the letterbox and the cut-ins): over the toasts (5) and the moment lane (4)
+	Slide = 40, -- (px along the lean: how far a band slides in from)
+	-- ((round 100 review) a phone's bands - NEW HERO, the ranked cards - end here
+	-- (pt on 812x375), clear of the touch grid to the right of it; NEW HERO's tap is its band)
+	PhoneClear = 470,
+	Bars = { H = 76, PhoneH = 40, Out = 0.12 }, -- the letterbox: ink, snapped in
+	Letterbox = { Title = 30, PhoneTitle = 18, Sub = 16, PhoneSub = 11, X = 40, PhoneX = 24 }, -- a cutscene's title card in the bottom bar
+	Cut = {
+		-- the speed streaks (mockup 08's own: { x, y where it starts, length, thickness,
+		-- transparency } on the 1280x720 frame), the slash, the words
+		StreakList = {
+			{ 801, 428, 410, 5, 0.69 }, { 1074, 347, 361, 2, 0.65 }, { 133, 349, 325, 5, 0.59 }, { 351, 483, 202, 3, 0.63 }, { -13, 517, 350, 2, 0.64 },
+			{ -193, 606, 403, 2, 0.31 }, { 1098, 258, 323, 2, 0.62 }, { 66, 604, 468, 3, 0.57 }, { 24, 294, 190, 1, 0.55 }, { 591, 527, 343, 2, 0.67 },
+			{ 213, 291, 377, 2, 0.48 }, { -123, 469, 472, 1, 0.27 }, { 346, 292, 327, 3, 0.54 }, { -188, 405, 156, 2, 0.42 },
+		},
+		PhoneStreaks = 10, StreakRot = -7, Drift = 60,
+		Slash = { 1620, 250 }, PhoneSlash = { 1030, 150 }, SlashPos = { 670, 520 }, SlashRot = -7,
+		-- (Room: a longer title shrinks to fit it)
+		Title = 172, PhoneTitle = 96, TitleMin = 96, PhoneTitleMin = 56, Room = 900, PhoneRoom = 540, TitleShadow = 8, PhoneTitleShadow = 5, TitlePos = { 600, 618 },
+		TextRot = -6, -- (Roblox turns clockwise: -6 is the spec's +6, rising to the right)
+		Kicker = 26, PhoneKicker = 16,
+		Shout = 38, PhoneShout = 22, ShoutPos = { 842, 287 }, ShoutStagger = 62, ShoutBreak = 14, ShoutLine = 0.9, -- (ShoutPos: the first line's middle)
+		Line = 15, PhoneLine = 11, Who = 20, PhoneWho = 13, WhoX = 40, PhoneWhoX = 24,
+		-- the beats: the slash wipes in at f2, the title stamps, the shout lands, out at Hold
+		WipeAt = 0.033, Wipe = 0.18, TitleAt = 0.12, ShoutAt = 0.3, Hold = 1.6, Exit = 0.12,
+	},
+	-- the K.O. screen: one leaning band (never over 40% of the screen)
+	Down = {
+		In = 0.06, Dim = 0.75, BandT = 0.06, Slide = 0.12, Step = 0.08, Out = 0.12, SlashRot = 2,
+		Pc = {
+			Top = 236, Bottom = 500, K = 190, KX = 72, KY = 452, InfoX = 560, By = 14, ByY = 292, Name = 40, NameY = 334, Hero = 15,
+			Line = 15, LineY = 362, Nobody = 18, StatX = 542, StatStep = 128, Stat = 40, StatY = 438, StatLabel = 12, StatLabelY = 460,
+			Right = 44, Back = 110, BackY = 400, Totals = 14, TotalsY = 532,
+		},
+		Phone = {
+			Top = 108, Bottom = 258, K = 96, KX = 24, KY = 226, InfoX = 300, By = 11, ByY = 134, Name = 24, NameY = 160, Hero = 11,
+			Line = 11, LineY = 178, Nobody = 13, StatX = 290, StatStep = 84, Stat = 24, StatY = 220, StatLabel = 11, StatLabelY = 238,
+			Right = 24, Back = 60, BackY = 212, Totals = 11, TotalsY = 278,
+		},
+	},
+	-- the KO popup: K.O. on a short band
+	KO = {
+		In = 0.1, Hold = 1.5, HoldCallout = 2.2, BandT = 0.08,
+		Pc = { Y = 206, H = 118, K = 92, KBase = 96, Pad = 18, Gap = 26, Name = 24, Line = 16, Small = 13, FirstY = 40, Step = 26, Lean = 5.5 },
+		Phone = { Y = 106, H = 78, K = 60, KBase = 63, Pad = 12, Gap = 16, Name = 16, Line = 12, Small = 11, FirstY = 26, Step = 17, Lean = 3.6 },
+	},
+	RankUp = {
+		Hold = 1.2, BandT = 0.08, RowH = 24, RowText = 14,
+		Pc = { Y = 206, H = 128, Pad = 22, Kicker = 16, KickerY = 30, Name = 58, NameY = 92, Note = 19, NoteY = 118, NoteW = 150, MinW = 460 },
+		Phone = { Y = 106, H = 86, Pad = 14, Kicker = 12, KickerY = 20, Name = 34, NameY = 60, Note = 16, NoteY = 82, NoteW = 110, MinW = 300 },
+	},
+	Callout = { Size = 40, PhoneSize = 24, H = 58, PhoneH = 36, Pad = 20, Y = 226, PhoneY = 108, Hold = 0.7, Rot = -6 },
+	-- NEW HERO: the picker's detail block, full width
+	NewHero = {
+		Hold = 3.8, BandT = 0.06,
+		Pc = {
+			Y = 228, H = 176, X = 120, Kicker = 16, KickerY = 262, Num = 14, Mode = 12, Name = 58, NameY = 334, Note = 22, Line = 15, LineY = 370,
+			MovesX = 760, MovesCol = 230, MovesLean = 5, MovesY = 286, MovesStep = 24, MoveKey = 14, Move = 15, Hint = 16, HintY = 386,
+		},
+		Phone = { Y = 104, H = 122, X = 30, Kicker = 12, KickerY = 128, Num = 11, Mode = 11, Name = 30, NameY = 172, Note = 16, Line = 11, LineY = 196, Hint = 12, HintY = 214 },
+	},
+	Event = { Hold = 3.2, OverH = 30, OverPhoneH = 24, OverText = 15, OverPhoneText = 12, OverHold = 2.4 },
+	Status = { Gap = 6 },
+	Chips = {
+		W = 200, H = 36, Gap = 6, Side = 330, Name = 14, Note = 11, Time = 18,
+		PhoneW = 156, PhoneH = 32, PhoneSide = 150, PhoneName = 11, PhoneNote = 11, PhoneTime = 14,
+	},
+	Reel = { W = 380, H = 214, Y = 300, PhoneX = 320, PhoneY = 168, PhoneScale = 0.72, Cell = 40, Title = 24, TitleY = 34, WindowY = 46, Num = 13, Name = 20, Result = 20, ResultY = 196 },
+	Ranked = {
+		Board = { W = 560, H = 48, PhoneW = 440, PhoneH = 40, Name = 18, PhoneName = 13, Tier = 11, PhoneTier = 11, Score = 28, PhoneScore = 20 },
+		Call = { Size = 120, PhoneSize = 72, Y = 340, PhoneY = 190, Shadow = 4, Sub = 20, PhoneSub = 13, SubGap = 40, PhoneSubGap = 26 },
+		Card = {
+			BandT = 0.06,
+			Pc = { Y = 236, H = 190, X = 120, Kicker = 14, KickerY = 268, Title = 92, TitleY = 366, Gap = 70, FirstY = 312, Name = 34, Line = 16 },
+			Phone = { Y = 114, H = 132, X = 30, Kicker = 11, KickerY = 136, Title = 56, TitleY = 210, Gap = 34, FirstY = 166, Name = 22, Line = 11 },
+		},
+	},
+	Warn = {
+		-- (H: the least; ((round 100 review)) it grows to hold a long warning - up to the server's 200 letters)
+		Order = 7, W = 540, H = 230, PhoneScale = 0.78, Title = 40, TitleY = 66, Text = 17, TextY = 82, From = 13,
+		ButtonW = 196, ButtonH = 40, ButtonText = 19, Life = 60,
+	},
+	Finish = { H = 32, Cap = 20, Text = 20 }, -- the overhead (px: a BillboardGui)
+	Flight = {
+		X = 560, Y = 562, W = 300, H = 44, PhoneX = 176, PhoneY = 222, PhoneScale = 0.8, Caption = 11, Tier = 20, Speed = 20, Mach = 11,
+		Marks = { 90, 220, 420, 520 }, Boom = 420,
+	},
+	Space = {
+		W = 210, H = 30, PhoneW = 170, PhoneH = 26, Where = 14, PhoneWhere = 11, Alt = 14, PhoneAlt = 11,
+		Title = 56, PhoneTitle = 32, Sub = 15, PhoneSub = 11, BannerY = 260, PhoneBannerY = 130,
+	},
+}
+
 -- Textures. The defaults are Roblox's built-in particle smoke and flame
 -- (always available); swap in any texture from the Creator Store if you like.
 Config.Assets = {
@@ -4613,11 +5666,328 @@ Config.Finishers = {
 Config.Cinematics = {
 	Enabled = true,
 	Awakenings = true, -- camera sweep when you press G
-	AwakeningArmor = 1.2, -- the awakening can't be interrupted for this long
+	AwakeningArmor = 1.2, -- (round 101: retired - Config.Ult.ActivationArmor is the awakening's armour)
 	Witness = true, -- players near a big move get a brief cut toward it
 	WitnessRadius = 90,
 	Letterbox = true,
 }
+
+---------------------------------------------------------------------------
+-- (round 101) THE AWAKENING, JJS-STYLE (VFX.AK): every hero's ult activation
+-- on one timeline (seconds from the press). The press cuts straight to a
+-- close frontal shot (A) while the body does one small thing (the GATHER);
+-- on the HIT the pose snaps, the camera cuts to the cut-in's frame (B) with
+-- a kick, the impact frames flash, round 100's cut-in lands, the burst goes
+-- off, his theme comes in and the server's blast hits; the pose holds; at
+-- the RELEASE the camera cuts back and he's free. Armour from the press to
+-- Armor (Config.Ult.ActivationArmor). Everyone else's camera stays free: they
+-- see the body, the burst, the aura and the shout panel over his head.
+-- Shots are in his facing frame at the press (+X his right, -Z ahead of him,
+-- y from the root), x his body scale. Shot B is framed off the clip's Hit
+-- pose (the head's height there): the target HeadDrop under the head, the
+-- camera Below under the target, Side to his left (he sits left of centre,
+-- the shout to his right).
+-- Heroes: one row each (the builders' own): Clip (the activation clip;
+-- default the template's MoveAwaken), HitAt (when it isn't HitAt: the clip's
+-- Hit), Big (the impact pair), Aura (a preset below), Voice (a line of
+-- Config.Voice; false: none; default Config.VoiceCues.Awaken), Shot = { Low,
+-- High, Dist, Side } (studs x scale), Burst / Ground = { overrides; false:
+-- none }, Sound (false: no Ult<Q> on the hit), Music (false: his own),
+-- Impact (false: none), Gather (false: no air sucked in), Panel (false).
+-- LEGACY (until a builder gives him his own VFX.AK.FX entry): his old
+-- awakening (QUIRK_FX.Ult) runs on the hit, or at the press for one that
+-- times itself (Legacy = "press"), over the template's Motion (default
+-- "Awaken": the template clip).
+---------------------------------------------------------------------------
+Config.Awaken = {
+	HitAt = 0.3,
+	Gather = 0.18, -- (the anticipation's peak: where the gather FX swell)
+	Release = 1.6,
+	Armor = 1.75, -- (= Config.Ult.ActivationArmor)
+	Hitstop = 0.06,
+	Lens = 4, -- studs: nothing the burst spawns this close to the cutscene camera (or between it and him) shows on his screen
+	BlastReach = 7.5, -- ((round 101 review) a toon explosion's flash reaches this x its scale: its radius for the lens rule, VFX.AK.reach)
+	Window = { 0.15, 1 }, -- a clip's Hit outside this isn't the activation's hit
+	Shots = {
+		A = { From = { Vector3.new(0, 0.3, -9.0), Vector3.new(0, 0.5, 0) }, To = { Vector3.new(0, 0.35, -8.2), Vector3.new(0, 0.55, 0) }, Fov = { 46, 44 } },
+		B = { Dist = { 8.4, 7.8 }, Side = -1.0, Below = 0.65, HeadDrop = 1.36, Fov = { 56, 54 } },
+		Head = 1.5, -- (a body with no clip: the head this far over the root)
+		Clear = 1.2, -- (a shot pulled in toward him past a wall stops this short of it)
+	},
+	Kick = { Fov = -8, Time = 0.1, Shake = 0.35, ShakeTime = 0.2 },
+	-- the impact pair (a Big hero): White / Black seconds (2 frames each), each frame's ColorCorrection
+	-- Brightness / Contrast (white world / black world), the radial lines; Flash: anyone else's B/W frame
+	-- ((round 101 review) Back: the backdrop sheet this far behind him (studs x his scale) - pure white,
+	-- then pure black, whatever the grade makes of the sky; Sheet: its size)
+	Impact = { White = 0.033, Black = 0.033, Flash = 0.07, Lines = 18, Bright = { 0.6, -0.45 }, Contrast = { 3, 4 }, Back = 2.6, Sheet = 600 },
+	CutIn = { WipeAt = 0, Wipe = 0.14, TitleAt = 0.05, ShoutAt = 0.2, Hold = 1.15 }, -- (from the hit; Hold ends at the hit + Hold for everyone)
+	Music = { FadeIn = 0.15, Attack = 0.04 },
+	Sounds = { Riser = "AwakenRiser", Hit = "AwakenHit" },
+	Burst = { Ring = 34, RingTime = 0.35, Flare = 0.4, FlareTime = 0.25, Light = 6, LightRange = 24, LightTime = 0.4 },
+	Ground = { Dust = 12, DustRing = 14, Cracks = 8, CrackLength = { 6, 10 }, Air = 12, AirRadius = 14, Crater = 10 },
+	Aura = {
+		Rim = 0.5, Rate = 6, Tick = 0.15, -- (Tick: how often it looks for another Highlight on him to stand aside for)
+		-- each preset: Tex (rbxasset texture), Rate, Life, Speed, Size, Lift (up / s), Spread, Color ("color" / "accent" / a Color3)
+		Presets = {
+			embers = { Tex = "rbxasset://textures/particles/fire_main.dds", Rate = 7, Life = { 0.5, 0.9 }, Speed = { 2, 4 }, Size = 0.45, Lift = 6, Spread = 40, Color = "color", Light = 1 },
+			sparks = { Tex = "rbxasset://textures/particles/sparkles_main.dds", Rate = 8, Life = { 0.2, 0.4 }, Speed = { 4, 8 }, Size = 0.35, Lift = 0, Spread = 180, Color = "color", Light = 1 },
+			static = { Tex = "rbxasset://textures/particles/sparkles_main.dds", Rate = 10, Life = { 0.1, 0.25 }, Speed = { 1, 3 }, Size = 0.3, Lift = 0, Spread = 180, Color = "accent", Light = 1 },
+			frost = { Tex = "rbxasset://textures/particles/sparkles_main.dds", Rate = 5, Life = { 0.6, 1 }, Speed = { 0.5, 1.5 }, Size = 0.3, Lift = -1, Spread = 180, Color = "accent", Light = 0.6 },
+			ash = { Tex = "rbxasset://textures/particles/smoke_main.dds", Rate = 4, Life = { 0.8, 1.4 }, Speed = { 0.5, 1.5 }, Size = 0.6, Lift = 2, Spread = 60, Color = "color", Light = 0 },
+			leaves = { Tex = "rbxasset://textures/particles/sparkles_main.dds", Rate = 3, Life = { 1, 1.6 }, Speed = { 1, 2 }, Size = 0.35, Lift = -3, Spread = 120, Color = "accent", Light = 0 },
+			ink = { Tex = "rbxasset://textures/particles/smoke_main.dds", Rate = 4, Life = { 0.6, 1 }, Speed = { 0.5, 1 }, Size = 0.5, Lift = -4, Spread = 50, Color = "color", Light = 0 },
+			feathers = { Tex = "rbxasset://textures/particles/sparkles_main.dds", Rate = 3, Life = { 1, 1.6 }, Speed = { 1, 2.5 }, Size = 0.4, Lift = -2, Spread = 140, Color = "color", Light = 0.3 },
+			motes = { Tex = "rbxasset://textures/particles/sparkles_main.dds", Rate = 5, Life = { 0.8, 1.3 }, Speed = { 0.5, 1.5 }, Size = 0.3, Lift = 3, Spread = 180, Color = "accent", Light = 1 },
+		},
+	},
+	-- the shout panel over him on everyone else's screen (studs; Offset: to the right on screen, up)
+	Panel = { Tilt = 6, Pop = 0.06, Fade = 0.15, Size = { 9, 2.4 }, Offset = { 3, 4.4 }, MaxDistance = 220, Text = 0.8 },
+	Witness = { Radius = 60, Shake = 1.2, ShakeTime = 0.5 },
+	Phone = { Shake = 0.6, Panel = 0.8 },
+	Low = { Particles = 0.5 },
+	-- BAKUGO (the kit's reference hero): his clip, his burst (Explosion below)
+	Explosion = {
+		Palms = { Count = 3, Gap = 0.05, Size = 0.9 }, -- (the gather: sparks popping off both palms)
+		-- (the hit: a blast out behind each palm - Back / Out studs behind it and out to its side, x his
+		-- scale: he's silhouetted against them, never inside one. (round 101 review) 1.3 / 1.2 swallowed him)
+		Nozzles = { Scale = 0.55, Back = 3.4, Out = 0.6 },
+		Ring = { Count = 6, Radius = 11, Height = 3, Scale = 1.1, From = 0.05, Step = 0.05 }, -- (then the ring of six round him)
+		Pop = { Every = 0.7, Scale = 0.45 }, -- (the aura: a palm pops now and then while the ult's up)
+	},
+	Heroes = {
+		Explosion = { Clip = "MoveAwakenExplosion", Big = true, Aura = "embers" },
+		OneForAll = { Clip = "MoveAwakenOneForAll", Big = true, Aura = "motes" }, -- ((round 101, awaken_p) the rows of group P: their own clips, AK.FX entries and numbers below)
+		FullCowl = { Clip = "MoveAwakenFullCowl", Aura = "sparks", Ground = { Cracks = false } }, -- ((round 101, awaken_e) his own green-lit cracks)
+		HalfCold = { Clip = "MoveAwakenHalfCold", Big = true, Aura = "frost" },
+		Engine = { Clip = "MoveAwakenEngine", Aura = "sparks" },
+		Creation = { Clip = "MoveAwakenCreation", Aura = "motes", Shot = { Dist = 1 } }, -- ((round 101, awaken_m) her own pose: VFX.AK.FX.Creation; shot B a stud back for the staff)
+		Lemillion = { Clip = "MoveAwakenLemillion", Aura = "motes", Shot = { High = 0.5 } }, -- ((round 101 review) High: he climbs out of the street in the hold - his standing head stays under the top bar)
+		Manifest = { Clip = "MoveAwakenManifest", Aura = "ink" }, -- ((round 101, awaken_m) VFX.AK.FX.Manifest; his growing on the hit: see Overhaul's)
+		Arbor = { Clip = "MoveAwakenArbor", Aura = "leaves" }, -- ((round 101, awaken_m) VFX.AK.FX.Arbor; his growing on the hit: see Overhaul's)
+		Electrification = { Clip = "MoveAwakenElectrification", Aura = "static" },
+		-- ((round 101, awaken_m) Overhaul: VFX.AK.FX.Overhaul. Shot B is framed for his grown body but off his root at the press, and the server
+		-- grows him on the hit - his root rises (R6Scale - 1) x 3 studs; the kit's shot B rises with it for every body that grows on the hit
+		-- (VFX.AK.shots' rise, from awaken_p), so no Shot.High of his own (integration: it was doubled). No Shot.Low (the design's): shot B is
+		-- framed off his crouched head already)
+		Overhaul = { Clip = "MoveAwakenOverhaul", Aura = "sparks" },
+		Decay = { Clip = "MoveAwakenDecay", Aura = "ash" }, -- ((round 101, awaken_m) VFX.AK.FX.Decay: his sketch frame is his impact pair)
+		Compress = { Clip = "MoveAwakenCompress", Aura = "motes" }, -- ((round 101, awaken_m) VFX.AK.FX.Compress)
+		Double = { Clip = "MoveAwakenDouble", Aura = "ink" }, -- ((round 101, awaken_m) VFX.AK.FX.Double)
+		Limitless = { Clip = "MoveAwakenLimitless", Big = true, Motion = "HandSign", Aura = "motes" },
+		CrazyDiamond = { Clip = "MoveAwakenCrazyDiamond", Aura = "motes" },
+		PlusUltra = { Clip = "MoveAwakenPlusUltra", Big = true, Aura = "motes" },
+		Hellflame = { Clip = "MoveAwakenHellflame", Aura = "embers", Shot = { High = 0.6, Dist = 1.2 } }, -- ((round 101 review) B up and back: ~130 px of the hellflame pillar over his raised fist in his cut-in, not ~60 squeezed under the top bar)
+		Blueflame = { Clip = "MoveAwakenBlueflame", Aura = "embers" },
+		PrimeDeku = { Clip = "MoveAwakenPrimeDeku", Aura = "sparks" }, -- ((round 101, awaken_e) B frames off his floating head already: no High)
+		PrimeMight = { Clip = "MoveAwakenPrimeMight", Big = true, Aura = "motes" },
+		TheWorld = { Clip = "MoveAwakenTheWorld", Big = true, Aura = "motes" },
+		FierceWings = { Clip = "MoveHawksAwaken", Motion = "HawksAwaken", Aura = "feathers", Sound = false, Burst = { Flare = false }, Ground = { Dust = false } }, -- ((round 101, awaken_m) his clip retimed onto the hit (was HitAt 0.28, Legacy); VFX.AK.FX.FierceWings plays UltFierceWings from the press)
+		Saitama = { Clip = "MoveSaitamaAwaken", Motion = "SaitamaAwaken", HitAt = 0.32, Aura = "none", Burst = { Flare = false, Ring = false, Light = false }, Ground = { Dust = false } },
+		Whirlwind = { Clip = "MoveAwakenWhirlwind", Aura = "none", Shot = { Dist = 1.2 }, Burst = { Ring = false }, Ground = { Dust = false } }, -- ((round 101, awaken_e) his own wind on the street; B pulled back out of his storm - (review) 1.2, not 2.5: at 2.5 he was the smallest hero in his own cut-in)
+	},
+}
+
+-- (round 101, awaken_e) GROUP E's own numbers - the elements: each hero's
+-- part of his awakening (VFX.AK.FX[quirk]; clips anim/moves_awaken_e.py).
+-- Times are seconds from the press unless they say otherwise.
+Config.Awaken.FullCowl = {
+	Veins = { Color = Color3.fromRGB(255, 60, 60) }, -- the gather: One For All's red vein lines crackling over him (green sparks climbing him with them)
+	Burst = { Radius = 7, Time = 0.9, Rate = 5 }, -- the hit: his lightning everywhere (cowlBurst)
+	Rings = { Count = 3, Life = 0.75 }, Pillar = 0.6, Storm = 1.1, Crackle = 1.2, -- the orange rings, bolts up him, the disc and bolts over the street, arcs on him
+	Cracks = { Count = 10, Length = { 14, 24 }, Life = 2.6 }, -- the street split under him, lit green (the kit's dark cracks are off for him)
+	Rainbow = { Size = 10, Life = 0.45 }, Flare = { Size = 3, Life = 0.5 },
+	VoiceTail = 0.5, VoiceFade = 0.25, -- DekuAwaken (a 7 s clip) faded out this long after the release
+}
+Config.Awaken.HalfCold = {
+	Creep = 0.26, -- the frost creeping up his right side from the press, feet to face
+	Breath = 0.3, Embers = { Size = 0.7, Rate = 0.8 }, -- the gather: frost breath, embers off his left arm
+	-- the hit: the glacier fanned out on his right (Count blades Out studs off, Length + Tall at his side,
+	-- grown over Grow), the crust (Crust studs across), the frost cracks; the flame column Side studs off
+	-- his left, Bursts of fire round that side; steam where they meet (in front of him, behind: from the hit)
+	Glacier = { Count = 9, Out = 5, Length = { 7, 9 }, Tall = 5, Grow = 0.15, Crust = 18, Cracks = 4, CrackLength = { 14, 20 } },
+	Column = { Side = 3.5, Height = 30, Radius = 3.2, Time = 1.3, Bursts = 5 },
+	Steam = { 0.15, 0.25 },
+	Melt = 0.7, FrostOff = 0.6, -- the release: his fire melts the ice; the frost goes this long after
+	Arm = { Size = 0.8, Rate = 0.35 }, -- the aura: embers off his left arm while he's in it
+}
+Config.Awaken.Engine = { Grow = 0.1, HotFor = 0.04 } -- the tubes grow in over Grow from the yank (the Gather), white-hot HotFor before the hit
+Config.Awaken.Electrification = {
+	Flicker = { Count = 3, Gap = 0.04, Light = 4, Range = 14 }, -- the gather: the light round him flickering
+	Zigs = { Count = 3, Height = 30 }, -- the hit: bolts up off him into the sky
+	Arcs = { Reach = { 6, 10 }, Every = 0.12, Till = 1.32 }, -- arcs out of both hands, sideways, through the hold (till Till)
+	Static = { Every = 0.3, Ground = 0.35 }, -- the aura: arcs crawling over him; the chance one cracks off into the street
+}
+Config.Awaken.Hellflame = {
+	Shoulders = { Height = 1.6 }, -- the gather: flames licking up off his shoulders
+	Pillar = { Height = 40, Radius = 1.8, Lift = 1, Time = 1.3 }, -- the hit: the hellflame pillar out of his raised fist (Radius: half its base; Lift: its foot over the fist)
+	Fade = 0.5, Fist = { Burst = 0.7 }, Ring = { From = 3, To = 34, Life = 0.4 }, -- (Burst: a white-hot burst at its foot; Ring: his fire round him)
+}
+Config.Awaken.Blueflame = {
+	Staples = { Height = 0.9 }, -- the gather: blue flame flickering at his staples (face, forearms)
+	Pillar = { Back = 5, Height = 50, Radius = 4, Time = 1.4, Ring = 8 }, -- the hit: the blue pillar Back studs behind him
+	Ring = { Radius = 12, Height = 6, Time = 1.6, Spacing = 3.5 }, -- ...and a ring of blue fire round him
+}
+Config.Awaken.PrimeDeku = {
+	Curls = { Reach = 2.5, Over = 0.05 }, -- the gather: blackwhip curling out of his forearms
+	Ghosts = { Count = 8, Radius = 10, Spread = 120, Life = 1.8, Scale = 1.1 }, -- the hit: the vestiges fanned out behind him (Spread degrees)
+	Bolts = 10, Disc = 60,
+	Whips = { Reach = 8, Time = 1, Angle = 55 }, -- blackwhip lashing out of both palms, Angle degrees off ahead
+	Aura = { Every = 0.6 }, -- a green bolt off him now and then
+	VoiceTail = 0.5, VoiceFade = 0.25, -- DekuAwaken faded out this long after the release
+}
+
+-- (round 101, awaken_p) GROUP P's awakenings (VFX.AK.FX.<hero>, anim/moves_awaken_p.py): each one's
+-- own pieces, on the kit's timeline (seconds from his hit unless said; studs x his body's scale)
+Config.Awaken.OneForAll = {
+	-- the steam closing round him from the press (Count puffs, Radius out, Size each) and thickest on the hit;
+	-- then blown out in a ring (Ring puffs out to RingRadius over RingTime) as he bursts out of it
+	Steam = { Count = 14, Radius = 2.6, Size = 2.2, Shrink = 0.18, Ring = 18, RingRadius = 14, RingSize = 3.2, RingTime = 0.35, RingLife = 0.4, Front = 0.3 },
+	-- (Front: on his own screen, the steam this far round toward the camera (the dot of its way out with his
+	-- facing) goes the moment he bursts out, and none is blown at the lens - his pose on the hit is never behind it)
+	Bolts = 0.3, -- (s of gold bolts round him on the hit)
+	Discs = { Count = 2, Gap = 0.08, Size = 70 },
+	ShoulderSteam = 0.6, -- (the aura: a wisp of steam off his shoulders every this many s)
+	-- ((round 101 review) the thumb up out of his raised fist (a prop, hit -> release): At / Size in the
+	-- hand's space x the arm's width; made once he's grown (Wait s at most)
+	Thumb = { At = { -0.26, 0.12, -0.62 }, Size = { 0.3, 0.3, 0.72 }, Wait = 0.35 },
+}
+Config.Awaken.Lemillion = {
+	-- a still copy of him (Lem.double) drops into the street from the press - Depth studs down by the hit
+	-- (Quart Out: head and shoulders left at the gather) - while his body's hidden; on the hit he breaches
+	Depth = 4.2,
+	Ripples = { { 18, 0 }, { 34, 0.06 } }, -- (size, delay)
+	Wall = { Count = 20, Radius = 12, Height = 16 }, -- (the ring wall of light slabs going up)
+	Afterimage = 0.3, -- (the aura: an afterimage every this many s while he's running)
+	AfterimageSpeed = 20,
+}
+Config.Awaken.Limitless = {
+	-- THE VOID (his own impact pair): frame 1 deep violet-black with white star specks, him pale; frame 2 white,
+	-- him violet-black. World / Figure colours per frame, the grade (Bright / Contrast / Tint), Specks
+	Void = {
+		World = { Color3.fromRGB(14, 6, 32), Color3.fromRGB(255, 255, 255) },
+		Figure = { Color3.fromRGB(236, 242, 255), Color3.fromRGB(26, 10, 48) },
+		-- ((round 101 review) a gentle grade: the backdrop sheet and the cut-out already are the frame's two
+		-- colours, and the grade lands on them too - frame 2's +0.6 / x4 would have lifted his violet-black
+		-- figure to white on the white world, a blank frame)
+		Bright = { -0.1, 0.1 }, Contrast = { 1, 1.5 }, Saturation = { -0.3, -1 },
+		Tint = { Color3.fromRGB(150, 120, 255), Color3.fromRGB(255, 255, 255) },
+		Specks = 70,
+	},
+	Sphere = { Size = 14, Time = 0.45 }, -- (the refracting sphere swelling round him on the hit)
+	Discs = { Count = 3, Gap = 0.1, Size = 60 },
+}
+Config.Awaken.CrazyDiamond = {
+	Stand = { Loom = 0.05, Pose = 1.3 }, -- (Crazy Diamond behind him: looming from the press to Loom s past the hit, in its own pose from the hit)
+	Shards = 8,
+	Menace = { Count = 3, Rise = 3, Life = 1.1 }, -- (the ink menace marks rising off him)
+}
+Config.Awaken.PlusUltra = {
+	-- the gold sunburst fanned out behind him: Rays, each Length long, from Back studs behind his chest;
+	-- out in Grow s, held, gone by Fade s after the hit
+	Sun = { Rays = 14, Length = 14, Back = 2.2, Width = 0.7, Grow = 0.15, Fade = 1.25 },
+	Discs = { Count = 2, Gap = 0.08, Size = 70 },
+}
+Config.Awaken.PrimeMight = {
+	Disc = 90, Streaks = 30, Ring = 50, -- (the landing: the gold disc, the streaks, the sun ring)
+	Dust = { Count = 16, From = 4, To = 22 }, -- (the big dust ring blown out of the crater)
+}
+Config.Awaken.TheWorld = {
+	-- THE NEGATIVE (his own impact pair): frame 1 the world in his accent's green, him violet; frame 2 gold, him black
+	Negative = {
+		World = { Color3.fromRGB(120, 255, 200), Color3.fromRGB(255, 214, 60) },
+		Figure = { Color3.fromRGB(70, 20, 110), Color3.fromRGB(0, 0, 0) },
+		Bright = { 0.1, 0.25 }, Contrast = { 2.5, 3 }, Saturation = { -0.4, -0.2 },
+		Tint = { Color3.fromRGB(120, 255, 200), Color3.fromRGB(255, 220, 120) },
+	},
+	Stand = { Loom = 0.05, Rage = 1.3 }, -- (The World behind him: looming from the press to Loom s past the hit, raging from the hit)
+}
+Config.Awaken.Saitama = {
+	Dust = { Count = 12, From = 3, To = { 18, 26 } }, -- (the dust round him blown flat on the hit)
+	Gust = { { 0.5, 1.6 }, { 1, 1.4 } }, -- (his cape: stirring from the press, snapping on the hit - level, s)
+}
+
+-- (round 101, awaken_m) THE MATTER HEROES' own numbers (their VFX.AK.FX
+-- entries; studs x his body's scale, seconds from the hit unless said). On
+-- his own screen nothing reaching out of him toward the camera comes within
+-- Config.Awaken.Lens of it (VFX.AK.M.reach / VFX.AK.lens).
+-- CREATI: the staff drawn out of her chest - its length, how much of it is
+-- past her grip (Up: the centre that far along), its line in her hand's space
+-- at the pose (slanting up and out past her shoulder), how fast it grows out;
+-- the glow at her chest (gather / hit, its size); the arsenal flung out of her
+-- (how many, how far, how long); a glint off her every so often in the ult
+Config.Awaken.Creation = {
+	Staff = { Length = 5.5, Up = 0.2, Axis = Vector3.new(0.809, -0.267, -0.523), Grow = 0.22 },
+	-- ((round 101 review) Hit 2.4 -> 1.4: its ball grew to 7.7 studs at her
+	-- chest and sat over her whole pose as the cut-in landed)
+	Glow = { Gather = 1.2, Hit = 1.4 },
+	Arsenal = { Count = 14, Reach = { 6, 11 }, Time = 0.5 },
+	Glint = { 0.5, 0.9 },
+}
+-- SUNEATER: the two tentacles peeking over his shoulders in the gather; the
+-- six out of his arms on the hit - thickness, length, how fast they burst out
+-- (Burst), how long they take thinning away, gone by the release (Back), and
+-- each arm's three (forward, out, up)
+Config.Awaken.Manifest = {
+	Peek = { Thick = 0.3, Length = 1.5, Grow = 0.14 },
+	Tentacles = { Thick = 0.75, Length = { 6, 7.5 }, Burst = 0.1, Back = 0.25, Fans = { { 0.85, 0.55, 0.35 }, { 0.55, 0.85, -0.05 }, { 0.95, 0.3, -0.45 } } },
+	Splash = 26, -- (the ink splash on the street)
+}
+-- KAMUI WOODS: the bark up his forearms (shed this long before the release);
+-- the branches out of his hand at the camera ((forward, right, up) each:
+-- spread wide enough to lash past the lens, not into it); the ring of them
+-- out of him a beat after the hit (on his own screen only the ones behind
+-- him - Front: out . facing under this - so the cut-in's first frames are his
+-- cast alone, the forest growing up behind him through the hold); the stakes
+-- round him (his own screen: behind him too); the leaves
+Config.Awaken.Arbor = {
+	Bark = { Size = Vector3.new(1.12, 1, 1.12), Shed = 0.2 },
+	Hand = { Thick = 0.55, Length = { 8, 10 }, Lash = 0.1, Fans = { { 1, 0.7, 0.45 }, { 1, -0.6, 0.55 }, { 1, 0.62, -0.42 }, { 1, -0.7, -0.3 } },
+		-- ((round 101 review) his own screen's fan: to his right and up only -
+		-- the two swinging across to his left ran in front of his face)
+		Mine = { { 1, 0.75, 0.5 }, { 1, 0.95, -0.2 }, { 0.8, 0.35, 0.95 }, { 0.7, 1.2, 0.15 } } },
+	Round = { Count = 8, Out = 13, Up = 7, Thick = 1, Swell = 0.9, Delay = 0.25, Front = -0.3 },
+	Stakes = { Count = 8, Radius = 7, Height = { 4, 6 }, Front = -0.3 },
+	Leaves = 26,
+}
+-- OVERHAUL: the red crackle over him on the hit; the cracks racing out of his
+-- palm; the ring of short spikes snapping up round him (count, radius,
+-- length, thickness, how fast); the crackle on his hands in the ult (how often)
+Config.Awaken.Overhaul = {
+	Crackle = 0.35,
+	Cracks = { Count = 10, Length = { 14, 22 } },
+	Spikes = { Count = 10, Radius = 6, Length = { 1.8, 3 }, Thick = { 0.8, 1.2 }, Grow = 0.12, Lean = 0.8 },
+	Hands = 0.3,
+}
+-- SHIGARAKI: the lightning round his hands (how long), the five fingers
+-- cracked into the street ahead (their length), the ash rushing up (how many),
+-- the spread (radius, how fast) and the dome over it (its rise, how long)
+-- ((round 101 review) AshFront: on his own screen no ash puff out this far
+-- toward the camera (out . facing over it) - they swallowed his palm thrust)
+Config.Awaken.Decay = { Bolts = 0.6, Fingers = 6, Ash = 10, AshFront = -0.2, Spread = { 18, 0.5 }, Dome = { 14, 2.2 } }
+-- MR. COMPRESS: the two spotlights (from this far behind him, out to each
+-- side, up; how wide; how fast they snap on), the marbles out of the hat
+-- (how many, how far), the confetti
+Config.Awaken.Compress = {
+	-- ((round 101 review) Land: the beams land this far behind him (they ran
+	-- down through him to his feet and washed his pose out); Width 6 -> 4)
+	Spotlights = { Back = 26, Side = 22, Up = 55, Width = 4, Snap = 0.08, Land = 2.2 },
+	Marbles = { Count = 14, Reach = { 6, 10 } },
+	Confetti = 40,
+}
+-- TWICE: the parade out of the mud behind him - two crowds either side of him
+-- (how many; the fan's width behind him in degrees, the gap left clear right
+-- behind him so his own silhouette reads between them; how far out; one after
+-- another this far apart; each formed out of pale wet clay (Clay), turning into
+-- him over Form - in the cut-in's black and white they read apart from his
+-- own dark silhouette); the mud splash on the street
+-- ((round 101 review) Form 0.8 -> 1.3, eased in: they stay clay through the
+-- cut-in. Real: the server's real doubles (Kit.TW.parade, on the hit) stand
+-- this many degrees round from his front (each side, Arc) this far out
+-- (short of a wall) - behind him, never between his cutscene camera and him
+-- (they were on a world-aligned ring of 4 studs: one could land right in
+-- front of him, and the ones beside him walled the cut-in in black))
+Config.Awaken.Double = { Parade = { Count = 8, Fan = 120, Gap = 50, Radius = { 7, 12 }, Stagger = 0.03, Form = 1.3, Clay = Color3.fromRGB(168, 128, 92) }, Splash = 30,
+	Real = { Arc = { 115, 145 }, Radius = 6 } }
 
 ---------------------------------------------------------------------------
 -- Animations
@@ -5052,8 +6422,16 @@ Config.UltMusic = {
 		Saitama = { Id = "rbxassetid://1835323453", Start = 0.11 },
 		-- (round 92) Inasa: Future Victory (APM: an upbeat, all-out victory
 		-- cue, 63 s - r84/music_catalog.md, loaded in the place): the fight of
-		-- his life and he's loving every second
-		Whirlwind = { Id = "rbxassetid://1839223123", Start = 0.09 },
+		-- his life and he's loving every second.
+		-- ((round 99, inasa_ult) in on his "I LOVE THIS!!!": Start is the
+		-- cue's drop - its envelope hook, 8 bars in at 17.16 s (the
+		-- r84/music_catalog.md checker's correction 7; 0.09 was its quiet
+		-- intro, loud only from 10 s), and FadeIn its own: up in 0.3 s, not
+		-- the 1.2 s every other theme swells in over. (round 101, awaken_e)
+		-- the awakening kit starts a theme far enough ahead that its Start
+		-- lands on the hit (VFX.AK.lead), so Start is the drop itself now - it
+		-- was 0.3 s before it, for the old awakening's own duck)
+		Whirlwind = { Id = "rbxassetid://1839223123", Start = 17.16, FadeIn = 0.3 },
 	},
 }
 
@@ -5146,6 +6524,25 @@ Config.Voice = {
 	InasaRide = { Id = "", Text = "Ride the wind!", VoiceId = "5", Pitch = 1, Speed = 1.2, Volume = 2.8, Range = 220, Bubble = "RIDE THE WIND!!" },
 	InasaSkyCall = { Id = "", Text = "Sky breaker...", VoiceId = "5", Pitch = 0, Speed = 0.95, Volume = 3.4, Range = 1800, Bubble = "SKYBREAKER..." },
 	InasaSkyHurl = { Id = "", Text = "Cyclone!", VoiceId = "5", Pitch = 1, Speed = 1.05, Volume = 3.6, Range = 1800, Bubble = "CYCLONE!!!" },
+	-- (round 101) THE AWAKENINGS' LINES (Config.VoiceCues.Awaken): said on the
+	-- pose's hit (VFX.AK.voice) - each hero's own, short, in his voice
+	AllMightAwaken = { Id = "", Text = "Plus... ultra!", VoiceId = "5", Pitch = -3, Speed = 0.9, Volume = 3.2, Range = 260 },
+	TodorokiAwaken = { Id = "", Text = "Phosphor.", VoiceId = "5", Pitch = -1, Speed = 0.9, Volume = 3, Range = 260 },
+	IidaAwaken = { Id = "", Text = "Recipro... turbo!", VoiceId = "5", Pitch = 0, Speed = 1.05, Volume = 3, Range = 260 },
+	CreatiAwaken = { Id = "", Text = "Leave it to me!", VoiceId = "5", Pitch = 2, Speed = 1.05, Volume = 3, Range = 260 },
+	LemillionAwaken = { Id = "", Text = "Lemillion!", VoiceId = "5", Pitch = 1, Speed = 1.1, Volume = 3, Range = 260 },
+	SuneaterAwaken = { Id = "", Text = "It makes me stronger.", VoiceId = "5", Pitch = -1, Speed = 0.9, Volume = 2.4, Range = 220 },
+	KamuiAwaken = { Id = "", Text = "Great forest!", VoiceId = "5", Pitch = -1, Speed = 1, Volume = 3, Range = 260 },
+	KaminariAwaken = { Id = "", Text = "Indiscriminate discharge!", VoiceId = "5", Pitch = 1, Speed = 1.2, Volume = 3, Range = 260 },
+	OverhaulAwaken = { Id = "", Text = "Overhaul.", VoiceId = "5", Pitch = -2, Speed = 0.85, Volume = 2.8, Range = 240 },
+	ShigarakiAwaken = { Id = "", Text = "Everything crumbles.", VoiceId = "5", Pitch = -2, Speed = 0.9, Volume = 2.8, Range = 240 },
+	CompressAwaken = { Id = "", Text = "It's showtime!", VoiceId = "5", Pitch = 0, Speed = 1, Volume = 3, Range = 260 },
+	TwiceAwaken = { Id = "", Text = "Sad Man's Parade!", VoiceId = "5", Pitch = 0, Speed = 1.25, Volume = 3, Range = 260 },
+	GojoAwaken = { Id = "", Text = "Domain expansion.", VoiceId = "5", Pitch = -2, Speed = 0.9, Volume = 3, Range = 280 },
+	JosukeAwaken = { Id = "", Text = "Crazy Diamond!", VoiceId = "5", Pitch = 0, Speed = 1.05, Volume = 3, Range = 260 },
+	EndeavorAwaken = { Id = "", Text = "Watch me.", VoiceId = "5", Pitch = -4, Speed = 0.9, Volume = 3.2, Range = 260 },
+	DabiAwaken = { Id = "", Text = "It's me... Toya!", VoiceId = "5", Pitch = -1, Speed = 1, Volume = 3, Range = 260 },
+	HawksAwaken = { Id = "", Text = "Let's wrap this up.", VoiceId = "5", Pitch = 0, Speed = 1.05, Volume = 2.8, Range = 240 },
 }
 
 -- (round 76) who says what, and when. Awaken: the line when you awaken (G),
@@ -5153,8 +6550,18 @@ Config.Voice = {
 -- Might charging up before every move he has. (The lines that land on a
 -- moment - I AM HERE, SMASH! on the Detroit Smash, UNITED STATES OF SMASH,
 -- Bakugo's FINAL BOSS - are said by their moves themselves.)
+-- (round 101) Awaken: every hero's, said on the pose's hit (VFX.AK.voice; a
+-- clip lines its loudest word up on it). A hero's Config.Awaken.Heroes row
+-- can say another (Voice) or none (Voice = false: Inasa's old awakening says
+-- his itself, on his beat).
 Config.VoiceCues = {
-	Awaken = { Explosion = "Bakugo200", FullCowl = "DekuAwaken", PrimeDeku = "DekuAwaken", Saitama = "SaitamaOK", Whirlwind = "InasaAwaken" },
+	Awaken = {
+		Explosion = "Bakugo200", OneForAll = "AllMightAwaken", FullCowl = "DekuAwaken", HalfCold = "TodorokiAwaken", Engine = "IidaAwaken",
+		Creation = "CreatiAwaken", Lemillion = "LemillionAwaken", Manifest = "SuneaterAwaken", Arbor = "KamuiAwaken", Electrification = "KaminariAwaken",
+		Overhaul = "OverhaulAwaken", Decay = "ShigarakiAwaken", Compress = "CompressAwaken", Double = "TwiceAwaken", Limitless = "GojoAwaken",
+		CrazyDiamond = "JosukeAwaken", PlusUltra = "IAmHere", Hellflame = "EndeavorAwaken", Blueflame = "DabiAwaken", PrimeDeku = "DekuAwaken",
+		PrimeMight = "IAmHere", TheWorld = "Wry", FierceWings = "HawksAwaken", Saitama = "SaitamaOK", Whirlwind = "InasaAwaken",
+	},
 	Moves = {
 		-- All Might: true form, muscle form, Plus Ultra
 		TexasSmash = { "MightCharge" }, NewHampshireSmash = { "MightCharge" }, CarolinaSmash = { "MightCharge" }, HeroCounter = { "MightCharge" },
@@ -5348,6 +6755,24 @@ do
 	SN.Duck.LightOut = { To = 0.3, Hold = 0.1, Back = 0.6, Over = 1 }
 	SN.Light = { Muffle = 1, Ring = 1, Abort = 0.18, Watch = { "DevFlyLightBed", "DevFlyLightDeep" } }
 end
+-- (round 99) GODSPEED in his ears (Config.DevFlight.God): a roaring power
+-- bed over LIGHTSPEED's three - the atmosphere tearing, pitched down, and a
+-- deep churning rumble under it (GodRoar / GodGrowl: faded in over the jump
+-- from LIGHTSPEED to GODSPEED, on everyone else's flyer too - the flight's
+-- own beds, DFX.WATCH_BEDS), the air louder again (Level). THE BOOM ducks
+-- his wind deepest of all (Duck.God), muffles the world and rings his ears
+-- (God.Muffle / Ring), and the wind roars back over the top; the closing
+-- boom ducks it a little (Duck.GodOut); the charge's riser is let go fast
+-- (God.Abort s) if he lets go of the key before it goes off
+do
+	local SN = Config.DevFlight.Sound
+	SN.Beds.GodRoar = { In = { 1700, 2800 }, Center = 3000, Ride = 0.14, Bright = { 0, 4 } }
+	SN.Beds.GodGrowl = { In = { 1800, 2900 }, Center = 3000, Ride = 0.08 }
+	table.insert(SN.Level, { 3000, 6.5 })
+	SN.Duck.God = { To = 0.02, Hold = 0.45, Back = 1.3, Over = 1.6 }
+	SN.Duck.GodOut = { To = 0.25, Hold = 0.1, Back = 0.7, Over = 1.25 }
+	SN.God = { Abort = 0.2, Muffle = 1, Ring = 1, Chain = 0.45, Crackle = 0.7 }
+end
 -- (round 86, hawks_ult) HAWKS' ult: the storm's build, its roar, the sweep
 -- into the last cut and the suck-back as the feathers come home (licensed
 -- ProSoundEffects / APM, loadable in the place: r86/sfx_catalog.md). Starts
@@ -5360,10 +6785,441 @@ L.SweepHit = { take("1845262222", 5.67) } -- Sweep-Hit (b) (APM): a sweep up int
 L.TuttiSuck = { take("9039693523", 1.5) } -- Tutti Suck (APM): an orchestral swell, sucked out ~0.85 s after Start
 L.SubSuck = { take("9039693361", 1.21) } -- Gobstopper Sucker (APM): the sub under it (peak ~0.7 s after Start)
 L.ArrowPass = { take("9113166355", 0.89), take("9113166561", 0.89) } -- Arrow Out Whooshing Pass By 4 / 8: a falling zip (quiet: ~4x)
+-- (round 101) the awakening's press: Critical Mass's riser cut in 0.3 s
+-- before its top (6.76 s, the catalogue's peak), so the top is the pose's hit
+L.AwakenRiser = { take("1843490542", 6.46) }
 -- (round 90) SAITAMA: the Serious Punch's riser, cut so its top lands on the
 -- punch when it starts with the fist drawn back (the rest of his sounds are
 -- the library's own, already in L: r86/sfx_catalog.md)
 L.SeriousRiser = { take("1843490542", 3.96) } -- Critical Mass - SFX Riser 1 (APM): its top (6.76 s) 2.8 s after Start
+-- (round 101) FINAL FORM's build (cut at the hush, before its top: the
+-- silence before the drop)
+L.CriticalRiser = { take("1843490542", 1.76) } -- Critical Mass - SFX Riser 1 (APM): its top (6.76 s) 5.0 s after Start
+
+-- (round 101) FINAL FORM (the emote: Config.Emotes), remade as a rage
+-- transformation in the spirit of the 2018 film's - a monster waking up,
+-- not a hero powering up. ((round 102) and the whole song now, Broly's way:
+-- the 1993 film's Legendary Super Saiyan - the control crown shattering,
+-- his body swelling to twice his height and more, the eyes blank white, the
+-- hair going green, the green aura and the lightning - and the 2018 film's
+-- Full Power: a green burst that lights up the sky, the Eraser Cannon. Two
+-- stages: the awakening (beats 0-8) goes off on the song's first drop; the
+-- surge pumps him bigger on each of its hits; on its silent beat the light
+-- drains into him again, and on the second drop (beat 24) he goes
+-- LEGENDARY - x3.2, a wider pillar, a crater twice the size; then the roar,
+-- the glare, the green ball in his fist hurled into the sky to go off on
+-- the last hit (beat 40), his laugh, and the power steaming out of him as
+-- the song fades.) The numbers its props play by (VFX: the FINAL FORM
+-- block; the motion's are there). t: seconds from the start - 46 beats of
+-- 0.625 s at its 96 bpm (28.75 s, of its 30); it goes off on the song's
+-- drop, 0-based beat Go (5.0 s), and LEGENDARY on beat Legend (15.0 s).
+-- Everything is each screen's own: nothing touches the server, his hitbox,
+-- his body's size or anyone's camera but his.
+Config.FinalForm = {
+	Go = 8, -- (the 0-based beat it goes off on: the song's drop, measured in round 92)
+	Legend = 24, -- ((round 102) the 0-based beat he goes LEGENDARY on: the song's second drop, after its one silent beat)
+	Beats = 46, -- ((round 102) how many beats the props run: the motion's length)
+	Hush = 4.6875, -- (s) the inhale: the aura, the light and the build drain into him
+	Hush2 = 14.375, -- ((round 102) s) the song's silent beat: the same again, deeper - a black figure outlined in light
+	PowerDown = 28.125, -- (s) the last steam: the double, the crown and the face go, his own body shows again
+	Far = 150, -- (studs, this camera's focus from him at the start) farther: no double, the low-end counts
+	Skip = 400, -- ...farther still: only the pillars, the domes and the booms
+	Lens = 2.5, -- (studs) a camera this close to his head (first person): what rides it isn't drawn on that screen
+	FirstPerson = 0.75, -- ((round 101 review) studs: his camera this close to its focus is first person - his body's given back at 1, as the camera keeps it there)
+	-- the body double: a copy of him on each screen, anchored and touching
+	-- nothing, posed from his real limbs every frame and scaled about his
+	-- feet (his real body only hidden on that screen, and put back exactly)
+	Double = {
+		Enabled = true,
+		Pops = { { 2.5, 1.08 }, { 3.125, 1.16 }, { 3.75, 1.24 } }, -- (t, size) a heartbeat pumping him up (Back out over Pop s)
+		Pop = 0.2,
+		Squeeze = { 4.375, 1.2, 0.3125 }, -- (t, size, over s) the inhale
+		Full = 1.55, -- at Go (Back out over GoTime: past it and back)
+		GoTime = 0.3,
+		-- ((round 102) the surge: bigger on each of the first drop's hits (Back out over SurgeTime)
+		Surge = { { 6.25, 1.72 }, { 7.5, 1.89 }, { 8.75, 2.06 }, { 10.0, 2.23 }, { 11.25, 2.4 }, { 12.5, 2.55 } },
+		SurgeTime = 0.25,
+		Squeeze2 = { 14.375, 2.45, 0.5 }, -- (the silent beat's inhale)
+		Legend = 3.2, -- on the second drop (Back out over LegendTime): nearly 16 studs tall
+		LegendTime = 0.45,
+		Flex = { 0.06, 0.45, From = 26, To = 40 }, -- (+ of his size on each of the second drop's hits, gone over s; 0-based beats, every 2)
+		Breath = { 5.625, 0.01 }, -- (from t, +- of his size) breathing, once every 2 beats
+		Shrink = { 26.25, 1.875 }, -- (from t, over s) the power going out of him: back to his own size, eased
+		-- (his torso and limbs this much thicker for every 1 he's grown (not
+		-- longer, not his head): x1.33 at 3.2 - the bulk, not just the
+		-- height. Turned on his own shoulders and hips, so nothing comes apart)
+		Bulk = 0.15,
+	},
+	Colors = {
+		Gold = Color3.fromRGB(255, 210, 63), -- the crown when it first shows
+		Chartreuse = Color3.fromRGB(185, 236, 53), -- ...sliding to this (full power)
+		Legend = Color3.fromRGB(128, 255, 96), -- ((round 102) ...and LEGENDARY's green)
+		Mass = Color3.fromRGB(232, 178, 40), -- the crown's base mass (a shade deeper)
+		LegendMass = Color3.fromRGB(92, 214, 70),
+		EyeGold = Color3.fromRGB(255, 216, 74),
+		EyeRed = Color3.fromRGB(255, 42, 26),
+		EyeWhite = Color3.fromRGB(244, 255, 240),
+		Rim = Color3.fromRGB(26, 18, 8), -- (dark round the gold eyes)
+		Brow = Color3.fromRGB(30, 22, 16),
+		Teeth = Color3.fromRGB(250, 250, 240),
+		Mouth = Color3.fromRGB(40, 10, 10),
+		Line = Color3.fromRGB(60, 44, 44),
+		EyeLight = Color3.fromRGB(220, 255, 210),
+		Aura = Color3.fromRGB(124, 255, 74),
+		Outline = Color3.fromRGB(255, 217, 74), -- the gold rim
+		Dark = Color3.fromRGB(10, 22, 12), -- (the inhale: a black figure...)
+		Lit = Color3.fromRGB(240, 255, 220), -- (...outlined in light)
+		Arc = Color3.fromRGB(182, 255, 90),
+		Bolt = Color3.fromRGB(200, 255, 170),
+		Flash = Color3.fromRGB(230, 255, 210),
+		Crack = Color3.fromRGB(24, 22, 20),
+		Rock = Color3.fromRGB(110, 108, 104),
+		Slab = Color3.fromRGB(86, 88, 92), -- (the street's colour when the ray finds no part)
+		Scorch = Color3.fromRGB(30, 30, 26),
+		Cloud = Color3.fromRGB(34, 38, 44),
+		CloudGreen = Color3.fromRGB(20, 40, 26),
+		PillarCore = Color3.fromRGB(250, 255, 240),
+		Dome = Color3.fromRGB(220, 255, 200),
+		Spray = Color3.fromRGB(235, 255, 215),
+		Dust = Color3.fromRGB(200, 190, 176),
+		Steam = Color3.fromRGB(225, 245, 220),
+		Scream = Color3.new(1, 1, 1),
+		Orb = Color3.fromRGB(110, 255, 80), -- ((round 102) the Eraser Cannon's green...
+		OrbCore = Color3.fromRGB(236, 255, 222), -- ...and its white-hot heart)
+	},
+	-- the hair: a gold crown of spikes, each the game's spike - two wedges
+	-- back to back (a blade with a ridge), the big ones crossed by a second
+	-- pair (pointed from every side) - on a base mass of two eggs. Head
+	-- space: +X his right, +Y up, -Z his face (the R6 head shows ~1.25 studs
+	-- each way); every offset and size times his size
+	Crown = {
+		Flickers = { 4.5, 5, 5.5, 6, 6.25, 6.5, 6.75, 7, 7.25 }, -- (0-based beats) the gold catching before it sticks (5 and 6.5: with the bolts)
+		Flicker = 0.05, -- (s each)
+		FlickerT = 0.35, -- (its Transparency then)
+		Pop = 1.15, -- at Go: on at this size, Back to 1 over PopTime
+		PopTime = 0.18,
+		ToChartreuse = { 5.625, 1.25 }, -- (from t, over s)
+		-- ((round 102) LEGENDARY: wilder (Grow x the head's size), popped on
+		-- at Pop of that and Back over PopTime, sliding to green over Over s)
+		Legend = { Grow = 1.18, Pop = 1.25, PopTime = 0.3, Over = 0.5 },
+		Sink = 0.12, -- (of a spike's length: its root sunk into the mass)
+		-- the base mass: { size, centre, Full = only on a machine that keeps up }
+		Mass = {
+			{ Vector3.new(1.40, 0.62, 1.40), Vector3.new(0, 0.52, 0.10) },
+			{ Vector3.new(1.30, 1.00, 0.66), Vector3.new(0, 0.08, 0.42), Full = true },
+		},
+		-- { name, root, direction, length, width, thickness, crossed, on a low-end machine too }
+		Spikes = {
+			{ "T0", Vector3.new(0, 0.54, 0), Vector3.new(0, 1, 0.55), 1.95, 0.78, 0.30, true, true },
+			{ "T1R", Vector3.new(0.30, 0.50, 0.04), Vector3.new(0.36, 1, 0.55), 1.75, 0.70, 0.28, true, true },
+			{ "T1L", Vector3.new(-0.30, 0.50, 0.04), Vector3.new(-0.36, 1, 0.55), 1.75, 0.70, 0.28, true, true },
+			{ "T2R", Vector3.new(0.50, 0.34, 0.08), Vector3.new(0.85, 0.85, 0.45), 1.50, 0.64, 0.26, true, true },
+			{ "T2L", Vector3.new(-0.50, 0.34, 0.08), Vector3.new(-0.85, 0.85, 0.45), 1.50, 0.64, 0.26, true, true },
+			{ "FR", Vector3.new(0.24, 0.44, -0.40), Vector3.new(0.12, 1, 0.10), 0.95, 0.50, 0.22, false, true },
+			{ "FL", Vector3.new(-0.24, 0.44, -0.40), Vector3.new(-0.12, 1, 0.10), 0.95, 0.50, 0.22, false, false },
+			{ "SR", Vector3.new(0.58, 0.10, 0.12), Vector3.new(1, 0.45, 0.35), 1.15, 0.56, 0.22, false, true },
+			{ "SL", Vector3.new(-0.58, 0.10, 0.12), Vector3.new(-1, 0.45, 0.35), 1.15, 0.56, 0.22, false, true },
+			{ "S2R", Vector3.new(0.54, -0.18, 0.26), Vector3.new(1, -0.10, 0.60), 0.90, 0.46, 0.20, false, false },
+			{ "S2L", Vector3.new(-0.54, -0.18, 0.26), Vector3.new(-1, -0.10, 0.60), 0.90, 0.46, 0.20, false, false },
+			{ "B0", Vector3.new(0, 0.14, 0.50), Vector3.new(0, -0.75, 1), 1.20, 0.60, 0.22, true, true },
+			{ "BR", Vector3.new(0.34, -0.04, 0.46), Vector3.new(0.45, -0.95, 1), 1.00, 0.52, 0.20, false, false },
+			{ "BL", Vector3.new(-0.34, -0.04, 0.46), Vector3.new(-0.45, -0.95, 1), 1.00, 0.52, 0.20, false, false },
+		},
+		Cross = { 0.85, 0.8 }, -- (the crossing pair: of the width, of the thickness)
+		Glow = { Width = 0.45, Color = Color3.fromRGB(255, 243, 160), Transparency = 0.35 }, -- (a tapered beam up each crossed spike: not on a low-end machine)
+	},
+	-- his face on the double's head (his own face decal off): { size, offset }
+	Face = {
+		From = 0.625, -- (s) on
+		Rim = { Vector3.new(0.34, 0.17, 0.03), Vector3.new(0.24, 0.12, -0.632) }, -- (until the eyes go red)
+		Eye = { Vector3.new(0.27, 0.11, 0.04), Vector3.new(0.24, 0.12, -0.645) },
+		Brow = { Vector3.new(0.34, 0.065, 0.05), Vector3.new(0.25, 0.29, -0.648), 18 }, -- (degrees: the outer ends up)
+		-- the mouth: { the plate, the line or the top teeth over it } - { size, offset, colour name }
+		Grit = { { Vector3.new(0.5, 0.13, 0.04), Vector3.new(0, -0.22, -0.645), "Teeth" }, { Vector3.new(0.5, 0.02, 0.03), Vector3.new(0, -0.22, -0.66), "Line" } },
+		Open = { { Vector3.new(0.46, 0.30, 0.04), Vector3.new(0, -0.24, -0.645), "Mouth" }, { Vector3.new(0.46, 0.06, 0.03), Vector3.new(0, -0.12, -0.655), "Teeth" } },
+		Snarl = { { Vector3.new(0.44, 0.11, 0.04), Vector3.new(0, -0.23, -0.645), "Teeth" }, { Vector3.new(0.44, 0.02, 0.03), Vector3.new(0, -0.23, -0.66), "Line" } },
+		OpenAt = 3.75, -- (the scream)
+		SnarlAt = 6.25,
+		-- ((round 102) open again: { from, to } - the scream before the
+		-- silence, LEGENDARY, the roar at you, the laugh)
+		Opens = { { 13.4, 15.9 }, { 16.25, 17.5 }, { 25.0, 26.25 } },
+	},
+	Eyes = {
+		Red = 1.875, -- (s: the head snaps up)
+		Shatter = 1.995, -- the pupils shatter: blank white from here
+		Shards = { 8, 4 }, -- (per eye; a low-end machine's)
+		ShardSize = Vector3.new(0.09, 0.13, 0.02),
+		Fly = { 1.4, 0.6, 0.33, 0.35 }, -- (studs out, studs dropping, over s; gone at s)
+		Light = { Offset = Vector3.new(0, 0.12, -0.8), Range = 5, Brightness = 1.6 }, -- (not on a low-end machine)
+		Flare = { From = Vector3.new(0.06, 0, -0.015), To = Vector3.new(1.06, 0.05, -0.115), Width = 0.12, Times = { { 1.995, 2.4 }, { 5.0, 5.4 }, { 15.0, 15.5 }, { 25.0, 25.3 } } }, -- (off each eye)
+	},
+	-- the aura: emitters (EK.emitter style tables) on a holder his size
+	-- behind him (and a big ball round him for the gathering in).
+	-- rates: { t, rate } held to the next key, or ramp = true: straight to it
+	Aura = {
+		-- ((round 101 review) a card standing Back behind him as each
+		-- screen's camera sees him, turned to face it, a stud wider than his
+		-- arms each side and as tall as him: the flames are born behind him
+		-- and lick out round his outline and up off his shoulders and head,
+		-- from every side, never over his face. The design's box round his
+		-- body (2.6 x 4.8 x 1.6) was narrower than his arms: born inside
+		-- him, nearly every flame was hidden behind his own body)
+		Holder = Vector3.new(5.6, 5.2, 0.7), -- (times his size; (round 102) its width times his bulk too)
+		Drop = 0.45, -- (its centre this far under his torso's)
+		Back = 0.55, -- (times his size)
+		Ball = 16, -- (studs across: the gathering in's ball; (round 102) half of it grows with him)
+		Fallback = 1.2, -- (no double: the tongues this much bigger)
+		Tongues = {
+			style = {
+				face = "VelocityParallel", size = { { 0, 1.2 }, { 0.3, 2.7 }, { 1, 0.5 } }, speed = { 4, 8 }, accel = Vector3.new(0, 14, 0), drag = 0,
+				life = { 0.4, 0.7 }, transp = { { 0, 0.15 }, { 0.6, 0.35 }, { 1, 1 } }, spread = 12, light = 1, influence = 0, bright = 2.5, z = -0.8, dir = "Top", rot = { 0, 0 },
+			},
+			-- ((round 101 review) born anywhere in the card (Volume, as AURA
+			-- FARM's flames are - the engine's long-standing way), not on a
+			-- box's Surface: what that does with a Top direction isn't
+			-- documented (the top face alone would start them all over his
+			-- head))
+			squash = { { 0, 0.4 }, { 0.5, 1.1 }, { 1, 1.6 } }, shape = "Box", shapeStyle = "Volume",
+			gold = { { 0, Color3.fromRGB(255, 250, 220) }, { 0.5, Color3.fromRGB(255, 200, 58) }, { 1, Color3.fromRGB(255, 150, 40) } },
+			green = { { 0, Color3.fromRGB(239, 255, 176) }, { 0.35, Color3.fromRGB(124, 255, 74) }, { 1, Color3.fromRGB(34, 197, 90) } },
+			greenAt = 2.5,
+			-- ((round 101 board, review) rate x life is what's alive at once:
+			-- the design's 22 / 34 / 46 kept 9-19 small tongues on him - thin;
+			-- bigger, longer-lived flames at these keep 24-53 (under the 100 a
+			-- second a phone's emitter is capped at; half on a low-end machine)
+			rates = {
+				{ 0, 0 }, { 2.5, 44 }, { 3.75, 64 }, { 4.6875, 0 }, { 5.0, 96 }, { 6.25, 80 }, { 10.0, 88 }, { 13.75, 96 },
+				{ 14.375, 0 }, { 15.0, 100 }, { 16.25, 90 }, { 25.6, 90 }, { 27.5, 0, ramp = true },
+			},
+			flicker = { 1.25, 2.5, 26 }, -- (from t, to t, rate: the gold catching on the 1st and 3rd quarter of each beat)
+			burst = { speed = { 18, 30 }, life = { 0.35, 0.6 }, size = 1.4, emit = 90 }, -- (at Go, for a frame)
+			pulse = 24, -- ((round 102) flung out on each of the surge's hits)
+			half = true, -- (a low-end machine: half the rate)
+		},
+		Needles = {
+			style = {
+				tex = "rbxasset://textures/triangle.png", face = "VelocityParallel", size = { { 0, 0.35 }, { 0.4, 0.7 }, { 1, 0.2 } }, speed = { 14, 22 }, accel = Vector3.new(0, 10, 0), drag = 0,
+				life = { 0.18, 0.3 }, transp = { { 0, 0 }, { 0.7, 0.2 }, { 1, 1 } }, color = { Color3.new(1, 1, 1), Color3.fromRGB(182, 255, 90) }, light = 1, influence = 0, bright = 3, z = -0.5, dir = "Top", rot = { 0, 0 },
+			},
+			squash = 1.8, shape = "Box",
+			rates = { { 0, 0 }, { 3.75, 16 }, { 4.6875, 0 }, { 5.0, 40 }, { 6.875, 24 }, { 13.75, 44 }, { 14.375, 0 }, { 15.0, 60 }, { 16.25, 36 }, { 25.6, 24 }, { 26.25, 0 } },
+			emit = 50,
+			full = true, -- (not on a low-end machine)
+		},
+		Core = {
+			style = {
+				tex = "rbxasset://textures/particles/explosion01_implosion_main.dds", face = "FacingCamera", locked = true, size = { { 0, 4 }, { 1, 5.5 } }, speed = { 0, 0 },
+				life = { 0.4, 0.6 }, transp = { { 0, 0.78 }, { 1, 1 } }, color = Color3.fromRGB(124, 255, 74), light = 1, influence = 0, bright = 1.5, z = -1.5,
+			},
+			rates = { { 0, 0 }, { 2.5, 6 }, { 4.6875, 0 }, { 5.0, 10 }, { 14.375, 0 }, { 15.0, 14 }, { 25.6, 12 }, { 27.5, 0, ramp = true } },
+			half = true,
+		},
+		Motes = {
+			style = {
+				tex = "rbxasset://textures/particles/sparkles_main.dds", face = "FacingCamera", size = { { 0, 0.35 }, { 1, 0 } }, speed = { 3, 6 }, accel = Vector3.new(0, 4, 0),
+				life = { 0.6, 1.2 }, transp = { { 0, 0 }, { 1, 1 } }, color = { Color3.new(1, 1, 1), Color3.fromRGB(223, 255, 154) }, spread = 40, light = 1, influence = 0, z = 0.5, dir = "Top",
+			},
+			rates = { { 0, 0 }, { 2.5, 12 }, { 4.6875, 0 }, { 5.0, 16 }, { 14.375, 0 }, { 15.0, 24 }, { 25.6, 20 }, { 27.5, 0, ramp = true } },
+			full = true,
+		},
+		-- the gathering in: dust drawn in to him, then (the inhale) light streaming in
+		Gather = {
+			style = {
+				tex = "rbxasset://textures/particles/sparkles_main.dds", face = "VelocityParallel", size = 0.25, speed = { 10, 14 }, life = { 0.5, 0.6 },
+				transp = { { 0, 0.2 }, { 1, 1 } }, color = Color3.fromRGB(190, 184, 172), light = 0, influence = 0, rot = { 0, 0 },
+			},
+			squash = 2.5, shape = "Sphere", shapeStyle = "Surface", inOut = "Inward",
+			lightAt = 4.375, lightColor = Color3.fromRGB(200, 255, 190),
+			rates = { { 0, 14 }, { 1.875, 0 }, { 4.375, 70 }, { 4.6875, 0 }, { 13.75, 90 }, { 14.375, 0 } },
+		},
+		-- a light in it (not on a low-end machine): built up, drained at the
+		-- hush, Go's flare easing to the hold, pulsing on the beat, out.
+		-- ((round 102) Legend: LEGENDARY's flare - { brightness, range, to
+		-- brightness, to range, over s } - drained on the silent beat first;
+		-- its range times his size^0.5, to the engine's 60)
+		Light = { Range = 14, Build = { 2.5, 3.75, 1.2 }, Go = { 6, 24, 2, 16, 0.4 }, Legend = { 8, 40, 2.6, 24, 0.5 }, Pulse = 0.4, Out = { 26.25, 27.5 } },
+		-- on the double only (never his real body, where it could stack on
+		-- another): a gold rim catching; at the hush a dark figure outlined
+		-- in light; from Go a green fill (pulsing on the beat), gold outline
+		Highlight = { At = 2.5, Build = { 1, 0.55 }, Dark = { 0.45, 0 }, Go = { 0.8, 0.06, 0.1 }, Out = { 26.25, 27.5 } },
+	},
+	-- his own screen only: a ColorCorrection and a Bloom on his camera
+	-- (named FinalFormGrade / FinalFormBloom, never in Lighting), the keys
+	-- { t, Brightness, Contrast, Saturation, TintColor } straight between
+	-- them unless eased ("out", "sine")
+	Grade = {
+		{ 0, 0, 0, 0, Color3.fromRGB(255, 255, 255) },
+		{ 1.25, -0.04, 0.05, -0.2, Color3.fromRGB(236, 242, 236) },
+		{ 2.5, -0.08, 0.1, -0.25, Color3.fromRGB(216, 255, 210) },
+		{ 3.75, -0.12, 0.14, -0.2, Color3.fromRGB(204, 255, 196) },
+		{ 4.6875, -0.13, 0.15, -0.3, Color3.fromRGB(204, 255, 196) },
+		{ 4.7875, -0.22, 0.15, -0.6, Color3.fromRGB(200, 255, 200) }, -- (the hush: snapped to its darkest)
+		{ 4.999, -0.22, 0.15, -0.6, Color3.fromRGB(200, 255, 200) },
+		{ 5.0, 0.3, 0.1, 0.3, Color3.fromRGB(225, 255, 205) }, -- (Go: the whiteout)
+		{ 5.4, 0.02, 0.12, 0.15, Color3.fromRGB(238, 255, 226), ease = "out" },
+		-- ((round 102) the surge: the storm closing in, greener on every hit)
+		{ 6.25, 0.02, 0.12, 0.15, Color3.fromRGB(238, 255, 226) },
+		{ 13.75, -0.1, 0.2, 0.05, Color3.fromRGB(200, 255, 190) },
+		{ 14.375, -0.1, 0.2, 0.05, Color3.fromRGB(200, 255, 190) },
+		{ 14.475, -0.26, 0.2, -0.7, Color3.fromRGB(196, 255, 196) }, -- (the silent beat: darker still)
+		{ 14.999, -0.26, 0.2, -0.7, Color3.fromRGB(196, 255, 196) },
+		{ 15.0, 0.45, 0.12, 0.4, Color3.fromRGB(220, 255, 200) }, -- (LEGENDARY: the whiteout)
+		{ 15.5, 0.04, 0.16, 0.25, Color3.fromRGB(228, 255, 214), ease = "out" },
+		{ 24.999, 0.04, 0.16, 0.25, Color3.fromRGB(228, 255, 214) },
+		{ 25.0, 0.3, 0.1, 0.3, Color3.fromRGB(220, 255, 205) }, -- (the sky going off)
+		{ 25.5, 0.03, 0.14, 0.2, Color3.fromRGB(232, 255, 220), ease = "out" },
+		{ 26.25, 0.03, 0.14, 0.2, Color3.fromRGB(232, 255, 220) },
+		{ 28.4, 0, 0, 0, Color3.fromRGB(255, 255, 255), ease = "sine" },
+	},
+	-- { t, Intensity, Size, Threshold } (not on a low-end machine)
+	Bloom = {
+		{ 0, 0, 28, 1 }, { 2.499, 0, 28, 1 }, { 2.5, 0.35, 28, 1 }, { 4.999, 0.35, 28, 1 }, { 5.0, 0.8, 32, 0.85 }, { 5.3, 0.8, 32, 0.85 },
+		{ 5.301, 0.35, 28, 0.9 }, { 14.374, 0.35, 28, 0.9 }, { 14.375, 0.15, 28, 0.95 }, { 14.999, 0.15, 28, 0.95 },
+		{ 15.0, 1.0, 40, 0.8 }, { 15.4, 1.0, 40, 0.8 }, { 15.401, 0.45, 30, 0.88 }, { 24.999, 0.45, 30, 0.88 },
+		{ 25.0, 0.9, 36, 0.82 }, { 25.4, 0.45, 30, 0.88 }, { 26.25, 0.45, 30, 0.88 }, { 28.4, 0, 28, 0.9 },
+	},
+	-- his own screen: EK.fovPunch on whatever the game set (In: { t, amount,
+	-- in, out, hold } - the squeeze; Kick: at Go; (round 102) In2 / Kick2:
+	-- the silent beat and LEGENDARY; Sky: { amount, in, out, hold } as the
+	-- ball goes off)
+	Fov = { In = { 4.375, -7, 0.55, 0.3, 0.2 }, Kick = { 14, 0.08, 1.1, 0.15 }, In2 = { 13.75, -10, 0.6, 0.3, 0.05 }, Kick2 = { 22, 0.08, 1.6, 0.25 }, Sky = { 10, 0.1, 0.9, 0.1 } },
+	-- ((round 102) his own screen: the camera stays on the giant - its focus
+	-- lifted Lift studs for every 1 he's grown (Humanoid.CameraOffset), the
+	-- zoom at least where it was x his size^Pow (Least..Most studs), and
+	-- eased back in with him as he shrinks; each given back exactly at the
+	-- end unless something else changed it meanwhile)
+	Camera = { Lift = 3, Pow = 0.8, Least = 8, Most = 70 },
+	-- everyone's (VFX.ShakeAt: { intensity, radius, s }, falling off with each camera's distance)
+	Shake = {
+		Eyes = { 0.8, 50, 0.3 }, Pulse = { 0.6, 50, 0.25 }, Storm = { 1.4, 70, 0.4 }, Scream = { 1.0, 60, 0.94 },
+		Go = { 3.5, 150, 0.7 }, After = { 1.5, 100, 1.0, 0.25 }, Roar = { 1.6, 90, 0.5 },
+		-- (round 102)
+		Surge = { 1.1, 90, 0.3 }, Brink = { 1.4, 100, 0.6 }, Legend = { 5, 260, 1.1 }, LegendAfter = { 2.2, 180, 1.4, 0.3 },
+		Roar2 = { 2.4, 150, 0.7 }, Throw = { 0.8, 90, 0.3 }, Sky = { 3, 320, 0.9 }, Shrink = { 0.7, 70, 0.5 },
+	},
+	Flash = { Mine = 0.35, Theirs = 0.2, Near = 80, Legend = { 0.5, 0.3, 160 }, Sky = { 0.3, 0.2, 320 } }, -- (s; someone else's screen: only within Near studs; (round 102) { mine, theirs, near })
+	-- the storm (not on a low-end machine): bolts out of the sky { t, where
+	-- (studs right, up, back of his feet) }, a crown flicker on the same frame
+	-- ((round 102) the surge's land wider, round the giant)
+	Bolts = {
+		{ 3.125, Vector3.new(5.5, 0, -2.5) }, { 4.0625, Vector3.new(-4.5, 0, 1.5) }, { 5.775, Vector3.new(6, 0, 7) },
+		{ 6.9, Vector3.new(-9, 0, 5) }, { 8.1, Vector3.new(10, 0, -4) }, { 9.4, Vector3.new(-7, 0, -9) }, { 10.6, Vector3.new(11, 0, 6) },
+		{ 11.9, Vector3.new(-12, 0, 2) }, { 13.1, Vector3.new(8, 0, 10) }, { 14.0, Vector3.new(-6, 0, -12) },
+		{ 15.0, Vector3.new(13, 0, -6) }, { 15.0, Vector3.new(-13, 0, 7) }, { 16.9, Vector3.new(9, 0, 12) }, { 19.4, Vector3.new(-11, 0, -8) },
+	},
+	Bolt = { From = Vector3.new(3, 70, 4), Thick = 0.5, Life = 0.35 },
+	-- (round 102) the cloud: shown over Show[1..2]'s Transparency as it
+	-- grows in (Grow: from t, to t), its size (studs across) keyed, gone over Out
+	Cloud = { Height = { 46, 44 }, Thick = { 3, 2 }, Sizes = { { 2.5, 16 }, { 4.375, 50 }, { 6.25, 50 }, { 14.375, 96 } }, Grow = { 2.5, 4.375 }, Inner = 0.7, Spin = 20, Show = { 0.25, 0.45 }, Out = { 25.6, 27.5 } },
+	-- arcs crawling over him: { from t, every s (0: none) } (a low-end
+	-- machine: twice as far apart); at Go, Fling: { how many, studs out,
+	-- thickness, s, +- degrees, up to this much up } flung out of him
+	-- ((round 102) Thick times his size^0.5)
+	Arcs = {
+		Every = { { 0, 0 }, { 2.5, 0.12 }, { 3.75, 0.06 }, { 4.6875, 0 }, { 5.0, 0.08 }, { 6.25, 0.06 }, { 10.0, 0.045 }, { 13.75, 0.03 }, { 14.375, 0 }, { 15.0, 0.035 }, { 20.0, 0.05 }, { 26.25, 0.12 }, { 27.5, 0 } },
+		Thick = 0.07, Reach = 1.6, Min = 0.5, Fling = { 4, 9, 0.22, 0.25, 20, 0.4 },
+	},
+	Steam = { 0.9, 2.5, 0.8, 8, 0.8 }, -- (PowerDown: smokeBurst size, radius, s, puffs; the dust's scale)
+	-- ((round 102) the shrink: the same at Shrink's start, times his size
+	-- then; and a smaller puff at each of Puffs)
+	Steam2 = { 1.1, 3, 1.2, 10, 1.2, Puffs = { 26.875, 27.5 } },
+	-- the street: { a machine that keeps up's, a low-end one's }
+	Ground = {
+		-- ((round 102) Lit: the cracks' length at Go and after - { t, x
+		-- their length } held, longer on each hit; Widths the same for their width)
+		Cracks = {
+			Count = { 10, 6 }, Start = 0.625, From = 0.8, Len = 1.2, Full = { 4, 7 }, LitUntil = 26.25, Width = 0.22,
+			Lit = { { 5.0, 1.6 }, { 6.25, 1.9 }, { 7.5, 2.2 }, { 8.75, 2.5 }, { 10.0, 2.8 }, { 11.25, 3.1 }, { 12.5, 3.4 }, { 15.0, 4.6 } },
+			Widths = { { 0, 1 }, { 10.0, 1.4 }, { 15.0, 2.2 } },
+		},
+		Rocks = { Count = { 10, 5 }, Size = { 0.4, 1.0 }, Lift = { 1.25, 0.94 }, Rise = 1.5625, Top = { 1, 4.5 }, Orbit = { 2.6, 5 }, Turn = 0.45, Blast = { 45, 10, 1.2 } },
+		Slabs = { Count = { 6, 3 }, Width = { 2.2, 3.0 }, Depth = { 1.6, 2.2 }, Thick = 0.45, Ring = { 3.6, 4.8 }, From = 3.125, Rise = { -0.3, 0.15, 0.25 }, Tilts = { { 3.125, 14 }, { 3.75, 28 }, { 4.375, 34 } }, Jolt = 0.06, Blast = { 35, 14, 500, 1.0 } },
+		Crater = { Scorch = 11, ScorchT = 0.25, Lips = { 8, 4 }, Lip = Vector3.new(2.4, 0.5, 1.5), Ring = 5.6, Tip = 38, Pop = 0.25 },
+		-- ((round 102) the surge's: bigger rocks lifting round the giant and
+		-- slabs of the street tipping up farther out (a jolt on each hit),
+		-- all blasted away at LEGENDARY - and its crater, twice the size)
+		Rocks2 = { Count = { 14, 6 }, Size = { 0.9, 2.4 }, Lift = { 6.25, 6.25 }, Rise = 1.875, Top = { 3, 13 }, Orbit = { 6.5, 12 }, Turn = 0.3, Blast = { 60, 12, 1.4 } },
+		Slabs2 = { Count = { 8, 4 }, Width = { 3.6, 5.2 }, Depth = { 2.6, 3.8 }, Thick = 0.7, Ring = { 8.5, 11 }, From = 6.25, Rise = { -0.6, 0.3, 0.4 }, Tilts = { { 6.25, 8 }, { 8.75, 18 }, { 11.25, 28 }, { 12.5, 36 }, { 13.75, 42 } }, Jolt = 0.08, Blast = { 50, 16, 420, 1.2 } },
+		Crater2 = { Scorch = 26, ScorchT = 0.2, Lips = { 12, 6 }, Lip = Vector3.new(4.6, 0.9, 2.8), Ring = 12.5, Tip = 42, Pop = 0.3 },
+		Fade = { 27.2, 28.4 }, -- (the cracks and the craters)
+	},
+	-- THE BURST, at Go
+	Burst = {
+		Pillar = { Height = 180, Core = { 2.5, 1, 0.1, 0.5 }, Column = { 6, 9, 0.5 }, Shell = { 8, 11, 0.7 }, Time = 1.5625 }, -- (studs across: from, to, Transparency from; the core's over its own s)
+		Dome = { 3, 30, 0.3, 0.3 }, -- (studs across from, to, Transparency from, s)
+		GoldDome = { 2, 18, 0.4, 0.45 }, -- (...and never within 2 studs of this screen's camera)
+		Rings = { { 4, 44, 0.6 }, { 2, 18, 0.3 } },
+		Spray = { Count = { 24, 12 }, Size = Vector3.new(0.22, 0.22, 3.5), From = 1.5, To = 18, Rise = 0.35, Time = 0.35, Gone = 0.4 },
+		-- the dust thrown out to the crater's rim (dustPuffs at Points round a
+		-- Ring: Puffs each, of Scale, for Life s) - (round 101 board) one
+		-- cloud at his feet (1.4, 14 puffs) hid him from the waist down on the
+		-- reveal and still hid the crater on the roar
+		Dust = { Ring = 5.5, Points = { 8, 5 }, Scale = 0.55, Puffs = 2, Life = 0.7 },
+		Words = { Final = { 3.4, 46, 3.5, 1.6 }, Scream = { 2.6, 36, 2, 1.2, 3.75 } }, -- (studs over his head, size, beats, rise; the scream's t)
+	},
+	-- ((round 102) THE SECOND BURST, LEGENDARY (Burst's rules, bigger; the
+	-- domes never past this screen's camera): the aura flung out
+	-- (Tongues.burst's way), arcs flung out, the words; Scream2 / Laugh: {
+	-- studs over his head, size, beats, rise, t }; sizes times his size^0.5)
+	Legendary = {
+		Pillar = { Height = 360, Core = { 5, 2, 0.1, 0.6 }, Column = { 14, 22, 0.45 }, Shell = { 20, 28, 0.65 }, Time = 2.2 },
+		Dome = { 6, 70, 0.3, 0.45 },
+		GoldDome = { 4, 44, 0.4, 0.6 },
+		Rings = { { 8, 110, 0.6 }, { 4, 46, 0.35 } },
+		Spray = { Count = { 40, 16 }, Size = Vector3.new(0.5, 0.5, 8), From = 3, To = 46, Rise = 0.45, Time = 0.5, Gone = 0.55 },
+		Dust = { Ring = 12.5, Points = { 12, 6 }, Scale = 1.1, Puffs = 3, Life = 1.1 },
+		Aura = { speed = { 26, 44 }, life = { 0.4, 0.7 }, size = 1.6, emit = 100 },
+		Fling = { 8, 24, 0.35, 0.35, 20, 0.5 },
+		Words = { Final = { 2.4, 56, 6, 2.2 }, Scream = { 2.2, 40, 2, 1.4, 13.75 }, Laugh = { 2.2, 34, 3, 1.4, 25.625 } },
+	},
+	-- ((round 102) THE ERASER CANNON: a ball of green light in his right
+	-- fist from From, swelling on each of Grows ({ t, studs across x his
+	-- size }, Back out over Pop); hurled up and out at Throw (Speed studs/s,
+	-- Up of its way upwards); it goes off in the sky at Boom - a dome, a
+	-- shell, a ring ({ studs across from, to, Transparency from, s }). Arcs
+	-- off it every Crackle s (not on a low-end machine); its trail { width
+	-- x its size, studs long })
+	Orb = {
+		From = 20.0, Grows = { { 20.0, 0.45 }, { 21.25, 0.7 }, { 22.5, 1.0 } }, Pop = 0.25,
+		Throw = 23.75, Speed = 85, Up = 0.82, Boom = 25.0,
+		Dome = { 8, 150, 0.15, 1.1 }, Shell = { 6, 220, 0.35, 1.5 }, Ring = { 20, 300, 1.2 },
+		Crackle = 0.12, Trail = { 0.7, 10 }, Light = { 14, 3 },
+	},
+	-- the sounds: one-shots (Config.Sounds) at { t, gain }, and the beds -
+	-- Sounds of the props' own (gone the moment he's broken off): { take,
+	-- from t, Volume keys (FF rates' rules), PlaybackSpeed keys, stop at t }
+	Sound = {
+		Hearts = { { 0, 0.6 }, { 0.625, 0.75 }, { 1.25, 0.9 }, { 2.5, 1.1 }, { 3.125, 1.25 }, { 4.6875, 1.5 } }, -- FinalFormHeart
+		Surge = 1.4, -- ((round 102) FinalFormHeart on each of the surge's hits, at this gain)
+		Quake = { 1.25, 0.8 }, -- EmotePowerUp
+		Quake2 = { 13.75, 1.2 }, -- ((round 102) again before the silence)
+		Roar = { 5.625, 1 }, -- FinalFormRoar
+		Roar2 = { 16.25, 1.4 }, -- ((round 102) at you, LEGENDARY)
+		EarRing = { 0.15, 1 }, -- (s after Go, his screen only) DevFlyEarRing
+		Charge = 1, -- ((round 102) FinalFormCharge at each of Orb.Grows; FinalFormThrow at Orb.Throw; FinalFormSkyBoom at Orb.Boom)
+		Hiss = 1, -- ((round 102) SteamHiss as the shrink starts; FinalFormSteam at each puff)
+		Crackle = { { 0, 0 }, { 1.25, 0.3125 }, { 2.5, 0.15625 }, { 4.6875, 0 }, { 5.625, 0.3125 }, { 6.25, 0.25 }, { 13.75, 0.125 }, { 14.375, 0 }, { 15.0, 0.2 }, { 20.0, 0.15625 }, { 26.25, 0.3125 }, { 27.5, 0 } }, -- (from t: a StaticCrackle every this many s)
+		Beds = {
+			Riser = { L.CriticalRiser, 0, { { 0, 2.5 }, { 4.6875, 2.5 }, { 4.7675, 0, ramp = true } }, { { 0, 1 } }, 4.8 },
+			-- ((round 102) the same riser into the silent beat (its top 5 s in)
+			Riser2 = { L.CriticalRiser, 9.375, { { 9.375, 2.5 }, { 14.3, 2.5 }, { 14.38, 0, ramp = true } }, { { 0, 1 } }, 14.4 },
+			Rumble = {
+				L.FlyHyperRumble, 1.25,
+				{
+					{ 1.25, 0.6 }, { 1.875, 0.9 }, { 2.5, 1.3 }, { 3.125, 1.7 }, { 3.75, 2.1 }, { 4.375, 2.4 }, { 4.6875, 2.4 }, { 4.7675, 0, ramp = true },
+					{ 5.1, 1.4 }, { 5.625, 0.9 }, { 6.25, 1.2 }, { 13.75, 2.4, ramp = true }, { 14.375, 2.4 }, { 14.455, 0, ramp = true },
+					{ 15.1, 1.8 }, { 16.25, 1.2 }, { 25.6, 1.2 }, { 28.1, 0, ramp = true },
+				},
+				{ { 0, 0.8 }, { 5.1, 0.65 }, { 15.1, 0.55 } }, 28.2,
+			},
+			Scream = { L.FlyScream, 3.5, { { 3.5, 2.6 }, { 5.0, 2.6 }, { 5.4, 0, ramp = true } }, { { 0, 1 } }, 5.45 },
+			Scream2 = { L.FlyScream, 12.875, { { 12.875, 2.6 }, { 14.3, 2.6 }, { 14.375, 0, ramp = true } }, { { 0, 1 } }, 14.4 },
+			Inhale = { L.SuckIn, 4.04, { { 4.04, 1.6 } }, { { 0, 1 } }, 5.2 },
+			Inhale2 = { L.SuckIn, 14.15, { { 14.15, 1.8 } }, { { 0, 0.9 } }, 15.05 },
+		},
+		Range = { 16, 220 }, -- (the beds' roll-off)
+	},
+}
 -- (round 77) whose punches sound like their own (by the attacker's quirk):
 -- { light hit cue, heavy hit cue }
 Config.HitSounds = {
@@ -5964,14 +7820,17 @@ Config.Sounds = {
 	-- (round 86, hawks_ult) FULL PLUMAGE's awakening: the cocoon's flutter,
 	-- then on the snap (0.28 s: MoveHawksAwaken's Hit) one giant beat, the
 	-- blast of air and the feathers bursting off the edges
+	-- ((round 101, awaken_m) played from the press (VFX.AK.FX.FierceWings: his
+	-- Config.Awaken.Heroes row's Sound = false), the snap's beat retimed by
+	-- +0.02 onto the awakening's shared hit, Config.Awaken.HitAt 0.30)
 	UltFierceWings = {
 		Range = 1400,
 		{ Id = L.MagicFlutter, Volume = 1.3, Speed = 1.1, Length = 0.6, Fade = 0.2 },
-		{ Id = S.Stinger, Volume = 0.9, Speed = 1.05, Delay = 0.26 },
-		{ Id = L.WingFlapsDragon, Volume = 0.9, Speed = 1.08, Length = 1.4, Fade = 0.6, Delay = 0.26 },
-		{ Id = L.WindBlast, Volume = 0.8, Length = 1.4, Fade = 0.6, Delay = 0.27 },
-		{ Id = L.FeatherSwarm, Volume = 1.4, Speed = 0.9, Delay = 0.28 },
-		{ Id = L.FeatherRustle, Volume = 4, Speed = 1.05, Length = 1, Delay = 0.28 },
+		{ Id = S.Stinger, Volume = 0.9, Speed = 1.05, Delay = 0.28 },
+		{ Id = L.WingFlapsDragon, Volume = 0.9, Speed = 1.08, Length = 1.4, Fade = 0.6, Delay = 0.28 },
+		{ Id = L.WindBlast, Volume = 0.8, Length = 1.4, Fade = 0.6, Delay = 0.29 },
+		{ Id = L.FeatherSwarm, Volume = 1.4, Speed = 0.9, Delay = 0.3 },
+		{ Id = L.FeatherRustle, Volume = 4, Speed = 1.05, Length = 1, Delay = 0.3 },
 	},
 	-- (round 86, hawks_ult) THE THOUSAND-FEATHER STORM, beat by beat (VFX.HU):
 	-- StormRiser builds from the plan to the break (its top on the break);
@@ -6142,6 +8001,21 @@ Config.Sounds = {
 	},
 	SideSwap = { { Id = L.IceCrunch, Volume = 1.33, Speed = 1.3, Length = 0.4 }, { Id = L.FlameLick, Volume = 1.6, Speed = 1.2, Length = 0.5 } },
 	Ult = { Range = 1200, { Id = L.PowerUp, Volume = 1, Speed = 0.75 }, { Id = S.Thunder, Volume = 0.8, Start = 1.0, Length = 2.2 }, { Id = L.SubBoom, Volume = 1, Speed = 0.7 } },
+	-- (round 101) THE AWAKENING (VFX.AK): the press - a riser topping out on
+	-- the pose's hit (Config.Awaken.HitAt) under an ascending whoosh - and the
+	-- hit itself: a sub boom, a big reverberant tail, a burst of air (each
+	-- hero's own Ult<Q> plays over it)
+	AwakenRiser = {
+		Range = 600,
+		{ Id = L.AwakenRiser, Volume = 2.6, Length = 0.36, Fade = 0.06 },
+		{ Id = L.AscendWhoosh, Volume = 1.2, Speed = 1.1, Length = 0.4, Fade = 0.1 },
+	},
+	AwakenHit = {
+		Range = 1200,
+		{ Id = L.SubBoom, Volume = 1.6, Speed = 0.75, Length = 1.4, Fade = 0.5 },
+		{ Id = L.BigBoomTail, Volume = 1.1, Length = 1.6, Fade = 0.6 },
+		{ Id = L.WhooshBurst, Volume = 0.9, Speed = 0.9, Length = 0.6 },
+	},
 	UltExplosion = { Range = 1200, { Id = S.Beast, Volume = 1.38, Start = 0.25 }, { Id = L.PowerBoom, Volume = 1.15, Speed = 0.9 }, { Id = L.ExplosionCrack, Volume = 0.92, Speed = 0.9, Length = 2 } },
 	UltOneForAll = {
 		Range = 1200,
@@ -6655,6 +8529,8 @@ Config.Sounds = {
 		Gap = 0.03,
 		{ Id = L.BeefyHit, Volume = 0.8, Speed = { 0.9, 1 }, Length = 0.4 },
 		{ Id = L.AirySlice, Volume = 1.2, Speed = { 0.8, 0.95 }, Length = 0.35 },
+		-- (round 99) meatier: a dry crack on top (a huge man's fist)
+		{ Id = L.CrackyPunch, Volume = 0.6, Speed = { 0.88, 0.98 }, Length = 0.35 },
 	},
 	InasaHeavyHit = {
 		Gap = 0.04,
@@ -6744,14 +8620,19 @@ Config.Sounds = {
 		{ Id = L.AirBrake, Volume = 1, Speed = 1.1, Length = 0.6 },
 		{ Id = L.ClothTick, Volume = 1.1 },
 	},
-	-- the awakening: the bow, then the air round him going up all at once
+	-- the awakening: the bow, then the air round him going up all at once -
+	-- (round 99) the whirlwind's own blast with it, the street's grit thrown
+	-- up ((round 101, awaken_e) the awakening kit plays it ON his clip's Hit:
+	-- the delays count from it - they counted from the press, the Hit 0.45 in)
 	UltWhirlwind = {
 		Range = 900,
-		{ Id = L.WindBlast, Volume = 1.2, Delay = 0.45, Length = 2, Fade = 1.2, Near = 40 },
-		{ Id = L.AirPound, Volume = 1, Delay = 0.45, Length = 1.2, Peak = true },
-		{ Id = L.SubBoom, Volume = 0.9, Delay = 0.45 },
-		{ Id = L.CapeSnap, Volume = 1, Delay = 0.48 },
-		{ Id = L.FlyGust, Volume = 1.3, Delay = 0.55, Length = 2.4, Fade = 1.4, Near = 40 },
+		{ Id = L.WindBlast, Volume = 1.2, Length = 2, Fade = 1.2, Near = 40 },
+		{ Id = L.AirPound, Volume = 1, Length = 1.2, Peak = true },
+		{ Id = L.SubBoom, Volume = 0.9 },
+		{ Id = L.CapeSnap, Volume = 1, Delay = 0.03 },
+		{ Id = L.FlyGust, Volume = 1.3, Delay = 0.1, Length = 2.4, Fade = 1.4, Near = 40 },
+		{ Id = L.VortexBlast, Volume = 1, Length = 1.2, Fade = 0.6 },
+		{ Id = L.DirtBurst, Volume = 0.7, Delay = 0.05, Length = 1, Fade = 0.5 },
 	},
 	-- SKYBREAKER CYCLONE. Played FLAT on every screen (the whole city hears
 	-- it, each machine at its own gain by how far it is: VFX.IN.far). The
@@ -6796,6 +8677,189 @@ Config.Sounds = {
 	InasaDash = {
 		{ Id = L.WhooshBurst, Volume = 0.8, Speed = { 1, 1.15 }, Length = 0.6 },
 		{ Id = L.AirySlice, Volume = 1.2, Speed = 0.85 },
+	},
+	-- (round 99) THE WIND KIT's sounds (VFX.WindKit; every take the
+	-- library's own, already in L). A gust that SWELLS in (the anime's
+	-- whoosh never starts sharp), a heavy gale (a big throw: the blast, the
+	-- howl after it, the pressure, his cape snapping), the suck that starts
+	-- the packed air, a wind impact (the air slamming into someone)
+	InasaWindGust = {
+		Gap = 0.05,
+		{ Id = L.HowlingWind, Volume = 0.9, Speed = { 1.05, 1.2 }, Length = 0.9, Fade = 0.45, FadeIn = 0.1 },
+		{ Id = L.WhooshBurst, Volume = 0.9, Speed = { 0.9, 1.05 }, Length = 0.7 },
+		{ Id = L.AirySlice, Volume = 1, Speed = { 0.8, 0.95 }, Length = 0.35, Delay = 0.04 },
+	},
+	InasaWindGale = {
+		Range = 900,
+		{ Id = L.WindBlast, Volume = 1.2, Length = 1.8, Fade = 0.9, Near = 40 },
+		{ Id = L.FlyGust, Volume = 1.2, Speed = { 0.9, 1 }, Length = 1.6, Fade = 0.8, FadeIn = 0.12, Near = 30 },
+		{ Id = L.SonicPressure, Volume = 0.8, Length = 1.6, Peak = true, Fade = 0.9 },
+		{ Id = L.CapeSnap, Volume = 0.9, Delay = 0.05 },
+	},
+	InasaWindSuck = {
+		Gap = 0.1,
+		{ Id = L.SuckShort, Volume = 0.9, Speed = 1.15, Length = 0.5 },
+		{ Id = L.AirBrake, Volume = 0.7, Speed = 1.25, Length = 0.45 },
+	},
+	InasaWindImpact = {
+		Gap = 0.04,
+		Range = 600,
+		{ Id = L.AirPound, Volume = 1, Speed = { 0.95, 1.1 }, Length = 0.8, Peak = true },
+		{ Id = L.VortexBlast, Volume = 0.9, Speed = { 0.95, 1.1 }, Length = 0.9 },
+		{ Id = L.BodyHit, Volume = 0.6, Speed = { 0.9, 1 }, Length = 0.35 },
+	},
+	-- ...and two HELD BEDS, for VFX.WindKit.loop (each layer its own looped
+	-- Sound, the ClashLoop way - a cue's layers can't loop: its first take,
+	-- Volume and Speed; every take here starts at 0, so it loops clean): the
+	-- whirl's roar (a tornado, the ride's funnel) and the packed air's hum
+	InasaWindWhirl = {
+		Range = 500,
+		{ Id = L.AiryWind, Volume = 1.1, Speed = 1.15, Near = 25 },
+		{ Id = L.FlyBuffet, Volume = 1.3, Speed = 1.25, Near = 25 },
+	},
+	InasaWindHum = {
+		Range = 260,
+		{ Id = L.FlyHyperRumble, Volume = 0.9, Speed = 1.7, Near = 12 },
+		{ Id = L.AiryWind, Volume = 0.7, Speed = 1.6, Near = 12 },
+	},
+	-- (round 99) INASA_STRIKES' sounds (every take the library's own, already
+	-- in L): an M1's air puff off the fist (a wind tick on top of the swing),
+	-- the GALE HAYMAKER (and the rising gale) throwing a gust, the updraft
+	-- (the push off the air: an ascending whoosh, his coat snapping), its
+	-- landing on his own wind, the SEND-OFF's column of wind erupting
+	InasaM1Gust = {
+		Gap = 0.05,
+		{ Id = L.AirySlice, Volume = 0.8, Speed = { 1.1, 1.25 }, Length = 0.3 },
+		{ Id = L.WhooshSwishBy, Volume = 0.5, Speed = { 1.2, 1.35 }, Length = 0.3 },
+	},
+	InasaM1Gale = {
+		Gap = 0.08,
+		{ Id = L.WhooshBurst, Volume = 1, Speed = { 0.95, 1.05 }, Length = 0.7 },
+		{ Id = L.AirPound, Volume = 0.8, Speed = { 1.05, 1.15 }, Length = 0.6, Peak = true },
+		{ Id = L.CapeSnap, Volume = 0.7, Delay = 0.03 },
+	},
+	InasaUpdraft = {
+		Gap = 0.1,
+		{ Id = L.AscendWhoosh, Volume = 1.1, Speed = { 0.95, 1.05 }, Length = 0.9 },
+		{ Id = L.WhooshBurst, Volume = 0.8, Speed = 0.9, Length = 0.6 },
+		{ Id = L.CapeSnap, Volume = 0.8, Delay = 0.04 },
+	},
+	InasaUpdraftLand = {
+		Gap = 0.1,
+		{ Id = L.AirPound, Volume = 0.9, Speed = 0.95, Length = 0.8, Peak = true },
+		{ Id = L.DirtBurst, Volume = 0.7, Delay = 0.03, Length = 0.8 },
+		{ Id = L.ClothTick, Volume = 1 },
+	},
+	InasaSendoff = {
+		Range = 900,
+		{ Id = L.WindBlast, Volume = 1.2, Length = 1.8, Fade = 1, Near = 40 },
+		{ Id = L.VortexBlast, Volume = 1, Length = 1 },
+		{ Id = L.AscendWhoosh, Volume = 1, Speed = 0.85, Delay = 0.05, Length = 0.9 },
+	},
+	-- (round 99) INASA_STORM: DRAGON WHIRLWIND, WIND WALL, WIND RIDE, his dash
+	-- and his idle (VFX.InasaStorm; every take the library's own, already in
+	-- L). The whirl spun up on his palm (sucked in, then rising), the fling
+	-- off his hand, the tornado landing on the street, and its burst
+	InasaDragonSpin = {
+		{ Id = L.SuckShort, Volume = 0.7, Speed = 1.3, Length = 0.4 },
+		{ Id = L.AscendWhoosh, Volume = 0.9, Speed = 1.1, Length = 0.5, Delay = 0.05 },
+		{ Id = L.WhooshSwishBy, Volume = 0.5, Speed = 1.4, Length = 0.3, Delay = 0.12 },
+	},
+	InasaDragonFling = {
+		{ Id = L.SwishLarge, Volume = 1, Speed = 0.85, Length = 0.5 },
+		{ Id = L.GiantSwish, Volume = 0.8, Speed = 1.1, Length = 0.6 },
+	},
+	InasaDragonLand = {
+		Range = 600,
+		{ Id = L.AirPound, Volume = 1.1, Speed = { 0.95, 1.05 }, Length = 0.8, Peak = true },
+		{ Id = L.VortexBlast, Volume = 0.9, Speed = 0.9, Length = 1 },
+		{ Id = L.DirtBurst, Volume = 0.8, Speed = 0.9, Length = 0.8 },
+	},
+	InasaDragonBurst = {
+		Range = 900,
+		{ Id = L.WindBlast, Volume = 1.2, Length = 1.8, Fade = 0.9, Near = 30 },
+		{ Id = L.SonicPressure, Volume = 1, Length = 1.4, Peak = true, Fade = 0.7 },
+		{ Id = L.VortexBlast, Volume = 1, Speed = 0.8, Length = 1 },
+		{ Id = L.DebrisMove, Volume = 0.8, Delay = 0.08, Length = 1.2, Fade = 0.6 },
+	},
+	-- the curtain thrown down in front of him, its roar while it stands (a
+	-- bed for VFX.WindKit.loop: every take here starts at 0), a shot spat
+	-- back down the line out of it, and lifting away
+	InasaCurtainUp = {
+		Range = 500,
+		{ Id = L.WindBlast, Volume = 1, Speed = 1.1, Length = 1.2, Fade = 0.6, Near = 25 },
+		{ Id = L.HowlingWind, Volume = 0.9, Speed = { 0.95, 1.05 }, Length = 1.1, FadeIn = 0.05, Fade = 0.5 },
+		{ Id = L.CapeSnap, Volume = 0.8, Delay = 0.04 },
+	},
+	InasaCurtainRoar = {
+		Range = 300,
+		{ Id = L.AiryWind, Volume = 0.9, Speed = 0.85, Near = 20 },
+		{ Id = L.FlyRush, Volume = 0.7, Speed = 0.9, Near = 20 },
+	},
+	InasaCurtainSpit = {
+		Gap = 0.05,
+		Range = 600,
+		{ Id = L.FlyByWhomp, Volume = 1, Speed = { 1.05, 1.15 } },
+		{ Id = L.AirySlice, Volume = 1, Speed = 0.9, Length = 0.4 },
+	},
+	InasaCurtainLift = {
+		{ Id = L.WhooshBurst, Volume = 0.7, Speed = 0.85, Length = 0.7, Fade = 0.35 },
+		{ Id = L.ClothBloom, Volume = 0.6, Length = 0.8, Fade = 0.4 },
+	},
+	-- off the street on his gale, riding through someone, and letting go
+	InasaRideOff = {
+		Range = 500,
+		{ Id = L.AscendWhoosh, Volume = 1 },
+		{ Id = L.AirPound, Volume = 0.9, Speed = 1.1, Length = 0.7, Peak = true },
+		{ Id = L.CapeSnap, Volume = 0.9, Delay = 0.03 },
+	},
+	InasaRideThrough = {
+		Gap = 0.05,
+		Range = 500,
+		{ Id = L.FlyByWhomp, Volume = 1.1, Speed = { 0.95, 1.05 } },
+		{ Id = L.AirPound, Volume = 0.8, Speed = 1.15, Length = 0.6, Peak = true },
+	},
+	InasaRideLetGo = {
+		{ Id = L.AirBrake, Volume = 0.8, Speed = 1.1, Length = 0.7 },
+		{ Id = L.ClothBloom, Volume = 0.7, Delay = 0.05, Length = 0.8, Fade = 0.4 },
+	},
+	-- the dash's gust off his heels, and the breath of wind round him standing
+	InasaDashGust = {
+		Gap = 0.08,
+		{ Id = L.FlyGust, Volume = 0.8, Speed = { 1.15, 1.25 }, Length = 0.6, FadeIn = 0.04, Fade = 0.3 },
+		{ Id = L.CapeFlap, Volume = 0.8, Speed = { 1, 1.15 }, Length = 0.5 },
+	},
+	InasaIdleBreath = {
+		Gap = 0.5,
+		Range = 60,
+		{ Id = L.HowlingWind, Volume = 0.35, Speed = 0.8, Length = 1.6, FadeIn = 0.4, Fade = 0.8, Near = 8 },
+		{ Id = L.ClothTick, Volume = 0.4, Delay = 0.3 },
+	},
+	-- (round 99) INASA_ULT (every take the library's own, already in L).
+	-- PASSION STORM's bow (played on the clip's Bow key, (round 101) 0.22 s
+	-- before his Hit - the awakening kit's MoveAwakenWhirlwind; it was 0.33):
+	-- an orchestra swelling and a sub under it, both sucked out right on the
+	-- Hit (their Starts moved on from the catalog's so the suck lands there,
+	-- the tail after it kept), his cape lifting off his back
+	InasaPassionBow = {
+		Range = 500,
+		{ Id = { { Id = L.TuttiSuck[1].Id, Start = L.TuttiSuck[1].Start + 0.63 } }, Volume = 1.4, Length = 0.39, Fade = 0.05 },
+		{ Id = { { Id = L.SubSuck[1].Id, Start = L.SubSuck[1].Start + 0.48 } }, Volume = 1.1, Length = 0.34, Fade = 0.05 },
+		{ Id = L.ClothBloom, Volume = 0.6, Speed = 0.9, Length = 0.8, Fade = 0.4 },
+		{ Id = L.HowlingWind, Volume = 0.5, Speed = 0.8, Length = 0.5, Fade = 0.25, FadeIn = 0.2 },
+	},
+	-- SKYBREAKER CYCLONE's call (flat, the whole city: VFX.IN.far): a storm
+	-- riser climbing to the funnel's forming (its top about a second in)
+	InasaSkyRiser = {
+		{ Id = L.StormRiser, Volume = 2.2, Length = 1.4, Fade = 0.3 },
+		{ Id = L.WindRoar, Volume = 1, Speed = 0.9, FadeIn = 0.6, Length = 1.6, Fade = 0.5 },
+	},
+	-- ...and its GATHER POINT: everything pulled into one knot, the air
+	-- sucked up into it, swelling into the burst a third of a second later
+	InasaSkyKnot = {
+		{ Id = L.SuckShort, Volume = 1.8, Speed = 0.9, Length = 0.6, Fade = 0.08 },
+		{ Id = { { Id = L.SubSuck[1].Id, Start = L.SubSuck[1].Start + 0.38 } }, Volume = 1.3, Length = 0.36, Fade = 0.05 },
+		{ Id = L.AirBrake, Volume = 1, Speed = 0.85, Length = 0.5 },
 	},
 	-- (round 78) the decoy left landing on his face
 	USSJab = {
@@ -7386,6 +9450,21 @@ Config.Sounds = {
 	-- FINAL FORM: the power building (and the ground rumbling), then going off
 	EmotePowerUp = { Range = 160, { Id = L.PowerUp, Volume = 1.6, Speed = 0.8, Length = 2.2 }, { Id = L.Quake, Volume = 0.8, Speed = 0.7, Length = 2.2 } },
 	EmotePowerBurst = { Range = 180, { Id = L.EnergySnap, Volume = 1.4, Speed = 0.8, Length = 1 }, { Id = L.SubBoom, Volume = 1.3, Speed = 0.7, Length = 1.4 }, { Id = L.Zap, Volume = 0.8, Speed = 0.9, Length = 0.6 } },
+	-- (round 101) FINAL FORM, the transformation: the heartbeats, the eyes
+	-- going, the boom, the roar, the power going out of him (the beds under
+	-- them - the riser, the rumble, the scream, the inhale - are the props'
+	-- own Sounds: Config.FinalForm.Sound.Beds)
+	FinalFormHeart = { Range = 140, { Id = L.BoomThump, Volume = 1.3, Speed = 0.55, Length = 0.8 }, { Id = L.SubBoom, Volume = 0.8, Speed = 0.6, Length = 0.7 } },
+	FinalFormShatter = { Range = 120, { Id = L.GlassBreak, Volume = 1.1, Speed = 1.5, Length = 0.6 }, { Id = L.Zap, Volume = 0.5, Speed = 1.4, Length = 0.25 } },
+	FinalFormBoom = { Range = 260, { Id = L.ThunderBlast, Volume = 1.6, Speed = 0.85, Length = 2.2, Fade = 1.2 }, { Id = L.BigBoomTail, Volume = 1, Delay = 0.1, Length = 3, Fade = 2 } },
+	FinalFormRoar = { Range = 220, { Id = L.RoarBlast, Volume = 1.5, Speed = 0.8, Length = 1.8, Fade = 0.6 }, { Id = L.MonsterRoar, Volume = 0.9, Speed = 0.72, Length = 1.6, Fade = 0.6 } },
+	FinalFormSteam = { Range = 120, { Id = L.SteamBurst, Volume = 0.8, Speed = 0.9, Length = 1 } },
+	-- (round 102) the second stage: the green ball swelling in his fist, hurled
+	-- into the sky and going off up there; LEGENDARY's quake under the boom
+	FinalFormCharge = { Range = 160, { Id = L.PowerUp, Volume = 1.2, Speed = 1.15, Length = 1 }, { Id = L.EnergyGrowl, Volume = 0.9, Speed = 1.05, Length = 0.9 }, { Id = L.Static, Volume = 0.6, Speed = 1.2, Length = 0.5 } },
+	FinalFormThrow = { Range = 200, { Id = L.WindBlast, Volume = 1, Speed = 1.1, Length = 1.1 }, { Id = L.WhooshSwishBy, Volume = 1, Speed = 0.75, Length = 0.6 } },
+	FinalFormSkyBoom = { Range = 600, { Id = L.PowerBoomLong, Volume = 1.8, Speed = 0.8, Length = 3, Fade = 1.5 }, { Id = L.DeepBlast, Volume = 1.4, Speed = 0.75, Length = 2.5, Fade = 1.2 }, { Id = L.SubBoom, Volume = 1.6, Speed = 0.6, Length = 2 } },
+	FinalFormQuake = { Range = 300, { Id = L.Quake, Volume = 1.5, Speed = 0.75, Length = 2.5, Fade = 1.2 }, { Id = L.RockBurst, Volume = 1.1, Speed = 0.85, Delay = 0.1, Length = 2 } },
 	-- MIC DROP: the thud and the speakers whining
 	EmoteMicDrop = { Range = 160, { Id = L.BoomThump, Volume = 1.6, Speed = 0.8, Length = 1 }, { Id = L.WoodClunk, Volume = 0.5, Speed = 1.8, Length = 0.2 }, { Id = S.Ping, Volume = 0.3, Speed = 2.6, Delay = 0.05, Length = 0.9 } },
 	-- TUNG SAHUR: the bat on the street - a hollow wooden knock
@@ -7843,17 +9922,18 @@ Config.Sounds = {
 		{ Id = L.SubBoom, Volume = 2, Speed = 0.6, Length = 2.5, Fade = 1.2, Near = 200 },
 		{ Id = L.WallCrashRubble, Volume = 1.4, Delay = 0.35, Length = 3, Fade = 1.5, Near = 80 },
 	},
-	-- (round 92) LIGHTWIPE - LIGHTSPEED INTO THE GROUND (Config.DevFlight.
-	-- LightWipe). Flat on every screen (the whole city hears it; each screen
-	-- sets its own gain by how far off it is - VFX.LWX). The impact: the
-	-- light barrier's crack dropped an octave, the searing blast and its long
-	-- tail, the earthquake's rock hit, the APM boom and deep hit, the thunder,
-	-- the sub you feel, the air sucked out after it. The cloud going up: the
-	-- long sub rumble, the roar building under it, the thunder rolling on,
-	-- far-off booms. (The wave going over you, the empty plain and the rewind
-	-- are the Serious Punch's own: SeriousWave, SeriousAftermath, SeriousRewind)
-	LightWipeImpact = {
-		Gap = 1,
+	-- (round 99) CRATERS - LIGHTSPEED AND GODSPEED INTO THE GROUND
+	-- (Config.DevFlight.Crater): the bomb's boom (DevFlyBomb) grown into the
+	-- biggest in the game. Flat on every screen (the whole city hears it; each
+	-- screen sets its own gain by how far off it is, late by the distance -
+	-- VFX.CTX). The impact: the crack dropped an octave, the searing blast
+	-- and its long tail, the earthquake's rock hit, the APM boom and deep
+	-- hit, the thunder, the sub you feel, the air sucked out after it (the
+	-- library's own takes - no new ids). The cloud going up: the long sub
+	-- rumble, the roar building under it, the thunder rolling on, far-off
+	-- booms. (GODSPEED's adds its own under it: GodImpact)
+	DevFlyCrater = {
+		Gap = 0.5,
 		{ Id = L.FlyCrack, Volume = 2.4, Speed = 0.42, Peak = true, PreRoll = 0.02, Length = 1, Fade = 0.5 },
 		{ Id = L.PowerBoomLong, Volume = 2.4, Speed = 0.5, Length = 6, Fade = 3 },
 		{ Id = L.QuakeBlast, Volume = 1.8, Speed = 0.8, Length = 6, Fade = 4 },
@@ -7861,14 +9941,105 @@ Config.Sounds = {
 		{ Id = L.DeepImpact, Volume = 1.6, Speed = 0.8, Length = 4, Peak = true, PreRoll = 0.03, Fade = 2.5 },
 		{ Id = L.ThunderBlast, Volume = 1.6, Speed = 0.7, Delay = 0.06, Length = 3.5, Fade = 2 },
 		{ Id = L.SubBoom, Volume = 2.2, Speed = 0.5, Length = 3, Fade = 1.5 },
-		{ Id = L.LightSuck, Volume = 1, Speed = 0.6, Delay = 0.02, Length = 1.4, Fade = 0.6 },
+		{ Id = L.WallCrashRubble, Volume = 1.4, Delay = 0.35, Length = 3, Fade = 1.5 },
 	},
-	LightWipeRumble = {
-		Gap = 1,
+	DevFlyCraterRumble = {
+		Gap = 0.5,
 		{ Id = L.Rumbler, Volume = 2, Length = 7, Fade = 3.5, FadeIn = 0.4 },
 		{ Id = L.FlyHyperRumble, Volume = 1.6, Speed = 0.6, FadeIn = 0.8, Length = 6, Fade = 3 },
 		{ Id = L.ThunderRoll, Volume = 1.2, Speed = 0.8, Delay = 0.3, Length = 6, Fade = 3.5 },
 		{ Id = L.DistantBooms, Volume = 2.2, Delay = 1.5, Length = 4, Fade = 2 },
+	},
+	-- (round 99) GODSPEED (Config.DevFlight.God): only the library's own takes
+	-- (L / S, r86/sfx_catalog.md - no new ids). THE CHARGE (1.8 s, his ears
+	-- flat; everyone else's on him): the riser stretched so its top lands
+	-- on THE BOOM, the energy roar building up out of a deep rumble, the
+	-- power-up sweep, the electricity stuttering over it all
+	GodCharge = {
+		Range = 600,
+		{ Id = L.LightRiser, Volume = 1.6, Speed = 0.78, Length = 2, Fade = 0.15 },
+		{ Id = L.FlyHyperRumble, Volume = 2.6, Speed = 0.55, FadeIn = 1.5, Length = 2.1, Fade = 0.25 },
+		{ Id = L.EnergyGrowl, Volume = 1.4, Speed = 0.7, Delay = 0.5, Length = 1.5, Fade = 0.3 },
+		{ Id = L.PowerUp, Volume = 1.2, Speed = 0.8, Length = 2, Fade = 0.2 },
+		{ Id = L.CrackleRun, Volume = 1.1, Speed = 0.9, Length = 1.9, Fade = 0.2 },
+	},
+	-- the lightning forking off him as it charges (quiet, close by)
+	GodCrackle = { Gap = 0.12, Range = 300, { Id = L.QuirkCrackle, Volume = 0.8, Speed = { 0.85, 1.2 }, Length = 0.45, Fade = 0.15 }, { Id = L.Zap, Volume = 0.55, Speed = { 0.8, 1.1 }, Length = 0.4, Fade = 0.15 } },
+	-- THE BOOM: the biggest in the game - the crack, the pressure, the
+	-- searing power blast, the sonic boom a long way down, the sub, the
+	-- cannon, the air pounded, the thunder and the deep booming tail. His
+	-- ears flat; close by it rides the boom's point (late by the distance)
+	GodBoom = {
+		Range = 4000, Gap = 0.4,
+		{ Id = L.FlyCrack, Volume = 2.4, Speed = 0.45, Length = 0.8, Fade = 0.3 },
+		{ Id = L.SonicPressure, Volume = 2, Speed = 0.6, Length = 1.6, Fade = 0.7 },
+		{ Id = L.PowerBoomLong, Volume = 2.2, Speed = 0.65, Length = 4, Fade = 2 },
+		{ Id = L.SonicBoomAPM, Volume = 2.2, Speed = 0.55, Length = 5, Fade = 2.6 },
+		{ Id = L.SubBoom, Volume = 2.4, Speed = 0.45, Length = 3, Fade = 1.5 },
+		{ Id = S.Cannon, Volume = 1.8, Speed = 0.55, Length = 2.5, Fade = 1.2 },
+		{ Id = L.AirPound, Volume = 1.6, Speed = 0.6, Delay = 0.02, Length = 2, Fade = 1 },
+		{ Id = L.ThunderBlast, Volume = 1.6, Speed = 0.7, Delay = 0.1, Length = 4.5, Fade = 2.5 },
+		{ Id = L.BigBoomTail, Volume = 1.4, Speed = 0.8, Delay = 0.25, Length = 6, Fade = 3 },
+	},
+	-- ...and across the city: the crack gone on the way, the low end and the
+	-- roll carrying (flat, by the distance: everyone hears it)
+	GodBoomFar = {
+		Gap = 0.4,
+		{ Id = L.ThunderRoll, Volume = 2, Speed = 0.75, Length = 7, Fade = 4 },
+		{ Id = L.Rumbler, Volume = 1.8, Length = 7, Fade = 3 },
+		{ Id = L.DistantBooms, Volume = 3, Speed = 0.8, Length = 4, Fade = 2 },
+		{ Id = L.GaiaRoll, Volume = 1.8, Speed = 0.8, Length = 4, Fade = 2 },
+		{ Id = L.SubBoom, Volume = 2, Speed = 0.4, Length = 3, Fade = 1.5 },
+	},
+	-- a boom in the chain behind him (each Look.Chain.Every s)
+	GodChain = {
+		Range = 1800, Gap = 0.08,
+		{ Id = L.FlyCrack, Volume = 1.6, Speed = 0.6, Length = 0.6, Fade = 0.2, Near = 40 },
+		{ Id = L.SonicPressure, Volume = 1.3, Speed = 0.75, Length = 1, Fade = 0.5, Near = 60 },
+		{ Id = L.SubBoom, Volume = 1.2, Speed = 0.7, Length = 1.4, Fade = 0.6, Near = 80 },
+	},
+	-- AT GODSPEED, the power bed over LIGHTSPEED's (looped by the flight:
+	-- their first layer): the atmosphere tearing, pitched down; a deep
+	-- churning rumble under it
+	GodRoar = { { Id = L.TearingAir, Volume = 2.4, Speed = 0.72 } },
+	GodGrowl = { { Id = L.FlyBuffet, Volume = 2.2, Speed = 0.55 } },
+	-- him going past you at GODSPEED: the whomp, the searing boom, the crack
+	GodPass = {
+		Range = 900,
+		{ Id = L.FlyByWhomp, Volume = 2, Speed = 0.6, Length = 1.6, Fade = 0.6 },
+		{ Id = L.PowerBoom, Volume = 1.4, Speed = 0.8, Delay = 0.32, Length = 2, Fade = 1 },
+		{ Id = L.FlyCrack, Volume = 1.2, Speed = 0.7, Delay = 0.36, Length = 0.6, Fade = 0.2 },
+	},
+	-- a building blown open as he goes through it
+	GodBlast = {
+		Range = 1600, Gap = 0.05,
+		{ Id = L.PowerBoom, Volume = 2, Speed = 0.8, Length = 2.6, Fade = 1.2, Near = 60 },
+		{ Id = L.WallCrash, Volume = 1.6, Speed = 0.85, Length = 2.4, Fade = 1 },
+		{ Id = L.WallCrashRubble, Volume = 1.3, Delay = 0.15, Length = 3, Fade = 1.5 },
+		{ Id = L.GlassSmash, Volume = 1.2, Delay = 0.05, Length = 1.8, Fade = 0.8 },
+		{ Id = L.SubBoom, Volume = 1.4, Speed = 0.6, Length = 1.6, Fade = 0.8 },
+	},
+	-- the street torn up under him as he skims it
+	GodWake = {
+		Range = 700, Gap = 0.15,
+		{ Id = L.EarthCracking, Volume = 1.4, Speed = 1.1, Length = 1.4, Fade = 0.6 },
+		{ Id = L.DirtBurst, Volume = 1.1, Length = 1.2, Fade = 0.5 },
+	},
+	-- OUT OF IT: the closing boom (shorter, lighter)
+	GodOut = {
+		Range = 1400, Gap = 0.3,
+		{ Id = L.SonicBoomAPM, Volume = 1.4, Speed = 0.85, Length = 2.2, Fade = 1.2 },
+		{ Id = L.AirBrake, Volume = 1.4, Speed = 0.9, Length = 1.2, Fade = 0.5 },
+		{ Id = L.SubBoom, Volume = 1.3, Speed = 0.7, Length = 1.4, Fade = 0.6 },
+		{ Id = L.FlyCrack, Volume = 1, Speed = 0.8, Length = 0.5, Fade = 0.2 },
+	},
+	-- GODSPEED's crater: under the crater's own boom (DevFlyCrater), heavier still (flat, by the distance)
+	GodImpact = {
+		Gap = 1,
+		{ Id = L.PowerBoomLong, Volume = 2.4, Speed = 0.5, Length = 5, Fade = 2.5 },
+		{ Id = S.Cannon, Volume = 2, Speed = 0.45, Length = 3, Fade = 1.5 },
+		{ Id = L.QuakeBlast, Volume = 2, Speed = 0.8, Length = 5, Fade = 2.5 },
+		{ Id = L.Rumbler, Volume = 2, Length = 7, Fade = 3 },
 	},
 	-- down through a building: each floor giving way (the slab cracking, the
 	-- girders, the rubble, a punch under it)
@@ -7892,6 +10063,8 @@ Config.Sounds = {
 		{ Id = S.Cannon, Volume = 0.5, Speed = 1.2, Length = 1, Fade = 0.5, Near = 40 },
 	},
 }
+-- (round 101, awaken_p) ALL MIGHT, PLUS ULTRA's awakening: All Might's own boom (he had the shared Ult)
+Config.Sounds.UltPlusUltra = Config.Sounds.UltOneForAll
 
 
 ---------------------------------------------------------------------------
@@ -7909,6 +10082,8 @@ Config.Quirks = {
 	Explosion = {
 		DisplayName = "EXPLOSION",
 		Description = "Point-blank blasts and flying on explosions - HOLD DASH (Q) to fly. 1 AP Shot, 2 Blast Rush, 3 Eruption Orbit, 4 Max Capacity (he pulls his gauntlet's pin: a blast that tears down the street - aim it down from the air) - every one changes in the air. R: Stun Grenade (blinds anyone not guarding). Ult: Dynamight - Howitzer Impact, R Explosive Speed (a blur down the street into a point-blank Explosion), 4 Full-Body Cluster (his last stand against Shigaraki).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Point-blank blasts. Fly on them.",
 		Color = Color3.fromRGB(255, 132, 36),
 		AccentColor = Color3.fromRGB(255, 226, 92),
 		CutInCorner = "TopLeft",
@@ -8114,6 +10289,8 @@ Config.Quirks = {
 	OneForAll = {
 		DisplayName = "ONE FOR ALL",
 		Description = "The Symbol of Peace: fists, wind pressure and grapples. True form: Texas Smash, New Hampshire Smash, Carolina Smash, 4 Hero's Counter. R: muscle form - Detroit Smash, Oklahoma Smash, Backdrop Driver, 4 Colorado Smash. Ult: Plus Ultra (4: Weather Changer).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Punches that move the weather, and a grapple to end it.",
 		Color = Color3.fromRGB(52, 78, 160),
 		AccentColor = Color3.fromRGB(226, 214, 160),
 		ModeName = "TRUE FORM",
@@ -8245,6 +10422,8 @@ Config.Quirks = {
 	HalfCold = {
 		DisplayName = "HALF-COLD HALF-HOT",
 		Description = "Right side freezes, left side burns. Ice: Ice Spike, Frost Burst, Glacier Breaker, 4 Ice Slider. R swaps sides. Fire: Flashfire, Flame Pillar, Flashfreeze Heatwave, 4 Jet Kindling (a flame-jet rush into a white-hot punch). Ult: Phosphor - Heaven-Piercing Ice Wall; R Origin: Half-Cold Half-Hot (a glacier wave that has to catch someone, then both sides at once).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Ice on the right, fire on the left. Swap any time.",
 		Color = Color3.fromRGB(70, 150, 230),
 		AccentColor = Color3.fromRGB(205, 240, 255),
 		ModeName = "ICE SIDE",
@@ -8354,6 +10533,8 @@ Config.Quirks = {
 	Engine = {
 		DisplayName = "ENGINE",
 		Description = "Exhaust-powered calves, all kicks. 1 Recipro Spin, 2 Engine Gatling (barrage, then the heel into the street), 3 Recipro Burst - HOLD for gears 1-3: a dash strike per gear, steered with your camera. R Recipro Extend - the mufflers pulled out of his calves, a sprinter's start, and one rocket of a kick that carries them down the street. 4 Skyward Kick. Ult: Recipro Turbo.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "All kicks, all speed, gears you hold and steer.",
 		Color = Color3.fromRGB(40, 86, 200),
 		AccentColor = Color3.fromRGB(196, 222, 255),
 		CutInCorner = "BottomLeft",
@@ -8456,6 +10637,8 @@ Config.Quirks = {
 	Decay = {
 		DisplayName = "DECAY",
 		Description = "Fully awakened. Decay waves eat the ground, finger lances pierce buildings, and Collapse crumbles a whole block. Ult: All For One.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "One touch and the whole block crumbles.",
 		Color = Color3.fromRGB(92, 82, 90),
 		AccentColor = Color3.fromRGB(214, 62, 66),
 		ModeName = "AWAKENED",
@@ -8516,6 +10699,8 @@ Config.Quirks = {
 	FullCowl = {
 		DisplayName = "ONE FOR ALL: 9TH",
 		Description = "1 Delaware Smash: Air Force - two flicked air bullets. 2 St. Louis Smash: Air Force - a spinning kick that fires a blade of air. 3 Manchester Smash - a somersault into an axe kick that craters the street. 4: Blackwhip; R cycles inherited quirks (Smokescreen, Float, Fa Jin - squat to store it, Gearshift - shift up to TOP GEAR, then Transmission into Detroit Smash: Quintuple, 100%: Detroit Smash). Dash, then Blackwhip: the Blackwhip slingshot. Float: you stay on your feet till you jump, then fly where you look - dash to fire Air Force behind you. G: Full Cowl 100% - Danger Sense dodges for you, and 4 is the 1,000,000% Delaware Detroit Smash.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Air bullets, a blade kick, an axe kick that cracks the street.",
 		Color = Color3.fromRGB(27, 164, 126),
 		AccentColor = Color3.fromRGB(188, 255, 231),
 		ModeName = "FULL COWL 45%",
@@ -8642,6 +10827,8 @@ Config.Quirks = {
 	Overhaul = {
 		DisplayName = "OVERHAUL",
 		Description = "Takes apart whatever he touches. Disassemble, raise spikes, or trap foes in stone. R: Restore. Ult: Fusion - chase foes with pillars, seize them with fused arms, and become the Katsukame kaiju.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Takes the street apart and builds spikes out of it.",
 		Color = Color3.fromRGB(128, 22, 40),
 		AccentColor = Color3.fromRGB(255, 150, 150),
 		ModeName = "SHIE HASSAIKAI",
@@ -8700,6 +10887,8 @@ Config.Quirks = {
 	Limitless = {
 		DisplayName = "LIMITLESS",
 		Description = "The strongest. Blue drags the street in, Red blasts it away, Hollow Purple erases a line of the city. R: Infinity. 4: Blink. Ult: Unlimited Void.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Blue pulls, red pushes, purple erases the street.",
 		Color = Color3.fromRGB(34, 44, 96),
 		AccentColor = Color3.fromRGB(150, 210, 255),
 		ModeName = "SIX EYES",
@@ -8752,6 +10941,8 @@ Config.Quirks = {
 	Lemillion = {
 		DisplayName = "LEMILLION",
 		Description = "Permeation. Sink through the street and burst out anywhere, blind-spot strikes and a counter that lets the hit pass through. R: Permeate - on the ground, walk through walls; in the air, fall through everything and pick where the ground spits you out. Ult: Phantom Menace - he comes up out of the street in a golden ring, phases through some hits, and 4 is PHANTOM MENACE: ENDGAME.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Sinks through the street and hits you from behind.",
 		Color = Color3.fromRGB(214, 40, 44),
 		AccentColor = Color3.fromRGB(255, 214, 60),
 		ModeName = "PERMEATION",
@@ -8835,6 +11026,8 @@ Config.Quirks = {
 	Manifest = {
 		DisplayName = "SUNEATER",
 		Description = "Manifest: grow whatever he's eaten. 1 Chicken Kick launches them up, 2 Tako Snatch catches them in the air and slams them down (at a building: it ZIPS him there - jump on the way to point-launch off it), 3 Tako Thrash slams them right, left, right, 4 Swordfish impales and flings them straight ahead. In the air: 1 Bamboo Sweep, 3 Urchin Spikes, 4 Clam Hammer - and falling, he glides on chicken wings. Runs on his STOMACH - R: eat a snack. Ult: Vast Hybrid Chimera.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Grows what he ate: claws, tentacles, a swordfish.",
 		Color = Color3.fromRGB(88, 64, 150),
 		AccentColor = Color3.fromRGB(238, 228, 204),
 		ModeName = "MANIFEST",
@@ -8951,6 +11144,8 @@ Config.Quirks = {
 	Arbor = {
 		DisplayName = "KAMUI WOODS",
 		Description = "Arbor: his wooden body grows into branches. 1 Lacquered Chain Prison binds them, 2 Timber Slingshot throws them up, slings him off a building and slams them down, 3 Root Breaker, 4 Great Tree Hammer. R: Branch Swing (needs something taller than him). Ult: Great Forest.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Branches that tie you up, sling you and hammer you down.",
 		Color = Color3.fromRGB(128, 82, 46),
 		AccentColor = Color3.fromRGB(232, 204, 150),
 		ModeName = "ARBOR",
@@ -9028,6 +11223,8 @@ Config.Quirks = {
 	Compress = {
 		DisplayName = "MR. COMPRESS",
 		Description = "Compress: R pockets a piece of the street as a marble (3 at a time). 1 Rubble Throw hurls one back full size, 2 Surprise Attack (the cane trick), 3 Vanishing Act compresses THEM and flicks the marble away, 4 Magician's Choice. Marbles in his pocket add a hit to his moves. Ult: Showtime - the spotlights come on, marbles orbit him and refill his pocket, and 4 is the GRAND FINALE.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Pockets the street as marbles and throws it back.",
 		Color = Color3.fromRGB(176, 84, 30), -- (his burnt-orange coat)
 		AccentColor = Color3.fromRGB(150, 214, 255), -- (marble glass)
 		ModeName = "COMPRESS",
@@ -9115,6 +11312,8 @@ Config.Quirks = {
 		DevOnly = true,
 		DisplayName = "TWICE",
 		Description = "Double: R makes a double of himself that fights for him (2 at a time - they melt when they're hit enough). 1 Dagger Shot: knives down the aim, and his doubles throw too. 2 Tape Dash: the tape zips him along the aim into a slash. 3 Measure: the tape lashes the first one in line and reels them in - measured, his next R makes a double of THEM that fights on his side. 4 Double Cross swaps him with his double nearest the aim (none out: he throws one there). Ult: Sad Man's Parade.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Makes copies of himself that fight for him.",
 		Color = Color3.fromRGB(46, 46, 52), -- (the black bodysuit)
 		AccentColor = Color3.fromRGB(214, 44, 52), -- (the red wristbands)
 		ModeName = "DOUBLE",
@@ -9185,6 +11384,8 @@ Config.Quirks = {
 	PrimeDeku = {
 		DisplayName = "PRIME DEKU",
 		Description = "Dev: every quirk One For All ever held, all at once. 1 Flash Step: he's gone - aim where he comes back and press 1 again; anyone in the ring gets him BEHIND them. 2 Blackwhip Reel: whips catch everyone in front and reel them into a St. Louis Smash. 3 Air Force Storm: he floats up and rains air bullets on the aim. R Danger Sense: hit him in it and he's already behind you. 4 Vestige Smash: the ones before him bring a fist down on the aim. Ult: One For All: Prime (2 Flash Step Chain, 3 Delaware Detroit Smash).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Every quirk One For All ever held, all at once.",
 		Color = Color3.fromRGB(20, 120, 88),
 		AccentColor = Color3.fromRGB(120, 255, 190),
 		ModeName = "ONE FOR ALL: PRIME",
@@ -9259,6 +11460,8 @@ Config.Quirks = {
 	PrimeMight = {
 		DisplayName = "PRIME ALL MIGHT",
 		Description = "Dev: the Symbol of Peace at his peak - always in muscle form (jump again in the air to leap). 1 Missouri Smash: a lariat at the speed of sound. 2 Texas Smash: Hurricane - a punch that leaves a twister down the street. 3 Detroit Smash: Prime. R I Am Here: he leaps out of sight - aim his landing, R again, and anyone under it looks up into the sun. 4 Plus Ultra: the USJ punches. Ult: Symbol of Peace (3 United States of Smash).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "All Might at his peak, always in muscle form.",
 		Color = Color3.fromRGB(40, 70, 180),
 		AccentColor = Color3.fromRGB(255, 212, 64),
 		ModeName = "PRIME",
@@ -9338,6 +11541,8 @@ Config.Quirks = {
 	TheWorld = {
 		DisplayName = "DIO",
 		Description = "Dev: THE WORLD. 1 Muda Muda: the Stand's rush. 2 Knives: a fan of them (stopped in the air in stopped time, until it moves again). 3 Vampire: a hand on their head and he drinks. R ZA WARUDO: time stops for everyone but him - every hit he lands in it arrives when it starts again. 4 Space Ripper Stingy Eyes. Ult: DIO's World (2 Knife Ring, 3 ROAD ROLLER DA!).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "A Stand that stops time while it hits you.",
 		Color = Color3.fromRGB(226, 182, 48),
 		AccentColor = Color3.fromRGB(46, 110, 96),
 		ModeName = "THE WORLD",
@@ -9410,6 +11615,8 @@ Config.Quirks = {
 	Creation = {
 		DisplayName = "CREATI",
 		Description = "Creation: anything non-living comes out of her skin. R CREATE puts the next weapon in her hand (staff, sword, spear): her M1s swing it and 4 is its move (Strike and Stop, Iai Rush, Piercing Thrust). 1 Matryoshka Flash: three nesting dolls that go off like flashbangs. 2 Unfalling Castle Wall: tap to plant a shield wall; hold to carry the shield (hits from the front land on it), let go to bash with it. 3 Bullet Rain: a cannon lobs three shells that burst into matryoshka bombs. Ult: Creati: Full Arsenal.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Pulls a weapon out of her skin and swings it.",
 		Color = Color3.fromRGB(196, 32, 52), -- (her red costume)
 		AccentColor = Color3.fromRGB(255, 196, 70), -- (the gold belt)
 		ModeName = "CREATION",
@@ -9506,6 +11713,8 @@ Config.Quirks = {
 	Electrification = {
 		DisplayName = "CHARGEBOLT",
 		Description = "Electrification. R fires a POINTER (2 in the clip; they stick to people or the map for 20s) and his lightning homes to it. 1 Discharge: a shock all round him - or one bolt straight to a pointer. 2 Electric Grasp (with a pointer in hand: throws them up, tags them, blasts them back). 3 Zap Trap (only he can see it): step on it and you're stunned (set near a pointer: a live wire runs to it). 4 Stun Bolt (shoot a pointer: it ricochets from person to person; shoot a trap: it overloads). 1 in the air: a lightning dive. Ult: 1,300,000 Volts.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Tags you with a pointer, then the lightning finds you.",
 		Color = Color3.fromRGB(255, 214, 40),
 		AccentColor = Color3.fromRGB(150, 220, 255),
 		ModeName = "ELECTRIFICATION",
@@ -9605,6 +11814,8 @@ Config.Quirks = {
 	CrazyDiamond = {
 		DisplayName = "CRAZY DIAMOND",
 		Description = "Dev: a Stand that smashes anything and puts it back. 1: DORARARA. 2: Build from the rubble (4 picks what). 3: Yo, Angelo. R: Restore. Ult: Shining Diamond.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Smashes anything, then puts it back together.",
 		Color = Color3.fromRGB(226, 110, 176),
 		AccentColor = Color3.fromRGB(130, 214, 240),
 		ModeName = "STAND",
@@ -9655,6 +11866,8 @@ Config.Quirks = {
 	PlusUltra = {
 		DisplayName = "PLUS ULTRA",
 		Description = "Dev kit: the biggest moves in the show. 1,000,000% Smash, Prominence Burn, Warp Gate. R: Rewind. 4: NUKE (hold, let go to throw). Ult: Symbol of Peace (4: New Order).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "The biggest moves in the show, in one kit.",
 		Color = Color3.fromRGB(200, 40, 50),
 		AccentColor = Color3.fromRGB(255, 214, 70),
 		ModeName = "DEV KIT",
@@ -9729,6 +11942,8 @@ Config.Quirks = {
 	Hellflame = {
 		DisplayName = "ENDEAVOR",
 		Description = "Dev: Hellflame, the No. 1 Hero. 1 Hell Spider (white-hot threads off his fingertips). 2 Jet Burn (a torrent of fire off his fist). 3 Vanishing Fist (his fire goes out, he closes in, and the fist lands as an inferno). R: Flashfire Jet (fly on flames). 4 Hell's Curtain (a wall of fire). Every flame heats him up: at the top of the gauge he overheats. Ult: Plus Ultra - 4: Prominence Burn in the sky.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "The No. 1 hero's fire, hot enough to fly on.",
 		Color = Color3.fromRGB(226, 72, 18),
 		AccentColor = Color3.fromRGB(255, 214, 96),
 		ModeName = "HELLFLAME",
@@ -9815,6 +12030,8 @@ Config.Quirks = {
 	Blueflame = {
 		DisplayName = "DABI",
 		Description = "Dev: Blueflame - hotter than his father's fire, and it burns him too (every move costs him a little health, never the last of it). 1 Cremation (a wave of blue fire; the street stays burning). 2 Hell Minefield (flames under the street, erupting ahead). 3 Hell Spider (roaring blue streams off his fingertips). R: Blue Wall (a ring of fire round him). 4 Jet Burn (a flame-jet rush into a point-blank blast). Ult: It's Me, Toya - burning all over, white hair.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Blue fire that burns him too. Everyone else, more.",
 		Color = Color3.fromRGB(36, 116, 255),
 		AccentColor = Color3.fromRGB(170, 236, 255),
 		ModeName = "BLUEFLAME",
@@ -9890,6 +12107,8 @@ Config.Quirks = {
 	FierceWings = {
 		DisplayName = "HAWKS",
 		Description = "Dev: Fierce Wings, the No. 2 Hero - too fast. His wings are his ammo: every move spends feathers (watch the wings thin out) and they grow back. M1: feather blades. 1 Feather Barrage (homing feathers). 2 Swift Cut (a feather-sword dash straight through them). 3 Plume Cyclone (hold: a tornado of feathers that guards and shreds). R: Fierce Wings (take off and fly - slower on thin wings) - flying, his moves are new: Razor Strafe, Peregrine Stoop, Gale Beat, Feather Drill. 4 Feather Carry (feathers hook them and he takes off with them: toss, flurry or throw them in the air). Fire burns his feathers. Ult: Full Plumage - 4: the Thousand-Feather Storm.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Feathers are his ammo. Too fast to catch.",
 		Color = Color3.fromRGB(196, 28, 36),
 		AccentColor = Color3.fromRGB(242, 218, 99),
 		ModeName = "FIERCE WINGS",
@@ -10304,6 +12523,8 @@ Config.Quirks = {
 	Saitama = {
 		DisplayName = "SAITAMA",
 		Description = "Dev: One Punch Man, the hero for fun - bored, bald and far too strong. 1 Normal Punch (a gale down the street behind them). 2 Consecutive Normal Punches. 3 Serious Sneeze (it clears a road). R Serious Side Hops (afterimages - he's behind them). 4 Serious Table Flip (the street flipped over on them). Jump again in the air: a huge leap. Ult: Serious Mode - 3: SERIOUS PUNCH (it blows the whole city away).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Bored, bald, and one punch is plenty.",
 		Color = Color3.fromRGB(250, 206, 46),
 		AccentColor = Color3.fromRGB(204, 30, 38),
 		ModeName = "HERO FOR FUN",
@@ -10423,6 +12644,8 @@ Config.Quirks = {
 	Whirlwind = {
 		DisplayName = "INASA",
 		Description = "Dev: Inasa Yoarashi of Shiketsu High - huge, loud, and he LOVES a good fight. 1 Slicing Gust (gust after gust down a cone). 2 Gale Cannon (a blast of wind down the street that bowls them over). 3 Dragon Whirlwind (a tornado that drags them in and juggles them). R Wind Wall (nothing gets through from the front - shots are blown back). 4 Wind Ride (surf his own gale). Jump again in the air: an updraft. Ult: Passion Storm - 3: SKYBREAKER CYCLONE (a whirlwind up to the clouds that rips up the street and hurls it).",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Loud, huge, and his wind throws you down the street.",
 		Color = Color3.fromRGB(150, 32, 54),
 		AccentColor = Color3.fromRGB(214, 246, 236),
 		ModeName = "WHIRLWIND",
@@ -10927,6 +13150,787 @@ function Config.BambooAim(spec, from, flat, len, floorY)
 		end
 	end
 	return flat * math.cos(tilt) - Vector3.new(0, 1, 0) * math.sin(tilt), l, low
+end
+
+---------------------------------------------------------------------------
+-- (round 99) SPACE - OUTER SPACE over the city, a good place to fly. The
+-- owner: "also add outer space, or a good place to fly!" Fly straight up
+-- (LIGHTSPEED climbs it in a little over a second) and past the Sky Coffin the
+-- sky darkens and the air thins, then you're out: a black sky full of stars,
+-- the sun hard and bright, the planet's curve under the city with its thin
+-- blue air at the rim (the city a grey speck on it), an asteroid field to
+-- weave through and smash (each rock breaks on your screen and comes back
+-- later), the moon (big, cratered - fly round it), a ringed planet far off, a
+-- nebula, a wheel of a space station to fly through, satellites, shooting
+-- stars. Come back down fast and you burn back in: a re-entry fireball round
+-- you, on every screen that sees you. The wind fades to a quiet hum up there.
+-- All of it is drawn on each screen whose CAMERA is up there (VFX.SPX: the
+-- dev flight and FLIGHTGRANT flyers get there; Hawks' flight caps out far
+-- under it; a carried player, a director / free camera up there sees it
+-- too), never on a street-level screen: nothing of it exists under Build.
+-- Cheap and capped (MaxParts; half of the counts on a low-end machine), and
+-- every Lighting / Atmosphere / Sky change is this screen's own and put back
+-- exactly as you come down (if the game changed one meanwhile - the console's
+-- time, an event's sky - the game's value is what goes back).
+--   Heights are world Y (the street is at 25): Build (under it nothing of
+--   space exists here; Linger s under it and it's let go), Climb (the sky
+--   darkening and the air thinning from From to To), Edge (SPACE over it;
+--   back out under Edge - Hysteresis)
+--   Look - Light (Lighting held in space: night for the black, starry sky -
+--     the light is the moon's, made the sun: the Sky's moon wears the sun's
+--     face; Clock "auto": of Clocks, the hour the light stands nearest
+--     SunHeight degrees up), Atmo (the air thinned to this over the climb,
+--     held in space), Sky (StarCount, the sun's disc MoonAngularSize),
+--     Grade (this screen's ColorCorrection "SpaceGrade": the Climb's
+--     darkening at the top of it, Space's in space; Dip: a blink of dark as
+--     you cross the Edge)
+--   Far bodies are drawn on a shell round the camera (Roblox has no far clip
+--   to set: past a few thousand studs a part may not be drawn on every
+--   machine) - each drawn Size big at Size / Radius of its true distance, so
+--   from where you stand it looks exactly Radius big where it truly is:
+--   Planet (Radius: its true radius, the city on its top; FadeIn: Y it's
+--   drawn from (see-through under To); Rim: its air over Size; Lands / Ice:
+--   patches { polar angle from the city, round it, angular size, rise,
+--   colour } - degrees - each land on its shallow Shelf; Clouds: streaks
+--   { polar angle, round, length, width (degrees), heading, see-through }),
+--   Moon (Distance out from Bounds.Center and Height up, round the sky from
+--   opposite the sun by Phase degrees - so from the city it's lit from
+--   behind you; Clear: the flight keeps you this far off its ground),
+--   Giant (the ringed planet: Dir, Distance away, Size, Tilt, its Bands and
+--   Rings { from, to (x its radius), colour, see-through }),
+--   Nebula (Dir, Distance, Size across, Glows { x, y, size (x Size), colour,
+--   see-through }), Sun (Distance, Glow studs across)
+--   Station (a wheel to fly through, true size, At from Bounds.Center: built
+--   within Draw), Satellites ({ R from the middle, Y, Period s }; Draw)
+--   Field - the asteroid field (true size): from Bottom to Top, rocks hashed
+--   into Cell-stud cells (the same on every screen), Density { thin, thick }
+--   rocks a cell by its cluster (Cluster cells across), Size { min, max }
+--   (Giant ones Chance of the time), drawn within Radius (Max at once),
+--   fading in over the last Fade of it; Keep: none this near the moon /
+--   station. Smash - a flyer at MinSpeed+ into one breaks it (Pieces fly,
+--   Life s), back after Respawn s (a jump past Teleport studs in a frame is
+--   a teleport, never a smash)
+--   Meteors - shooting stars every Every s (Sky: the share across the sky,
+--   the rest burning up over the planet)
+--   ReEntry - anyone coming down between High and Low at MinSpeed+ (falling
+--   MinFall+): the fireball, full at Full studs/s; seen from far grown so it
+--   reads (ReadAt studs, at most MaxScale); Scan s between looks for them
+--   ((round 99 review) Low 1700 -> 2000: clear of the Sky Coffin - its
+--   barrier's top is 1890 - so a hard knock down in a duel never burns)
+--   Fall - a body falling out of space with no flight: the game's own fall
+--   cap (Movement.Feel.MaxFallSpeed) has it unless it's ragdolled or
+--   held; then it's slowed to Terminal studs/s - the air - and the drift
+--   it kept from the flight dies away (Drag 1/s), from From up till it's
+--   down: never a fling for the anti-exploit (Config.AntiExploit.Fling).
+--   ((round 99 review) never a body something else has: carried, grabbed,
+--   possessed, parked, held by a move - Skip, the attributes they set)
+--   Sound - the world hushed in space (Hush dB on the game's sounds by the
+--   climb), the hum (SpaceHum) rising over it
+--   Hud - the banner the first time you're out (again after Again s down)
+--   (round 99 review) Dust - specks of dust streaking past you in space
+--   once you're going From studs/s (all of them by Full): Count of them
+--   (LowCount on a low-end machine) within Radius, stretched Stretch x your
+--   speed (Length { min, max } studs) - so speed reads in open space too
+--   (round 99 review) Peers - another flyer out there further under you than
+--   the planet's drawn would be hidden behind it: shown through it as a
+--   glowing outline (a Highlight - at most Max of them, within Range studs)
+---------------------------------------------------------------------------
+Config.Space = {
+	Enabled = true,
+	Build = 2300,
+	Linger = 4,
+	Climb = { From = 2400, To = 4200 },
+	Edge = 4200,
+	Hysteresis = 160,
+	-- (GODSPEED's city leash and ceiling let go of you over this: space has the flight's own bounds)
+	Free = 2300,
+	MaxParts = 460,
+	Look = {
+		Light = {
+			ClockTime = "auto",
+			-- (the night's light is the moon's - weaker than the sun's at the same Brightness)
+			Brightness = 3.4,
+			-- (enough that what the light misses still reads - however weak the moon's light is)
+			Ambient = Color3.fromRGB(36, 38, 50),
+			OutdoorAmbient = Color3.fromRGB(74, 78, 100),
+			EnvironmentDiffuseScale = 0.06,
+			EnvironmentSpecularScale = 0.5,
+		},
+		Clocks = { 0, 1, 2, 3, 23, 22, 21 },
+		SunHeight = 40,
+		Atmo = { Density = 0, Haze = 0, Glare = 0, Offset = 0 },
+		Sky = { StarCount = 5000, MoonAngularSize = 7, CelestialBodiesShown = true, Sun = true },
+		Grade = {
+			Climb = { Brightness = -0.16, Contrast = 0.12, Saturation = 0.06, Tint = Color3.fromRGB(196, 210, 255) },
+			Space = { Brightness = -0.04, Contrast = 0.15, Saturation = 0.12, Tint = Color3.fromRGB(255, 250, 244) },
+			Dip = { Brightness = -0.55, In = 0.08, Out = 0.5 },
+		},
+	},
+	Planet = {
+		-- (Radius 40000: from 4200 up its horizon is ~25 degrees under level -
+		-- the broad curve under you, there when you look ahead; from 9000, 36)
+		Radius = 40000, Size = 1000, Rim = 22,
+		FadeIn = { 3700, 4300 },
+		Ocean = Color3.fromRGB(26, 78, 168),
+		Air = Color3.fromRGB(104, 166, 255), AirSee = 0.88,
+		Glow = { Color = Color3.fromRGB(140, 198, 255), Line = 2, Halo = 0.7, Haze = 0.86, HazePx = 18 },
+		-- (over its own continent - Lands rise 3)
+		City = { Color = Color3.fromRGB(150, 148, 146), Blocks = Color3.fromRGB(110, 112, 120), Rise = 3.6 },
+		-- (the city's own continent first, then the rest round it: what you see
+		-- from up here is within ~60 degrees of the city)
+		Lands = {
+			{ 0, 0, 7, 3, Color3.fromRGB(70, 118, 62) }, { 5, 40, 5, 3, Color3.fromRGB(52, 98, 52) }, { 7, 140, 4.5, 3, Color3.fromRGB(88, 124, 66) },
+			{ 6, 220, 5, 3, Color3.fromRGB(162, 142, 100) }, { 7, 300, 4, 3, Color3.fromRGB(106, 124, 74) }, { 11, 80, 3, 3, Color3.fromRGB(74, 118, 62) },
+			{ 10, 190, 2.5, 3, Color3.fromRGB(130, 120, 94) }, { 12, 262, 3.5, 3, Color3.fromRGB(60, 104, 56) },
+			{ 28, 30, 9, 3, Color3.fromRGB(186, 158, 108) }, { 33, 50, 7, 3, Color3.fromRGB(198, 170, 118) }, { 24, 14, 5, 3, Color3.fromRGB(96, 124, 70) },
+			{ 37, 27, 5, 3, Color3.fromRGB(80, 118, 64) }, { 30, 70, 4, 3, Color3.fromRGB(150, 138, 100) },
+			{ 34, 165, 10, 3, Color3.fromRGB(56, 102, 54) }, { 40, 186, 7, 3, Color3.fromRGB(44, 88, 48) }, { 28, 176, 4, 3, Color3.fromRGB(122, 128, 86) },
+			{ 44, 158, 5, 3, Color3.fromRGB(176, 152, 104) },
+			{ 30, 255, 8, 3, Color3.fromRGB(62, 108, 56) }, { 40, 266, 9, 3, Color3.fromRGB(150, 136, 98) }, { 22, 244, 4, 3, Color3.fromRGB(78, 118, 64) },
+			{ 48, 278, 6, 3, Color3.fromRGB(182, 158, 108) },
+			{ 18, 110, 2, 2, Color3.fromRGB(80, 122, 66) }, { 20, 121, 1.4, 2, Color3.fromRGB(84, 124, 68) }, { 16, 330, 2, 2, Color3.fromRGB(78, 118, 64) },
+			{ 45, 108, 3, 3, Color3.fromRGB(72, 116, 62) }, { 52, 338, 4, 3, Color3.fromRGB(110, 126, 76) },
+			{ 62, 100, 12, 3, Color3.fromRGB(176, 150, 102) }, { 66, 300, 12, 3, Color3.fromRGB(66, 110, 60) }, { 70, 205, 10, 3, Color3.fromRGB(90, 122, 70) },
+		},
+		LowLands = 14, Shelf = Color3.fromRGB(50, 128, 186), ShelfSize = 1.22, ShelfFrom = 3.5,
+		Ice = { { 78, 20, 10, 3 }, { 80, 200, 9, 3 } }, IceColor = Color3.fromRGB(236, 242, 250),
+		-- { polar angle, round, size, heading (its clump leans this way), see-through }
+		Clouds = {
+			{ 9, 100, 2.2, 30, 0.35 }, { 13, 230, 2.6, -20, 0.4 }, { 17, 160, 2, 70, 0.38 }, { 15, 340, 2, 10, 0.42 },
+			{ 22, 300, 3.4, -35, 0.35 }, { 26, 200, 3, 15, 0.38 }, { 31, 45, 3.8, 55, 0.35 }, { 19, 20, 1.8, -60, 0.45 },
+			{ 36, 140, 4.2, -10, 0.35 }, { 42, 300, 3.4, 40, 0.4 }, { 12, 175, 1.6, 85, 0.45 }, { 28, 95, 2.6, -25, 0.4 },
+			{ 48, 230, 4, 20, 0.38 }, { 55, 30, 3.6, -40, 0.4 },
+		},
+		LowClouds = 7, CloudColor = Color3.fromRGB(246, 248, 252), Spin = 0.0015,
+	},
+	Moon = {
+		Distance = 10500, Height = 8575, Phase = 50, Radius = 1500, Size = 300, Clear = 160,
+		Color = Color3.fromRGB(164, 162, 158), Mare = Color3.fromRGB(108, 108, 112),
+		Rim = Color3.fromRGB(196, 194, 190), Floor = Color3.fromRGB(118, 116, 114),
+		-- { polar angle, round, size, rise } (the maria: dark seas)
+		Maria = { { 30, 40, 26, 2 }, { 52, 150, 20, 2 }, { 40, 260, 17, 2 } },
+		Craters = 14, LowCraters = 7, CraterSize = { 3, 9 },
+	},
+	Giant = {
+		Dir = Vector3.new(-0.62, 0.36, 0.7), Distance = 2500, Size = 230, Tilt = 8, Turn = 0,
+		Color = Color3.fromRGB(216, 188, 142),
+		Bands = { { -0.32, 0.07, Color3.fromRGB(184, 146, 104) }, { 0.1, 0.06, Color3.fromRGB(232, 214, 176) }, { 0.42, 0.05, Color3.fromRGB(170, 132, 92) } },
+		Rings = { { 1.3, 1.62, Color3.fromRGB(150, 136, 118), 0.55 }, { 1.68, 2.08, Color3.fromRGB(222, 206, 176), 0.25 }, { 2.16, 2.34, Color3.fromRGB(186, 170, 146), 0.5 } },
+	},
+	Nebula = {
+		Dir = Vector3.new(0.58, 0.5, 0.64), Distance = 2900, Size = 2600,
+		Glows = {
+			{ 0, 0, 0.62, Color3.fromRGB(196, 70, 210), 0.5 }, { -0.22, 0.1, 0.55, Color3.fromRGB(110, 70, 230), 0.55 },
+			{ 0.24, -0.08, 0.5, Color3.fromRGB(240, 90, 160), 0.58 }, { 0.12, 0.22, 0.42, Color3.fromRGB(80, 190, 240), 0.6 },
+			{ -0.32, -0.16, 0.48, Color3.fromRGB(70, 120, 250), 0.64 }, { 0.36, 0.16, 0.34, Color3.fromRGB(255, 160, 220), 0.6 },
+			{ 0.02, -0.02, 0.2, Color3.fromRGB(255, 230, 250), 0.45 }, { -0.1, -0.28, 0.4, Color3.fromRGB(150, 60, 190), 0.64 },
+			{ 0.3, -0.26, 0.3, Color3.fromRGB(90, 220, 220), 0.66 }, { -0.38, 0.22, 0.3, Color3.fromRGB(220, 90, 200), 0.68 },
+		},
+		LowGlows = 6, Stars = 10,
+	},
+	-- (Glows: { size (x Glow), see-through, colour (, tall) } - the glare, its heart, the flare across it)
+	Sun = {
+		Distance = 2950, Glow = 1300, Core = 70, Color = Color3.fromRGB(255, 244, 222), Fallback = Vector3.new(0.42, 0.64, -0.64),
+		Glows = {
+			{ 1, 0.82, Color3.fromRGB(255, 176, 110) }, { 0.45, 0.6, Color3.fromRGB(255, 222, 170) }, { 0.16, 0.12, Color3.new(1, 1, 1) },
+			{ 1.6, 0.6, Color3.fromRGB(200, 226, 255), 0.035 },
+		},
+	},
+	-- the galaxy's band round the sky (Axis: square to it; Count glows Size across, Distance off)
+	Band = { Axis = Vector3.new(0.35, 0.85, -0.4), Distance = 3000, Size = 1900, Count = 9, See = 0.8, Colors = { Color3.fromRGB(196, 206, 255), Color3.fromRGB(255, 226, 214), Color3.fromRGB(176, 196, 255) } },
+	Station = {
+		At = Vector3.new(1600, 5275, -2300), Radius = 150, Spin = 0.1, Draw = 3600,
+		Segments = 16, LowSegments = 10, Hull = Color3.fromRGB(214, 216, 222), Panel = Color3.fromRGB(34, 52, 104),
+		Light = Color3.fromRGB(255, 226, 150), Beacon = Color3.fromRGB(255, 60, 50),
+	},
+	Satellites = { { R = 1500, Y = 4700, Period = 110, Phase = 0 }, { R = 2300, Y = 5050, Period = 150, Phase = 2.1 }, { R = 2900, Y = 5600, Period = 190, Phase = 4.2 } },
+	SatDraw = 3200,
+	Field = {
+		Bottom = 6000, Top = 10200, Cell = 420, Radius = 1150, Max = 44, Refresh = 0.1,
+		Cluster = 4, Density = { 0.15, 2.3 }, Size = { 9, 70 }, Giant = { Chance = 0.035, Size = { 100, 150 } },
+		Spin = { 0.05, 0.45 }, Fade = 0.18, Keep = { Moon = 2200, Station = 700 },
+		Colors = { Color3.fromRGB(150, 140, 128), Color3.fromRGB(132, 126, 120), Color3.fromRGB(164, 148, 126), Color3.fromRGB(118, 112, 108), Color3.fromRGB(176, 160, 138) },
+	},
+	Smash = { MinSpeed = 40, Teleport = 700, Pad = 4, Pieces = 9, Life = 1.8, Respawn = 25, MaxPieces = 40, Shake = { 0.7, 2.2 }, BackIn = 1.2 },
+	Meteors = { Every = { 1.2, 3.5 }, LowEvery = { 3, 6 }, Sky = 0.6, Speed = { 1100, 2400 }, Life = { 0.45, 0.9 }, Distance = { 1400, 2300 } },
+	ReEntry = { High = 4900, Low = 2000, MinSpeed = 420, MinFall = 200, Full = 1300, Scan = 0.25, ReadAt = 180, MaxScale = 14, Shake = 0.55, Max = 6, Range = 3000 },
+	Fall = {
+		From = 2100, Terminal = 640, Drag = 1.5, MaxTime = 40,
+		Skip = { "CarriedBy", "HawksCarriedBy", "Grabbed", "Possessed", "Parked", "Floating", "BlastFlying", "HawksFlying", "Phasing", "PhaseDive",
+			"Vanished", "TimeStopped", "BodyLocked", "RankedHold", "Clashing", "Finishing", "BeingFinished", "Compressed", "DevCarrying" },
+	},
+	Dust = { Count = 34, LowCount = 16, Radius = 230, From = 240, Full = 1300, Stretch = 0.045, Length = { 2, 60 }, Width = 0.3, See = 0.4, Color = Color3.fromRGB(206, 222, 255) },
+	Peers = { Range = 2600, Max = 3, Every = 0.1, Fill = Color3.fromRGB(176, 214, 255), FillSee = 0.55, Outline = Color3.fromRGB(240, 248, 255), OutlineSee = 0.1 },
+	Sound = { Hush = { Low = -6, Mid = -20, High = -38 }, Hum = 1, Burn = 1 },
+	Hud = { Banner = "OUTER SPACE", Sub = "The city's down there. Fly anywhere.", Hold = 2.2, Again = 25 }, -- ((round 100) Sub: one sentence, Stark Street's voice)
+}
+-- where the moon is (its middle) with the light coming from `sun` (nil:
+-- not known yet - a way of its own): the same on every screen and for the
+-- flight's bounds
+function Config.Space.moonAt(sun)
+	local M = Config.Space.Moon or {}
+	-- (round 99) MOONBASE: where the server built the owner's base on it
+	-- (workspace's SpaceMoon - worked out from the same light, so the same
+	-- place) - every screen and the server agree to the stud
+	local ok, pinned = pcall(function()
+		return workspace:GetAttribute("SpaceMoon")
+	end)
+	if ok and typeof(pinned) == "Vector3" and pinned == pinned then
+		return pinned
+	end
+	local c = ((Config.DevFlight or {}).Bounds or {}).Center or Vector3.new(5, 25, 888)
+	local flat = (typeof(sun) == "Vector3" and sun == sun) and Vector3.new(-sun.X, 0, -sun.Z) or Vector3.new(0.7, 0, -0.7)
+	if flat.Magnitude < 1e-3 then
+		flat = Vector3.new(0.7, 0, -0.7)
+	end
+	flat = flat.Unit
+	local a = math.rad(M.Phase or 50)
+	local dir = Vector3.new(flat.X * math.cos(a) - flat.Z * math.sin(a), 0, flat.X * math.sin(a) + flat.Z * math.cos(a))
+	return c + dir * (M.Distance or 10000) + Vector3.new(0, M.Height or 8575, 0)
+end
+-- the sounds (the catalog's measured takes that load in this place,
+-- r86/sfx_catalog.md: no uploads): the hum, crossing out of / back into the
+-- air, a rock smashed, the burn coming back in
+do
+	local L = Config.SoundLibraryLicensed
+	L.SpaceTone = { { Id = "rbxassetid://9119420108", Start = 0 } } -- Spaceship Pass By Long Approach And Decay 2 (18.8 s: a swirling airy tone - steady, 0.03/0.05/0.07)
+	L.SolarUndertone = { { Id = "rbxassetid://9119379079", Start = 0 } } -- Solar Whoosh Constant Low Rumble Undertone 3 (35.6 s: a constant low undertone)
+	L.FireWhipped = { { Id = "rbxassetid://9112907072", Start = 0 } } -- Wind Whipped Fire 2 (56 s: heavy buffeting fire - quiet, ~0.026)
+	L.RockSmashes = { { Id = "rbxassetid://9125869505", Start = 0 } } -- Rock Drops Smashes Impacts Hits Some Rocking 1 (a cinder block breaking apart)
+	local Snd = Config.Sounds
+	Snd.SpaceHum = { { Id = L.SpaceTone, Volume = 1.6, Speed = 0.55 }, { Id = L.SolarUndertone, Volume = 1.1, Speed = 0.6 } }
+	Snd.SpaceBurn = { Range = 3000, { Id = L.FlyHyperBed, Volume = 1.4, Speed = 0.8 }, { Id = L.FireWhipped, Volume = 6, Speed = 1.1 }, { Id = L.FlyBuffet, Volume = 1.6, Speed = 0.7 } }
+	Snd.SpaceOut = { { Id = L.LightSuck, Volume = 1.2, Speed = 0.9, Length = 1.6, Fade = 0.5 }, { Id = L.AirBrake, Volume = 0.9, Speed = 0.7, Length = 1.4, Fade = 0.5 } }
+	Snd.SpaceIn = { { Id = L.SweepAperture, Volume = 0.9, Speed = 0.8, Length = 2, Fade = 0.6 }, { Id = L.TearingAir, Volume = 1.6, Length = 2.4, Fade = 0.8, FadeIn = 0.3 } }
+	Snd.SpaceRockSmash = { Gap = 0.05, Range = 900, { Id = L.BoulderCrack, Volume = 1.6, Speed = 0.8 }, { Id = L.RockSmashes, Volume = 2.4, Speed = 0.75 }, { Id = L.DeepImpact7, Volume = 1, Speed = 0.8, Length = 1.2 } }
+end
+
+---------------------------------------------------------------------------
+-- (round 99) MOONBASE - the owner: "also, for me and me onyl the owner,
+-- make me spawn on a moon/asteroid base instead of the normal city like the
+-- peasants. when entering earth from space, autoposition it to be right
+-- above the city and sky coffin."
+--   OwnerBase - THE OWNER'S MOON BASE. Only the place's owner (the game's
+--   own rule: its creator - a group place's owner, rank 255 - and in a
+--   Studio test his own account, or Player1 of a local server; never the
+--   Devs list, a flight grant or anyone else) spawns there: on joining and
+--   on every respawn, in place of a city spawn pad (a body something else
+--   has put somewhere - a ranked duel's - is left where it was put).
+--   Enabled = false: the city like everyone else, and no base at all.
+--   Where: on the MOON of space (Config.Space.Moon). The server works out
+--   the light the screens hold up there (Look.Clocks / SunHeight, as VFX.SPX
+--   does) and so where the moon is, and tells every screen (workspace's
+--   SpaceMoon: Config.Space.moonAt draws it there) - the base on its flank,
+--   Tilt degrees down from its top toward the city, so the planet hangs past
+--   the moon's edge with the city a speck on it.
+--   What: a level DECK (Width across, Back + Front deep, its back edge Rise
+--   over the slope; Legs under it out over the slope) - the LANDING PAD he
+--   spawns on (Spawn), the DOME and its HAB, ANTENNAS (beacons blinking,
+--   Blink s), floodlights, a glass railing, the LAUNCH PAD with its DROP
+--   POD and gantry, solar panels up the slope (turned to the sun: Panels),
+--   a flag (Pieces: { N name, S shape, Z size, P { across, up, forward } on
+--   the deck, T turn degrees, C colour, M material, Hit = false: walked
+--   through, See, Rep: drawn on the far moon too, Tag, Light, Gui }) - on a
+--   patch of real moon ground: the CAP, slabs on the moon's own sphere
+--   (Rings of them every Step degrees out from the deck, Thick, Over: their
+--   overlap; a Skirt round its edge tipped down to the moon drawn under it),
+--   Boulders and Craters. All of it the server's (Workspace.Map.MoonBase:
+--   the map's, so the flight and every ground ray stand on it), anchored,
+--   NoPhase (never phased or flown through), cheap (~170 parts, a few lights).
+--   Gravity: on it (Zone: inside the cap, under Above studs over it) each
+--   machine's own body falls at Gravity x the world's - a moon's hop.
+--   Near: the moon drawn as you come in to it (VFX.SPX) - inside Switch
+--   studs off its ground (out again past Switch + Hysteresis), a ball Radius
+--   big just inside the true one (so it never covers what's really on it:
+--   the base, its ground, anyone there) takes over from the far one in Fade
+--   s, touching the true one under the base (under you from Let degrees
+--   round the moon from it; Hold: the base's own); far off, the base's big
+--   pieces are on the drawn moon.
+--   Pod - THE DROP POD on the launch pad (On; its Pieces round its middle):
+--   its prompt (Prompt) is only his, only from the base (Reach studs of
+--   it); a press, not a hold - E and D-pad right are the finisher's and the
+--   items' here, so the game presses a prompt for you with a tap (as the
+--   snack machine's and Tony's: QuirkClient's pressPrompt) and a hold could
+--   never finish. It lifts off (Lift s, LiftHeight up and Out over the edge), holds
+--   there while the way down's streamed in for him (at most StreamWait s),
+--   drops through space past the moon (Drop s, DropOut studs out past its
+--   edge, easing in by Ease; turned over heat shield first by Turn studs/s),
+--   comes back in over the city as any flyer does (Config.Space.Return: the
+--   same move - over its edge, Land.Out studs from its middle on the street's
+--   side) and burns down (Burn s; Brake: the share of its speed it still has
+--   at the street) outside the Sky Coffin and in under it (it covers the
+--   whole city: down to Land.Duck high, then in) to a street Land.Radius
+--   studs off the city's middle (the first clear one round it: Tries of
+--   them, Clear studs round each street-level, rays from From up; none: the
+--   first roof) - a crater (Crater studs), anyone within KnockRadius knocked
+--   off their feet (Knock: out, up - no damage) - and he's out of it with a
+--   superhero landing. On the way, the map ahead of it is asked for every
+--   Stream.Every s (Ahead s along). Again after Cooldown s. (Look: its
+--   flame, the retro burn's last Retro s, the pod left Linger s, the shake.)
+--   Return - RE-ENTRY OVER THE CITY: anyone the server's seen out in space
+--   (over Config.Space.Edge) coming back down under Edge - Hysteresis is
+--   moved (the server's own move, as its warps are) to right over the
+--   city's middle and the Sky Coffin (Target; nil: the Sky Coffin's middle)
+--   at the same height, with the same speed and heading - set back along
+--   his heading so his line carries him over Target at Aim (at most Lead
+--   studs back - inside the Sky Coffin's disc, so he always comes in over
+--   it and the city, never out over the void); not if he's within Near of
+--   that already; Jump: a drop through the line further than this in one
+--   look is a warp (a respawn, a console goto), not a crossing. The way down
+--   there's streamed in for him while he's up there (every Stream.Every s:
+--   round where he'll come in, and the street under it; fresh for Fresh s;
+--   if it isn't, asked as he crosses - at most Wait s). A carried player
+--   comes with his carrier (their map streamed in with his); Skip: a body
+--   something else has right now.
+---------------------------------------------------------------------------
+do
+	local SPC = Config.Space
+	local UPV = Vector3.new(0, 1, 0)
+	local WHITE = Color3.fromRGB(236, 238, 242)
+	local STEEL = Color3.fromRGB(120, 126, 138)
+	local DARK = Color3.fromRGB(44, 48, 56)
+	local HAZARD = Color3.fromRGB(255, 196, 40)
+	local GLOW = Color3.fromRGB(120, 220, 255)
+	local RED = Color3.fromRGB(255, 52, 44)
+	local WARM = Color3.fromRGB(255, 236, 200)
+	SPC.OwnerBase = {
+		Enabled = true,
+		Tilt = 35,
+		Deck = { Width = 104, Back = 30, Front = 42, Thick = 3, Rise = 0.6, Color = Color3.fromRGB(150, 156, 166), Material = "DiamondPlate" },
+		Legs = { Radius = 1.7, Across = { -47, 0, 47 }, Along = { -6, 16, 38 }, Color = STEEL, Pad = 5 },
+		Rail = { Height = 3.4, Color = Color3.fromRGB(170, 210, 240), See = 0.55, Top = STEEL, Open = 16 },
+		-- (where on the deck; Wait: at most this long on the city's pad for the
+		-- base to stream in; Fresh: an ask this recent is good; Timeout: an ask's;
+		-- Pad: a city spawn pad's reach - Up studs over it, Out round it)
+		Spawn = { X = -22, F = 24, Up = 3.5, Wait = 3, Fresh = 30, Timeout = 3, Pad = { Up = 12, Out = 4 } },
+		Cap = { Step = 4.6, Rings = 4, Thick = 16, Over = 1.16, Color = Color3.fromRGB(164, 162, 158), Skirt = { Out = 5, Margin = 8 } },
+		Boulders = { Count = 10, Size = { 4, 15 }, Sink = 0.4, Color = Color3.fromRGB(132, 130, 126), Seed = 9911 },
+		Craters = { { 8, 40, 26 }, { 12, 160, 34 }, { 15, 250, 22 }, { 6, 300, 16 } }, -- { degrees from the deck, round, radius }
+		CraterFloor = Color3.fromRGB(118, 116, 114), CraterRim = Color3.fromRGB(196, 194, 190),
+		Panels = { At = { { -30, -54 }, { 0, -56 }, { 30, -54 } }, Size = Vector3.new(18, 0.4, 10), Post = 6, Color = Color3.fromRGB(30, 44, 96) },
+		Gravity = 0.3,
+		Zone = { Above = 360, Inside = 1.5 },
+		Near = { Radius = 1000, Switch = 600, Hysteresis = 60, Fade = 0.3, Hold = 30, Let = 60 },
+		Blink = 1.2, BlinkRange = 4000,
+		-- the space chip's words on it (Where; Pod: riding the pod) and the
+		-- banner as he first comes out on it (Sub: his; Others: anyone else's)
+		Hud = { Where = "MOON BASE", Pod = "DROP POD", Banner = "MOON BASE", Sub = "The drop pod's on the pad. Or fly down (V).", Others = "The owner's outpost." }, -- ((round 100) sentences)
+		-- a new body of his waiting on the base to stream in: his screen covered
+		-- (at most Cover s), the words on it
+		Cover = { Time = 4, Text = "MOON BASE", Fade = 0.35 },
+		Pieces = {
+			-- the landing pad (he spawns on it)
+			{ N = "PadRing", S = "Cylinder", Z = Vector3.new(0.3, 30, 30), P = { -22, 0.15, 24 }, T = { 0, 0, 90 }, C = GLOW, M = "Neon", Hit = false, Rep = true },
+			{ N = "PadTop", S = "Cylinder", Z = Vector3.new(0.4, 27, 27), P = { -22, 0.2, 24 }, T = { 0, 0, 90 }, C = Color3.fromRGB(62, 66, 76), M = "DiamondPlate" },
+			{ N = "PadMark", S = "Cylinder", Z = Vector3.new(0.45, 4, 4), P = { -22, 0.22, 24 }, T = { 0, 0, 90 }, C = GLOW, M = "Neon", Hit = false },
+			-- the dome, its band of windows, its door; the hab and its airlock
+			{ N = "Dome", S = "Ball", Z = Vector3.new(30, 30, 30), P = { 28, 0, -12 }, C = WHITE, M = "SmoothPlastic", Rep = true },
+			{ N = "DomeBase", S = "Cylinder", Z = Vector3.new(3.2, 31.6, 31.6), P = { 28, 1.6, -12 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal" },
+			{ N = "DomeBand", S = "Cylinder", Z = Vector3.new(1.3, 28.6, 28.6), P = { 28, 5.5, -12 }, T = { 0, 0, 90 }, C = GLOW, M = "Neon", Hit = false, See = 0.15,
+				Light = { Kind = "PointLight", Range = 22, Brightness = 1.6, Color = GLOW } },
+			{ N = "DomeDoor", S = "Block", Z = Vector3.new(2, 8, 6), P = { 13.6, 4, -14 }, C = DARK, M = "Metal" },
+			{ N = "Hab", S = "Cylinder", Z = Vector3.new(23, 10, 10), P = { 3.6, 5, -20 }, C = WHITE, M = "Metal", Rep = true },
+			{ N = "HabWindows", S = "Block", Z = Vector3.new(18, 0.8, 0.3), P = { 3.6, 6.6, -15.1 }, C = GLOW, M = "Neon", Hit = false },
+			{ N = "Airlock", S = "Block", Z = Vector3.new(5, 9, 10), P = { -9.5, 4.5, -20 }, C = Color3.fromRGB(200, 204, 212), M = "Metal" },
+			{ N = "Sign", S = "Block", Z = Vector3.new(16, 3, 0.4), P = { 3.6, 3.2, -14.9 }, C = DARK, M = "SmoothPlastic", Hit = false,
+				Gui = { Face = "Front", Text = "MOON BASE", Color = WHITE } },
+			-- the launch pad, its gantry (the pod itself: Pod.Pieces)
+			{ N = "LaunchRing", S = "Cylinder", Z = Vector3.new(1.9, 25.4, 25.4), P = { 30, 0.95, 26 }, T = { 0, 0, 90 }, C = HAZARD, M = "SmoothPlastic" },
+			{ N = "LaunchPad", S = "Cylinder", Z = Vector3.new(2, 24, 24), P = { 30, 1, 26 }, T = { 0, 0, 90 }, C = Color3.fromRGB(64, 68, 76), M = "DiamondPlate", Rep = true },
+			{ N = "Gantry", S = "Block", Z = Vector3.new(1.4, 34, 1.4), P = { 44.5, 17, 22 }, C = STEEL, M = "Metal", Rep = true },
+			{ N = "Gantry", S = "Block", Z = Vector3.new(1.4, 34, 1.4), P = { 44.5, 17, 30 }, C = STEEL, M = "Metal" },
+			{ N = "GantryBar", S = "Block", Z = Vector3.new(1.2, 1.2, 9.4), P = { 44.5, 10, 26 }, C = STEEL, M = "Metal" },
+			{ N = "GantryBar", S = "Block", Z = Vector3.new(1.2, 1.2, 9.4), P = { 44.5, 22, 26 }, C = STEEL, M = "Metal" },
+			{ N = "GantryBar", S = "Block", Z = Vector3.new(1.2, 1.2, 9.4), P = { 44.5, 33, 26 }, C = STEEL, M = "Metal" },
+			{ N = "GantryArm", S = "Block", Z = Vector3.new(9, 1, 1.2), P = { 39.5, 15, 26 }, C = HAZARD, M = "Metal", Hit = false },
+			{ N = "PodSign", S = "Block", Z = Vector3.new(10, 2.4, 0.4), P = { 30, 1.2, 39 }, T = { -60, 0, 0 }, C = DARK, M = "SmoothPlastic", Hit = false,
+				Gui = { Face = "Top", Text = "DROP POD", Color = HAZARD } },
+			-- antennas (their beacons blink), a mast on the dome
+			{ N = "Mast", S = "Cylinder", Z = Vector3.new(40, 1.3, 1.3), P = { -44, 20, -24 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal", Rep = true },
+			{ N = "Dish", S = "Cylinder", Z = Vector3.new(0.6, 14, 14), P = { -44, 31, -20 }, T = { 50, 90, 0 }, C = WHITE, M = "Metal" },
+			{ N = "Beacon", S = "Ball", Z = Vector3.new(2.2, 2.2, 2.2), P = { -44, 40.8, -24 }, C = RED, M = "Neon", Hit = false, Tag = "Beacon", Rep = true,
+				Light = { Kind = "PointLight", Range = 18, Brightness = 3, Color = RED } },
+			{ N = "Mast", S = "Cylinder", Z = Vector3.new(30, 1.1, 1.1), P = { 48, 15, -26 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal" },
+			{ N = "MastBar", S = "Block", Z = Vector3.new(8, 0.6, 0.6), P = { 48, 26, -26 }, C = STEEL, M = "Metal" },
+			{ N = "Beacon", S = "Ball", Z = Vector3.new(2, 2, 2), P = { 48, 30.8, -26 }, C = RED, M = "Neon", Hit = false, Tag = "Beacon", Rep = true,
+				Light = { Kind = "PointLight", Range = 16, Brightness = 3, Color = RED } },
+			{ N = "Mast", S = "Cylinder", Z = Vector3.new(8, 0.6, 0.6), P = { 28, 18.5, -12 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal", Hit = false },
+			{ N = "Beacon", S = "Ball", Z = Vector3.new(1.4, 1.4, 1.4), P = { 28, 22.8, -12 }, C = WHITE, M = "Neon", Hit = false, Tag = "Beacon" },
+			-- floodlights at the corners
+			{ N = "LampPost", S = "Cylinder", Z = Vector3.new(14, 0.8, 0.8), P = { -50, 7, -28 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal" },
+			{ N = "Lamp", S = "Block", Z = Vector3.new(2.4, 1.2, 1.6), P = { -50, 14.2, -28 }, C = WARM, M = "Neon", Hit = false, Rep = true,
+				Light = { Kind = "SpotLight", Face = "Bottom", Range = 70, Angle = 80, Brightness = 4, Color = WARM } },
+			{ N = "LampPost", S = "Cylinder", Z = Vector3.new(14, 0.8, 0.8), P = { 50, 7, -28 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal" },
+			{ N = "Lamp", S = "Block", Z = Vector3.new(2.4, 1.2, 1.6), P = { 50, 14.2, -28 }, C = WARM, M = "Neon", Hit = false, Rep = true,
+				Light = { Kind = "SpotLight", Face = "Bottom", Range = 70, Angle = 80, Brightness = 4, Color = WARM } },
+			{ N = "LampPost", S = "Cylinder", Z = Vector3.new(14, 0.8, 0.8), P = { -50, 7, 40 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal" },
+			{ N = "Lamp", S = "Block", Z = Vector3.new(2.4, 1.2, 1.6), P = { -50, 14.2, 40 }, C = WARM, M = "Neon", Hit = false, Rep = true,
+				Light = { Kind = "SpotLight", Face = "Bottom", Range = 70, Angle = 80, Brightness = 4, Color = WARM } },
+			{ N = "LampPost", S = "Cylinder", Z = Vector3.new(14, 0.8, 0.8), P = { 50, 7, 40 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal" },
+			{ N = "Lamp", S = "Block", Z = Vector3.new(2.4, 1.2, 1.6), P = { 50, 14.2, 40 }, C = WARM, M = "Neon", Hit = false, Rep = true,
+				Light = { Kind = "SpotLight", Face = "Bottom", Range = 70, Angle = 80, Brightness = 4, Color = WARM } },
+			-- the flag, the deck's front edge
+			{ N = "FlagPole", S = "Cylinder", Z = Vector3.new(16, 0.5, 0.5), P = { -48, 8, 2 }, T = { 0, 0, 90 }, C = STEEL, M = "Metal" },
+			{ N = "Flag", S = "Block", Z = Vector3.new(7, 4, 0.15), P = { -44.4, 13.8, 2 }, C = Color3.fromRGB(200, 40, 50), M = "SmoothPlastic", Hit = false },
+			{ N = "DeckEdge", S = "Block", Z = Vector3.new(104, 0.25, 1.6), P = { 0, 0.12, 41.2 }, C = HAZARD, M = "SmoothPlastic", Hit = false },
+		},
+		Pod = {
+			Reach = 16, Cooldown = 8,
+			On = { 30, 9.1, 26 },
+			Lift = 1.4, LiftHeight = 70, Out = 30,
+			StreamWait = 2.5, StreamTimeout = 3,
+			Drop = 3.4, DropOut = 950, Ease = 1.7, Turn = 400,
+			Burn = 3.2, Brake = 0.28,
+			Land = { Radius = 270, Tries = 24, Clear = 14, From = 1000, Out = 640, Duck = 600 },
+			Crater = 7, KnockRadius = 28, Knock = { 80, 40 },
+			Stream = { Every = 0.3, Ahead = 0.7 },
+			-- ((round 99 review) Hold 0: the game's own press is a tap - a hold never launched it)
+			Prompt = { Action = "Launch", Object = "DROP POD", Hold = 0, Range = 12, Key = Enum.KeyCode.E, Pad = Enum.KeyCode.DPadRight },
+			-- round its middle (up: its nose; the heat shield under it)
+			Pieces = {
+				{ N = "PodShield", S = "Cylinder", Z = Vector3.new(1.6, 10.4, 10.4), P = { 0, -6.3, 0 }, T = { 0, 0, 90 }, C = Color3.fromRGB(40, 40, 44), M = "Slate" },
+				{ N = "PodBody", S = "Cylinder", Z = Vector3.new(11, 9.2, 9.2), P = { 0, 0, 0 }, T = { 0, 0, 90 }, C = WHITE, M = "Metal", Rep = true },
+				{ N = "PodNose", S = "Ball", Z = Vector3.new(9.2, 9.2, 9.2), P = { 0, 5.5, 0 }, C = WHITE, M = "Metal", Rep = true },
+				{ N = "PodStripe", S = "Cylinder", Z = Vector3.new(1.2, 9.5, 9.5), P = { 0, -2.5, 0 }, T = { 0, 0, 90 }, C = Color3.fromRGB(255, 140, 40), M = "SmoothPlastic" },
+				{ N = "PodWindow", S = "Cylinder", Z = Vector3.new(0.9, 9.4, 9.4), P = { 0, 3, 0 }, T = { 0, 0, 90 }, C = GLOW, M = "Neon", See = 0.1 },
+				{ N = "PodFin", S = "Block", Z = Vector3.new(0.6, 5, 3.2), P = { 5, -4.5, 0 }, C = DARK, M = "Metal" },
+				{ N = "PodFin", S = "Block", Z = Vector3.new(0.6, 5, 3.2), P = { -2.5, -4.5, 4.33 }, T = { 0, 120, 0 }, C = DARK, M = "Metal" },
+				{ N = "PodFin", S = "Block", Z = Vector3.new(0.6, 5, 3.2), P = { -2.5, -4.5, -4.33 }, T = { 0, -120, 0 }, C = DARK, M = "Metal" },
+			},
+			Look = {
+				Flame = Color3.fromRGB(255, 170, 70), Core = Color3.fromRGB(255, 244, 214), Smoke = Color3.fromRGB(150, 146, 140),
+				Retro = 0.9, Linger = 8, Shake = { 0.8, 2.4 }, Fov = 8,
+			},
+		},
+	}
+	SPC.Return = {
+		Enabled = true,
+		Target = nil,
+		-- ((round 99 review) Lead 1400 -> 360: the Sky Coffin's disc is 425 across the
+		-- middle and the city ~814 across - 1400 back put a shallow diver out over the void)
+		Aim = 2600, Lead = 360, Near = 500, Jump = 1500,
+		Stream = { Every = 1.5, Fresh = 8, Within = 700, Wait = 0.5, Timeout = 2 },
+		Skip = { "CarriedBy", "HawksCarriedBy", "Grabbed", "Parked", "RankedHold", "BeingFinished", "Finishing", "Clashing", "Submerged", "TimeStopped", "Frozen", "Compressed", "DropPod" },
+	}
+	local OB, RT, POD = SPC.OwnerBase, SPC.Return, SPC.OwnerBase.Pod
+	-- the drop pod's sounds (the catalog's measured takes already in the
+	-- place: no uploads) - the lift-off's roar, the whomp as it drops, the
+	-- slam into the street, the hatch blowing
+	do
+		local L = Config.SoundLibraryLicensed
+		local Snd = Config.Sounds
+		Snd.PodLaunch = { Range = 900, { Id = L.SweepAperture, Volume = 1.2, Speed = 0.7, Length = 2.2, Fade = 0.6 }, { Id = L.FlyHyperBed, Volume = 1.6, Speed = 0.6, Length = 3, Fade = 1, FadeIn = 0.3 }, { Id = L.DeepImpact7, Volume = 1, Speed = 0.7 } }
+		Snd.PodDrop = { Range = 1200, { Id = L.FlyByWhomp, Volume = 1.4, Speed = 0.7, Length = 1.6, Fade = 0.7 } }
+		Snd.PodSlam = { Range = 1600, { Id = L.WallCrash, Volume = 1.6, Length = 2.5, Fade = 1 }, { Id = L.DeepImpact7, Volume = 1.8 }, { Id = L.MetalCrash, Volume = 1.2, Speed = 0.8 }, { Id = L.GaiaRoll, Volume = 1.4, Length = 2.2, Fade = 1 } }
+		Snd.PodHatch = { Range = 300, { Id = L.AirBrake, Volume = 1.1, Speed = 1.1, Length = 1.2, Fade = 0.4 }, { Id = L.MetalCrash, Volume = 0.7, Speed = 1.3, Length = 0.8 } }
+	end
+
+	-- the city's middle the way back in aims for (the Sky Coffin's)
+	function RT.target()
+		if typeof(RT.Target) == "Vector3" then
+			return RT.Target
+		end
+		local sc = Config.SkyCoffin
+		return (sc and sc.Center) or ((Config.DevFlight or {}).Bounds or {}).Center or Vector3.new(5, 25, 888)
+	end
+	-- where someone at pos going vel comes back in: over target (default the
+	-- city's middle), at his own height, set back along his heading so his
+	-- line takes him over it at aimY (default Aim) - at most Lead back
+	function RT.dest(pos, vel, target, aimY)
+		target = typeof(target) == "Vector3" and target or RT.target()
+		aimY = tonumber(aimY) or RT.Aim or 2600
+		local lead = Vector3.zero
+		if typeof(vel) == "Vector3" and vel == vel and -vel.Y > 1 then
+			local t = math.max(pos.Y - aimY, 0) / -vel.Y
+			lead = Vector3.new(vel.X, 0, vel.Z) * t
+			local most = RT.Lead or 1400
+			if lead.Magnitude > most then
+				lead = lead.Unit * most
+			end
+		end
+		return Vector3.new(target.X - lead.X, pos.Y, target.Z - lead.Z)
+	end
+
+	-- the moon's ground (its top half) over a spot: its height (nil off it)
+	function OB.groundY(moon, x, z)
+		local R = (SPC.Moon or {}).Radius or 1500
+		local dx, dz = x - moon.X, z - moon.Z
+		local q = R * R - dx * dx - dz * dz
+		return q > 0 and moon.Y + math.sqrt(q) or nil
+	end
+	-- the base's own frame round the moon (nil: where the screens draw it)
+	function OB.frame(moon)
+		moon = typeof(moon) == "Vector3" and moon or SPC.moonAt(nil)
+		local R = (SPC.Moon or {}).Radius or 1500
+		local c = ((Config.DevFlight or {}).Bounds or {}).Center or Vector3.new(5, 25, 888)
+		local to = Vector3.new(c.X - moon.X, 0, c.Z - moon.Z)
+		local f = to.Magnitude > 1 and to.Unit or Vector3.new(1, 0, 0)
+		local t = math.rad(OB.Tilt or 35)
+		local n = UPV * math.cos(t) + f * math.sin(t)
+		local site = moon + n * R
+		local right = f:Cross(UPV).Unit
+		local D = OB.Deck or {}
+		local back = site - f * (D.Back or 30)
+		local top = (OB.groundY(moon, back.X, back.Z) or site.Y) + (D.Rise or 0.6)
+		return { Moon = moon, R = R, N = n, Site = site, Fwd = f, Right = right, Top = top, Deck = CFrame.fromMatrix(Vector3.new(site.X, top, site.Z), right, UPV) }
+	end
+	-- on the base (its ground, the deck, the air just over it)?
+	function OB.inZone(pos, F)
+		if typeof(pos) ~= "Vector3" or not F then
+			return false
+		end
+		local off = pos - F.Moon
+		local d = off.Magnitude
+		if d < 1 or d - F.R > ((OB.Zone or {}).Above or 360) then
+			return false
+		end
+		local C = OB.Cap or {}
+		local most = ((C.Rings or 4) + 0.5) * (C.Step or 4.6) - ((OB.Zone or {}).Inside or 1.5)
+		return math.deg(math.acos(math.clamp(off.Unit:Dot(F.N), -1, 1))) <= most
+	end
+
+	-- everything the base is, as part specs (the server builds them; every
+	-- screen draws the Rep ones on the far moon). sun: the light up there
+	-- (the panels face it; nil: up the slope). Returns { frame, parts,
+	-- spawn, pod (its middle on the pad) }
+	function OB.layout(moon, sun)
+		local F = OB.frame(moon)
+		local deck, n, f, right, R = F.Deck, F.N, F.Fwd, F.Right, F.R
+		moon = F.Moon
+		local parts = {}
+		local function put(spec, cf, extra)
+			local p = {
+				Name = spec.N, Shape = spec.S or "Block", Size = spec.Z, CFrame = cf, Color = spec.C or WHITE, Material = spec.M or "SmoothPlastic",
+				Collide = spec.Hit ~= false, See = spec.See or 0, Replica = spec.Rep == true, Tag = spec.Tag, Light = spec.Light, Gui = spec.Gui,
+			}
+			for k, v in extra or {} do
+				p[k] = v
+			end
+			table.insert(parts, p)
+			return p
+		end
+		local function onDeck(P, T)
+			T = T or { 0, 0, 0 }
+			return deck * CFrame.new(P[1], P[2], -P[3]) * CFrame.Angles(math.rad(T[1]), math.rad(T[2]), math.rad(T[3]))
+		end
+		local D, LG = OB.Deck or {}, OB.Legs or {}
+		local W, back, front, thick = D.Width or 104, D.Back or 30, D.Front or 42, D.Thick or 3
+		put({ N = "Deck", Z = Vector3.new(W, thick, back + front), C = D.Color, M = D.Material, Rep = true }, onDeck({ 0, -thick / 2, (front - back) / 2 }))
+		-- the legs, down to the slope
+		for _, x in LG.Across or {} do
+			for _, fw in LG.Along or {} do
+				local topAt = (deck * CFrame.new(x, -thick, -fw)).Position
+				local g = OB.groundY(moon, topAt.X, topAt.Z)
+				if g and topAt.Y - g > 2 then
+					local len = topAt.Y - g + 3
+					local mid = Vector3.new(topAt.X, topAt.Y - len / 2, topAt.Z)
+					put({ N = "Leg", S = "Cylinder", Z = Vector3.new(len, LG.Radius * 2, LG.Radius * 2), C = LG.Color, M = "Metal" }, CFrame.new(mid) * CFrame.Angles(0, 0, math.rad(90)))
+					put({ N = "LegFoot", S = "Cylinder", Z = Vector3.new(1.2, LG.Pad or 5, LG.Pad or 5), C = LG.Color, M = "Metal" }, CFrame.new(Vector3.new(topAt.X, g + 0.3, topAt.Z)) * CFrame.Angles(0, 0, math.rad(90)))
+				end
+			end
+		end
+		-- the glass railing: the front and the sides (the back's open onto the slope)
+		local RL = OB.Rail or {}
+		local h = RL.Height or 3.4
+		local open = RL.Open or 16
+		local glass = { N = "Rail", C = RL.Color, M = "Glass", See = RL.See or 0.55 }
+		local topRail = { N = "RailTop", C = RL.Top or STEEL, M = "Metal" }
+		local sideLen = back + front - open
+		local sideMid = front - sideLen / 2
+		for _, s in { { Vector3.new(W - 1, h, 0.3), { 0, h / 2, front - 0.3 } }, { Vector3.new(0.3, h, sideLen), { -W / 2 + 0.3, h / 2, sideMid } }, { Vector3.new(0.3, h, sideLen), { W / 2 - 0.3, h / 2, sideMid } } } do
+			glass.Z = s[1]
+			put(glass, onDeck(s[2]))
+			topRail.Z = Vector3.new(math.max(s[1].X, 0.5), 0.35, math.max(s[1].Z, 0.5))
+			put(topRail, onDeck({ s[2][1], h + 0.15, s[2][3] }))
+		end
+		-- the pieces on the deck, the pod on its pad
+		for _, spec in OB.Pieces or {} do
+			put(spec, onDeck(spec.P, spec.T))
+		end
+		local podCF = onDeck(POD.On or { 30, 9.1, 26 })
+		for _, spec in POD.Pieces or {} do
+			local T = spec.T or { 0, 0, 0 }
+			put(spec, podCF * CFrame.new(spec.P[1], spec.P[2], spec.P[3]) * CFrame.Angles(math.rad(T[1]), math.rad(T[2]), math.rad(T[3])), { Tag = "Pod" })
+		end
+		-- solar panels up the slope, turned to the sun
+		local PN = OB.Panels or {}
+		local face = (typeof(sun) == "Vector3" and sun == sun and sun.Magnitude > 0.5 and sun.Unit.Y > 0.15) and sun.Unit or (UPV * 0.77 + f * 0.64).Unit
+		for _, a in PN.At or {} do
+			local w = (deck * CFrame.new(a[1], 0, -a[2])).Position
+			local g = OB.groundY(moon, w.X, w.Z)
+			if g then
+				local post = PN.Post or 6
+				put({ N = "PanelPost", S = "Cylinder", Z = Vector3.new(post + 3, 0.7, 0.7), C = STEEL, M = "Metal" }, CFrame.new(w.X, g + (post - 3) / 2, w.Z) * CFrame.Angles(0, 0, math.rad(90)))
+				local ax = face:Cross(UPV)
+				ax = ax.Magnitude > 1e-3 and ax.Unit or right
+				put({ N = "Panel", Z = PN.Size or Vector3.new(18, 0.4, 10), C = PN.Color, M = "Glass" }, CFrame.fromMatrix(Vector3.new(w.X, g + post, w.Z), ax, face))
+			end
+		end
+		-- THE CAP: slabs on the sphere round the base, ring by ring (each
+		-- square to the ground under its middle), the skirt round its edge
+		-- tipped down to where the moon drawn close in runs under it
+		local C = OB.Cap or {}
+		local step = math.rad(C.Step or 4.6)
+		local thickC = C.Thick or 16
+		local over = C.Over or 1.16
+		local e1 = right
+		local e2 = n:Cross(e1).Unit
+		local function dirAt(beta, phi)
+			return n * math.cos(beta) + (e1 * math.cos(phi) + e2 * math.sin(phi)) * math.sin(beta)
+		end
+		local rings = C.Rings or 4
+		for i = 0, rings do
+			local beta = i * step
+			local count = i == 0 and 1 or math.max(6, math.floor(2 * math.pi * math.sin(beta) / step + 0.5))
+			for j = 0, count - 1 do
+				local phi = (j + (i % 2) * 0.5) / count * 2 * math.pi
+				local u = dirAt(beta, phi)
+				local along = i == 0 and e1 or (dirAt(beta + 0.01, phi) - u).Unit
+				local across = i == 0 and step * R * over or 2 * math.pi * R * math.sin(beta) / count * over
+				put({ N = "MoonGround", Z = Vector3.new(step * R * over, thickC, across), C = C.Color, M = "Slate" },
+					CFrame.fromMatrix(moon + u * (R - thickC / 2), along, u), { Cap = true })
+			end
+		end
+		local SK = C.Skirt or {}
+		local NR = OB.Near or {}
+		local bIn = (rings + 0.5) * step
+		local bOut = bIn + math.rad(SK.Out or 5)
+		local rn = NR.Radius or 1000
+		local a = R * bOut
+		local sink = a * a / 2 * (1 / rn - 1 / R) + (SK.Margin or 8)
+		local count = math.max(6, math.floor(2 * math.pi * math.sin((bIn + bOut) / 2) / step + 0.5))
+		for j = 0, count - 1 do
+			local phi = (j + 0.5) / count * 2 * math.pi
+			local pIn = moon + dirAt(bIn - step * 0.15, phi) * R
+			local pOut = moon + dirAt(bOut, phi) * (R - sink)
+			local along = (pOut - pIn).Unit
+			local mid = dirAt((bIn + bOut) / 2, phi)
+			local acrossV = mid:Cross(along).Unit
+			local up = along:Cross(acrossV).Unit
+			if up:Dot(mid) < 0 then
+				up = -up
+			end
+			local len = (pOut - pIn).Magnitude * 1.08
+			local wide = 2 * math.pi * R * math.sin(bOut) / count * over
+			put({ N = "MoonSkirt", Z = Vector3.new(len, thickC, wide), C = C.Color, M = "Slate" },
+				CFrame.fromMatrix((pIn + pOut) / 2 - up * thickC / 2, along, up), { Cap = true })
+		end
+		-- boulders and craters on it (none under the deck)
+		local B = OB.Boulders or {}
+		local seed = B.Seed or 9911
+		local function rnd()
+			seed = (seed * 16807) % 2147483647
+			return seed / 2147483647
+		end
+		local footprint = function(p)
+			local l = deck:PointToObjectSpace(p)
+			return math.abs(l.X) < W / 2 + 14 and -l.Z > -back - 40 and -l.Z < front + 30
+		end
+		local placed, tries = 0, 0
+		while placed < (B.Count or 10) and tries < 80 do
+			tries += 1
+			local u = dirAt(math.rad(2 + rnd() * ((rings + 0.2) * (C.Step or 4.6) - 3)), rnd() * 2 * math.pi)
+			local size = (B.Size or { 4, 15 })[1] + ((B.Size or { 4, 15 })[2] - (B.Size or { 4, 15 })[1]) * rnd() ^ 1.8
+			local at = moon + u * (R + size * (0.5 - (B.Sink or 0.4)))
+			if not footprint(at) then
+				placed += 1
+				put({ N = "Boulder", S = "Ball", Z = Vector3.one * size, C = B.Color, M = "Slate" }, CFrame.new(at))
+			end
+		end
+		for _, cr in OB.Craters or {} do
+			local u = dirAt(math.rad(cr[1]), math.rad(cr[2]))
+			local at = moon + u * R
+			if not footprint(at) then
+				local along = (dirAt(math.rad(cr[1]) + 0.01, math.rad(cr[2])) - u).Unit
+				local base = CFrame.fromMatrix(at, along, u)
+				put({ N = "CraterRim", S = "Cylinder", Z = Vector3.new(1, cr[3] * 2 + 8, cr[3] * 2 + 8), C = OB.CraterRim, M = "Slate" }, base * CFrame.new(0, 0.15, 0) * CFrame.Angles(0, 0, math.rad(90)))
+				put({ N = "CraterFloor", S = "Cylinder", Z = Vector3.new(1, cr[3] * 2, cr[3] * 2), C = OB.CraterFloor, M = "Slate" }, base * CFrame.new(0, 0.3, 0) * CFrame.Angles(0, 0, math.rad(90)))
+			end
+		end
+		local S = OB.Spawn or {}
+		return {
+			frame = F, parts = parts,
+			spawn = deck * CFrame.new(S.X or -20, S.Up or 3.5, -(S.F or 4)),
+			pod = podCF,
+		}
+	end
+
+	-- THE DROP POD's way down (a plan: the server's, sent to every screen):
+	-- t s after it drops - where it is, how fast it's going, and which leg
+	-- ("Drop": out past the moon and down; "Burn": over the city, down to the
+	-- street; "Down": there)
+	local function bez(a, b, c, d, s)
+		local m = 1 - s
+		return a * (m * m * m) + b * (3 * m * m * s) + c * (3 * m * s * s) + d * (s * s * s)
+	end
+	local function bezd(a, b, c, d, s)
+		local m = 1 - s
+		return (b - a) * (3 * m * m) + (c - b) * (6 * m * s) + (d - c) * (3 * s * s)
+	end
+	function POD.at(plan, t)
+		local D, B = plan.Drop or POD.Drop or 3.4, plan.Burn or POD.Burn or 2.6
+		if t < D then
+			local u = math.clamp(t / D, 0, 1)
+			local e = plan.Ease or POD.Ease or 1.7
+			local s = u ^ e
+			local ds = e * (u > 0 and u ^ (e - 1) or 0) / D
+			return bez(plan.P1, plan.Q1, plan.Q2, plan.E1, s), bezd(plan.P1, plan.Q1, plan.Q2, plan.E1, s) * ds, "Drop"
+		end
+		local u = math.clamp((t - D) / B, 0, 1)
+		local a = plan.Brake or POD.Brake or 0.28
+		local s = a * u + (1 - a) * (1 - (1 - u) * (1 - u))
+		local ds = (a + 2 * (1 - a) * (1 - u)) / B
+		-- (down outside the Sky Coffin, then in under it to the street)
+		local E2, Q3, L = plan.E2, plan.Q3 or plan.E2, plan.L
+		local m = 1 - s
+		local pos = E2 * (m * m) + Q3 * (2 * m * s) + L * (s * s)
+		local vel = ((Q3 - E2) * (2 * m) + (L - Q3) * (2 * s)) * ds
+		return pos, vel, u >= 1 and "Down" or "Burn"
+	end
+	-- the pod's frame there (its nose up; once it drops, its heat shield
+	-- first down its line - turned over as it picks up speed)
+	function POD.frame(fwd, pos, vel, lift)
+		fwd = (typeof(fwd) == "Vector3" and fwd.Magnitude > 0.5) and fwd.Unit or Vector3.new(1, 0, 0)
+		local up = UPV
+		if not lift and typeof(vel) == "Vector3" and vel == vel and vel.Magnitude > 1 then
+			local w = math.clamp(vel.Magnitude / (POD.Turn or 400), 0, 1)
+			up = UPV * (1 - w) - vel.Unit * w
+			up = up.Magnitude > 1e-3 and up.Unit or UPV
+		end
+		local side = fwd:Cross(up)
+		if side.Magnitude < 1e-3 then
+			side = up:Cross(Vector3.new(1, 0, 0))
+			if side.Magnitude < 1e-3 then
+				side = up:Cross(Vector3.new(0, 0, 1))
+			end
+		end
+		return CFrame.fromMatrix(pos, side.Unit, up)
+	end
+	-- the plan from the pad (pod: its middle there) to the street (land)
+	function POD.plan(F, pod, land)
+		local f = F.Fwd
+		local P0 = pod.Position
+		local P1 = P0 + UPV * (POD.LiftHeight or 70) + f * (POD.Out or 30)
+		local edgeY = (SPC.Edge or 4200) - (SPC.Hysteresis or 160) - 30
+		local flatMoon = Vector3.new(F.Moon.X, edgeY, F.Moon.Z)
+		local E1 = flatMoon + f * (F.R + (POD.DropOut or 950))
+		local Q1 = P1 + f * (F.R * 0.8) - UPV * (F.R * 0.1)
+		local Q2 = E1 + UPV * ((P1.Y - E1.Y) * 0.45)
+		local plan = { P0 = P0, P1 = P1, Q1 = Q1, Q2 = Q2, E1 = E1, Drop = POD.Drop, Burn = POD.Burn, Ease = POD.Ease, Brake = POD.Brake, Fwd = f }
+		local vE1 = bezd(P1, Q1, Q2, E1, 1) * ((POD.Ease or 1.7) / (POD.Drop or 3.4))
+		plan.L = land
+		-- back in over the city as any flyer is (Return.dest), over the city's
+		-- edge on the street's side, clear of the Sky Coffin (Land.Out from its
+		-- middle) - down outside it, under it (Land.Duck high) to the street
+		local LD = POD.Land or {}
+		local mid = RT.target()
+		local side = Vector3.new(land.X - mid.X, 0, land.Z - mid.Z)
+		side = side.Magnitude > 1 and side.Unit or -f
+		local outer = Vector3.new(mid.X, land.Y, mid.Z) + side * (LD.Out or 640)
+		plan.E2 = RT.dest(E1, vE1, outer, outer.Y)
+		plan.Q3 = Vector3.new(plan.E2.X, LD.Duck or 600, plan.E2.Z)
+		return plan
+	end
 end
 
 return Config

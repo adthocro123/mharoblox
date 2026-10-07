@@ -90,6 +90,16 @@ VFX.Hooks.Dim = HUD.Dim
 VFX.Hooks.SpeedLines = HUD.SpeedLines
 VFX.Hooks.Letterbox = HUD.Letterbox
 VFX.Hooks.Callout = HUD.Callout
+-- (round 101) the awakening (VFX.AK): round 100's ult cut-in fired ON the
+-- pose's hit, taken off if it's called off; the HUD aside from the press (not
+-- on a touch screen: the pad stays, inert till the release)
+VFX.Hooks.UltCut = HUD.UltBanner
+VFX.Hooks.UltCutOff = HUD.UltBannerOff
+VFX.Hooks.Aside = function(key, on)
+	if HUD.MO then
+		HUD.MO.aside(key, on and not (HUD.Touch and HUD.Touch.on == true))
+	end
+end
 
 local blocking = false -- guard held (F / L2 / BLOCK button)
 local guardHeld = false
@@ -151,6 +161,7 @@ local function busy(char)
 		or char:GetAttribute("DevCarrying") -- (round 88: holding someone in the dev flight - his hands are full: the carry's moves only)
 		or char:GetAttribute("Possessed") -- (round 95: a dev's in this body - it's his to drive, Possess)
 		or char:GetAttribute("RankedHold") -- (round 95: a ranked duel - on the marks, or between rounds)
+		or (VFX.AK and VFX.AK.locked(char)) -- (round 101: awakening - his own run's lock or the server's, cinematics on or off)
 end
 
 -- which of the quirk's 4th moves is picked (Deku's R cycles through them)
@@ -661,7 +672,7 @@ local function useAbility(index)
 	if ability.Hold then
 		Hold.active = { t0 = os.clock(), ability = ability, index = index, level = 1 }
 		if ability.Hold.Toggle then
-			HUD.Callout(((ability.Hold.Names or {})[1] or ability.Name) .. " - PRESS AGAIN", ability.Hold.Color)
+			HUD.Tip(((ability.Hold.Names or {})[1] or ability.Name) .. ": PRESS AGAIN", "Again" .. tostring(ability.Id)) -- ((round 100) a TIP toast)
 		end
 	end
 	if ability.Cycle then
@@ -800,7 +811,8 @@ local function useUlt()
 	lastUsed = {}
 	refreshHud(false)
 	local view = Config.GetView(quirkName, altMode, true)
-	HUD.UltBanner(view, quirk.Ult.Shout)
+	-- ((round 101) the cut-in isn't fired here any more: VFX.AK lands it ON his
+	-- pose's hit - VFX.Hooks.UltCut)
 	HUD.SetUltMeter(0, true)
 	HUD.SetModeTimer(workspace:GetServerTimeNow() + quirk.Ult.Duration, quirk.Ult.Duration, view.AccentColor, "ULT: " .. quirk.Ult.Name)
 	VFX.Play("UltActivate", char, { Quirk = quirkName }, true)
@@ -1237,7 +1249,8 @@ local function startBlock()
 		or char:GetAttribute("Ragdolled") or char:GetAttribute("Frozen") or char:GetAttribute("Holding")
 		or char:GetAttribute("Grabbed") or char:GetAttribute("Finishing") or char:GetAttribute("BeingFinished")
 		or char:GetAttribute("Submerged") or Parkour.Busy or Hold.active or FreeCam.on or dashing or actionRemaining(char) > 0
-		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") then -- (round 87: he's in another body; round 95: a dev's in this one)
+		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") -- (round 87: he's in another body; round 95: a dev's in this one)
+		or (VFX.AK and VFX.AK.locked(char)) then -- ((round 101 review) his awakening's lock: the server won't raise it either)
 		return
 	end
 	blocking = true
@@ -1372,7 +1385,8 @@ local function dash()
 		or char:GetAttribute("Kaiju") or Parkour.Busy or char:GetAttribute("Holding") or Hold.active
 		or char:GetAttribute("Frozen") or char:GetAttribute("Grabbed") or char:GetAttribute("Finishing")
 		or char:GetAttribute("BeingFinished") or char:GetAttribute("Submerged") or FreeCam.on
-		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") then -- (round 87: he's in another body; round 95: a dev's in this one)
+		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") -- (round 87: he's in another body; round 95: a dev's in this one)
+		or (VFX.AK and VFX.AK.locked(char)) then -- ((round 101 review) his awakening's lock - with cinematics off too)
 		return -- (a kaiju doesn't dash)
 	end
 	-- (round 65, JJS) a side or back dash can cut into your own M1 (thrown
@@ -1670,7 +1684,7 @@ do
 		hum.AutoRotate = false
 		UseAbility:FireServer(Config.PARKOUR_INDEX, "FloatLift", Vector3.yAxis)
 		VFX.Play("FloatFX", char, { Kind = "Lift", Dir = Vector3.yAxis }, true)
-		HUD.Callout("FLOAT - DASH: AIR FORCE", Color3.fromRGB(235, 255, 246))
+		HUD.Tip(HUD.MO.key("Dash") .. " AIR FORCE", "FloatDash") -- ((round 100) a TIP toast, not a shout)
 		conn = RunService.Heartbeat:Connect(function(dt)
 			local c, h, r = getCharacter()
 			if c ~= char or blocked(c, h, r) or not lv or not lv.Parent then
@@ -1750,7 +1764,7 @@ do
 		if hum and hum.FloorMaterial == Enum.Material.Air then
 			FloatFly.lift()
 		else
-			HUD.Callout("FLOAT - JUMP TO LIFT OFF", Color3.fromRGB(235, 255, 246))
+			HUD.Tip(HUD.MO.key("Jump") .. " LIFT OFF", "FloatJump") -- ((round 100) a TIP toast)
 		end
 	end
 	VFX.Hooks.FloatArm = FloatFly.arm
@@ -1989,7 +2003,7 @@ do
 		end
 		VFX.Play("HawksFlyFX", char, { Kind = "Lift", Dir = Vector3.yAxis }, true)
 		if not carrying then
-			HUD.Callout("FIERCE WINGS - DASH: DIVE  ·  R: LAND", Color3.fromRGB(255, 196, 186))
+			HUD.Tip(HUD.MO.key("Dash") .. " DIVE  " .. HUD.MO.key("Special") .. " LAND", "HawksFly") -- ((round 100) a TIP toast)
 		end
 		conn = RunService.Heartbeat:Connect(function(dt)
 			local c, h, r = getCharacter()
@@ -2613,8 +2627,8 @@ RunService.RenderStepped:Connect(function(dt)
 		if type(slowedTo) == "number" then
 			target = math.min(target, slowedTo) -- e.g. caught inside a domain
 		end
-		if VFX.InOwnCinematic() then
-			target = 0
+		if VFX.InOwnCinematic() or (VFX.AK and VFX.AK.locked(char)) then
+			target = 0 -- ((round 101) and through his awakening, with cinematics off too)
 		end
 		-- walking starts and stops on a dime; a run picks up over RunBuild
 		if sprinting then
@@ -3738,25 +3752,9 @@ finishPrompt.Size = UDim2.fromOffset(160, 44)
 finishPrompt.StudsOffset = Vector3.new(0, 3.4, 0)
 finishPrompt.AlwaysOnTop = true
 finishPrompt.Enabled = false
-local finishLabel = Instance.new("TextLabel")
-finishLabel.Size = UDim2.fromScale(1, 1)
-finishLabel.BackgroundColor3 = Color3.fromRGB(24, 8, 10)
-finishLabel.BackgroundTransparency = 0.2
-finishLabel.TextColor3 = Color3.fromRGB(255, 96, 76)
-finishLabel.Font = Enum.Font.GothamBlack
-finishLabel.TextScaled = true
-finishLabel.Text = "[E] FINISH"
-finishLabel.Parent = finishPrompt
-local finishCorner = Instance.new("UICorner")
-finishCorner.CornerRadius = UDim.new(0, 8)
-finishCorner.Parent = finishLabel
-local finishStroke = Instance.new("UIStroke")
-finishStroke.Color = Color3.fromRGB(255, 200, 90)
-finishStroke.Thickness = 2
-finishStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-finishStroke.Parent = finishLabel
-local finishScale = Instance.new("UIScale")
-finishScale.Parent = finishLabel
+-- (round 100) Stark Street (HUD.FinishFace): an ink slab, the key on a paper
+-- cap, FINISH in red - no throb (no glow loops)
+HUD.FinishFace(finishPrompt, "E")
 finishPrompt.Parent = player:WaitForChild("PlayerGui")
 
 -- everyone you could fight: other players and the dummies
@@ -3808,9 +3806,6 @@ end
 local lastFinishScan = 0
 RunService.Heartbeat:Connect(function()
 	local now = os.clock()
-	if finishPrompt.Enabled then
-		finishScale.Scale = 1 + 0.07 * math.sin(now * 9)
-	end
 	if now - lastFinishScan < 0.1 then
 		return
 	end
@@ -3822,7 +3817,7 @@ RunService.Heartbeat:Connect(function()
 	HUD.SetTouchFinish(anchorPart ~= nil)
 	if anchorPart then
 		finishPrompt.Adornee = anchorPart
-		finishLabel.Text = inputMode == "Gamepad" and "[RB] FINISH" or inputMode == "Touch" and "FINISH!" or "[E] FINISH"
+		HUD.FinishFace(finishPrompt, inputMode == "Gamepad" and "RB" or inputMode == "Touch" and "" or "E")
 	end
 end)
 
@@ -4358,7 +4353,8 @@ end
 local function useItem(id)
 	local char, _, root = getCharacter()
 	if not char or not id or char:GetAttribute("Stunned") or char:GetAttribute("Ragdolled") or VFX.InOwnCinematic()
-		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") then -- (round 87: he's in another body; round 95: a dev's in this one)
+		or char:GetAttribute("Parked") or char:GetAttribute("Possessed") -- (round 87: he's in another body; round 95: a dev's in this one)
+		or (VFX.AK and VFX.AK.locked(char)) then -- ((round 101 review) his awakening's lock)
 		return
 	end
 	if (player:GetAttribute("Item_" .. id) or 0) <= 0 then
@@ -4536,7 +4532,8 @@ do
 	end)
 	local fits, asking = nil, false
 	local function show()
-		HUD.SetOutfitList(fits, #fits == 0 and "No saved outfits yet - make one in Roblox's avatar editor, then come back." or nil)
+		-- ((round 100) the outfit window's lines: Config.UI.Menus.Outfits, in the street voice)
+		HUD.SetOutfitList(fits, #fits == 0 and Config.UI.Menus.Outfits.None or nil)
 	end
 	-- Roblox's say-so, then the list (at most Config.AwakeningOutfits.Max)
 	local function load()
@@ -4548,11 +4545,11 @@ do
 			return
 		end
 		if not AES then
-			HUD.SetOutfitList({}, "Outfits aren't available here.")
+			HUD.SetOutfitList({}, Config.UI.Menus.Outfits.Unavailable)
 			return
 		end
 		asking = true
-		HUD.SetOutfitList({}, "Asking Roblox for your saved outfits...")
+		HUD.SetOutfitList({}, Config.UI.Menus.Outfits.Loading)
 		task.spawn(function()
 			local allowed, answered = false, false
 			local okAsk = pcall(function()
@@ -4569,7 +4566,7 @@ do
 			end)
 			if not (okAsk and allowed) then
 				asking = false
-				HUD.SetOutfitList({}, "The game can't see your outfits yet - press ALLOW ACCESS and say yes.", true)
+				HUD.SetOutfitList({}, Config.UI.Menus.Outfits.NoAccess, true)
 				return
 			end
 			local list = {}
@@ -4596,7 +4593,7 @@ do
 			end)
 			asking = false
 			if not okList then
-				HUD.SetOutfitList({}, "Roblox didn't send your outfits - try again in a moment.", true)
+				HUD.SetOutfitList({}, Config.UI.Menus.Outfits.NotSent, true)
 				return
 			end
 			fits = list
@@ -10397,6 +10394,11 @@ do
 		-- street under where he hit the roof), the crash at the bottom
 		local root = F.root
 		local way = root and (bottom - root.Position) or Vector3.zero
+		-- ((round 99, craters) at LIGHTSPEED / GODSPEED he keeps his speed all
+		-- the way down: the crater's at the bottom, not the bomb - DevFly.CT)
+		if DevFly.CT then
+			DevFly.CT.keep(spd)
+		end
 		F.state = "Dive"
 		F.stateAt = now
 		F.diveTo = bottom
@@ -11078,29 +11080,64 @@ do
 end
 
 ---------------------------------------------------------------------------
--- (round 92) LIGHTWIPE on the flyer's own screen (Config.DevFlight.
--- LightWipe): a crash at LIGHTSPEED - into the street, or down onto a
--- building - is THE END OF THE MAP, not the bomb. Seen here at once: he's
--- put down on the street under where he hit (the building's going anyway:
--- no way down through it), held down in the crater (Hold), his screen plays
--- the impact (VFX.LWX: the white-out, the pillar of light, the deepest
--- boom), and the server's told it was the light (DevLand's Light). The
--- server decides, by its own view of him (Kit.LW), and sets it off for
--- everyone (LightWipeGo: the city, and his camera pulled up over it). Not
--- inside the cooldown (the last one's on workspace: LightWipe), not over
--- anything that isn't the city (the Sky Coffin's floor): then it's the
--- crash it always was - the bomb. (A block of its own: DevFly.LW - the
--- flight asks it as it touches down, DevFly.touchdown, and lands, DevFly.land.)
+-- (round 99) CRATERS on the flyer's own screen (Config.DevFlight.Crater):
+-- the owner, "get rid of lightwipe just make the crater bigger, for both
+-- lightspeed and godspeed". A crash at LIGHTSPEED or GODSPEED (FULL
+-- POWER's) is a CRATER - the mach burst's bomb grown far past it; round
+-- 92's LIGHTWIPE (the end of the map) is gone. Seen here at once (the
+-- flight's Crater beat - VFX.CTX: the blast, the fireball, the ring, the
+-- dust, the cloud), he's held down in it Hold s, and the server's told which
+-- (DevLand's Crater: "Light" / "God") - it decides, by its own view of him
+-- (Kit.CT). Coming down on a building at it, he goes ALL THE WAY DOWN as the
+-- bomb does (DevFly.FB.drill: the shaft) keeping his speed (CT.keep), and
+-- the crater's at the bottom. A roof that won't break: it's where he hit.
+-- ((round 99 review) Over the city only (CT.city - as LIGHTWIPE had it):
+-- the Sky Coffin's floor, or anywhere off the map, is the bomb.) (A block of its own: DevFly.CT
+-- - the flight asks it as it lands, DevFly.land; GODSPEED's touchdown marks
+-- its own, DevFly.God.impact; the shaft asks CT.keep.)
 ---------------------------------------------------------------------------
 do
 	local DEV = Config.DevFlight or {}
-	local LWC = DEV.LightWipe or {}
-	local LW = {}
-	DevFly.LW = LW
+	local CC = DEV.Crater or {}
+	local CT = {}
+	DevFly.CT = CT
 
-	-- the city's street under p (the map's roads and ground - never a roof),
-	-- or nil: none of the city under it within Drop studs
-	function LW.street(p)
+	-- (from DevFly.God.impact) his crash is at GODSPEED: kept Keep s (the
+	-- way down a building's shaft comes first)
+	function CT.mark(tier)
+		local F = DevFly.F
+		if F then
+			F.crater = { Tier = tier, T = os.clock() }
+		end
+	end
+	-- which crater a crash at `speed` is: "God" (marked so a moment ago),
+	-- "Light" (Light.Speed+: only LIGHTSPEED gets there), or nil - not one
+	-- (the bomb's, the crash's), or no FULL POWER (DevFly.fullPower: what the
+	-- bomb does for him). ((round 99 review) GODSPEED's mark too only at
+	-- Light.Speed+: the server calls nothing under it a crater - his screen
+	-- would have played GODSPEED's while everyone else got the bomb)
+	function CT.tier(speed)
+		local F = DevFly.F
+		if CC.Enabled == false or not F or not DevFly.active then
+			return nil
+		end
+		if DevFly.fullPower and not DevFly.fullPower() then
+			return nil
+		end
+		if not ((tonumber(speed) or 0) >= ((CC.Light or {}).Speed or 1100)) then
+			return nil
+		end
+		local m = F.crater
+		if m and m.Tier == "God" and os.clock() - m.T <= (CC.Keep or 1.5) then
+			return "God"
+		end
+		return "Light"
+	end
+	-- ((round 99 review) whether a crash at p is over the city: its street (the
+	-- map's Roads / Ground) within Snap studs under it - a roof, the street.
+	-- Not the Sky Coffin's floor, nor anywhere off the map: the bomb there,
+	-- as the server has it (Kit.CT.crash))
+	function CT.city(p)
 		local map = workspace:FindFirstChild("Map")
 		local list = {}
 		for _, name in { "Roads", "Ground" } do
@@ -11110,70 +11147,534 @@ do
 			end
 		end
 		if #list == 0 or typeof(p) ~= "Vector3" or p ~= p then
-			return nil
+			return false
 		end
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Include
 		params.FilterDescendantsInstances = list
-		local hit = workspace:Raycast(p + Vector3.new(0, 2, 0), Vector3.new(0, -((LWC.Drop or 220) + 2), 0), params)
-		return hit and hit.Position or nil
+		return workspace:Raycast(p + Vector3.new(0, 4, 0), Vector3.new(0, -((CC.Snap or 600) + 4), 0), params) ~= nil
 	end
-	-- (from DevFly.touchdown, a crash) at LIGHTSPEED onto the city, the map
-	-- free to go: down on the street under it, the crash there (true: that's
-	-- it - no way down through the building, no landing where he hit)
-	function LW.impact(at, speed)
+	-- (from DevFly.land, the crash) his screen's beat is the crater (not the
+	-- bomb), the server's told which, he's held down in it Hold s
+	function CT.predict(data, speed)
 		local F = DevFly.F
-		if LWC.Enabled == false or not F or not DevFly.active or not ((tonumber(speed) or 0) >= (LWC.Speed or 1100)) then
+		local tier = CT.tier(speed)
+		if F then
+			F.crater = nil
+		end
+		if not tier or not CT.city(data.Pos) then
 			return false
 		end
-		if not (VFX.LWX and VFX.LWX.ready()) then
-			return false -- (the last one's too recent: the bomb)
-		end
-		-- (round 92, with flightgrant's grants: a granted flyer without FULL POWER - DevFly.fullPower, once it's there)
-		if DevFly.fullPower and not DevFly.fullPower() then
-			return false
-		end
-		local ground = LW.street(at)
-		if not ground then
-			return false
-		end
-		F.lightWipe = { At = at, T = os.clock() }
-		DevFly.land("Crash", ground, speed)
+		local T = CC[tier] or {}
+		data.Kind = "Crater"
+		data.Tier = tier
+		data.Crater = tier
+		data.Radius = T.Radius or 60
+		F.landFor = math.max(F.landFor or 0, T.Hold or 1.9)
 		return true
 	end
-	-- (from DevFly.land, the crash) his screen's beat is the impact, the
-	-- server's told it was the light, he's held down in the crater longer
-	function LW.predict(data)
+	-- (from DevFly.FB.drill) down a building's shaft at a crater's speed: he
+	-- keeps it all the way down (the dive's own pull is toward its slower
+	-- speed: the bottom would be the bomb's). true: kept
+	function CT.keep(speed)
 		local F = DevFly.F
-		local w = F and F.lightWipe
-		if not w then
+		if F and CT.tier(speed) then
+			F.diveSpd = math.max(F.diveSpd or 0, tonumber(speed) or 0)
+			return true
+		end
+		return false
+	end
+end
+
+---------------------------------------------------------------------------
+-- (round 99) GODSPEED on the flyer's own machine (Config.DevFlight.God):
+-- the last speed - the strongest thing in the game going off. DevFly.God:
+--   THE CHARGE (God.step, from the flight's, after LIGHTSPEED's own): at
+--     LIGHTSPEED the burst key held again (a new press - DevFly.boost marks
+--     it, the key's release lets go; LIGHTSPEED's own hold was spent on its
+--     break), W and sprint held, never carrying someone, a Cooldown since
+--     the last: the power building (everyone sees it: VFX.GSX), his camera
+--     shaking harder and harder (God.feel) and the view tightening
+--     (DevFly.camera: ChargeFov); let go early, it drains away
+--   THE BOOM (God.go): the camera kicked back and the view thrown wide,
+--     every screen's boom (VFX.GSX), the server told (DevGod: it knocks
+--     everyone near) - and he's at GODSPEED
+--   AT GODSPEED (God.fly, from DevFly.fly - W and sprint held): up to Speed
+--     in Jump s; the heading swung to his look (Steer: never faster than its
+--     Max - Space / C bend it up and down); the leash round the city while
+--     he's low (Leash.Up), the flight's own ceiling and floor never crossed
+--     even for a frame. God.collide: everything in his way but the city's
+--     street opened on his screen as he comes (the map's own parts: put
+--     back once he's out of them - the flight's walls), the buildings he
+--     goes through blown open (DevSmash, one a building: the server carves
+--     it, FULL POWER's explosions); the Sky Coffin's field as the flight
+--     has it (DevFly.SB); anything else that won't open stops him - out of it
+--   INTO THE GROUND (God.impact, from the flight's touchdown - steep, or the
+--     dive): ((round 99, craters) LIGHTWIPE's gone) FULL POWER - GODSPEED's
+--     CRATER, the biggest (DevFly.CT: his screen's at once, down a
+--     building's shaft first if he came down on one; the server decides).
+--     Else out of it, and the crash at LIGHTSPEED's speed
+--   OUT OF IT (God.drop): the burst pressed again (DevFly.boost: back to
+--     LIGHTSPEED, W and sprint still held - the meter's way out), letting go
+--     of W or sprint (LIGHTSPEED let go of with it, as ever), the brake, a
+--     move, a hit, the carry, a wall, V, death - the closing boom, back to
+--     LIGHTSPEED's speed: his flight and his body both never left going
+--     faster than it
+-- (A block of its own; F is DevFly.F, filled in by the flight's.)
+---------------------------------------------------------------------------
+do
+	local DEV = Config.DevFlight or {}
+	local GC = DEV.God or {}
+	local LT = DEV.Light or {}
+	local God = {}
+	DevFly.God = God
+	-- (his screen's BOOM and the closing boom: the HUD's)
+	VFX.Hooks.GodBoom = HUD.GodBoom
+	VFX.Hooks.GodOut = HUD.GodOut
+	local function send(kind, data)
+		UseAbility:FireServer(Config.PARKOUR_INDEX, kind, data)
+	end
+
+	function God.on()
+		return GC.Enabled ~= false and LT.Enabled ~= false
+	end
+
+	-- one frame at LIGHTSPEED (after LIGHTSPEED's own step): the charge while
+	-- the burst's held again, THE BOOM when it's full; at GODSPEED: someone
+	-- grabbed - out of it
+	function God.step(dt, now, char, sprint, fwd)
+		local F = DevFly.F
+		if not God.on() then
+			return
+		end
+		if F.god then
+			if char:GetAttribute("DevCarrying") then
+				God.drop("Carry")
+			end
+			return
+		end
+		local light = F.light
+		if light then
+			light.age = (light.age or 0) + dt -- (its time at LIGHTSPEED, frame by frame: the meter's hint)
+		end
+		local settled = light ~= nil and now - light.t0 >= (LT.Jump or 0.25) + 0.15
+		local can = settled and F.tier == "Light" and sprint and fwd > 0.6 and F.state == "Fly" and now >= (F.godCd or 0)
+			and now >= F.pauseUntil and not F.lock and not char:GetAttribute("DevCarrying") and DevFly.Light and DevFly.Light.held()
+		local charge = math.max(GC.Charge or 1.8, 0.05)
+		if can then
+			if not F.godChargeOn then
+				God.charging(true)
+			end
+			F.godCharge = math.min(1, (F.godCharge or 0) + dt / charge)
+			God.feel(now, F.godCharge)
+			if F.godCharge >= 1 then
+				God.go(char)
+			end
+		else
+			if F.godChargeOn then
+				God.charging(false)
+			end
+			F.godCharge = math.max(0, (F.godCharge or 0) - dt * 3 / charge)
+		end
+	end
+	-- the charge in his camera: shaking harder and harder (the view's
+	-- tightened by DevFly.camera: ChargeFov)
+	function God.feel(now, k)
+		local F = DevFly.F
+		local CH = (GC.Look or {}).Charge or {}
+		if now >= (F.next.godShake or 0) then
+			local every = CH.ShakeEvery or 0.08
+			F.next.godShake = now + every
+			local s = CH.Shake or { 0.2, 1.7 }
+			VFX.Shake(s[1] + (s[2] - s[1]) * k * k, every * 2)
+		end
+	end
+	function God.charging(on)
+		local F = DevFly.F
+		F.godChargeOn = on
+		if F.char then
+			VFX.Play("DevFly", F.char, { Kind = "GodCharge", On = on, Time = GC.Charge }, true)
+		end
+		send("DevGodCharge", { On = on })
+	end
+
+	-- THE BOOM: the camera kicked back, the view thrown wide - and he's gone
+	function God.go(char)
+		local F = DevFly.F
+		local now = os.clock()
+		local root = F.root
+		F.godChargeOn, F.godCharge = false, 0
+		F.dashHeld = false -- (the hold's spent on it: another wants another press)
+		F.godCd = now + (GC.Cooldown or 5)
+		F.god = { t0 = now, from = math.max(F.spd, LT.Speed or 1400) }
+		F.tier = "God"
+		F.boost, F.spin = nil, nil
+		F.hover, F.strafe = Vector3.zero, Vector3.zero
+		F.kick = -F.dir * (GC.Kick or 22)
+		F.fovKick = math.max(F.fovKick or 0, GC.BoomFov or 30)
+		F.fovHold = now + 0.12
+		VFX.Play("DevFly", char, { Kind = "God", Pos = root.Position, Dir = F.dir }, true)
+		send("DevGod", { Dir = F.dir })
+		char:SetAttribute("DevFlyLocal", "God")
+		DevFly.relay(true)
+	end
+
+	-- the leash: past Soft (flat, from the city's middle) the way out taken
+	-- off what he wants - all of it at Hard, pulled back in past it; straight
+	-- out (nothing left across): on round the way he's turning. Only while
+	-- he's low over the city (GC.leashK: none past Leash.Up + Fade)
+	function God.leash(wish, root)
+		local F = DevFly.F
+		local LS = GC.Leash or {}
+		local c = (DEV.Bounds or {}).Center or Vector3.new(5, 25, 888)
+		local p = root.Position
+		local hold = GC.leashK and GC.leashK(p.Y - c.Y) or 1
+		local off = Vector3.new(p.X - c.X, 0, p.Z - c.Z)
+		local r = off.Magnitude
+		local soft, hard = LS.Soft or 1250, LS.Hard or 1650
+		if hold <= 0 or r <= soft or r < 1 then
+			return wish
+		end
+		local n = off.Unit
+		local fw = Vector3.new(wish.X, 0, wish.Z)
+		local out = fw:Dot(n)
+		if out <= 0 then
+			return wish
+		end
+		local a = math.clamp((r - soft) / math.max(hard - soft, 1), 0, 1) * hold
+		fw -= n * out * a
+		if r > hard then
+			fw -= n * math.min((r - hard) / 100, 1) * hold
+		end
+		if fw.Magnitude < 0.05 then
+			local fd = Vector3.new(F.dir.X, 0, F.dir.Z)
+			local side = fd - n * fd:Dot(n)
+			fw = side.Magnitude > 1e-3 and side.Unit or n:Cross(Vector3.yAxis)
+		end
+		fw = fw.Unit
+		local y = math.clamp(wish.Y, -0.97, 0.97)
+		local nw = fw * math.sqrt(math.max(1 - y * y, 0.05)) + Vector3.yAxis * y
+		return nw.Magnitude > 0.01 and nw.Unit or wish
+	end
+
+	-- the turn: the heading swung toward wish at GC.turnRate (K x how far off,
+	-- never faster than Max); F.turnWant the bank's (+ to his left)
+	function God.turn(wish, dt)
+		local F = DevFly.F
+		local d = F.dir
+		local fd, fw = Vector3.new(d.X, 0, d.Z), Vector3.new(wish.X, 0, wish.Z)
+		local want = 0
+		if fd.Magnitude > 0.05 and fw.Magnitude > 0.05 then
+			local a, b = fd.Unit, fw.Unit
+			want = math.asin(math.clamp(a:Cross(b).Y, -1, 1))
+			if a:Dot(b) < 0 then
+				want = (want >= 0 and 1 or -1) * (math.pi - math.abs(want))
+			end
+		end
+		F.turnWant = want
+		local ang = math.acos(math.clamp(d:Dot(wish), -1, 1))
+		if ang < 1e-4 or ang ~= ang then
+			return
+		end
+		local axis = d:Cross(wish)
+		if axis.Magnitude < 1e-3 then
+			axis = math.abs(d.Y) < 0.9 and Vector3.yAxis or Vector3.xAxis
+		end
+		local rate = GC.turnRate and GC.turnRate(ang) or math.min(12 * ang, 12)
+		local nd = CFrame.fromAxisAngle(axis.Unit, math.min(ang, rate * dt)) * d
+		F.dir = (nd == nd and nd.Magnitude > 0.01) and nd.Unit or wish
+	end
+
+	-- never through the flight's own ceiling (Bounds.Ceiling - its sky) or the
+	-- void's floor in a frame (looked ahead: at 3000 studs/s a frame's 50
+	-- studs - the flight's own easing lets a slow machine through:
+	-- r99/out/godspeed_sims.txt), never out past the leash's wall while it holds
+	function God.bounds(v, root, dt)
+		local B = DEV.Bounds or {}
+		local c = B.Center or Vector3.new(5, 25, 888)
+		local p = root.Position
+		local top = B.Ceiling or 9000
+		local floor = (B.Floor or -340) + (GC.Floor or 5)
+		dt = math.max(dt, 1 / 240)
+		if p.Y + v.Y * dt > top then
+			v = Vector3.new(v.X, math.min(v.Y, (top - p.Y) / dt), v.Z)
+		end
+		if p.Y + v.Y * dt < floor then
+			v = Vector3.new(v.X, math.max(v.Y, (floor - p.Y) / dt), v.Z)
+		end
+		local off = Vector3.new(p.X - c.X, 0, p.Z - c.Z)
+		local hard = (GC.Leash or {}).Hard or 1650
+		local hold = GC.leashK and GC.leashK(p.Y - c.Y) or 1
+		if hold > 0 and off.Magnitude > hard and Vector3.new(v.X, 0, v.Z):Dot(off) > 0 then
+			local n = off.Unit
+			v -= n * v:Dot(n) * hold
+		end
+		return v
+	end
+
+	-- one frame AT GODSPEED (from DevFly.fly, its inputs): true - this was
+	-- the frame (false: he's out of it just now; the flight carries on, at
+	-- LIGHTSPEED)
+	function God.fly(dt, now, char, root, look, fwd, up, down, sprint)
+		local F = DevFly.F
+		local g = F.god
+		if not (sprint and fwd > 0.25) then
+			God.drop("Let")
 			return false
 		end
-		F.lightWipe = nil
-		if os.clock() - w.T > 0.5 then
+		if char:GetAttribute("DevCarrying") then
+			God.drop("Carry") -- (he grabbed someone: never at GODSPEED with them)
 			return false
 		end
-		data.Kind = "LightWipe"
-		data.Light = true
-		data.Hit = w.At
-		data.Origin = data.Pos
-		F.landFor = math.max(F.landFor or 0, LWC.Hold or 2.2)
+		local a = math.clamp((now - g.t0) / math.max(GC.Jump or 0.18, 0.01), 0, 1)
+		F.spd = g.from + ((GC.Speed or 3000) - g.from) * (1 - (1 - a) ^ 3)
+		local wish = look + Vector3.yAxis * ((up and 1 or 0) - (down and 1 or 0)) * 0.6
+		wish = wish.Magnitude > 0.05 and wish.Unit or F.dir
+		wish = God.leash(wish, root)
+		God.turn(wish, dt)
+		F.vel = God.bounds(F.dir * F.spd, root, dt)
+		F.hover, F.strafe, F.strafeK, F.carve = Vector3.zero, Vector3.zero, 0, 0
+		F.tier = "God"
 		return true
 	end
-	-- ((round 92 review) the server's go, and his camera pulled up over the
-	-- city (VFX.LWX's cinematic): his own cutscene takes his body out of the
-	-- flight's hands (DevFly.taken) - still in the crater's hold, the flight
-	-- went to "Held": its movers off, PlatformStand on, nothing standing him
-	-- up, and he toppled in the street for the cutscene's 5 s, drawn "hit"
-	-- on every screen. The crash is over: he's on his feet now, the way its
-	-- hold ends (DevFly.stop "Landed"; the view's eased home after the cutscene)
-	function LW.cinematic()
+
+	-- what he may go through: the map's own parts - not the city's street
+	-- and ground (they stop him: his landing), not the Sky Coffin (its field
+	-- is the flight's rules: DevFly.SB), not what's never gone through
+	-- (NoPhase: the Sky Coffin's ground and barrier)
+	function God.opens(part)
+		if not part:IsA("BasePart") or part:GetAttribute("NoPhase") then
+			return false
+		end
+		local map = workspace:FindFirstChild("Map")
+		if not map or not part:IsDescendantOf(map) then
+			return false
+		end
+		for _, name in { "Roads", "Ground", "SkyCoffin" } do
+			local f = map:FindFirstChild(name)
+			if f and part:IsDescendantOf(f) then
+				return false
+			end
+		end
+		return true
+	end
+	-- a part's top (its rotated box)
+	function God.top(part)
+		local cf, s = part.CFrame, part.Size
+		return cf.Position.Y + (math.abs(cf.RightVector.Y) * s.X + math.abs(cf.UpVector.Y) * s.Y + math.abs(cf.LookVector.Y) * s.Z) / 2
+	end
+	-- the building a part's in (the map's model it belongs to), or the part
+	function God.building(part)
+		local map = workspace:FindFirstChild("Map")
+		local m = part
+		while m.Parent and m.Parent ~= map and not (m.Parent:IsA("Folder") and m.Parent.Parent == map) do
+			m = m.Parent
+		end
+		return m
+	end
+
+	-- (from DevFly.collide at GODSPEED) what's in his way: the Sky Coffin's
+	-- field as the flight has it; everything else ahead (but the street and
+	-- the floor under him) opened on his screen now (the flight's own walls:
+	-- shut again once he's out of them), a building's hole asked for; the
+	-- street coming up - his touchdown (GODSPEED's crater); anything that won't
+	-- open - stopped dead, out of it
+	function God.collide(dt, now, char, hum, root)
 		local F = DevFly.F
-		if DevFly.active and F and (F.state == "Crash" or F.state == "Land") then
-			DevFly.stop("Landed")
+		if DevFly.SB then
+			DevFly.SB.ahead(dt, now, char, root)
+		end
+		local speed = F.vel.Magnitude
+		if speed < 1 then
+			return
+		end
+		local d = F.vel.Unit
+		God.clear(char, hum, root, d, speed, dt, now)
+		local near = speed * math.max(dt, 1 / 30) * 1.5 + 3
+		local hit = workspace:Raycast(root.Position - d * 1.5, d * (near + 1.5), F.params)
+		if hit and hit.Instance then
+			if hit.Normal.Y >= 0.6 and F.vel.Y < 0 then
+				DevFly.touchdown(hit.Position, hit.Normal, speed, hit.Instance)
+				return
+			elseif hit.Normal.Y < 0.6 and not God.opens(hit.Instance) then
+				God.drop("Wall")
+				DevFly.wall(char, hit, math.min(speed, LT.Speed or 1400))
+				return
+			end
+		end
+		if F.vel.Y < -2 then
+			local below = workspace:Raycast(root.Position, Vector3.new(0, -((hum.HipHeight > 0 and hum.HipHeight or 2) + root.Size.Y / 2 + 1 - F.vel.Y * math.max(dt, 1 / 30) * 1.5), 0), F.params)
+			if below then
+				DevFly.touchdown(below.Position, below.Normal, speed, below.Instance)
+			end
 		end
 	end
-	VFX.Hooks.LightWipeMine = LW.cinematic
+	-- everything in a box down his line Look s of flight ahead (two frames at
+	-- least) opened on his screen - not the street, not the floor under him;
+	-- the first breakable wall the line meets: a hole asked for
+	function God.clear(char, hum, root, d, speed, dt, now)
+		local F = DevFly.F
+		local map = workspace:FindFirstChild("Map")
+		if not map then
+			return
+		end
+		local SM = GC.Smash or {}
+		local len = speed * math.max(math.max(dt, 1 / 30) * 2, SM.Look or 0.08) + 12
+		local a = root.Position - d * 2
+		local b = a + d * len
+		-- (the line looked down a little past the box: a wall's seen - its hole
+		-- asked for - before the box ever opens it)
+		local first = workspace:Raycast(a, d * (len + 16), F.params)
+		local params = OverlapParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { map }
+		local feet = root.Position.Y - ((hum.HipHeight > 0 and hum.HipHeight or 2) + root.Size.Y / 2) + 0.5
+		local ok, parts = pcall(function()
+			return workspace:GetPartBoundsInBox(CFrame.lookAt((a + b) / 2, b), Vector3.new(9, 11, len), params)
+		end)
+		for _, part in ok and parts or {} do
+			if (part.CanCollide or F.walls[part]) and God.opens(part) and God.top(part) > feet then
+				if part.CanCollide then
+					part.CanCollide = false
+				end
+				F.walls[part] = now
+			end
+		end
+		if first and first.Instance and first.Normal.Y < 0.6 and DevFly.breakable(first.Instance) and God.opens(first.Instance) then
+			God.smash(char, first, d, now)
+		end
+	end
+	-- a building in his way: blown open (one ask a building, at most Rate a
+	-- second; the server carves it - FULL POWER's explosions), its blast on
+	-- his screen at once
+	function God.smash(char, hit, d, now)
+		local F = DevFly.F
+		local SM = GC.Smash or {}
+		local bld = God.building(hit.Instance)
+		F.godHoles = F.godHoles or {}
+		if bld and now - (F.godHoles[bld] or -1e9) < (SM.Gap or 0.5) then
+			return false
+		end
+		local list = F.godSmashes or {}
+		F.godSmashes = list
+		while list[1] and now - list[1] > 1 do
+			table.remove(list, 1)
+		end
+		if #list >= (SM.Rate or 12) then
+			return false
+		end
+		table.insert(list, now)
+		if bld then
+			F.godHoles[bld] = now
+		end
+		local a = hit.Position - d * 2
+		local b = a + d * (SM.Length or 70)
+		local full = not DevFly.fullPower or DevFly.fullPower()
+		local r = full and (SM.Radius or 15) or (SM.PlainRadius or 8)
+		send("DevSmash", { A = a, B = b, R = r, God = true })
+		VFX.Play("DevFly", char, { Kind = "GodBlast", A = a, B = b, Dir = d, R = r, Full = full or nil }, true)
+		return true
+	end
+
+	-- ((round 99, craters) from DevFly.touchdown, a crash at GODSPEED) his
+	-- machine's side of GODSPEED's crater: FULL POWER - out of it quietly
+	-- (the crater's the beat), its tier marked (DevFly.CT.mark: the crash -
+	-- here, or at the bottom of a building's shaft - is GODSPEED's crater).
+	-- Without it: out of it, the closing boom. Either way the touchdown goes
+	-- on (false), at LIGHTSPEED's speed
+	function God.impact(at, speed)
+		local F = DevFly.F
+		if not F.god then
+			return false
+		end
+		local full = not DevFly.fullPower or DevFly.fullPower()
+		-- ((round 99 review) over the city only - DevFly.CT.city: on the Sky
+		-- Coffin's floor it's out of it, the crash at LIGHTSPEED's - the bomb)
+		if full and DevFly.CT and (tonumber(speed) or 0) >= (((DEV.Crater or {}).Light or {}).Speed or 1100) and DevFly.CT.city(at) then
+			DevFly.CT.mark("God")
+			God.drop("Impact", true)
+			return false
+		end
+		God.drop("Ground")
+		return false
+	end
+
+	-- OUT OF IT (reason: Let, Brake, Move, Hit, Carry, Wall, Off, Gone, Ground,
+	-- Impact): back to LIGHTSPEED - his flight and his body never left going
+	-- faster than it (a move or a hit lets go of his body, V drops him with
+	-- some of his speed: at GODSPEED's it went on at 3000 studs/s, through the
+	-- city and off it); the closing boom (quiet: the impact's the beat)
+	function God.drop(reason, quiet)
+		local F = DevFly.F
+		local g = F and F.god
+		if not g then
+			return
+		end
+		F.god = nil
+		local cap = LT.Speed or 1400
+		F.spd = math.min(F.spd, cap)
+		if F.vel.Magnitude > cap then
+			F.vel = F.vel.Unit * cap
+		end
+		local root = F.root
+		if root and root.Parent then
+			pcall(function()
+				local v = root.AssemblyLinearVelocity
+				if v == v and v.Magnitude > cap then
+					root.AssemblyLinearVelocity = v.Unit * cap
+				end
+			end)
+		end
+		if F.lv and F.lv.Parent then
+			F.lv.VectorVelocity = F.vel
+		end
+		if F.tier == "God" then
+			F.tier = F.light and "Light" or "Hyper"
+		end
+		local d = F.vel.Magnitude > 1 and F.vel.Unit or F.dir
+		if not quiet and F.char and root and root.Parent then
+			VFX.Play("DevFly", F.char, { Kind = "GodOut", Pos = root.Position, Dir = d, Reason = reason }, true)
+		end
+		send("DevGodOut", { Reason = reason, Dir = d })
+		F.fovKick = math.max(F.fovKick or 0, 8)
+		if F.char then
+			F.char:SetAttribute("DevFlyLocal", DevFly.look())
+		end
+		DevFly.relay(true)
+	end
+	-- the flight's over, a hit, a move, the street: out of it, the charge let
+	-- go (everyone told)
+	function God.reset(reason)
+		local F = DevFly.F
+		if not F then
+			return
+		end
+		if F.god then
+			God.drop(reason or "Off")
+		end
+		if F.godChargeOn then
+			God.charging(false)
+		end
+		F.godCharge = 0
+	end
+	-- the meter's way there, at LIGHTSPEED (its key as this machine plays)
+	function God.hint(char, now)
+		local F = DevFly.F
+		if not God.on() or F.god or not F.light or F.tier ~= "Light" or char:GetAttribute("DevCarrying") or now < (F.godCd or 0) then
+			return nil
+		end
+		-- (the break first: LIGHT BARRIER BROKEN a moment, then the way on)
+		if (F.light.age or 0) < (GC.HintAfter or 1.2) then
+			return nil
+		end
+		return inputMode == "Gamepad" and "HOLD Y AGAIN" or (inputMode == "Touch" and "HOLD DASH AGAIN" or "HOLD Q AGAIN")
+	end
+	-- the meter's way back, at GODSPEED: the burst again (DevFly.boost - its
+	-- key as this machine plays); letting go of sprint lets go of LIGHTSPEED
+	-- too, as it always has
+	function God.outHint()
+		return inputMode == "Gamepad" and "TAP Y" or (inputMode == "Touch" and "TAP DASH" or "TAP Q")
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -11443,6 +11944,10 @@ do
 		-- (0..1), LIGHTSPEED (light: { t0, from }), the hover-lock (lock: {
 		-- anchor, nudge }), the hover's held spot (anchor), the roll (spin)
 		strafe = Vector3.zero, strafeK = 0, turnWant = 0, swing = 0, swingV = 0, charge = 0,
+		-- (round 99) GODSPEED (DevFly.God): its charge (0..1), GODSPEED itself
+		-- (god: { t0, from }), the next BOOM's clock, the buildings he's asked a
+		-- hole for (godHoles) and when (godSmashes)
+		godCharge = 0, godChargeOn = false, godCd = 0, godHoles = {}, godSmashes = {},
 	}
 	DevFly.F = F
 	VFX.Hooks.FlightBurst = HUD.FlightBurst
@@ -11504,6 +12009,11 @@ do
 	-- the tier he shows (his pose, everyone else's picture of him)
 	function DevFly.look()
 		local s = F.state
+		-- (round 99) GODSPEED: what everyone else draws (the sheath, the cone,
+		-- the contrail, the booms behind him) - the dive at it too, into the street
+		if F.god and (s == "Fly" or s == "Dive") then
+			return "God"
+		end
 		if s == "Crouch" or s == "Ascent" or s == "Brake" or s == "Dive" or s == "Land" or s == "Crash" or s == "Held" then
 			return s
 		end
@@ -11592,6 +12102,8 @@ do
 		F.strafe, F.strafeK, F.turnWant, F.swing, F.swingV, F.carve = Vector3.zero, 0, 0, 0, 0, 0
 		F.light, F.barrier, F.barrierOn, F.dashHeld, F.lock, F.lockAfter = nil, 0, false, false, nil, nil
 		F.anchor, F.stillAt, F.spin, F.brakeLight, F.diveSpd = nil, nil, nil, nil, nil
+		-- (round 99) nothing of the last flight's GODSPEED left over
+		F.god, F.godCharge, F.godChargeOn, F.crater, F.godHoles, F.godSmashes = nil, 0, false, nil, {}, {} -- ((round 99, craters) F.crater: GODSPEED's crater marked - DevFly.CT)
 		local stand = standHeight(hum, root)
 		local below = workspace:Raycast(root.Position, Vector3.new(0, -(stand + 2.5), 0), F.params)
 		local grounded = hum.FloorMaterial ~= Enum.Material.Air or below ~= nil
@@ -11650,6 +12162,11 @@ do
 			ContextActionService:UnbindAction("QuirkDevFlySink")
 		end)
 		F.down, F.padSprint = false, false
+		-- (round 99) out of GODSPEED (the server told; his speed back under
+		-- LIGHTSPEED's before he's dropped with some of it), its charge let go
+		if DevFly.God then
+			DevFly.God.reset(reason == "Gone" and "Gone" or "Off")
+		end
 		-- (round 90) the light barrier's charge let go, out of LIGHTSPEED, the
 		-- hover-lock off (its sight off the screen), no roll left turning him
 		if DevFly.Light then
@@ -11661,6 +12178,13 @@ do
 		F.spin, F.anchor, F.strafe = nil, nil, Vector3.zero
 		if HUD.FlightLight then
 			HUD.FlightLight(nil)
+		end
+		-- ((round 99 review) GODSPEED's on his screen too - the power at the
+		-- edges, the arcs: only the flight's own frame takes them down, and a
+		-- flight that ended at GODSPEED or mid-charge (V, dying, a new hero)
+		-- left them up for good (the overlay outlives a respawn))
+		if HUD.FlightGod then
+			HUD.FlightGod(nil)
 		end
 		local char, hum, root = F.char, F.hum, F.root
 		local carry = F.vel
@@ -11758,9 +12282,15 @@ do
 				end
 				if all or not inside then
 					F.walls[part] = nil
-					if part.Parent then
+					-- ((round 99 review) closed whether it's in the world right
+					-- now or not - the round-94 lesson: a part streamed out is
+					-- only parented to nil and streams back in as it was left.
+					-- GODSPEED opens everything down a 250-stud box ahead of him
+					-- and is 3000 studs away a second later: a wall skipped here
+					-- came back open on his screen for good)
+					pcall(function()
 						part.CanCollide = true
-					end
+					end)
 				end
 			end
 		end
@@ -11777,6 +12307,14 @@ do
 	function DevFly.boost()
 		local B = DEV.Boost or {}
 		local now = os.clock()
+		-- (round 99) at GODSPEED the burst pressed again: back to LIGHTSPEED
+		-- (the closing boom - W and sprint still held, LIGHTSPEED carries on);
+		-- the press spent on it (another charge wants another press)
+		if DevFly.active and F.god and DevFly.God then
+			DevFly.God.drop("Tap")
+			F.dashHeld = false
+			return true
+		end
 		if DevFly.active and DevFly.Light then
 			DevFly.Light.dashDown()
 		end
@@ -11813,6 +12351,10 @@ do
 			return false
 		end
 		F.brakeCd = now + (BR.Cooldown or 0.6)
+		-- (round 99) from GODSPEED: out of it first (then LIGHTSPEED's flip, from its speed)
+		if F.god and DevFly.God then
+			DevFly.God.drop("Brake")
+		end
 		F.state = "Brake"
 		F.stateAt = now
 		F.brakeFrom = F.vel
@@ -11878,6 +12420,11 @@ do
 	function DevFly.pause(t)
 		if DevFly.active and (F.state == "Fly" or F.state == "Ascent") then
 			F.pauseUntil = math.max(F.pauseUntil, os.clock() + (t or 0.45))
+			-- (round 99) he stops for it: out of GODSPEED (his body under LIGHTSPEED's
+			-- speed - the flight lets go of it for the move), its charge let go
+			if DevFly.God and (F.god or F.godChargeOn) then
+				DevFly.God.reset("Move")
+			end
 			-- (round 90: he stops for it - out of LIGHTSPEED, the light barrier's charge let go)
 			if DevFly.Light and (F.light or F.barrierOn) then
 				local was = F.light
@@ -11896,6 +12443,11 @@ do
 		F.state = kind == "Crash" and "Crash" or "Land"
 		F.stateAt = os.clock()
 		F.boost = nil
+		-- (round 99) down on the street: out of GODSPEED (its crater's
+		-- DevFly.God.impact: already), no charge
+		if DevFly.God and (F.god or F.godChargeOn) then
+			DevFly.God.reset("Ground")
+		end
 		-- (round 90) down on the street: out of LIGHTSPEED (the crash - the bomb - is the beat), no charge
 		if DevFly.Light and (F.light or F.barrierOn) then
 			DevFly.Light.reset()
@@ -11921,8 +12473,8 @@ do
 			data.Radius = math.clamp(r0 + (speed - (CR.Speed or 260)) / (CR.PerStud or 45), r0, r1)
 			F.fovKick = -10
 			F.landFor = (CR.Hold or 0.9) + (CR.Rise or 0.55)
-			if DevFly.LW and DevFly.LW.predict(data) then
-				-- (round 92: at LIGHTSPEED, the end of the map - its impact is his beat, not the bomb)
+			if DevFly.CT and DevFly.CT.predict(data, speed) then
+				-- (round 99, craters: at LIGHTSPEED or GODSPEED, the crater - his beat, not the bomb)
 			elseif DevFly.FB then
 				DevFly.FB.predict(data, speed) -- (round 89: at mach speed his screen plays the bomb)
 			end
@@ -11941,7 +12493,7 @@ do
 		if DevFly.CR then
 			DevFly.CR.landed(kind, ground, speed)
 		end
-		send("DevLand", { Kind = kind, Pos = ground, Speed = speed, Light = data.Light, Hit = data.Hit }) -- (round 92: Light / Hit - DevFly.LW)
+		send("DevLand", { Kind = kind, Pos = ground, Speed = speed, Crater = data.Crater }) -- (round 99, craters: Crater "Light" / "God" - DevFly.CT)
 	end
 
 	-- the keys that are the flight's while he's up (sunk: no move, no guard)
@@ -12016,6 +12568,10 @@ do
 				F.heldFrom = F.state
 				F.state = "Held"
 				F.boost = nil
+				-- (round 99) a hit at GODSPEED: out of it (its charge let go)
+				if DevFly.God then
+					DevFly.God.reset("Hit")
+				end
 				-- (round 90) a hit takes him out of the lock, the charge, LIGHTSPEED
 				if DevFly.Light then
 					DevFly.Light.reset()
@@ -12244,6 +12800,11 @@ do
 		if char:GetAttribute("Stunned") or FreeCam.on then
 			fwd, side, up, down, sprint = 0, 0, false, false, false
 		end
+		-- (round 99) AT GODSPEED: its own flight (DevFly.God.fly) - false: he's
+		-- out of it just now, and he flies on from LIGHTSPEED this frame
+		if F.god and DevFly.God and DevFly.God.fly(dt, now, char, root, look, fwd, up, down, sprint) then
+			return
+		end
 		-- (round 90) A or D twice quickly: the barrel roll (the sidestep, hovering)
 		local tapped = Ctl.taps(side, now)
 		if tapped then
@@ -12282,6 +12843,14 @@ do
 		-- (round 90) the light barrier: the burst held at HYPERSONIC charges it,
 		-- full it breaks; under Rearm he drops back out of LIGHTSPEED
 		Light.step(dt, now, char, sprint, fwd)
+		-- (round 99) at LIGHTSPEED the burst held again charges GODSPEED;
+		-- full, THE BOOM (DevFly.God)
+		if DevFly.God then
+			DevFly.God.step(dt, now, char, sprint, fwd)
+			if F.god then
+				return -- (it went off this frame: GODSPEED's own flight from the next)
+			end
+		end
 		-- S held at speed: the braking flip
 		if fwd < -0.5 and F.spd >= ((DEV.Brake or {}).MinSpeed or 80) and DevFly.brake() then
 			return
@@ -12375,6 +12944,13 @@ do
 	-- stops him dead; the street coming up is a landing, a crash, or (a
 	-- shallow fast pass) skimmed Skim studs over
 	function DevFly.collide(dt, now, char, hum, root)
+		-- (round 99) at GODSPEED he goes through it all: everything in his way
+		-- but the city's street opened as he comes, the buildings blown open
+		-- (DevFly.God.collide - into the street: GODSPEED's crater)
+		if F.god and DevFly.God then
+			DevFly.God.collide(dt, now, char, hum, root)
+			return
+		end
 		local SM = DEV.Smash or {}
 		local speed = F.vel.Magnitude
 		local stand = standHeight(hum, root)
@@ -12452,9 +13028,16 @@ do
 		local into = -F.vel:Dot(normal)
 		local steep = math.deg(math.asin(math.clamp(-F.vel.Y / math.max(speed, 1e-3), -1, 1)))
 		if F.state == "Dive" or (speed >= (CR.Speed or 260) and steep >= (CR.Pitch or 25)) or into >= (CR.IntoSurface or 200) then
-			-- (round 92) at LIGHTSPEED onto the city: the end of the map (DevFly.LW)
-			if DevFly.LW and DevFly.LW.impact(at, speed) then
-				return
+			-- (round 99) at GODSPEED: out of it - quietly, GODSPEED's crater
+			-- marked, with FULL POWER (DevFly.God.impact) - and on at LIGHTSPEED's
+			-- speed (a shallow pass skims, as ever). ((round 99, craters) at
+			-- LIGHTSPEED or GODSPEED the crash is a crater - DevFly.CT, as he
+			-- lands: down a building's shaft first, if it's a roof)
+			if F.god and DevFly.God then
+				if DevFly.God.impact(at, speed) then
+					return
+				end
+				speed = math.min(speed, (DEV.Light or {}).Speed or 1400)
 			end
 			if DevFly.FB and DevFly.FB.drill(at, part, speed) then
 				return
@@ -12618,7 +13201,7 @@ do
 				yaw = math.deg(math.asin(math.clamp(a:Cross(b).Y, -1, 1))) / math.max(dt, 1e-3)
 			end
 			F.lastFlat = fd.Magnitude > 0.05 and fd.Unit or F.lastFlat
-			local T = TIERS[(speed > 980 and F.light and "Light") or (speed > 380 and "Hyper") or (speed > 150 and "Fast") or "Cruise"] or {}
+			local T = TIERS[(F.god and "God") or (speed > 980 and F.light and "Light") or (speed > 380 and "Hyper") or (speed > 150 and "Fast") or "Cruise"] or {} -- (round 99: GODSPEED)
 			local maxBank = T.Bank or 35
 			-- (round 90) into the turn he's asking for (BankIntent a radian of it)
 			-- and the strafe (StrafeBank) as well as the one he's making
@@ -12661,7 +13244,7 @@ do
 			end
 			goal = hoverRot:Lerp(flyRot, alpha * alpha * (3 - 2 * alpha))
 		end
-		local T = TIERS[(speed > 980 and F.light and "Light") or (speed > 380 and "Hyper") or (speed > 150 and "Fast") or (speed > 30 and "Cruise") or "Hover"] or {}
+		local T = TIERS[(F.god and "God") or (speed > 980 and F.light and "Light") or (speed > 380 and "Hyper") or (speed > 150 and "Fast") or (speed > 30 and "Cruise") or "Hover"] or {} -- (round 99: GODSPEED)
 		local k = (state == "Brake" or state == "Dive" or state == "Ascent") and 30 or (T.Align or 10)
 		local nr = (F.rot or goal):Lerp(goal, 1 - math.exp(-k * dt))
 		local x, y, z = nr:ToEulerAnglesXYZ()
@@ -12696,13 +13279,21 @@ do
 		end
 		DevFly.relay(false)
 		local speed = F.vel.Magnitude
+		local now = os.clock()
+		-- (round 99) GODSPEED on his screen (VFX.GSX reads it): its charge
+		local GCf = DEV.God or {}
+		if VFX.GSX then
+			VFX.GSX.mine.charge = F.godCharge or 0
+		end
 		if VFX.DFX then
 			VFX.DFX.frame(char, root, speed, look, dt)
 		end
-		local now = os.clock()
 		-- the lines on the screen: streaming at FAST, focus at HYPERSONIC
 		-- (round 90: and LIGHTSPEED's own, split into its colours)
-		if F.light then
+		-- (round 99: GODSPEED's - thick and fast, in its colours: gold, white, electric blue)
+		if F.god then
+			HUD.FlightLines(1, "god")
+		elseif F.light then
 			HUD.FlightLines(1, "light")
 		elseif speed > 380 then
 			HUD.FlightLines(0.55 + 0.45 * math.clamp((speed - 380) / 140, 0, 1), "focus")
@@ -12712,7 +13303,7 @@ do
 		if now >= (F.next.meter or 0) then
 			F.next.meter = now + 0.05
 			local names = { Hover = "HOVER", Cruise = "CRUISE", Fast = "FAST", Hyper = "HYPERSONIC", Boost = "MACH BURST", Brake = "BRAKING", Dive = "DIVE SLAM",
-				Crouch = "LAUNCH", Ascent = "LAUNCH", Land = "LANDING", Crash = "IMPACT", Held = "HIT", Light = "LIGHTSPEED" }
+				Crouch = "LAUNCH", Ascent = "LAUNCH", Land = "LANDING", Crash = "IMPACT", Held = "HIT", Light = "LIGHTSPEED", God = "GODSPEED" } -- (round 99)
 			-- (round 90) at HYPERSONIC, the way to LIGHTSPEED (the burst held:
 			-- its key as this machine plays); never while he carries someone
 			local hint = nil
@@ -12726,17 +13317,33 @@ do
 			HUD.FlightMeter({
 				Tier = F.lock and "HOVER LOCK" or (names[look] or "HOVER"), Speed = speed, Mach = speed / (DEV.BoomAt or 420), Hot = F.boost ~= nil,
 				Charge = F.barrier or 0, Light = F.light ~= nil, Hint = hint, -- (round 90)
+				-- (round 99) GODSPEED: at it (and the way out), its charge, the
+				-- way there (at LIGHTSPEED)
+				God = F.god ~= nil, GodCharge = F.godCharge or 0, GodHint = DevFly.God and DevFly.God.hint(char, now) or nil,
+				GodOut = F.god and DevFly.God and DevFly.God.outHint() or nil,
 			})
 		end
 		-- (round 90) LIGHTSPEED on his screen: the tunnel closing in round the
 		-- edges as the barrier charges, the colours split at them once it's broken
+		-- (round 99: not at GODSPEED - its own: HUD.FlightGod)
 		if HUD.FlightLight then
-			local k = F.light and math.clamp((now - F.light.t0) / 0.3, 0.05, 1) or 0 -- (from its first frame: no blink between the charge and the light)
+			local k = (F.light and not F.god) and math.clamp((now - F.light.t0) / 0.3, 0.05, 1) or 0 -- (from its first frame: no blink between the charge and the light)
 			HUD.FlightLight((k > 0 or (F.barrier or 0) > 0) and { K = k, Charge = F.barrier or 0 } or nil)
 		end
+		-- (round 99) GODSPEED on his screen: the power at the edges - closing in
+		-- as it charges, arcs crackling round them; at it, blazing
+		if HUD.FlightGod then
+			local charge = F.godCharge or 0
+			local k = F.god and math.clamp((now - F.god.t0) / 0.2, 0.05, 1) or 0
+			HUD.FlightGod((k > 0 or charge > 0) and { K = k, Charge = charge } or nil)
+		end
 		-- HYPERSONIC rattles the screen the whole time (round 90: LIGHTSPEED a faster buzz)
+		-- (round 99: GODSPEED a heavy rumble - its charge is DevFly.God.feel's)
 		local HY = TIERS.Hyper or {}
-		if F.light and now >= (F.next.shake or 0) then
+		if F.god and now >= (F.next.shake or 0) then
+			F.next.shake = now + 0.1
+			VFX.Shake(GCf.Shake or 0.55, 0.18)
+		elseif F.light and now >= (F.next.shake or 0) then
 			F.next.shake = now + 0.12
 			VFX.Shake((DEV.Light or {}).Shake or 0.35, 0.16)
 		elseif speed > 380 and now >= (F.next.shake or 0) then
@@ -12787,7 +13394,7 @@ do
 		-- in the hover-lock)
 		local from = C.LagFrom or 100
 		local w = speed < from * 1.5 and (C.LagSpeedLow or 16) or (C.LagSpeed or 9)
-		local most = F.light and ((DEV.Light or {}).Lag or 8) or (C.LagMax or 6)
+		local most = F.god and ((DEV.God or {}).Lag or 7) or (F.light and ((DEV.Light or {}).Lag or 8) or (C.LagMax or 6)) -- (round 99: GODSPEED's own trail)
 		local target = F.lock and 0 or math.min((C.LagPerSpeed or 0.012) * math.max(speed - from, 0), most)
 		F.lagV += (w * w * (target - F.lag) - 2 * w * F.lagV) * dt
 		F.lag += F.lagV * dt
@@ -12804,7 +13411,7 @@ do
 		F.kickV += (-kw * kw * F.kick - 2 * kw * F.kickV) * dt
 		F.kick += F.kickV * dt
 		-- the roll into his turns
-		local tierName = (F.light and speed > 980 and "Light") or (speed > 380 and "Hyper") or (speed > 150 and "Fast") or "Cruise"
+		local tierName = (F.god and "God") or (F.light and speed > 980 and "Light") or (speed > 380 and "Hyper") or (speed > 150 and "Fast") or "Cruise" -- (round 99: GODSPEED)
 		local maxRoll = (TIERS[tierName] or {}).Roll or 10
 		local rollTarget = F.lock and 0 or math.clamp((C.RollPer or 0.35) * F.bank, -maxRoll, maxRoll)
 		local rw = 6
@@ -12845,7 +13452,12 @@ do
 			F.fovKick *= math.exp(-6 * dt)
 		end
 		-- (round 90: the hover-lock's view a touch tighter, for aim)
-		local want = math.clamp((F.lock and ((CT.Lock or {}).Fov or 62) or fovAt(speed)) + F.fovKick, 40, 120)
+		-- (round 99: GODSPEED's own view; its charge tightening the view in to ChargeFov)
+		local base = F.lock and ((CT.Lock or {}).Fov or 62) or (F.god and ((DEV.God or {}).Fov or 118)) or fovAt(speed)
+		if not F.god and (F.godCharge or 0) > 0 then
+			base += (((DEV.God or {}).ChargeFov or 90) - base) * F.godCharge
+		end
+		local want = math.clamp(base + F.fovKick, 40, 120)
 		F.fov = F.fov or cam.FieldOfView
 		F.fov += (want - F.fov) * (1 - math.exp(-(C.FovK or 6) * dt))
 		cam.FieldOfView = F.fov
@@ -13060,7 +13672,9 @@ do
 			"<b>X</b> / RB: DIVE SLAM where you look",
 			"Controller: hold the <b>D-pad down</b> to fly / stop",
 			"FAST+ smashes through buildings  -  land fast: CRASH",
-			"<b>LIGHTSPEED</b> into the ground: <b>THE WHOLE MAP GOES</b>", -- (round 92: DevFly.LW)
+			"<b>LIGHTSPEED</b> into the ground: <b>A HUGE CRATER</b>", -- (round 99, craters: DevFly.CT)
+			"<b>Hold Q</b> / Y again at LIGHTSPEED: <b>GODSPEED</b> - THE BOOM", -- (round 99: DevFly.God)
+			"<b>GODSPEED</b> into the ground: <b>THE BIGGEST CRATER</b>  -  let go: LIGHTSPEED",
 		})
 	end
 end
@@ -13987,7 +14601,11 @@ do
 			local best, bestDist = nil, math.huge
 			for _, plr in Players:GetPlayers() do
 				local r = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-				if r and plr:GetAttribute("UltActive") then
+				-- ((round 101) yours from your press: your awakening's run - the
+				-- server's word is a ping behind, and the theme's held silent by
+				-- the kit's duck till your pose's hit)
+				local awakening = plr == player and VFX.AK and VFX.AK.fadeIn(plr.Character) ~= nil
+				if r and (plr:GetAttribute("UltActive") or awakening) then
 					local d = plr == player and 0 or (from and (r.Position - from).Magnitude or math.huge)
 					if d < bestDist and d <= hear then
 						best, bestDist = plr, d
@@ -13996,12 +14614,19 @@ do
 			end
 			local spec = best and ((MUSIC.Tracks and MUSIC.Tracks[best:GetAttribute("Quirk") or ""]) or MUSIC.Default)
 			local peak = (MUSIC.Volume or 0.5) * ((Config.Audio and Config.Audio.MusicVolume) or 1)
+			-- ((round 101 review) your own awakening before its hit: the kit's
+			-- duck has the music silent - the old theme goes now, and yours starts
+			-- that far ahead of its Start, so its Start lands on your pose's hit)
+			local lead = best == player and VFX.AK and VFX.AK.lead and VFX.AK.lead(player.Character)
+			if lead and spec and (spec.Id ~= playing or best ~= owner) then
+				level = 0
+			end
 			-- a different theme (or someone else's ult): start it once the old one's faded
 			if spec and (spec.Id ~= playing or best ~= owner) and level <= 0.01 then
 				playing, owner = spec.Id, best
 				track:Stop()
 				track.SoundId = spec.Id
-				track.TimePosition = spec.Start or 0
+				track.TimePosition = math.max((spec.Start or 0) - (lead or 0), 0)
 				track:Play()
 				task.spawn(function()
 					-- (still loading: skip to its drop once it can)
@@ -14019,7 +14644,17 @@ do
 			if spec and musicOn and spec.Id == playing and best == owner then
 				target = peak * math.clamp(1 - (bestDist - full) / math.max(hear - full, 1), 0, 1)
 			end
-			local rate = peak / (target > level and (MUSIC.FadeIn or 1.2) or (MUSIC.FadeOut or 1.8)) * dt
+			-- ((round 99, inasa_ult) a theme can come in faster than the rest:
+			-- its own FadeIn - Inasa's lands on his "I LOVE THIS!!!", 0.45 s
+			-- after the press, not swelling up for a second past it)
+			local fadeIn = (spec and spec.Id == playing and tonumber(spec.FadeIn)) or MUSIC.FadeIn or 1.2
+			-- ((round 101) your own theme off your awakening: in on your pose's
+			-- hit, Config.Awaken.Music.FadeIn - not swelling up for a second)
+			local kitIn = best == player and VFX.AK and VFX.AK.fadeIn(player.Character)
+			if kitIn then
+				fadeIn = math.min(fadeIn, kitIn)
+			end
+			local rate = peak / (target > level and fadeIn or (MUSIC.FadeOut or 1.8)) * dt
 			level = target > level and math.min(target, level + rate) or math.max(target, level - rate)
 			track.Volume = level * duckLevel()
 			if not spec and playing and level <= 0 then
@@ -14433,6 +15068,10 @@ do
 			DS.state = "failed"
 		end
 		DS.dressAll()
+		-- ((round 100) the top bar's DISCORD tab: only for a player Roblox allows)
+		if HUD.SetDiscordTab then
+			HUD.SetDiscordTab(DS.allowed and CFG.Tab ~= false)
+		end
 		return DS.allowed
 	end
 
@@ -14480,6 +15119,11 @@ do
 		UI_EVENTS.DiscordCard = function(data)
 			task.spawn(DS.open, data)
 		end
+		-- ((round 100) the DISCORD tab opens the same card - from anywhere, so
+		-- walking off doesn't close it: CLOSE, the X, B or the tab again)
+		HUD.OnDiscordTab = function()
+			task.spawn(DS.open, nil)
+		end
 		local shops = workspace:FindFirstChild("Shops")
 		if shops then
 			DS.watch(shops)
@@ -14502,3 +15146,294 @@ do
 		end)
 	end
 end
+
+---------------------------------------------------------------------------
+-- (round 99) SPACE on the flyer's own machine (Config.Space; VFX.SPX draws it
+-- on every screen whose camera is up there): the HUD's hook, and the
+-- flight's bounds opened for it - over Free, GODSPEED's city leash and its
+-- ceiling over the street let go of him (space has the flight's own bounds,
+-- Config.DevFlight.Bounds: Ceiling 14000), and the moon's ground holds him
+-- off (he skims it, never flies into it). Both are wraps round the flight's
+-- own functions (DevFly.Ctl.bounds, DevFly.God.leash / bounds), so the
+-- flight's code is untouched. (Its own function: this chunk's locals stay
+-- as they are.)
+---------------------------------------------------------------------------
+;(function()
+	local SP = Config.Space or {}
+	VFX.Hooks.Space = HUD.Space
+	local Space = {}
+	DevFly.Space = Space
+	-- up where GODSPEED goes by the flight's own bounds
+	function Space.free(root)
+		local ok, pos = pcall(function()
+			return root.Position
+		end)
+		return ok and typeof(pos) == "Vector3" and pos.Y >= (SP.Free or 2300)
+	end
+	-- (round 99 review) up there GODSPEED keeps the flight's own ceiling,
+	-- looked a frame ahead (at 3000 studs/s a frame's 50 studs) - never
+	-- pulled down, only held under it
+	function Space.top(v, root, dt)
+		local B = (Config.DevFlight or {}).Bounds or {}
+		local ok, p = pcall(function()
+			return root.Position
+		end)
+		if not ok or typeof(p) ~= "Vector3" or typeof(v) ~= "Vector3" then
+			return v
+		end
+		local top = B.Ceiling or 14000
+		dt = math.max(dt or 0, 1 / 240)
+		if p.Y + v.Y * dt > top then
+			return Vector3.new(v.X, math.min(v.Y, math.max((top - p.Y) / dt, 0)), v.Z)
+		end
+		return v
+	end
+	-- the moon: what would take him into it taken off (he slides round it),
+	-- pushed back out if he's in
+	function Space.bounds(v, root, dt)
+		local M = SP.Moon
+		if SP.Enabled == false or not M or typeof(v) ~= "Vector3" or not root then
+			return v
+		end
+		-- (where it's drawn: round from opposite the light this screen has up
+		-- there. (round 99 review) Not drawn - this screen not out in space,
+		-- its light not known - no moon to hold him off: never a wall he can't see)
+		local sun = VFX.SPX and VFX.SPX.sun
+		if typeof(sun) ~= "Vector3" then
+			return v
+		end
+		local center = SP.moonAt and SP.moonAt(sun)
+		if typeof(center) ~= "Vector3" then
+			return v
+		end
+		local R = (M.Radius or 900) + (M.Clear or 140)
+		local p = root.Position
+		local off = p - center
+		local d = off.Magnitude
+		local ahead = (p + v * math.max(dt or 0, 1 / 240) - center).Magnitude
+		if d < 1 or (d > R + 1 and ahead > R) then
+			return v
+		end
+		local n = off / d
+		local into = v:Dot(n)
+		if into < 0 then
+			v -= n * into
+		end
+		if d < R then
+			v += n * math.min((R - d) * 6, 600)
+		end
+		return v
+	end
+	local Ctl = DevFly.Ctl
+	if type(Ctl) == "table" and type(Ctl.bounds) == "function" then
+		local base = Ctl.bounds
+		Ctl.bounds = function(v, root, dt)
+			v = base(v, root, dt)
+			local ok, w = pcall(Space.bounds, v, root, dt)
+			if ok and typeof(w) == "Vector3" and w == w then
+				return w
+			end
+			return v
+		end
+	end
+	local God = DevFly.God
+	if type(God) == "table" then
+		if type(God.leash) == "function" then
+			local leash = God.leash
+			God.leash = function(wish, root, ...)
+				if Space.free(root) then
+					return wish
+				end
+				return leash(wish, root, ...)
+			end
+		end
+		if type(God.bounds) == "function" then
+			local bounds = God.bounds
+			God.bounds = function(v, root, dt, ...)
+				if Space.free(root) then
+					return Space.top(v, root, dt)
+				end
+				return bounds(v, root, dt, ...)
+			end
+		end
+	end
+end)()
+
+---------------------------------------------------------------------------
+-- (round 99) MOONBASE on this machine (Config.Space.OwnerBase; VFX.MBX draws
+-- it): the moon's gravity on the base - this machine's own body there falls
+-- at Gravity x the world's (a force of ours in its root, holding up the
+-- rest of its weight: nothing of the world's own gravity is touched, so an
+-- event's low gravity and everyone else are as they were; gone the moment
+-- it's off the base); the flight's moon bounds open over the base (its
+-- ground's real: he lands on it, walks off it); the drop pod's prompt on the
+-- owner's screen only (the server checks it's his anyway); and his screen
+-- covered while a new body of his waits for the base to stream in, so the
+-- city never flashes up first. (DevFly.MB. Its own function: this chunk's
+-- locals stay as they are.)
+---------------------------------------------------------------------------
+;(function()
+	local SP = Config.Space or {}
+	local OB = SP.OwnerBase or {}
+	local MBC = { promptAt = 0 }
+	DevFly.MB = MBC
+	function MBC.frame()
+		return VFX.MBX and VFX.MBX.frame() or nil
+	end
+	function MBC.onBase(root)
+		local F = MBC.frame()
+		if not F or not OB.inZone then
+			return false
+		end
+		local ok, pos = pcall(function()
+			return root.Position
+		end)
+		return ok and OB.inZone(pos, F) == true
+	end
+
+	-- THE MOON'S GRAVITY: a force of ours up through his root's middle, the
+	-- rest of his weight (his mass x the world's gravity x (1 - Gravity)) -
+	-- none while Uraraka's own Zero Gravity has him (it lifts him already)
+	function MBC.gravityStep()
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local want = root ~= nil and hum ~= nil and hum.Health > 0 and (OB.Gravity or 1) < 1 and SP.Enabled ~= false and OB.Enabled ~= false
+			and not root.Anchored and MBC.onBase(root)
+		local force = MBC.force
+		if force and (not want or force.Parent ~= root) then
+			MBC.force = nil
+			pcall(force.Destroy, force)
+			if MBC.att then
+				pcall(MBC.att.Destroy, MBC.att)
+				MBC.att = nil
+			end
+			force = nil
+		end
+		if not want then
+			return
+		end
+		if not force then
+			local att = Instance.new("Attachment")
+			att.Name = "MoonGravityAt"
+			att.Parent = root
+			force = Instance.new("VectorForce")
+			force.Name = "MoonGravity"
+			force.Attachment0 = att
+			force.RelativeTo = Enum.ActuatorRelativeTo.World
+			force.ApplyAtCenterOfMass = true
+			force.Parent = root
+			MBC.force, MBC.att = force, att
+		end
+		local mass = 0
+		pcall(function()
+			mass = root.AssemblyMass
+		end)
+		local lift = root:FindFirstChild("ZeroGravity") and 0 or (1 - (OB.Gravity or 0.3))
+		force.Force = Vector3.new(0, math.max(mass, 0) * workspace.Gravity * lift, 0)
+	end
+
+	-- the flight's moon bounds: none over the base (its ground holds him)
+	local Space = DevFly.Space
+	if type(Space) == "table" and type(Space.bounds) == "function" then
+		local bounds = Space.bounds
+		Space.bounds = function(v, root, ...)
+			if root and MBC.onBase(root) then
+				return v
+			end
+			return bounds(v, root, ...)
+		end
+	end
+
+	-- the drop pod's prompt: the owner's (everyone else's screen: hidden).
+	-- ((round 99 review) Hidden by its reach, not Enabled: the server turns
+	-- Enabled off and on round each ride - a screen's own write of it fought
+	-- that, and one made before his MoonBase word had come in left it off on
+	-- his own screen for good. Its reach the server never changes: none
+	-- here for anyone else, Prompt.Range put back for him)
+	function MBC.promptStep(now)
+		if now - MBC.promptAt < 0.5 then
+			return
+		end
+		MBC.promptAt = now
+		local range = tonumber(((OB.Pod or {}).Prompt or {}).Range) or 12
+		local want = player:GetAttribute("MoonBase") == true and range or 0
+		local map = workspace:FindFirstChild("Map")
+		local model = (map and map:FindFirstChild("MoonBase")) or workspace:FindFirstChild("MoonBase")
+		for _, d in model and model:GetDescendants() or {} do
+			if d:IsA("ProximityPrompt") and d.MaxActivationDistance ~= want then
+				d.MaxActivationDistance = want
+			end
+		end
+	end
+
+	-- a new body of his, waiting on the base to stream in: his screen covered
+	-- till it's there (or the server says it isn't going: MoonSpawn Skip)
+	function MBC.cover(char)
+		if player:GetAttribute("MoonBase") ~= true or not char then
+			return
+		end
+		local C = OB.Cover or {}
+		local t0 = os.clock()
+		local function waiting()
+			if not char.Parent or player.Character ~= char or char:GetAttribute("MoonSpawn") == "Skip" or os.clock() - t0 > (C.Time or 4) then
+				return false
+			end
+			local root = char:FindFirstChild("HumanoidRootPart")
+			return not (root and MBC.onBase(root))
+		end
+		if not waiting() then
+			return
+		end
+		local pg = player:FindFirstChildOfClass("PlayerGui")
+		if not pg then
+			return
+		end
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "MoonArrive"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.DisplayOrder = 60
+		-- ((round 100) Stark Street: ink, the base's name in Oswald on the rise)
+		local f = Instance.new("Frame")
+		f.Size = UDim2.fromScale(1, 1)
+		f.BackgroundColor3 = Config.UI.Street.Ink
+		f.BorderSizePixel = 0
+		f.ZIndex = 0 -- ((round 100 review) under the words' scaled root, its sibling now - not a tie)
+		f.Parent = gui
+		local t = HUD.ST.label({
+			Name = "Title", Text = C.Text or "MOON BASE", Size = 48, AlignX = "Center", Rotation = -3, Anchor = Vector2.new(0.5, 0.5),
+			Pos = UDim2.fromScale(0.5, 0.5), Z = 2, Parent = HUD.ST.rootOf(gui), -- (the one UIScale rule)
+		})
+		gui.Parent = pg
+		MBC.coverGui = gui
+		while waiting() do
+			task.wait(0.05)
+		end
+		local fade = C.Fade or 0.35
+		pcall(function()
+			game:GetService("TweenService"):Create(f, TweenInfo.new(fade), { BackgroundTransparency = 1 }):Play()
+			game:GetService("TweenService"):Create(t, TweenInfo.new(fade), { TextTransparency = 1 }):Play()
+		end)
+		task.delay(fade + 0.05, function()
+			pcall(gui.Destroy, gui)
+			if MBC.coverGui == gui then
+				MBC.coverGui = nil
+			end
+		end)
+	end
+	player.CharacterAdded:Connect(function(char)
+		task.spawn(MBC.cover, char)
+	end)
+	if player.Character then
+		task.spawn(MBC.cover, player.Character) -- (the first body: it may be here before this script)
+	end
+
+	RunService.Stepped:Connect(function()
+		local ok, err = pcall(MBC.gravityStep)
+		if not ok then
+			MBC.err = err
+		end
+		pcall(MBC.promptStep, os.clock())
+	end)
+end)()

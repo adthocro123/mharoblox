@@ -5,7 +5,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 98, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 102, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
@@ -15,7 +15,100 @@ videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tool
 
 ---
 
-## Where things stand (Round 98)
+## Where things stand (Round 102)
+
+Round 102 is built on the owner's upload (`FINAL.rbxl`), which is round 98
+plus another session's rounds 99-101. Those three rounds aren't in this
+repo's history, and their tests aren't here; `src/` now holds their
+scripts too. From their own comments:
+- **Round 99:** GODSPEED (dev flight's last speed), outer space and the
+  craters it leaves, Inasa's wind kit, All Might's look brought closer to
+  the anime.
+- **Round 100:** the Stark Street HUD kit (`HUD.ST`): the fight HUD, the
+  top bar, the menus.
+- **Round 101:** JJS-style awakenings with voice lines (`VFX.AK`), and
+  FINAL FORM remade as a rage transformation.
+
+Round 102 changed two scripts (`QuirkConfig`, `VFX`); nothing else in the
+place changed. Not playtested in Studio yet.
+
+The owner: "I want you to research broly's huge transformation in dbz. and
+I already have a good layout for that already in the emote called final
+form, but i need the scale and the transformation to last longer!!!"
+
+**FINAL FORM, the whole song** (`Config.FinalForm`; VFX: the FINAL FORM
+block, `EM.FF`). Round 101's layout is kept for beats 0-8 (the awakening,
+FINAL FORM on the song's first drop at 5.0 s). It now runs 46 beats
+(28.75 s of the song's 30) instead of 12 (7.5 s), in Broly's way: the
+1993 film's Legendary Super Saiyan (body swelling far past his height,
+green hair, blank white eyes, green aura, lightning) and the 2018 film's
+Full Power (a green burst that lights the sky, the Eraser Cannon).
+- **The surge (5.0-13.75 s):** bigger on each of the drop's hits (x1.55
+  at Go to x2.55), the crab flex and the head-back strain in turn. Bigger
+  rocks orbit him and slabs of the street tip up farther out, the cracks
+  grow, bolts land wider and the cloud spreads.
+- **The brink and the silent beat (13.75-15.0 s):** the scream, then the
+  song's one silent beat: the light drains into him again and he's a
+  black figure outlined in light.
+- **LEGENDARY (15.0 s, the second drop):** x3.2, nearly 16 studs tall.
+  The crown pops wilder and goes green, the burst comes again bigger (a
+  360-stud pillar, domes, rings, spray) and leaves a second crater twice
+  as wide.
+- **The hold (15-25 s):** the roar at you, the glare, fists ground
+  together, a flex on every hit.
+- **The Eraser Cannon (20-25 s):** a green ball in his right fist swells
+  on the hits, then he hurls it into the sky (23.75 s) and it goes off up
+  there on the song's last hit (25.0 s), while he laughs.
+- **The power-down (26.25-28.125 s):** steam, and he shrinks back to
+  exactly his own size before his body is given back.
+- **The bulk:** the double is thicker as well as taller (`Double.Bulk`:
+  x1.33 at x3.2). Each limb turns on his own shoulder or hip on the wider
+  torso, his head and what's welded to it aren't bulked (the face and
+  crown ride it), and it's lifted if a spread leg would sink into the
+  street. With no bulk it's exactly round 101's scaling.
+- **His own camera** (`Config.FinalForm.Camera`): `Humanoid.CameraOffset`
+  goes up 3 studs for every 1 he's grown, and the least zoom is pushed out
+  to his zoom at the start x size^0.8 (8-70 studs). Both come back in with
+  him as he shrinks. Each setting is given back exactly at the end (or
+  when it's broken off), unless something else changed it meanwhile; a
+  value changed meanwhile is kept.
+- **New sounds** (all the game's own takes): `FinalFormCharge`,
+  `FinalFormThrow`, `FinalFormSkyBoom` and `FinalFormQuake`. The beds add
+  a second riser into the silent beat, a second scream and a second
+  inhale.
+
+**Known gaps.**
+- How big he looks, the camera's lift and zoom, and the new poses are
+  numbers on paper until someone watches it in Studio. The knobs are
+  `Double` (sizes, `Bulk`), `Camera` and `Legendary`.
+- The server still sees his real body: his hitbox and size never change.
+
+**Tests (round 102).**
+- A client section (pure checks of the size curve, the bulk, the silent
+  beats and the crown, then a full 29-second run on a properly built R6
+  body, one broken off as a giant, and one with a zoom setting changed
+  mid-run). It fails on the upload's sources and passes now.
+- On the upload's sources (before and after round 102) the harness's
+  setup reports three HUD problems that come from round 100's HUD:
+  "kill feed rows: 0", "recap panel missing" and "combo counter didn't
+  reach 3 HITS".
+- **Full server suite**, the upload's sources against round 102's: 1,959
+  passed / 61 failed, and 1,960 passed / 60 failed. The failures are the
+  same apart from two that change from run to run: the emote-roll order
+  check (it fails on both, with different random picks) and the snack
+  machine's "...nobody else can take it" (failed only on the upload's
+  run). Against round 98's run, about 20 more fail on the upload's own
+  sources, all in things rounds 99-101 changed:
+  - the awakening outfits;
+  - moves: Heaven-Piercing, Chimera Kraken, Weather Changer, New Order,
+    Domain Expansion, BREAK and a few more;
+  - round 98's Config check (passes with no Id yet);
+  - the wipe's rebuild hook.
+
+  Round 102 touches none of them. They're unexamined: the old tests may
+  just be out of date.
+
+### Round 98
 
 Round 98 is built on Round 97. It changed four scripts (`QuirkConfig`,
 `HUD`, `QuirkClient`, `QuirkServer`); nothing else in the place changed.
@@ -678,6 +771,18 @@ Found in round 96:
   lands on its building's foot.
 - On the client, Lune's `UserInputService` has no `GetFocusedTextBox`, and
   reading `MouseBehavior` throws. UDim offsets are whole pixels.
+
+Found in round 102:
+- The HUD uses `Font.new` since the owner's round 100: the client
+  harness's script environment has `Font` now.
+- Lune doesn't keep every bit of a `Vector3` property: 0.3 reads back as
+  0.30000305. Tests compare against the value read back after setting it.
+- The client keeps an R15 body; the harness's R6 dummy has every limb at
+  the origin. The round 102 section builds its own R6 body (real
+  proportions and joints) and makes it yours for the run.
+- The main chunk of `client_tests.luau` is at Luau's 200-register limit
+  where the round sections go, so the round 102 section runs in a
+  function of its own.
 
 These checks have failed on and off for many rounds and aren't caused by
 recent work:

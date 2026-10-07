@@ -167,11 +167,16 @@ local PROFILES = {
 	-- torn out of its bed - big pieces, thrown up
 	SeriousPunch = { MinSize = 8, Rim = 3, RimEffect = "crack", Fling = "directional", Speed = { 160, 320 }, Up = { 20, 90 }, Debris = 18, Budget = 260 },
 	TableFlip = { MinSize = 4, Rim = 1.5, RimEffect = "crack", Fling = "up", Speed = { 10, 30 }, Up = { 50, 90 }, Debris = 14, Budget = 220 },
-	-- (round 92) LIGHTWIPE (Config.DevFlight.LightWipe): the crater LIGHTSPEED
-	-- leaves in the street - coarse (every screen's own copy of the city is
-	-- what's blown away), the street thrown out hard and high, the rim
-	-- scorched (its own budget: Config's CraterBudget)
-	LightWipe = { MinSize = 8, Rim = 4, RimEffect = "scorch", Fling = "radial", Speed = { 150, 300 }, Up = { 90, 200 }, Tint = "burnt", FireChance = 0.25, Debris = 40, Budget = 1100 },
+	-- (round 99) CRATERS (Config.DevFlight.Crater): LIGHTSPEED's and
+	-- GODSPEED's crater - the street and everything standing round it blown
+	-- out, coarse (a whole storey at a time: on the real city's densest
+	-- corners its 60-90 stud craters need 560-1340 pieces at this size, under
+	-- the tiers' budgets - r99/out/craters_sims.txt), the rim scorched, the
+	-- chunks thrown out hard and HIGH (its budget the tier's); and the
+	-- buildings round it ripped open where the shock ring hits them (a
+	-- facade's worth, thrown on out)
+	FlightCrater = { MinSize = 12, Rim = 4, RimEffect = "scorch", Fling = "radial", Speed = { 110, 240 }, Up = { 120, 260 }, Tint = "burnt", FireChance = 0.25, Debris = 60, Budget = 1100 },
+	CraterRip = { MinSize = 6, Rim = 2.5, RimEffect = "scorch", Fling = "radial", Speed = { 120, 220 }, Up = { 60, 140 }, Tint = "burnt", FireChance = 0.2, Debris = 16, Budget = 120 },
 }
 Destruction.Profiles = PROFILES
 
@@ -1036,7 +1041,7 @@ function Destruction.RegenerateAll()
 end
 
 -- (round 94) THE CITY BACK WITH A WIPE'S REWIND (the server's
--- Kit.wipeRebuild: the LIGHTSPEED crash, the Serious Punch). Every broken
+-- Kit.wipeRebuild: the Serious Punch - (round 99) the LIGHTSPEED crash is a crater now). Every broken
 -- part of the map within radius studs (flat) of center - from opts.Below
 -- studs under it to opts.Above over it - put back now, its fragments gone.
 -- opts:

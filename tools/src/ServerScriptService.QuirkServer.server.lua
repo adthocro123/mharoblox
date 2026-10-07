@@ -10865,10 +10865,27 @@ end
 
 local ultTokens = {}
 
+-- (round 101 review) an awakening called off - the ult ended under it (a
+-- ranked reset, EndUlt) or another hero picked - takes its lock with it:
+-- his screen isn't held for the rest of the 1.6 s after its camera's come
+-- back. Only the awakening's own lock (a longer CombatActionUntil a move
+-- put on is left alone).
+function Kit.awakenOff(char)
+	local untilAt = char and char:GetAttribute("AwakeningUntil")
+	if type(untilAt) ~= "number" then
+		return
+	end
+	char:SetAttribute("AwakeningUntil", nil)
+	if untilAt > workspace:GetServerTimeNow() and char:GetAttribute("CombatActionUntil") == untilAt then
+		char:SetAttribute("CombatActionUntil", nil)
+	end
+end
+
 local function endUlt(player, char, silent)
 	local quirk = Config.Quirks[player:GetAttribute("Quirk") or ""]
 	if char then
 		endKaiju(char) -- the kaiju comes apart with the ult
+		Kit.awakenOff(char) -- ((round 101 review) and an awakening still going, its lock)
 	end
 	ultTokens[player] = (ultTokens[player] or 0) + 1
 	player:SetAttribute("UltActive", false)
@@ -10916,31 +10933,49 @@ local function activateUlt(player, char, root)
 		player:SetAttribute("QuirkAlt", true)
 		player:SetAttribute("AltEnds", nil)
 	end
-	applyPassives(player, char, false)
-	-- (popping it is never punished: untouchable through the awakening)
-	local cine = Config.Cinematics
-	iFrames[char] = math.max(iFrames[char] or 0, os.clock() + math.max(ULT.ActivationArmor or 1.3, (cine and cine.AwakeningArmor) or 0))
+	-- (round 101) THE AWAKENING, JJS-style (Config.Awaken, VFX.AK): from the
+	-- press he's locked (no moves, AwakeningUntil holds his screen's inputs and
+	-- walk - with cinematics off too) and untouchable through all of it and a
+	-- little ping after (ActivationArmor 1.75 > Release 1.6); what it does to
+	-- the world - his size and look, the blast, the crater, Twice's doubles,
+	-- Hawks' feathers, Gojo's domain - happens ON his pose's hit (his row's
+	-- HitAt or HitAt), called off if he dies, swaps hero or the ult's ended
+	-- (a ranked reset) by then. The ult's timer runs from the press, as before.
+	local AW = Config.Awaken or {}
+	local nowS = workspace:GetServerTimeNow()
+	char:SetAttribute("UltActive", true)
+	char:SetAttribute("AwakeningUntil", nowS + (AW.Release or 1.6))
+	char:SetAttribute("CombatActionUntil", math.max(char:GetAttribute("CombatActionUntil") or 0, nowS + (AW.Release or 1.6)))
+	iFrames[char] = math.max(iFrames[char] or 0, os.clock() + (ULT.ActivationArmor or AW.Armor or 1.75))
 	broadcast("UltActivate", char, { Quirk = quirkName }, player)
-	if Kit.TW and quirkName == "Double" then
-		task.spawn(Kit.TW.parade, player, char) -- (round 69: Sad Man's Parade - they pour out of him)
-	end
-	if Kit.HK and quirkName == "FierceWings" then
-		Kit.HK.awaken(player, char) -- (round 86: Hawks' Overgrowth - full, and past it)
-	end
-	-- the awakening blasts everyone nearby away
-	local center = root.Position
-	for _, model in queryRadius(char, center, ULT.ActivationRadius) do
-		if damage(player, model, ULT.ActivationDamage) then
-			knockback(model, awayFrom(center, model, root.CFrame.LookVector) * 95 + UP * 45, 0.25)
-			stun(model, 0.8)
+	local row = (AW.Heroes or {})[quirkName] or {}
+	task.delay(tonumber(row.HitAt) or AW.HitAt or 0.3, function()
+		if ultTokens[player] ~= token or player.Character ~= char or not alive(char) or not root.Parent
+			or player:GetAttribute("UltActive") ~= true or player:GetAttribute("Quirk") ~= quirkName then
+			return
 		end
-	end
-	Destruction.Sphere(center, quirkName == "Decay" and 18 or 10, quirkName == "Decay" and "Decay" or "Crater")
-	if ult.DomainRadius then
-		task.spawn(expandDomain, char, center, ult, token, function(t)
-			return ultTokens[player] == t and player:GetAttribute("UltActive") == true
-		end)
-	end
+		applyPassives(player, char, false)
+		if Kit.TW and quirkName == "Double" then
+			task.spawn(Kit.TW.parade, player, char) -- (round 69: Sad Man's Parade - they pour out of him)
+		end
+		if Kit.HK and quirkName == "FierceWings" then
+			Kit.HK.awaken(player, char) -- (round 86: Hawks' Overgrowth - full, and past it)
+		end
+		-- the awakening blasts everyone nearby away
+		local center = root.Position
+		for _, model in queryRadius(char, center, ULT.ActivationRadius) do
+			if damage(player, model, ULT.ActivationDamage) then
+				knockback(model, awayFrom(center, model, root.CFrame.LookVector) * 95 + UP * 45, 0.25)
+				stun(model, 0.8)
+			end
+		end
+		Destruction.Sphere(center, quirkName == "Decay" and 18 or 10, quirkName == "Decay" and "Decay" or "Crater")
+		if ult.DomainRadius then
+			task.spawn(expandDomain, char, center, ult, token, function(t)
+				return ultTokens[player] == t and player:GetAttribute("UltActive") == true
+			end)
+		end
+	end)
 	-- (server settings: Infinite Ult keeps it going - the timer stays full)
 	local function timer(wait)
 		task.delay(wait, function()
@@ -11895,6 +11930,7 @@ local function applyQuirk(player, quirkName)
 	player:SetAttribute("AltEnds", nil)
 	player:SetAttribute("QuirkPick", 1)
 	if player.Character then
+		Kit.awakenOff(player.Character) -- ((round 101 review) an awakening still going: its lock off)
 		applyPassives(player, player.Character, true)
 	end
 end
@@ -16456,10 +16492,25 @@ do
 		end
 		local max = (ult.Special and ult.Special.Max) or 6
 		local n = math.min(ult.Burst or 4, max - #TW.of(player, true))
+		-- ((round 101 review) behind him either side, facing his way, both sides
+		-- in turn (Config.Awaken.Double.Real), pulled in short of a wall: on a
+		-- world-aligned ring of 4 one could pour out right in front of him -
+		-- between his awakening's camera and his pose - and the ones beside
+		-- him walled his cut-in in black)
+		local R = ((Config.Awaken or {}).Double or {}).Real or {}
+		local arc, out = R.Arc or { 115, 145 }, R.Radius or 6
+		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		local d = look.Magnitude > 0.05 and look.Unit or Vector3.new(0, 0, -1)
+		local right = d:Cross(Vector3.yAxis)
+		local per = math.max(math.ceil(n / 2), 1)
 		for i = 1, n do
-			local a = (i / math.max(n, 1)) * math.pi * 2
-			local at = root.Position + Vector3.new(math.cos(a), 0, math.sin(a)) * 4
-			TW.spawn(player, char, char, CFrame.lookAt(at, at + (at - root.Position)), "Self")
+			local side = i % 2 == 0 and -1 or 1
+			local k = per > 1 and math.floor((i - 1) / 2) / (per - 1) or 0.5
+			local a = math.rad(arc[1] + (arc[2] - arc[1]) * k)
+			local dir = d * math.cos(a) + right * side * math.sin(a)
+			local reach = math.max(math.min(out, wallDistance(char, root.Position, dir, out) - 1.5), 1)
+			local at = root.Position + dir * reach
+			TW.spawn(player, char, char, CFrame.lookAt(at, at + d), "Self")
 		end
 	end
 
@@ -27494,7 +27545,7 @@ do
 			end
 		end)
 		-- (round 94) the trench and the crater come back with the city
-		-- (Kit.wipeRebuild: defined with the light wipe's, further down)
+		-- (Kit.wipeRebuild: its own block further down - (round 99) moved out of the light wipe's when that went)
 		if Kit.wipeRebuild then
 			Kit.wipeRebuild(origin, Config.SeriousWave, ability, d, (Config.Saitama or {}).Wipe, {
 				Radius = ability.Radius or 1700, Above = ability.Above or 320, Below = ability.Below or 140,
@@ -27533,53 +27584,49 @@ do
 end
 
 ---------------------------------------------------------------------------
--- (round 92) LIGHTWIPE (Config.DevFlight.LightWipe): LIGHTSPEED INTO THE
--- GROUND - THE END OF THE MAP. His crash at LIGHTSPEED (a DevLand his
--- machine marks Light: DF.land asks here before the bomb) is checked the way
--- the flight is - the dev gate and his switch are DF.relay's; the speed is
--- the server's own view of him (its peak at MinSeen+, asked again a few
--- times before it's the bomb after all), never his word alone - and goes
--- off once a server every Cooldown s. Then everyone's told (LightWipeGo, and
--- workspace's LightWipe for whoever joins while it plays) and every screen
--- blows its own copy of the city away from the crater (VFX.LWX over
--- VFX.ST.World). Here: everyone in the city hit as the wave gets to them
--- (Config.LightWave - the law every screen draws; with falloff, capped,
--- never a one-shot; thrown straight out from it but kept on the map:
--- Kit.ST.keepOn), and the real map's crater and the furrows torn out from it
--- (the Serious Punch's budget), which grow back. Nothing per part of the
--- city here: a full server costs what one player does.
--- Also Destruction.LightWipe (the tests reach it there).
--- (No new top-level locals: the server's main chunk is at its limit. Round
--- 87's lesson: plain tables, cleared on every way out.)
+-- (round 99) CRATERS (Config.DevFlight.Crater): LIGHTSPEED AND GODSPEED
+-- INTO THE GROUND. The owner: "get rid of lightwipe just make the crater
+-- bigger, for both lightspeed and godspeed". Round 92's LIGHTWIPE (the
+-- whole map wiped and put back) is gone; his crash at LIGHTSPEED (a
+-- DevLand his machine marks Crater "Light") or GODSPEED ("God") is a crater
+-- - the mach burst's bomb (Kit.FB) grown far past it. Checked the way the
+-- flight is: the dev gate and his switch are DF.relay's, the destructive
+-- extras FULL POWER's (Kit.DF.fullPower - anyone else's crash is what the
+-- bomb does for them), the speed the server's own view of him (its peak at
+-- the tier's MinSeen; GODSPEED's: Kit.GOD.impactOk - asked again a few
+-- times before it's the bomb after all), never his word alone. Then:
+-- everyone else shown it (DevFly Kind Crater: every screen's blast,
+-- fireball, ring, dust, cloud - VFX.CTX); the real map's crater (at once)
+-- and the buildings round it ripped open where the ring meets them; everyone within Reach blown away as the ring gets to
+-- them (the rules every knock goes by - Kit.DF.canKnock, a ranked duel's two
+-- left alone - with falloff, capped: nobody one-shot; thrown straight out
+-- but never off the city). The carving comes out of one bucket for the
+-- whole server (Carve), so craters in a row can't stall it; the map grows
+-- back on Destruction's own timer. Also Destruction.Craters (the tests reach
+-- it there). (No new top-level locals: the server's main chunk is at its
+-- limit. Round 87's lesson: plain tables, cleared on every way out.)
 ---------------------------------------------------------------------------
 do
 	local DEV = Config.DevFlight or {}
-	local LWC = DEV.LightWipe or {}
-	local LW = {
-		lastAt = -1e9, -- (os.clock of the last one: one a server each Cooldown s)
-		n = 0, -- (how many so far: each one's Id)
+	local CC = DEV.Crater or {}
+	local CT = {
 		pending = {}, -- [player] = true: his crash waits on the server's own view of him
+		spent = { Level = 0, At = -1e9 }, -- the server's carve bucket (Carve: every crater's)
+		n = 0, -- (each crater's Id)
 	}
-	Kit.LW = LW
-	Destruction.LightWipe = LW
+	Kit.CT = CT
+	Destruction.Craters = CT
 
-	function LW.ready()
-		return LWC.Enabled ~= false and os.clock() - LW.lastAt >= (LWC.Cooldown or 30)
-	end
-	function LW.carving()
+	function CT.carving()
 		return workspace:GetAttribute("DestructionEnabled") ~= false
 	end
-	-- whether he may end the map: a dev - and, with round 92's flightgrant
-	-- (Kit.DF.fullPower, once it's merged), a granted flyer only with FULL
-	-- POWER (till then DF.relay's own gate is the dev's)
-	function LW.fullPower(player)
-		local DF = Kit.DF
-		return not (DF and DF.fullPower) or DF.fullPower(player) == true
+	-- a crater's his to make: a dev's, or a grant's with FULL POWER (Kit.DF.fullPower)
+	function CT.fullPower(player)
+		return Kit.DF ~= nil and Kit.DF.fullPower(player) == true
 	end
-	-- everyone the wave can reach (Saitama's list: the players' bodies -
-	-- not anyone in the Vestige Realm - the dummies, Twice's doubles, the
-	-- raid's Nomu)
-	function LW.bodies()
+	-- everyone a crater can reach (Saitama's list: the players' bodies - not
+	-- anyone in the Vestige Realm - the dummies, Twice's doubles, the raid's Nomu)
+	function CT.bodies()
 		if Kit.ST and Kit.ST.bodies then
 			return Kit.ST.bodies()
 		end
@@ -27591,37 +27638,10 @@ do
 		end
 		return list
 	end
-	-- how much of the wave reaches someone `dist` studs (flat) from the
-	-- crater: all of it within Damage.Full, none past Wave.Reach (Curve)
-	function LW.k(dist)
-		local D = LWC.Damage or {}
-		local reach = (LWC.Wave or {}).Reach or 1300
-		local full = D.Full or 40
-		local a = math.clamp(((tonumber(dist) or math.huge) - full) / math.max(reach - full, 1), 0, 1)
-		if a ~= a then
-			a = 1
-		end
-		return (1 - a) ^ (D.Curve or 2)
-	end
-	-- that much of it: the damage (before the cap), the throw out, the lift,
-	-- how long off their feet
-	function LW.amounts(k)
-		local D, PU, LI, DN = LWC.Damage or {}, LWC.Push or {}, LWC.Lift or {}, LWC.Down or {}
-		local function at(near, far)
-			return far + (near - far) * k
-		end
-		return at(D.Near or 70, D.Far or 14), at(PU.Near or 260, PU.Far or 110), at(LI.Near or 140, LI.Far or 70), at(DN.Near or 2.8, DN.Far or 1.8)
-	end
-
-	-- ((round 92 review) the crater on the city's own street: straight down
-	-- from where DF.land put the crash. That's his machine's word when it's
-	-- near the server's view of him - else that view, a beat behind him at
-	-- 1400 studs/s: over the roof he came down on, or up in the air, where
-	-- groundBelow's 40 studs find nothing - and the end of the map went off
-	-- up there: nobody in the hits' reach under it, every screen's crater,
-	-- pillar and cloud hung in the sky. The map's Roads / Ground, at most
-	-- Snap studs down; nil: none of the city under it (left as it was)
-	function LW.street(p)
+	-- the city's street under p (the map's Roads / Ground - never a roof - at
+	-- most Snap studs down), or nil: none of the city under it. (GODSPEED's
+	-- holes keep off it: Kit.GOD.smash)
+	function CT.street(p)
 		local map = workspace:FindFirstChild("Map")
 		local list = {}
 		for _, name in { "Roads", "Ground" } do
@@ -27636,59 +27656,122 @@ do
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Include
 		params.FilterDescendantsInstances = list
-		local hit = workspace:Raycast(p + UP * 4, UP * -(LWC.Snap or 600), params)
+		local hit = workspace:Raycast(p + UP * 4, UP * -(CC.Snap or 600), params)
 		return hit and hit.Position or nil
 	end
+	-- what's under the crash: the map's first surface (a roof, the street) at
+	-- most Snap studs down - DF.land's (groundBelow's 40 studs under the
+	-- server's view of him, a beat behind at these speeds) can be up in the
+	-- air (round 92's review); nil: nothing under it (left as it was)
+	function CT.ground(p)
+		if typeof(p) ~= "Vector3" or p ~= p or not (Kit.FB and Kit.FB.cast) then
+			return nil
+		end
+		local hit = Kit.FB.cast(p + UP * 4, UP * -((CC.Snap or 600) + 4))
+		return hit and hit.Position or nil
+	end
+	-- a part a rip may blow open: the map's breakable (Kit.FB's rule) - never
+	-- the street (Roads / Ground)
+	function CT.rippable(part)
+		if not (Kit.FB and Kit.FB.breakable(part)) then
+			return false
+		end
+		local map = workspace:FindFirstChild("Map")
+		for _, name in { "Roads", "Ground" } do
+			local f = map and map:FindFirstChild(name)
+			if f and part:IsDescendantOf(f) then
+				return false
+			end
+		end
+		return true
+	end
+	-- the server's carve bucket (Carve: Rate a second, Burst at once - every
+	-- crater's, whoever's): up to `want` pieces if there are at least Min (or
+	-- want, if that's less) left, else nil - too little left to carve (it
+	-- still hurts and shows)
+	function CT.budget(want)
+		local C = CC.Carve or {}
+		local now = os.clock()
+		local s = CT.spent
+		local level = math.max(s.Level - (now - s.At) * (C.Rate or 450), 0)
+		local give = math.min(want, (C.Burst or 2400) - level)
+		if not (give >= math.min(C.Min or 200, want)) then
+			CT.spent = { Level = level, At = now }
+			return nil
+		end
+		CT.spent = { Level = level + give, At = now }
+		return math.floor(give)
+	end
 
-	-- (from DF.land) his crash, his machine says at LIGHTSPEED (data.Light).
-	-- true: it's this one's - gone off now, or once the server's own view of
-	-- him catches up (the bomb a moment later if it never does); false: the
-	-- crash goes on as ever (the bomb, the crater). seen: the server's view
-	function LW.impact(player, char, ground, data, seen)
+	-- (from DF.land) his crash, his machine says at LIGHTSPEED or GODSPEED
+	-- (data.Crater). true: it's a crater's - gone off now, or once the
+	-- server's own view of him has caught up (the bomb a moment later if it
+	-- never does); false: the crash goes on as ever (the bomb, the crater).
+	-- seen: the server's view of his speed
+	function CT.crash(player, char, ground, data, seen)
+		local want = data.Crater
+		if CC.Enabled == false or CT.pending[player] or (want ~= "Light" and want ~= "God") then
+			return false
+		end
+		local LT = CC.Light or {}
 		local claimed = tonumber(data.Speed) or 0
-		if LW.pending[player] or not (claimed == claimed and claimed >= (LWC.Speed or 1100)) then
+		if not (claimed == claimed and claimed >= (LT.Speed or 1100)) then
+			return false -- (his machine's word below LIGHTSPEED: the bomb's)
+		end
+		if not CT.fullPower(player) then
+			return false -- (no FULL POWER: what the bomb does for him)
+		end
+		-- ((round 99 review) the city's only, as LIGHTWIPE had it: its street
+		-- under the crash within Snap studs. The Sky Coffin's floor (1600 up -
+		-- the ranked duels' stage is Destroyable: a 90-stud crater would take
+		-- it out from under a duel) or anywhere off the map: the bomb, as ever.
+		-- His machine asks the same before it plays one - DevFly.CT.city)
+		if typeof(ground) ~= "Vector3" or not CT.street(ground) then
 			return false
 		end
-		if not LW.fullPower(player) then
-			return false
+		seen = tonumber(seen) or 0
+		ground = CT.ground(ground) or ground
+		local function tierOf(s)
+			if want == "God" and Kit.GOD and Kit.GOD.impactOk(player, char, s) then
+				return "God"
+			end
+			return s >= (LT.MinSeen or 1000) and "Light" or nil
 		end
-		-- ((round 92 review) on the city's street under it (LW.street)
-		ground = LW.street(ground) or ground
-		-- (another went off a moment ago, and his machine hadn't heard yet:
-		-- the bomb, and his screen - which played the light's impact - told)
-		if not LW.ready() then
-			return LW.refuse(player, char, ground, data, seen)
-		end
-		if seen >= (LWC.MinSeen or 1000) then
-			LW.go(player, char, ground, data)
+		local tier = tierOf(seen)
+		if tier then
+			CT.go(player, char, ground, tier)
 			return true
 		end
 		-- (round 89's lesson: his machine meets the street before the server's
-		-- view of him has caught up - asked again on its own view, not dropped;
-		-- never for a crash it's seen no faster than a bomb's: that's the
-		-- crash as ever, his screen told)
+		-- view of him has caught up - asked again on its own view, not
+		-- dropped; never for a crash it's seen no faster than a bomb's: that's
+		-- the crash as ever)
 		if not (seen >= ((DEV.Bomb or {}).Speed or 420)) then
-			return LW.refuse(player, char, ground, data, seen)
+			return false
 		end
-		local RT = LWC.Retry or {}
+		local RT = CC.Retry or {}
 		local seen0 = seen
-		LW.pending[player] = true
+		CT.pending[player] = true
 		local function try(again)
 			if not (player.Parent and char.Parent and player.Character == char) then
-				LW.pending[player] = nil
+				CT.pending[player] = nil
 				return
 			end
 			local now = Kit.DF.speedOf(char)
-			if now >= (LWC.MinSeen or 1000) and LW.ready() then
-				LW.pending[player] = nil
-				LW.go(player, char, ground, data)
+			local t = tierOf(now)
+			if t then
+				CT.pending[player] = nil
+				CT.go(player, char, ground, t)
 			elseif again < (RT.Times or 3) then
 				task.delay(RT.Wait or 0.1, function()
 					try(again + 1)
 				end)
 			else
-				LW.pending[player] = nil
-				LW.refuse(player, char, ground, data, math.max(seen0, now)) -- (the bomb it would have been: the speed it saw at first)
+				CT.pending[player] = nil
+				-- (the bomb it would have been: the speed it saw at first)
+				if Kit.FB then
+					Kit.FB.bomb(player, char, ground, claimed, math.max(seen0, now))
+				end
 			end
 		end
 		task.delay(RT.Wait or 0.1, function()
@@ -27696,76 +27779,57 @@ do
 		end)
 		return true
 	end
-	-- not the end of the map after all: the bomb (Kit.FB's, by what the
-	-- server did see), and his own screen - which played the light's impact -
-	-- told so. true: the bomb went off (false: the crash's crater is DF.land's)
-	function LW.refuse(player, char, ground, data, seen)
-		local B = DEV.Bomb or {}
-		local went = Kit.FB ~= nil and Kit.FB.bomb(player, char, ground, tonumber(data.Speed), seen)
-		local info = {}
-		if went then
-			local claimed = tonumber(data.Speed) or seen
-			local k, R = B.power(math.min(claimed == claimed and claimed or seen, seen * (B.Seen or 1.15) + (B.Slack or 40), (DEV.Boost or {}).Cap or 980))
-			info = { Pos = ground, Radius = R, K = k, Speed = seen }
-		end
-		pcall(function()
-			PlayVFX:FireClient(player, "LightWipeNo", char, info)
-		end)
-		return went == true
-	end
 
-	-- IT GOES OFF: everyone told (and the last one kept on workspace), the
-	-- wave sent out over the city
-	function LW.go(player, char, ground, data)
-		LW.lastAt = os.clock()
-		LW.n += 1
-		local id = LW.n
-		local at = workspace:GetServerTimeNow()
-		local hit = Kit.DF.vec(data.Hit) and data.Hit or ground
-		if (hit - ground).Magnitude > (LWC.Drop or 220) + 20 then
-			hit = ground
-		end
-		workspace:SetAttribute("LightWipe", LWC.encode(id, ground, at))
-		local okName, name = pcall(function()
-			return player.DisplayName
-		end)
-		broadcast("LightWipeGo", char, { Id = id, Origin = ground, Hit = hit, At = at, Name = okName and name or nil })
-		LW.blast(player, char, ground)
+	-- IT GOES OFF: everyone else shown it (his own screen played it as he
+	-- hit), the blast sent out over the city
+	function CT.go(player, char, ground, tier)
+		local T = CC[tier] or {}
+		CT.n += 1
+		local id = CT.n
+		broadcast("DevFly", char, { Kind = "Crater", Tier = tier, Pos = ground, Radius = T.Radius or 60, Id = id }, player)
+		local events = CT.blast(player, char, ground, tier)
+		CT.last = { Id = id, Tier = tier, Pos = ground, At = os.clock(), Events = events }
 		return id
 	end
 
-	-- the wave: everyone in reach as it gets to them, the crater now and
-	-- each furrow as it gets out along it
-	function LW.blast(player, char, origin)
-		local WV = LWC.Wave or {}
+	-- the blast: the crater now, the buildings round it ripped open where the
+	-- ring meets them, everyone in reach hit as it gets to them - each when
+	-- the ring's law says. Returns the events (T: s after the impact)
+	function CT.blast(player, char, origin, tier)
+		local T = CC[tier] or {}
+		local R = T.Radius or 60
 		local events = {}
-		for _, model in LW.bodies() do
-			local mr = model ~= char and model:FindFirstChild("HumanoidRootPart")
-			if mr then
-				local p = mr.Position
-				local flat = Vector3.new(p.X - origin.X, 0, p.Z - origin.Z).Magnitude
-				if flat <= (LWC.Radius or 1800) and p.Y - origin.Y <= (LWC.Above or 320) and origin.Y - p.Y <= (LWC.Below or 140) then
-					table.insert(events, { T = (Config.LightWave(WV, origin, nil, p)), Model = model })
-				end
-			end
-		end
-		local n = LWC.Furrows or 6
-		local fr = LWC.FurrowRadius or 14
+		-- the crater (one carve: in stages it cost the server a third more - each
+		-- re-cut what the last had cut - r99/out/craters_sims.txt)
+		table.insert(events, { T = 0, Crater = true })
+		-- the buildings round it: the first each line out meets past the
+		-- crater's edge (looked for now: the crater's own carve won't reach it)
+		local RP = T.Rips or {}
+		local n = RP.Count or 0
 		local a0 = math.random() * math.pi * 2
 		for i = 1, n do
 			local a = a0 + (i - 1) / n * math.pi * 2
 			local u = Vector3.new(math.cos(a), 0, math.sin(a))
-			local from = Vector3.new(origin.X, origin.Y + fr * 0.75, origin.Z) + u * (LWC.FurrowStart or 30)
-			local to = from + u * (LWC.FurrowLength or 240)
-			table.insert(events, { T = (Config.LightWave(WV, origin, nil, (from + to) / 2)), Carve = { from, to, u } })
+			local from = origin + UP * (R * (RP.Height or 0.35)) + u * R
+			local hit = Kit.FB and Kit.FB.cast(from, u * math.max((RP.Reach or 130) - R, 1)) or nil
+			if hit and CT.rippable(hit.Instance) then
+				table.insert(events, { T = CC.arrive(T, (hit.Position - origin).Magnitude), Rip = { hit.Position, u } })
+			end
+		end
+		-- everyone in reach (not him)
+		for _, model in CT.bodies() do
+			local mr = model ~= char and model:FindFirstChild("HumanoidRootPart")
+			if mr then
+				local d = (mr.Position - origin).Magnitude
+				if d <= (T.Reach or 200) then
+					local flat = Vector3.new(mr.Position.X - origin.X, 0, mr.Position.Z - origin.Z).Magnitude
+					table.insert(events, { T = CC.arrive(T, flat), Model = model })
+				end
+			end
 		end
 		table.sort(events, function(x, y)
 			return x.T < y.T
 		end)
-		local R = LWC.Crater or 34
-		if LW.carving() then
-			Destruction.Sphere(origin + UP * R * 0.2, R, LWC.Profile or "LightWipe", UP, { Budget = LWC.CraterBudget or 1100 })
-		end
 		local t0 = os.clock()
 		task.spawn(function()
 			for _, e in events do
@@ -27773,54 +27837,89 @@ do
 				if wait > 0 then
 					task.wait(wait)
 				end
-				-- ((round 92 review) each on its own: one body that errors (gone
-				-- mid-hit, its maker gone) no longer ends the wave for everyone
-				-- after it, nor the furrows still to come)
+				-- (each on its own: one that errors - a body gone mid-hit -
+				-- doesn't end it for everything after it)
 				local ok, err = pcall(function()
-					if e.Carve then
-						if LW.carving() then
-							Destruction.Capsule(e.Carve[1], e.Carve[2], fr, LWC.FurrowProfile or "SeriousPunch", e.Carve[3], { Above = origin.Y + 0.5, Budget = LWC.FurrowBudget or 210 })
-						end
+					if e.Crater then
+						CT.carve(origin + UP * R * (T.Lift or 0.2), R, T.Profile or "FlightCrater", UP, T.Budget or 1100)
+					elseif e.Rip then
+						local r = RP.Radius or 16
+						CT.carve(e.Rip[1] + e.Rip[2] * r * 0.6, r, RP.Profile or "CraterRip", e.Rip[2], RP.Budget or 120)
 					elseif e.Model.Parent then
-						LW.hit(player, char, e.Model, origin)
+						CT.hit(player, char, e.Model, origin, T)
 					end
 				end)
 				if not ok then
-					warn("[LightWipe] " .. tostring(err))
+					warn("[Craters] " .. tostring(err))
 				end
 			end
 		end)
-		-- (round 94) what it carved comes back with the city
-		Kit.wipeRebuild(origin, Config.LightWave, WV, nil, LW.style(), { Radius = LWC.Radius or 1800, Above = LWC.Above or 320, Below = LWC.Below or 140, Street = origin.Y })
 		return events
 	end
-
-	-- the wave reaching someone: hit by how near the crater they are (never
-	-- more than MaxShare of their max health), thrown straight out from it
-	-- (never off the city), off their feet - by the rules every hit goes by
-	function LW.hit(player, char, model, origin)
-		local mr = model:FindFirstChild("HumanoidRootPart")
-		local hum = model:FindFirstChildOfClass("Humanoid")
-		if not mr or not hum or model == char or not (Kit.DF and Kit.DF.canKnock(player, model, true)) then
+	-- one carve out of the bucket (as much as is left, up to want): true if it carved
+	function CT.carve(center, r, profile, dir, want)
+		if not CT.carving() then
 			return false
 		end
-		local rel = Vector3.new(mr.Position.X - origin.X, 0, mr.Position.Z - origin.Z)
-		local k = LW.k(rel.Magnitude)
-		local amount, push, lift, down = LW.amounts(k)
-		amount = math.min(amount, hum.MaxHealth * (LWC.MaxShare or 0.3))
-		if not damage(player, model, amount, { From = origin, Heavy = true, Unblockable = true, HitsDowned = true, Quiet = true, Hitstop = k > 0.6 and 0.08 or nil }) then
+		local got = CT.budget(want)
+		if not got then
 			return false
 		end
-		local out = rel.Magnitude > 0.5 and rel.Unit or Vector3.new(1, 0, 0)
-		local throw = out * push
-		if Kit.ST and Kit.ST.keepOn then
-			throw = Kit.ST.keepOn(mr.Position, throw, lift, LWC.PushTime or 0.35, LWC.Edge or 40)
-		end
-		knockback(model, throw + UP * lift, LWC.PushTime or 0.35)
-		ragdoll(model, down)
+		Destruction.Sphere(center, r, profile, dir, { Budget = got })
 		return true
 	end
 
+	-- the ring reaching someone: hit by how near the crater they are (never
+	-- more than MaxShare of their max health - the bomb's cap), thrown
+	-- straight out from it (never off the city), off their feet - by the
+	-- rules every hit goes by (one the flight's own ram knocked down a moment
+	-- ago, right where he came down, is still hit: the bomb's RamGrace)
+	function CT.hit(player, char, model, origin, T)
+		local mr = model:FindFirstChild("HumanoidRootPart")
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if not mr or not hum or model == char or not Kit.DF then
+			return false
+		end
+		local rammed = os.clock() - ((Kit.DF.rammed or {})[model] or -1e9) < (CC.RamGrace or 0.75)
+		if not Kit.DF.canKnock(player, model, rammed) then
+			return false
+		end
+		if Reactions.RK and Reactions.RK.apart(player, model) then
+			return false -- (a ranked duel's two: left alone)
+		end
+		local rel = mr.Position - origin
+		local amount, out, up, down = CC.amounts(T, rel.Magnitude)
+		if not (amount > 0) then
+			return false
+		end
+		amount = math.min(amount, hum.MaxHealth * (T.MaxShare or 0.3))
+		if not damage(player, model, amount, { From = origin, Heavy = true, Unblockable = true, Quiet = true, NoKnockdown = true, HitsDowned = rammed or nil, Hitstop = rel.Magnitude < (T.Radius or 60) and 0.1 or nil }) then
+			return false
+		end
+		local flat = Vector3.new(rel.X, 0, rel.Z)
+		local away = flat.Magnitude > 0.5 and flat.Unit or Vector3.new(1, 0, 0)
+		local throw = away * out
+		if Kit.ST and Kit.ST.keepOn then
+			throw = Kit.ST.keepOn(mr.Position, throw, up, T.PushTime or 0.35, T.KeepEdge or 40)
+		end
+		ragdoll(model, down)
+		knockback(model, throw + UP * up, T.PushTime or 0.35)
+		return true
+	end
+
+	Players.PlayerRemoving:Connect(function(plr)
+		CT.pending[plr] = nil
+	end)
+end
+
+---------------------------------------------------------------------------
+-- (round 94) THE CITY BACK WITH THE REWIND (Kit.wipeRebuild - the Serious
+-- Punch's). ((round 99, craters) moved here, as it was, out of round 92's
+-- LIGHTWIPE block when LIGHTWIPE went: the crater it rebuilt is gone - the
+-- LIGHTSPEED crash is a crater now, back on Destruction's own timer - and
+-- the punch still wipes the city and puts it back with this)
+---------------------------------------------------------------------------
+do
 	-- (round 94) THE CITY BACK WITH THE REWIND. The owner: "when doing the
 	-- hyperspace dev flying and then crashing into the ground, the map is
 	-- purposely wiped out and then brought back. but the map does not look
@@ -27848,10 +27947,10 @@ do
 	-- him). Not when the server keeps the city broken (Destruction Respawns
 	-- off: MapRegen). A newer wipe's rebuild takes over from an older one's
 	-- (it puts back everything anyway).
-	--   law / spec / d: the wave's (Config.LightWave / Config.SeriousWave);
+	--   law / spec / d: the wave's (Config.SeriousWave);
 	--   W: the wipe's numbers (Hold, RewindSpan, RewindTime, Foundation,
 	--   Folders); band: { Radius, Above, Below, Street, Center }
-	-- Returns the plan: { Mid, End (s from now), step(which) } (also LW.lastPlan).
+	-- Returns the plan: { Mid, End (s from now), step(which) } (also Kit.wipeRebuildLast).
 	function Kit.wipeRebuild(origin, law, spec, d, W, band)
 		W = W or {}
 		band = band or {}
@@ -27916,22 +28015,490 @@ do
 		end
 		task.delay(plan.Mid, plan.step, "Mid")
 		task.delay(plan.End, plan.step, "End")
-		LW.lastPlan = plan
+		Kit.wipeRebuildLast = plan
 		return plan
 	end
-	-- (the tests reach it, and the last plan, through Destruction.LightWipe)
-	LW.rebuild = Kit.wipeRebuild
-	-- the light wipe's numbers: the punch's (Config.Saitama.Wipe) with the
-	-- light's (LightWipe.World) on top - every screen's (VFX.LWX.style)
-	function LW.style()
-		if not LW.W then
-			LW.W = setmetatable(table.clone(LWC.World or {}), { __index = (Config.Saitama or {}).Wipe or {} })
-		end
-		return LW.W
+	-- ((round 99, craters) the tests reach it here: LIGHTWIPE's table, where they did, is gone)
+	Destruction.WipeRebuild = Kit.wipeRebuild
+end
+
+---------------------------------------------------------------------------
+-- (round 99) GODSPEED (Config.DevFlight.God): THE LAST SPEED - THE STRONGEST
+-- THING IN THE GAME GOING OFF (the owner: "think of just a huge impact and
+-- BOOM!!! godspeed"). His own machine flies him (as ever); here, by the
+-- flight's own gates (DF.relay: a dev or a grant, his switch), everything
+-- that touches anyone else:
+--   THE CHARGE (DevGodCharge): shown to everyone else only at a speed the
+--     server's seen him reach (Seen x LIGHTSPEED, asked again a few times -
+--     round 89's lesson); from then on the city round the middle is asked
+--     for ahead of him (Stream: he crosses it in under a second)
+--   THE BOOM (DevGod): never carrying someone; once a Cooldown at most; at a
+--     speed the server's seen him reach (asked again) - everyone else told
+--     (where, which way: every screen's sphere, rings, glass, the late
+--     boom), and everyone within Boom.Reach of him blown off their feet (the
+--     flight's own rules - Kit.DF.canKnock - and a ranked duel's two left
+--     alone; a hit only with FULL POWER, small, capped: GS.throw)
+--   AT GODSPEED (GS.active: from THE BOOM till his machine says he's out,
+--     his tier's said otherwise for Grace s, or he's down): the people near
+--     his line blown away (GS.wake - the server's own view of his path,
+--     swept between its looks at him, as the ram is); the buildings he goes
+--     through blown open (GS.smash, from DF.smash: FULL POWER's explosions
+--     out of his carve bucket, else LIGHTSPEED's plain hole - clamped to
+--     where the server sees him, never the street); the map ahead asked for
+--   OUT OF IT (DevGodOut, or the server's own end of it): the closing boom
+--     for everyone else
+--   INTO THE GROUND ((round 99, craters): LIGHTWIPE's gone): GODSPEED's
+--     crater (Kit.CT - Config.DevFlight.Crater.God, the biggest of the
+--     three) once the server's seen him at its MinSeen (GS.impactOk, asked
+--     by Kit.CT.crash) - else LIGHTSPEED's
+-- Also Destruction.GodSpeed (the tests reach it there). (No new top-level
+-- locals; plain tables, cleared on every way out - round 87's lesson.)
+---------------------------------------------------------------------------
+do
+	local DEV = Config.DevFlight or {}
+	local GC = DEV.God or {}
+	local GS = {
+		active = {}, -- [player] = { Id, T0, Char, Peak, Last (where the server last had him), OffAt (his tier first not God) }
+		charging = {}, -- [player] = os.clock() of his newest charge ask (the newest wins)
+		asks = {}, -- [player] = the map asks on their way (Stream)
+		askAt = {}, -- [player] = { ahead, middle }: when they were last asked
+		spent = {}, -- [player] = { Level, At }: his explosions' carve bucket (Smash.Carve)
+		holes = {}, -- [player] = the times of his holes this last second (Smash.Rate)
+		knocked = {}, -- [body] = os.clock() the wake last threw them (Wake.Every; swept)
+		n = 0, -- (each BOOM's Id)
+	}
+	Kit.GOD = GS -- ((Kit.GS is Deku's GEARSHIFT - round 99's first build wrote over it: every gearshift errored)
+	Destruction.GodSpeed = GS
+
+	function GS.lightSpeed()
+		return (DEV.Light or {}).Speed or 1400
+	end
+	-- (a hit with the boom, the wake, the explosions: FULL POWER's - a dev's, or a grant's with it)
+	function GS.fullPower(player)
+		return Kit.DF ~= nil and Kit.DF.fullPower(player) == true
+	end
+	function GS.middle()
+		return (DEV.Bounds or {}).Center or Vector3.new(5, 25, 888)
+	end
+	-- everyone a knock can reach (Saitama's list - the players' bodies but
+	-- not the Vestige Realm, the dummies, Twice's doubles, the Nomu - as the
+	-- craters have it: Kit.CT.bodies)
+	function GS.bodies()
+		return (Kit.CT and Kit.CT.bodies and Kit.CT.bodies()) or {}
 	end
 
+	---------------------------------------------------------------------
+	-- the beats (DF.relay hands them here)
+	---------------------------------------------------------------------
+	function GS.relay(player, char, root, kind, data, speed)
+		if GC.Enabled == false then
+			return
+		end
+		local DF = Kit.DF
+		local function dirOf(v)
+			return (DF.vec(v) and v.Magnitude > 0.01) and v.Unit or root.CFrame.LookVector
+		end
+		local need = GS.lightSpeed() * (GC.Seen or 0.6)
+		if kind == "DevGodCharge" then
+			if data.On ~= true then
+				GS.charging[player] = nil
+				if DF.gap(player, "godChargeOff", 0.1) then
+					broadcast("DevFly", char, { Kind = "GodCharge", On = false, Time = GC.Charge }, player)
+				end
+				return
+			end
+			-- (asked again on the server's own view a few times - his machine may
+			-- be a beat ahead of it; not if he let go meanwhile)
+			local asked = os.clock()
+			GS.charging[player] = asked
+			local RT = GC.Retry or {}
+			local function try(again)
+				if not (player.Parent and char.Parent and player.Character == char and player:GetAttribute("DevFlight") == true) then
+					return
+				end
+				if GS.charging[player] ~= asked then
+					return
+				end
+				if DF.speedOf(char) >= need then
+					if DF.gap(player, "godCharge", 0.25) then
+						broadcast("DevFly", char, { Kind = "GodCharge", On = true, Time = GC.Charge }, player)
+						-- (the city round the middle asked for now: the charge is the lead)
+						GS.stream(player, root, true)
+					end
+				elseif again < (RT.Times or 3) then
+					task.delay(RT.Wait or 0.1, function()
+						try(again + 1)
+					end)
+				end
+			end
+			try(0)
+		elseif kind == "DevGod" then
+			GS.go(player, char, root, speed, dirOf(data.Dir))
+		elseif kind == "DevGodOut" then
+			-- (into the ground: the impact's the beat - no closing boom)
+			GS.stop(player, char, data.Reason ~= "Impact", dirOf(data.Dir))
+		end
+	end
+
+	-- THE BOOM: everyone else told, everyone near blown off their feet, his
+	-- GODSPEED begun on the server (never carrying someone; once a Cooldown
+	-- at most; at a speed it's seen him reach - asked again a few times)
+	function GS.go(player, char, root, speed, dir)
+		local DF = Kit.DF
+		if char:GetAttribute("DevCarrying") or GS.active[player] then
+			return false
+		end
+		if not DF.gap(player, "god", (GC.Cooldown or 5) * 0.75) then
+			return false
+		end
+		local need = GS.lightSpeed() * (GC.Seen or 0.6)
+		local RT = GC.Retry or {}
+		local function start()
+			GS.n += 1
+			local pos = root.Position
+			local rec = { Id = GS.n, T0 = os.clock(), Char = char, Peak = DF.speedOf(char), Last = pos }
+			GS.active[player] = rec
+			GS.charging[player] = nil
+			local okName, name = pcall(function()
+				return player.DisplayName
+			end)
+			broadcast("DevFly", char, { Kind = "God", Pos = pos, Dir = dir, Id = rec.Id, Name = okName and name or nil }, player)
+			GS.boom(player, char, pos)
+			GS.stream(player, root, true)
+			return rec
+		end
+		if speed >= need then
+			return start() ~= nil
+		end
+		local function try(again)
+			if not (player.Parent and char.Parent and player.Character == char and player:GetAttribute("DevFlight") == true) or GS.active[player] then
+				return
+			end
+			if DF.speedOf(char) >= need then
+				start()
+			elseif again < (RT.Times or 3) then
+				task.delay(RT.Wait or 0.1, function()
+					try(again + 1)
+				end)
+			end
+		end
+		task.delay(RT.Wait or 0.1, function()
+			try(1)
+		end)
+		return false
+	end
+
+	-- one body knocked flying by him (THE BOOM, the wake): by the flight's own
+	-- rules (and a ranked duel's two left alone), `d` studs from where it came
+	-- from out of a reach R (spec: GC.Boom / GC.Wake - its push, lift, down,
+	-- the FULL POWER hit, never more than MaxShare); away / along: flat units
+	function GS.throw(player, model, d, R, spec, away, along, full, from)
+		local mr = model:FindFirstChild("HumanoidRootPart")
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if not mr or not hum or not (Kit.DF and Kit.DF.canKnock(player, model)) then
+			return false
+		end
+		if Reactions.RK and Reactions.RK.apart(player, model) then
+			return false
+		end
+		local push, lift, down, hit = GC.knock(spec, d, R)
+		if full and hit > 0 then
+			local amount = math.min(hit, hum.MaxHealth * (spec.MaxShare or 0.1))
+			if amount > 0 and not damage(player, model, amount, { From = from, Heavy = true, Unblockable = true, Quiet = true }) then
+				return false
+			end
+		end
+		local throw = away * push + (along or Vector3.zero) * push * (spec.Along or 0)
+		if Kit.ST and Kit.ST.keepOn then
+			throw = Kit.ST.keepOn(mr.Position, throw, lift, spec.PushTime or 0.3, spec.Edge or 40)
+		end
+		knockback(model, throw + UP * lift, spec.PushTime or 0.3, true)
+		ragdoll(model, down)
+		return true
+	end
+	-- THE BOOM's knock: everyone within Reach of where it went off, thrown
+	-- out from it. Returns the bodies it threw
+	function GS.boom(player, char, pos)
+		local B = GC.Boom or {}
+		local R = B.Reach or 150
+		local full = GS.fullPower(player)
+		local hits = {}
+		for _, model in GS.bodies() do
+			local mr = model ~= char and model:FindFirstChild("HumanoidRootPart")
+			if mr then
+				local rel = mr.Position - pos
+				local d = rel.Magnitude
+				if d <= R then
+					local flat = Vector3.new(rel.X, 0, rel.Z)
+					local away = flat.Magnitude > 0.5 and flat.Unit or Vector3.new(1, 0, 0)
+					local ok, went = pcall(GS.throw, player, model, d, R, B, away, nil, full, pos)
+					if not ok then
+						warn("[GodSpeed] " .. tostring(went))
+					elseif went then
+						table.insert(hits, model)
+					end
+				end
+			end
+		end
+		GS.lastBoom = { Pos = pos, Hits = hits }
+		return hits
+	end
+
+	-- AT GODSPEED, one look at him: everyone within Wake.Width of where the
+	-- server saw him go since its last look (never longer than a moment of
+	-- his flight: a hitch or a teleport sweeps nobody along the jump), blown
+	-- away from his line - each at most once Every s
+	function GS.wake(player, char, rec, root, speed)
+		local W = GC.Wake or {}
+		local from, to = rec.Last or root.Position, root.Position
+		rec.Last = to
+		local seg = to - from
+		local len = seg.Magnitude
+		local dir = len > 0.1 and seg.Unit or nil
+		local most = speed * 0.2 + 10
+		if len > most and dir then
+			from = to - dir * most
+			seg = to - from
+			len = most
+		end
+		if not dir then
+			local v = root.AssemblyLinearVelocity
+			dir = v.Magnitude > 1 and v.Unit or root.CFrame.LookVector
+		end
+		local width = W.Width or 30
+		local full = GS.fullPower(player)
+		local now = os.clock()
+		local hits = {}
+		for _, model in GS.bodies() do
+			local mr = model ~= char and model:FindFirstChild("HumanoidRootPart")
+			if mr and now - (GS.knocked[model] or -1e9) >= (W.Every or 1) then
+				local p = mr.Position
+				local t = len > 0.1 and math.clamp((p - from):Dot(seg) / (len * len), 0, 1) or 1
+				local q = from + seg * t
+				local d = (p - q).Magnitude
+				if d <= width then
+					local side = Vector3.new(p.X - q.X, 0, p.Z - q.Z)
+					if side.Magnitude < 0.5 then
+						side = Vector3.new(-dir.Z, 0, dir.X)
+					end
+					local away = side.Magnitude > 0.01 and side.Unit or Vector3.new(1, 0, 0)
+					local flatD = Vector3.new(dir.X, 0, dir.Z)
+					local along = flatD.Magnitude > 0.01 and flatD.Unit or Vector3.zero
+					local ok, went = pcall(GS.throw, player, model, d, width, W, away, along, full, q)
+					if not ok then
+						warn("[GodSpeed] " .. tostring(went))
+					elseif went then
+						GS.knocked[model] = now
+						table.insert(hits, model)
+						broadcast("DevFly", char, { Kind = "Ram", Target = model, Pos = p, Dir = (away + along * 0.6 + UP * 0.5).Unit })
+					end
+				end
+			end
+		end
+		return hits
+	end
+
+	-- his explosions' carve bucket (Smash.Carve: Rate a second, Burst at
+	-- once): `want` pieces if they're there (true), else nil - the plain hole
+	function GS.budget(player, want)
+		local C = (GC.Smash or {}).Carve or {}
+		local now = os.clock()
+		local s = GS.spent[player]
+		local level = s and math.max(s.Level - (now - s.At) * (C.Rate or 900), 0) or 0
+		if (C.Burst or 2700) - level < want then
+			GS.spent[player] = { Level = level, At = now }
+			return nil
+		end
+		GS.spent[player] = { Level = level + want, At = now }
+		return true
+	end
+	-- (from DF.smash, at GODSPEED) a building he's going through: his
+	-- machine's word where (A -> B), clamped to where the server sees him -
+	-- FULL POWER: it EXPLODES (a sphere at the way in, a capsule on through
+	-- it: the Profile's, out of his bucket); else, or out of bucket,
+	-- LIGHTSPEED's own plain hole. Never the street (Above), at most Rate a
+	-- second, everyone else told (GodBlast). true: handled
+	function GS.smash(player, char, root, data, speed)
+		local SM = GC.Smash or {}
+		local now = os.clock()
+		local list = GS.holes[player] or {}
+		GS.holes[player] = list
+		while list[1] and now - list[1] > 1 do
+			table.remove(list, 1)
+		end
+		if #list >= (SM.Rate or 12) then
+			return true
+		end
+		local reach = 16 + speed * 0.25
+		local a = data.A
+		local off = a - root.Position
+		if off.Magnitude > reach then
+			a = root.Position + off.Unit * reach
+		end
+		local seg = data.B - a
+		if seg.Magnitude < 0.5 then
+			return true
+		end
+		local d = seg.Unit
+		local b = a + d * math.min(seg.Magnitude, SM.Length or 70)
+		table.insert(list, now)
+		local street = Kit.CT and Kit.CT.street and Kit.CT.street(a) or nil
+		local above = street and street.Y + 0.5 or nil
+		local carving = workspace:GetAttribute("DestructionEnabled") ~= false
+		local full = GS.fullPower(player) and GS.budget(player, (SM.SphereBudget or 320) + (SM.CapsuleBudget or 200)) ~= nil
+		local r
+		if full then
+			r = SM.Radius or 15
+			if carving then
+				pcall(Destruction.Sphere, a, r * (SM.SphereK or 1.2), SM.Profile or "FlightBomb", d, { Budget = SM.SphereBudget or 320, Above = above })
+				pcall(Destruction.Capsule, a, b, r, SM.Profile or "FlightBomb", d, { Budget = SM.CapsuleBudget or 200, Above = above })
+			end
+		else
+			r = SM.PlainRadius or 8
+			if carving then
+				pcall(Destruction.Capsule, a, b, r, SM.PlainProfile or "FlyThrough", d, { Budget = SM.PlainBudget or 160, Above = above })
+			end
+		end
+		broadcast("DevFly", char, { Kind = "GodBlast", A = a, B = b, Dir = d, R = r, Full = full or nil }, player)
+		GS.lastSmash = { A = a, B = b, R = r, Full = full, Above = above }
+		return true
+	end
+
+	-- out of it: the server's record let go (tell: the closing boom for
+	-- everyone else - his machine's DevGodOut, or the server's own end of it)
+	function GS.stop(player, char, tell, dir)
+		local rec = GS.active[player]
+		if not rec then
+			return false
+		end
+		GS.active[player] = nil
+		-- (his peak kept a moment: the crash comes in after he's out of it)
+		GS.lastPeak[player] = { Peak = rec.Peak or 0, At = os.clock() }
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if tell and root and char.Parent and Kit.DF.gap(player, "godOut", 0.3) then
+			broadcast("DevFly", char, { Kind = "GodOut", Pos = root.Position, Dir = dir or root.CFrame.LookVector }, player)
+		end
+		return true
+	end
+
+	-- ((round 99, craters) from Kit.CT.crash) his crash at GODSPEED: its
+	-- crater only once the server's seen him at Crater.God.MinSeen itself -
+	-- now, or while he was at it
+	function GS.impactOk(player, char, seen)
+		local need = ((DEV.Crater or {}).God or {}).MinSeen or 2000
+		local rec = GS.active[player]
+		local peak = rec and rec.Char == char and rec.Peak or 0
+		local last = GS.lastPeak[player]
+		if last and os.clock() - last.At <= 1.5 then
+			peak = math.max(peak, last.Peak)
+		end
+		return GC.Enabled ~= false and math.max(tonumber(seen) or 0, peak) >= need
+	end
+	GS.lastPeak = {} -- [player] = { Peak, At }: his peak at GODSPEED as he came out of it (the crash comes in after)
+
+	-- the map ahead of him (Stream.Ahead s down his path every Stream.Every
+	-- s), and the middle of the city every Stream.Middle s (now: middle) -
+	-- each ask on its own (they yield), Stream.Most on their way at most
+	function GS.stream(player, root, middle)
+		local SM = GC.Stream or {}
+		local now = os.clock()
+		local at = GS.askAt[player]
+		if not at then
+			at = { ahead = -1e9, middle = -1e9 }
+			GS.askAt[player] = at
+		end
+		local list = {}
+		if middle or now - at.middle >= (SM.Middle or 0.5) then
+			at.middle = now
+			table.insert(list, GS.middle())
+		end
+		if now - at.ahead >= (SM.Every or 0.1) then
+			at.ahead = now
+			local v = root.AssemblyLinearVelocity
+			if v.Magnitude > 1 and v == v then
+				local hard = ((GC.Leash or {}).Hard or 1650) + 300
+				for _, a in SM.Ahead or { 0.12, 0.3, 0.5 } do
+					local p = root.Position + v * a
+					local m = GS.middle()
+					local off = Vector3.new(p.X - m.X, 0, p.Z - m.Z)
+					if off.Magnitude > hard then
+						p = Vector3.new(m.X, p.Y, m.Z) + off.Unit * hard
+					end
+					table.insert(list, p)
+				end
+			end
+		end
+		for _, p in list do
+			if (GS.asks[player] or 0) >= (SM.Most or 6) then
+				break
+			end
+			GS.asks[player] = (GS.asks[player] or 0) + 1
+			task.spawn(function()
+				pcall(function()
+					player:RequestStreamAroundAsync(p, SM.Timeout or 1)
+				end)
+				if GS.asks[player] then
+					GS.asks[player] = math.max(GS.asks[player] - 1, 0)
+				end
+			end)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- every frame, for each one at GODSPEED: his peak, the wake, the map
+	-- ahead; the server's own end of it (his body gone or down, his flight
+	-- off, his tier something else for Grace s)
+	---------------------------------------------------------------------
+	RunService.Heartbeat:Connect(function()
+		local now = os.clock()
+		for player, rec in GS.active do
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if not (player.Parent and char == rec.Char and root and alive(char) and player:GetAttribute("DevFlight") == true) then
+				pcall(GS.stop, player, rec.Char, false, nil)
+			else
+				if char:GetAttribute("DevFlying") == "God" then
+					rec.OffAt = nil
+				else
+					rec.OffAt = rec.OffAt or now
+				end
+				if rec.OffAt and now - rec.OffAt > (GC.Grace or 0.8) and now - rec.T0 > (GC.Grace or 0.8) then
+					pcall(GS.stop, player, char, true, nil)
+				else
+					local speed = root.AssemblyLinearVelocity.Magnitude
+					rec.Peak = math.max(rec.Peak or 0, speed)
+					local ok, err = pcall(GS.wake, player, char, rec, root, speed)
+					if not ok then
+						warn("[GodSpeed] " .. tostring(err))
+					end
+					GS.stream(player, root, false)
+				end
+			end
+		end
+		-- (the wake's memory of who it threw: let go of the old and the gone)
+		if now >= (GS.sweepAt or 0) then
+			GS.sweepAt = now + 2
+			for model, at in GS.knocked do
+				if now - at > 5 or not model.Parent then
+					GS.knocked[model] = nil
+				end
+			end
+			for player, last in GS.lastPeak do
+				if now - last.At > 5 then
+					GS.lastPeak[player] = nil
+				end
+			end
+		end
+	end)
+
 	Players.PlayerRemoving:Connect(function(plr)
-		LW.pending[plr] = nil
+		GS.active[plr] = nil
+		GS.charging[plr] = nil
+		GS.asks[plr] = nil
+		GS.askAt[plr] = nil
+		GS.spent[plr] = nil
+		GS.holes[plr] = nil
+		GS.lastPeak[plr] = nil
 	end)
 end
 
@@ -28122,7 +28689,7 @@ end
 --     in force here, on top of what comes in, and is tried again
 -- Each grant is FULL POWER or not (Kit.DF.fullPower): without it the
 -- destructive extras stay the devs' - the bomb, all the way down, the
--- shield breaking, the LIGHTSPEED wipe. The flight asks Kit.DF.canFly (a
+-- shield breaking, the LIGHTSPEED / GODSPEED craters. The flight asks Kit.DF.canFly (a
 -- dev, or a grant): worked out from these tables each time, never cached,
 -- so a grant or a take-back is in force at once - and DF.known (the dev
 -- check's cache) never holds a grant. A grant is NOT DevFlyer: the dev
@@ -28837,7 +29404,9 @@ do
 
 	-- his face, drawn over the avatar's (its decal hidden by Kit.ST.bare): big
 	-- round eyes, thick brows slanted down to the middle, the huge toothy
-	-- grin; in the ult (wild) a gold ring in the eyes and the grin wider
+	-- grin; in the ult (wild) - (round 99, inasa_ult) the anime's hyped face:
+	-- the whites bigger, pin-dot pupils, the brows slanted hard, a clenched
+	-- grin of big square teeth (FaceTooth: the lines between them)
 	function IN.face(cos, head, wild)
 		local F = IN.C.Face or {}
 		local v = visibleHead(head)
@@ -28853,20 +29422,26 @@ do
 			weld(head, p, CFrame.new(x * s, y * s, z - (dz or 0)) * CFrame.Angles(0, 0, math.rad(rz or 0)))
 			return p
 		end
+		local eye = wild and F.Eye * Vector3.new(F.WildEye or 1.12, F.WildEye or 1.12, 1) or F.Eye
+		local pupil = wild and F.Pupil * Vector3.new(F.WildPupil or 0.66, F.WildPupil or 0.66, 1) or F.Pupil
+		local eyeY = F.EyeY + (wild and 0.01 or 0)
 		for _, side in { 1, -1 } do
-			bit(F.Eye, side * F.EyeX, F.EyeY, 0, "FaceEye", F.White)
-			if wild then
-				bit(F.Iris, side * (F.EyeX - 0.015), F.EyeY - 0.005, 0, "FaceIris", F.IrisColor, 0.006)
-			end
+			bit(eye, side * F.EyeX, eyeY, 0, "FaceEye", F.White)
 			-- (small pupils, a touch in toward the middle: that stare)
-			bit(F.Pupil, side * (F.EyeX - 0.02), F.EyeY - 0.005, 0, "FacePupil", F.Ink, 0.012)
-			bit(F.Brow, side * (F.EyeX + 0.02), F.BrowY, side * (F.BrowTilt or 12) * w, "FaceBrow")
+			bit(pupil, side * (F.EyeX - 0.02), eyeY - 0.005, 0, "FacePupil", F.Ink, 0.012)
+			bit(F.Brow, side * (F.EyeX + 0.02), F.BrowY + (wild and 0.02 or 0), side * (wild and (F.WildBrow or 24) or (F.BrowTilt or 12)), "FaceBrow")
 		end
 		local mouth = Vector3.new(F.Mouth.X * w, F.Mouth.Y * w, F.Mouth.Z)
-		local teeth = Vector3.new(F.Teeth.X * w, F.Teeth.Y * w, F.Teeth.Z)
+		local teeth = Vector3.new(F.Teeth.X * w, F.Teeth.Y * w * (wild and (F.WildTeeth or 1.3) or 1), F.Teeth.Z)
 		bit(mouth, 0, F.MouthY, 0, "FaceMouth")
 		bit(teeth, 0, F.MouthY + 0.01, 0, "FaceTeeth", F.White, 0.006)
 		bit(Vector3.new(teeth.X, F.TeethLine or 0.022, 0.02), 0, F.MouthY + 0.01, 0, "FaceTeethLine", F.Ink, 0.012)
+		if wild then
+			-- (clenched: the square teeth top and bottom, the lines between them)
+			for _, x in F.Gaps or { -0.15, 0, 0.15 } do
+				bit(Vector3.new(0.018, teeth.Y, 0.02), x * w, F.MouthY + 0.01, 0, "FaceTooth", F.Ink, 0.012)
+			end
+		end
 		-- the corners turned right up (the grin)
 		for _, side in { 1, -1 } do
 			bit(Vector3.new(0.13, 0.045, 0.03), side * (mouth.X / 2 - 0.01), F.MouthY + mouth.Y * 0.42, side * 32, "FaceGrin")
@@ -28891,12 +29466,22 @@ do
 		local band = (K.Band or 0.16) * s
 		IN.piece(cos, head, Vector3.new(band, crown.X + 0.05 * s, crown.Z + 0.05 * s), L.Band, "InasaCapBand",
 			CFrame.new(0, lift - crown.Y / 2 + band / 2, 0) * upright, Enum.Material.Fabric, Enum.PartType.Cylinder)
-		-- the long, wide visor out front, tipped down from the band
+		-- the visor out front, tipped down from the band
 		local visor = K.Visor * s
 		local hinge = CFrame.new(0, lift - crown.Y / 2 + 0.02 * s, -crown.Z / 2 + 0.06 * s)
 		IN.piece(cos, head, visor, L.Visor, "InasaCapVisor", hinge * CFrame.Angles(math.rad(-(K.VisorTilt or 16)), 0, 0) * CFrame.new(0, 0, -visor.Z / 2), Enum.Material.SmoothPlastic)
-		-- the school's gold badge on the crown's front
-		IN.piece(cos, head, K.Badge * s, L.Badge, "InasaCapBadge", CFrame.new(0, lift + 0.04 * s, -crown.Z / 2 - 0.01 * s), Enum.Material.Metal)
+		-- the school's gold badge on the crown's front, (round 99) high on
+		-- it, over the GOGGLES strapped across it: two cream frames, the dark
+		-- glass in each (the biggest thing his cap was missing)
+		IN.piece(cos, head, K.Badge * s, L.Badge, "InasaCapBadge", CFrame.new(0, lift + (K.BadgeY or 0.04) * s, -crown.Z / 2 - 0.01 * s), Enum.Material.Metal)
+		if K.Goggle then
+			local gz = -crown.Z / 2 - K.Goggle.Z / 2 * s + 0.03 * s
+			for _, side in { 1, -1 } do
+				local at = CFrame.new(side * (K.GoggleX or 0.25) * s, lift + (K.GoggleY or 0) * s, gz) * CFrame.Angles(0, math.rad(-side * 14), 0)
+				IN.piece(cos, head, K.Goggle * s, L.Goggles or L.Plate, "InasaGoggle", at, Enum.Material.SmoothPlastic)
+				IN.piece(cos, head, (K.Lens or Vector3.new(0.32, 0.15, 0.04)) * s, L.Lens or L.Visor, "InasaGoggleLens", at * CFrame.new(0, 0, -K.Goggle.Z / 2 * s - 0.01 * s), Enum.Material.Glass)
+			end
+		end
 		-- his hair: short and black, out from under it at the back and sides
 		IN.piece(cos, head, Vector3.new(v.X * 0.96, v.Y * 0.42, 0.14 * s), L.Hair, "InasaHair", CFrame.new(0, v.Y * 0.06, v.Z / 2 - 0.02 * s), Enum.Material.SmoothPlastic)
 		for _, side in { 1, -1 } do
@@ -28917,19 +29502,35 @@ do
 			local ts = torso.Size
 			local front = -(ts.Z / 2 + over)
 			IN.piece(cos, torso, ts + pad, L.Coat, "InasaCoat", nil, Enum.Material.Fabric)
-			-- the seam down the front, and two rows of gold buttons
+			-- the seam down the front, and two columns of gold buttons
+			-- ((round 99) the anime's: smaller, five a column, down to the belt)
 			IN.piece(cos, torso, Vector3.new(0.07, ts.Y * 0.86, 0.02), L.CoatDark, "InasaCoat", CFrame.new(0, -ts.Y * 0.05, front - 0.01))
-			for _, x in { -0.34, 0.34 } do
-				for _, y in { 0.42, 0.04, -0.34 } do
-					IN.piece(cos, torso, Vector3.new(0.07, 0.2, 0.2), L.Button, "InasaButton", CFrame.new(x * ts.X / 2, y * ts.Y / 2, front - 0.03) * CFrame.Angles(0, math.rad(90), 0), Enum.Material.Metal, Enum.PartType.Cylinder)
+			local nb = L.Buttons or 5
+			for _, x in { -0.3, 0.3 } do
+				for i = 1, nb do
+					local y = 0.66 - 1.2 * (i - 1) / math.max(nb - 1, 1)
+					IN.piece(cos, torso, Vector3.new(0.06, 0.15, 0.15), L.Button, "InasaButton", CFrame.new(x * ts.X / 2, y * ts.Y / 2, front - 0.03) * CFrame.Angles(0, math.rad(90), 0), Enum.Material.Metal, Enum.PartType.Cylinder)
 				end
 			end
-			-- the thick fur collar round his neck, over the cape's top
-			local CL = C.Collar or {}
-			IN.piece(cos, torso, CL.Back or Vector3.new(2.2, 0.56, 0.42), L.Fur, "InasaCollar", CFrame.new(0, ts.Y / 2 + 0.12, ts.Z / 2 - 0.02), Enum.Material.Fabric)
-			IN.piece(cos, torso, CL.Front or Vector3.new(1.7, 0.42, 0.36), L.Fur, "InasaCollar", CFrame.new(0, ts.Y / 2 + 0.03, -(ts.Z / 2 - 0.1)) * CFrame.Angles(math.rad(-10), 0, 0), Enum.Material.Fabric)
+			-- (round 99) the tan webbing belt with its gunmetal buckle, and the
+			-- dark hose coils on his hips (where his wind comes out: VFX.WindKit.points)
+			IN.piece(cos, torso, Vector3.new(ts.X + pad.X + 0.04, 0.22, ts.Z + pad.Z + 0.04), L.Belt or L.Glove, "InasaBelt", CFrame.new(0, -ts.Y / 2 + 0.16, 0), Enum.Material.Fabric)
+			IN.piece(cos, torso, Vector3.new(0.34, 0.24, 0.06), L.Buckle or L.Pipe, "InasaBuckle", CFrame.new(0, -ts.Y / 2 + 0.16, front - 0.04), Enum.Material.Metal)
 			for _, side in { 1, -1 } do
-				IN.piece(cos, torso, CL.Side or Vector3.new(0.4, 0.5, 1.15), L.Fur, "InasaCollar", CFrame.new(side * (ts.X / 2 - 0.12), ts.Y / 2 + 0.1, 0) * CFrame.Angles(0, 0, math.rad(side * -12)), Enum.Material.Fabric)
+				IN.piece(cos, torso, Vector3.new(0.8, 0.32, 0.32), L.Hose or L.Pipe, "InasaCoil", CFrame.new(side * (ts.X / 2 + over + 0.1), -ts.Y / 2 + 0.3, 0) * CFrame.Angles(0, math.rad(90), 0), Enum.Material.Metal, Enum.PartType.Cylinder)
+			end
+			-- the thick fur collar round his neck, over the cape's top -
+			-- (round 99) near-white, bigger, with spiky tufts standing up off
+			-- it (the lion's mane that frames his face)
+			local CL = C.Collar or {}
+			IN.piece(cos, torso, CL.Back or Vector3.new(2.2, 0.56, 0.42), L.Fur, "InasaCollar", CFrame.new(0, ts.Y / 2 + 0.14, ts.Z / 2 - 0.02), Enum.Material.Fabric)
+			IN.piece(cos, torso, CL.Front or Vector3.new(1.7, 0.42, 0.36), L.Fur, "InasaCollar", CFrame.new(0, ts.Y / 2 + 0.04, -(ts.Z / 2 - 0.1)) * CFrame.Angles(math.rad(-10), 0, 0), Enum.Material.Fabric)
+			for _, side in { 1, -1 } do
+				IN.piece(cos, torso, CL.Side or Vector3.new(0.4, 0.5, 1.15), L.Fur, "InasaCollar", CFrame.new(side * (ts.X / 2 - 0.1), ts.Y / 2 + 0.12, 0) * CFrame.Angles(0, 0, math.rad(side * -12)), Enum.Material.Fabric)
+			end
+			local tuft = C.Tuft or Vector3.new(0.44, 0.5, 0.34)
+			for _, t in { { -0.5, 0.36, 0.1, -24 }, { 0.5, 0.36, 0.1, 24 }, { -1.02, 0.3, -0.12, -40 }, { 1.02, 0.3, -0.12, 40 } } do
+				IN.piece(cos, torso, tuft, L.Fur, "InasaTuft", CFrame.new(t[1], ts.Y / 2 + t[2], ts.Z / 2 * 0.6 + t[3]) * CFrame.Angles(math.rad(-28), 0, math.rad(-t[4])) * CFrame.Angles(0, math.rad(45), 0), Enum.Material.Fabric)
 			end
 		end
 		if r6 then
@@ -28938,26 +29539,46 @@ do
 				if limbPart then
 					local s = limbPart.Size
 					if name == "Left Arm" then
-						-- the heavy brown sleeve, the big tan glove (a cuff, the air pipes over the knuckles), the plate on the shoulder
+						-- the heavy sleeve ((round 99) the coat's burgundy, as the anime
+						-- draws it), the big tan glove (a brass wrist ring, brass caps on
+						-- the knuckles - the air pipes, out of the fist's end - and the
+						-- black nozzle block on the back of the hand: the gun his
+						-- punches fire from), the cream plate on the shoulder with its
+						-- brass-ringed vent
 						local gh = s.Y * (L.GloveShare or 0.4)
 						IN.piece(cos, limbPart, Vector3.new(s.X + over * 2 + 0.08, s.Y - gh + 0.02, s.Z + over * 2 + 0.08), L.Sleeve, "InasaSleeve", CFrame.new(0, gh / 2, 0), Enum.Material.Fabric)
 						IN.piece(cos, limbPart, Vector3.new(s.X + 0.26, gh, s.Z + 0.26), L.Glove, "InasaGlove", CFrame.new(0, -s.Y / 2 + gh / 2 - 0.04, 0), Enum.Material.Leather)
-						IN.piece(cos, limbPart, Vector3.new(s.X + 0.34, 0.14, s.Z + 0.34), L.Sleeve, "InasaGlove", CFrame.new(0, -s.Y / 2 + gh - 0.02, 0), Enum.Material.Leather)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.34, 0.14, s.Z + 0.34), L.Pipe, "InasaGlove", CFrame.new(0, -s.Y / 2 + gh - 0.02, 0), Enum.Material.Metal)
 						for _, x in { -0.3, 0, 0.3 } do
-							IN.piece(cos, limbPart, Vector3.new(0.34, 0.12, 0.12), L.Pipe, "InasaPipe", CFrame.new(x * s.X, -s.Y / 2 + 0.24, -(s.Z / 2 + 0.17)) * CFrame.Angles(0, math.rad(90), 0), Enum.Material.Metal, Enum.PartType.Cylinder)
+							IN.piece(cos, limbPart, Vector3.new(0.12, 0.2, 0.2), L.Pipe, "InasaPipe", CFrame.new(x * s.X, -s.Y / 2 - 0.1, -s.Z * 0.22) * CFrame.Angles(0, 0, math.rad(90)), Enum.Material.Metal, Enum.PartType.Cylinder)
 						end
-						IN.piece(cos, limbPart, Vector3.new(s.X + 0.3, 0.3, s.Z + 0.34), L.Plate, "InasaPlate", CFrame.new(0, s.Y / 2 - 0.04, 0) * CFrame.Angles(0, 0, math.rad(-8)), Enum.Material.Metal)
+						IN.piece(cos, limbPart, Vector3.new(s.X * 0.56, gh * 0.62, 0.2), L.GloveUnit or L.Visor, "InasaNozzle", CFrame.new(0, -s.Y / 2 + gh * 0.5, -(s.Z / 2 + 0.22)), Enum.Material.Metal)
+						IN.piece(cos, limbPart, Vector3.new(0.22, 0.2, 0.2), L.GloveUnit or L.Visor, "InasaNozzle", CFrame.new(0, -s.Y / 2 + gh * 0.1, -(s.Z / 2 + 0.22)) * CFrame.Angles(0, 0, math.rad(90)), Enum.Material.Metal, Enum.PartType.Cylinder)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.3, 0.3, s.Z + 0.34), L.Plate, "InasaPlate", CFrame.new(0, s.Y / 2 - 0.04, 0) * CFrame.Angles(0, 0, math.rad(-8)), Enum.Material.SmoothPlastic)
+						IN.piece(cos, limbPart, Vector3.new(0.08, 0.3, 0.3), L.Pipe, "InasaVent", CFrame.new(-(s.X / 2 + 0.2), s.Y / 2 - 0.1, 0) * CFrame.Angles(0, 0, math.rad(-8)), Enum.Material.Metal, Enum.PartType.Cylinder)
 					elseif name == "Right Arm" then
-						-- the blue undersuit, the hand bare
+						-- the undersuit ((round 99) navy, a gold stripe down the
+						-- outside), the hand bare
 						local sh = s.Y * (L.SleeveShare or 0.72)
 						IN.piece(cos, limbPart, Vector3.new(s.X + 0.04, sh, s.Z + 0.04), L.Under, "InasaUnder", CFrame.new(0, s.Y / 2 - sh / 2, 0))
+						IN.piece(cos, limbPart, Vector3.new(0.04, sh, 0.16), L.Stripe or L.Button, "InasaStripe", CFrame.new(s.X / 2 + 0.03, s.Y / 2 - sh / 2, 0))
 					else
-						-- the trousers, a tube round the ankle, the big brown shoe, a pad on the knee
+						-- the trousers ((round 99) to the knee, the navy shin under
+						-- them), the hose ring round the ankle sticking out both sides,
+						-- the big maroon-brown boot, the cream gas-mask pad on the knee
+						-- with its two black holes
 						local fh = s.Y * (L.ShoeShare or 0.3)
-						IN.piece(cos, limbPart, Vector3.new(s.X + over * 2, s.Y - fh + 0.02, s.Z + over * 2), L.Pants, "InasaPants", CFrame.new(0, fh / 2, 0), Enum.Material.Fabric)
+						local ph = s.Y * (L.PantsShare or 0.56)
+						IN.piece(cos, limbPart, Vector3.new(s.X + over * 2, ph, s.Z + over * 2), L.Pants, "InasaPants", CFrame.new(0, s.Y / 2 - ph / 2, 0), Enum.Material.Fabric)
+						IN.piece(cos, limbPart, Vector3.new(s.X + over, s.Y - ph - fh + 0.04, s.Z + over), L.Shin or L.Under, "InasaShin", CFrame.new(0, -s.Y / 2 + fh + (s.Y - ph - fh) / 2, 0), Enum.Material.Fabric)
 						IN.piece(cos, limbPart, Vector3.new(s.X + 0.16, fh, s.Z + 0.32), L.Shoe, "InasaShoe", CFrame.new(0, -s.Y / 2 + fh / 2 - 0.03, -0.08), Enum.Material.Leather)
-						IN.piece(cos, limbPart, Vector3.new(s.X + 0.24, 0.16, s.Z + 0.24), L.Pipe, "InasaTube", CFrame.new(0, -s.Y / 2 + fh + 0.04, 0), Enum.Material.Metal)
-						IN.piece(cos, limbPart, Vector3.new(s.X * 0.7, 0.42, 0.12), L.Plate, "InasaKnee", CFrame.new(0, 0.02, -(s.Z / 2 + over + 0.05)), Enum.Material.Metal)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.2, 0.08, s.Z + 0.36), L.Sole or L.Pipe, "InasaSole", CFrame.new(0, -s.Y / 2 - 0.01, -0.08), Enum.Material.SmoothPlastic)
+						IN.piece(cos, limbPart, Vector3.new(s.X + 0.44, 0.16, s.Z + 0.22), L.Hose or L.Pipe, "InasaTube", CFrame.new(0, -s.Y / 2 + fh + 0.04, 0), Enum.Material.Metal)
+						local kz = -(s.Z / 2 + over + 0.07)
+						IN.piece(cos, limbPart, Vector3.new(s.X * 0.76, 0.5, 0.16), L.Plate, "InasaKnee", CFrame.new(0, s.Y / 2 - ph + 0.04, kz), Enum.Material.SmoothPlastic)
+						for _, x in { -0.17, 0.17 } do
+							IN.piece(cos, limbPart, Vector3.new(0.06, 0.17, 0.17), L.PadHole or L.Visor, "InasaKneeHole", CFrame.new(x * s.X, s.Y / 2 - ph + 0.06, kz - 0.08) * CFrame.Angles(0, math.rad(90), 0), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+						end
 					end
 				end
 			end
@@ -29027,6 +29648,11 @@ do
 			return false
 		end
 		if (Reactions.parked and Reactions.parked[model]) or (player and model:GetAttribute("TwiceClone") == player.UserId) then
+			return false
+		end
+		-- ((round 99) a ranked duel's two touch only each other (RK.apart, as
+		-- damage() asks): his pulls and shoves never reach into one either)
+		if Reactions.RK and Reactions.RK.apart and Reactions.RK.apart(player, model) then
 			return false
 		end
 		return not (Reactions.NR and Reactions.NR.truce and Reactions.NR.truce(player, model))
@@ -29230,6 +29856,8 @@ do
 		local every = ability.TickEvery or 0.3
 		local nextTick, nextCarve = t0 + every, t0
 		local center = start
+		-- ((round 99) INASA_STORM) who it's holding, as every screen was last told
+		local told, toldN = {}, 0
 		while os.clock() - t0 < life do
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			if not char.Parent or not hum or hum.Health <= 0 then
@@ -29245,6 +29873,20 @@ do
 				nextTick += every
 			end
 			IN.pull(player, char, center, ability, caught, tick, ability.CoreRadius or 6, (ability.LiftHeight or 9) * math.clamp((now - t0) / 0.8, 0.35, 1))
+			-- ((round 99) INASA_STORM) every screen told who it holds whenever
+			-- that changes (it winds its bands round them and carries them
+			-- round it); before, no screen knew until the burst. Nothing about
+			-- the pull itself changes
+			local held, n, changed = {}, 0, false
+			for model in caught do
+				n += 1
+				table.insert(held, model)
+				changed = changed or not told[model]
+			end
+			if changed or n ~= toldN then
+				told, toldN = table.clone(caught), n
+				broadcast("DragonWhirlwindHeld", char, { Targets = held, Pos = center })
+			end
 			if now >= nextCarve then
 				nextCarve = now + 0.6
 				Destruction.Sphere(center + UP * 3, 5, "Whirl", d)
@@ -29354,7 +29996,9 @@ do
 		local now = os.clock()
 		if ar and (ar.Position - mr.Position).Magnitude > (spec.MeleeRange or 14) then
 			local again = reflected or now - (wall.Reflects[ac] or -1e9) < (spec.ReflectGap or 0.25)
-			broadcast("WindWallDeflect", model, { From = at, To = ar.Position, Back = not again })
+			-- ((round 99) INASA_STORM: its speed too - a screen without his body
+			-- can't tell his ult's 260 from the base 220)
+			broadcast("WindWallDeflect", model, { From = at, To = ar.Position, Back = not again, Speed = spec.ReflectSpeed or 220 })
 			if again then
 				return
 			end
@@ -29369,12 +30013,17 @@ do
 				end
 			end)
 		else
-			broadcast("WindWallBlock", model, { Pos = at, Target = ac })
+			-- ((round 99) INASA_STORM: Blow - this one's blown back (once a wall;
+			-- a second punch is only stopped), so no screen draws a blow-back
+			-- that never happens)
+			broadcast("WindWallBlock", model, { Pos = at, Target = ac, Blow = not (reflected or wall.Melee[ac]) })
 			if reflected or wall.Melee[ac] then
 				return
 			end
 			wall.Melee[ac] = true
-			if damage(wall.Player, ac, spec.PushDamage or 4, { From = at, Quiet = true, Reflected = true }) then
+			-- ((round 99) INASA_STORM: a beat's freeze on the blow-back - on screen
+			-- only, the round-85 kind; the damage, push and stun are as they were)
+			if damage(wall.Player, ac, spec.PushDamage or 4, { From = at, Quiet = true, Reflected = true, Hitstop = 0.06 }) then
 				knockback(ac, wall.Dir * (spec.Push or 85) + UP * (spec.Lift or 25), 0.25)
 				stun(ac, spec.Stun or 0.6)
 			end
@@ -29589,11 +30238,13 @@ do
 			-- (round 90, devfly2) the light barrier's charge, its break, out of
 			-- LIGHTSPEED again, the barrel roll / sidestep (DF.light: beats)
 			DevCharge = true, DevLight = true, DevLightOut = true, DevRoll = true,
+			-- (round 99) GODSPEED: its charge, THE BOOM, out of it again (Kit.GOD)
+			DevGodCharge = true, DevGod = true, DevGodOut = true,
 		},
 		-- what everyone else may draw him as (the body's DevFlying; Held: a
 		-- hit or a move has his body - nothing drawn on it)
-		-- (round 90: Light - LIGHTSPEED)
-		TIERS = { Crouch = true, Ascent = true, Hover = true, Cruise = true, Fast = true, Hyper = true, Boost = true, Brake = true, Dive = true, Held = true, Light = true },
+		-- (round 90: Light - LIGHTSPEED; round 99: God - GODSPEED)
+		TIERS = { Crouch = true, Ascent = true, Hover = true, Cruise = true, Fast = true, Hyper = true, Boost = true, Brake = true, Dive = true, Held = true, Light = true, God = true },
 		known = setmetatable({}, { __mode = "k" }), -- [player] = allowed (worked out once)
 		-- [player] = { [beat] = os.clock() }. ((round 90 review) not weak: the
 		-- rate limits, the burst's bomb window (Kit.FB.bursting) and the
@@ -29662,8 +30313,8 @@ do
 		return DF.allowed(player) or (Kit.FG ~= nil and Kit.FG.has(player))
 	end
 	-- (round 92, flightgrant) the destructive extras - the mach burst's bomb,
-	-- all the way down, the Sky Coffin's shield breaking, the LIGHTSPEED
-	-- wipe: a dev's, or a grant's with FULL POWER
+	-- all the way down, the Sky Coffin's shield breaking, the LIGHTSPEED /
+	-- GODSPEED craters ((round 99): the wipe's gone): a dev's, or a grant's with FULL POWER
 	function DF.fullPower(player)
 		return DF.allowed(player) or (Kit.FG ~= nil and Kit.FG.full(player))
 	end
@@ -29835,6 +30486,8 @@ do
 			Kit.FB.shaft(player, char, root, data, speed) -- (round 89: down through a building, to the street)
 		elseif kind == "DevCharge" or kind == "DevLight" or kind == "DevLightOut" or kind == "DevRoll" then
 			DF.light(player, char, root, kind, data, speed) -- (round 90: LIGHTSPEED's beats, the roll)
+		elseif (kind == "DevGodCharge" or kind == "DevGod" or kind == "DevGodOut") and Kit.GOD then
+			Kit.GOD.relay(player, char, root, kind, data, speed) -- (round 99: GODSPEED's charge, THE BOOM, out of it)
 		end
 	end
 
@@ -29941,6 +30594,11 @@ do
 		if not (DF.vec(data.A) and DF.vec(data.B)) or speed < (SM.Speed or 200) * 0.5 then
 			return
 		end
+		-- (round 99) at GODSPEED the building EXPLODES open (Kit.GOD.smash: its
+		-- own radius, profile, rate and carve bucket - FULL POWER's)
+		if Kit.GOD and (Kit.GOD.active[player] or char:GetAttribute("DevFlying") == "God") and Kit.GOD.smash(player, char, root, data, speed) then
+			return
+		end
 		local now = os.clock()
 		local list = DF.smashes[player] or {}
 		DF.smashes[player] = list
@@ -29990,10 +30648,12 @@ do
 		local crash = data.Kind == "Crash" and speed >= (CR.Speed or 260) * 0.55 and DF.gap(player, "crash", CR.Gap or 1)
 		-- (round 89) at mach speed the crash is a bomb (Kit.FB.bomb: its blast
 		-- hole, everyone near hit and thrown, its beat) - not this crater
-		-- (round 92) at LIGHTSPEED (his machine says: Light) it's the end of the
-		-- map - Kit.LW, by the server's own view of him; else the bomb as ever
-		if crash and data.Light == true and Kit.LW and Kit.LW.impact(player, char, ground, data, speed) then
-			-- (the end of the map - or, if the server never sees him that fast, the bomb a moment later)
+		-- (round 99, craters) at LIGHTSPEED or GODSPEED (his machine says:
+		-- Crater "Light" / "God") it's a CRATER - Kit.CT, by the server's own
+		-- view of him (round 92's end of the map, LIGHTWIPE, is gone); else
+		-- the bomb as ever
+		if crash and data.Crater ~= nil and Kit.CT and Kit.CT.crash(player, char, ground, data, speed) then
+			-- (the crater - or, if the server never sees him that fast, the bomb a moment later)
 		elseif crash and Kit.FB and Kit.FB.bomb(player, char, ground, tonumber(data.Speed), speed) then
 			-- (the bomb was all of it)
 		elseif crash then
@@ -30118,6 +30778,12 @@ do
 				DF.peak[char] = math.max(speed, (DF.peak[char] or 0) - 520 * dt)
 				local tier = char:GetAttribute("DevFlying")
 				local fast = tier == "Fast" or tier == "Hyper" or tier == "Boost" or tier == "Dive" or tier == "Light" -- (round 90: LIGHTSPEED)
+				-- (round 99) at GODSPEED the ram and the map ahead are Kit.GOD's own
+				-- (its wake, wider and harder; its streaming, further ahead) - from
+				-- THE BOOM, whatever his tier says yet
+				if Kit.GOD and Kit.GOD.active[plr] then
+					fast = false
+				end
 				if speed >= ((DEV.Ram or {}).MinSpeed or 180) and fast then
 					DF.ram(char, root, speed, plr)
 				end
@@ -36748,6 +37414,823 @@ xpcall(function()
 	end
 end, function(err)
 	warn("[QuirkServer] moderation: " .. tostring(err))
+end)
+
+---------------------------------------------------------------------------
+-- (round 99) MOONBASE (Config.Space.OwnerBase / Config.Space.Return) - the
+-- owner: "also, for me and me onyl the owner, make me spawn on a moon/
+-- asteroid base instead of the normal city like the peasants. when entering
+-- earth from space, autoposition it to be right above the city and sky
+-- coffin."
+--   THE BASE (MB.build): built here once, Workspace.Map.MoonBase, on the
+--   moon where every screen draws it - the light the screens hold up there
+--   worked out here as VFX.SPX does it (MB.sun), the moon's middle told to
+--   every screen (workspace's SpaceMoon: Config.Space.moonAt).
+--   THE OWNER'S SPAWN (MB.arrive): MB.owner is the game's own owner rule
+--   (its creator, a group place's owner; in Studio Player1 of a local
+--   server too) - never the Devs list, a flight grant or anyone else. A body
+--   of his that comes up on a city spawn pad goes to the base's landing pad,
+--   the base streamed in for him first (asked as he joins and as he goes
+--   down, so it's there when he's back - never more than Spawn.Wait s on the
+--   pad). Something else's spawn wins: a ranked duel (Kit.RK) - and anything
+--   that puts a new body anywhere but a spawn pad.
+--   THE DROP POD (MB.launch): only his, only from the base. His body's
+--   anchored and flown down the plan here (Pod.at - its CFrame set by the
+--   server: the anti-exploit's "the server moved it"), every screen drawing
+--   the pod round it on the same clock; back in over the city the way any
+--   flyer comes (Return.dest), the map ahead asked for all the way down.
+--   RE-ENTRY OVER THE CITY (MB.reStep): anyone seen out in space crossing
+--   back under the Edge is moved over the city's middle - the warps' way
+--   (PivotTo), his own machine's speed and heading kept - the way there
+--   streamed in while he was up there; a carried player comes along (the
+--   carry hangs them off his fist where he is).
+-- Destruction.MoonBase = MB (the tests). (A function of its own: the main
+-- chunk is at its local limit.)
+---------------------------------------------------------------------------
+xpcall(function()
+	local SPC = Config.Space or {}
+	local OB = SPC.OwnerBase or {}
+	local RT = SPC.Return or {}
+	local POD = OB.Pod or {}
+	-- (all plain tables, keyed by player: emptied as they go - round 87's lesson)
+	local MB = {
+		owners = {}, -- [player] = the owner rule's answer
+		ready = {}, -- [player] = when the base was last streamed in for him
+		asking = {}, -- [player] = an ask for it is on its way
+		spawned = {}, -- [player] = the body last put on the base
+		re = {}, -- [player] = his watch for coming back in
+		pods = {}, -- [player] = his drop pod on its way down
+		podAt = {}, -- [player] = when his last pod landed
+		pads = {}, -- the city's spawn pads
+		podParts = {}, -- the pod on the launch pad: { part, see, collide }
+	}
+	Kit.MB = MB
+	Destruction.MoonBase = MB
+
+	function MB.on()
+		return SPC.Enabled ~= false and OB.Enabled ~= false and MB.model ~= nil and MB.model.Parent ~= nil
+	end
+	-- the place's owner: its creator (a group place: its owner, rank 255);
+	-- in a Studio test his own account counts as that, and Player1 of a
+	-- local server test. Nobody else - not the Devs list, not a flight grant
+	function MB.owner(player)
+		if typeof(player) ~= "Instance" or not player:IsA("Player") then
+			return false
+		end
+		local known = MB.owners[player]
+		if known ~= nil then
+			return known
+		end
+		local id = player.UserId
+		local creator = tonumber(game.CreatorId) or 0
+		local yes, sure = false, true
+		local okType, group = pcall(function()
+			return game.CreatorType == Enum.CreatorType.Group
+		end)
+		if okType and group then
+			local ok, rank = pcall(player.GetRankInGroup, player, creator)
+			yes = ok and rank == 255
+			sure = ok -- (a web blip: asked again next time)
+		else
+			yes = id == creator and id ~= 0
+		end
+		if not yes and RunService:IsStudio() then
+			yes = id == -1
+		end
+		if sure or yes then
+			MB.owners[player] = yes
+		end
+		return yes
+	end
+
+	---------------------------------------------------------------------------
+	-- the base
+	---------------------------------------------------------------------------
+	-- the light up there: of Look.Clocks the hour the light (the moon at
+	-- night) stands nearest SunHeight up - VFX.SPX.pickClock's, here at the
+	-- start before anyone's in (the clock put straight back, no yield between)
+	function MB.sun()
+		local Lit = game:GetService("Lighting")
+		local L = SPC.Look or {}
+		local want = math.sin(math.rad(L.SunHeight or 40))
+		local okW, was = pcall(function()
+			return Lit.ClockTime
+		end)
+		local best, bestErr
+		for _, c in L.Clocks or { 0 } do
+			local ok = pcall(function()
+				Lit.ClockTime = c
+			end)
+			local okD, d = pcall(function()
+				return Lit:GetMoonDirection()
+			end)
+			if ok and okD and typeof(d) == "Vector3" and d == d and d.Magnitude > 0.5 then
+				local err = math.abs(d.Unit.Y - want)
+				if not bestErr or err < bestErr then
+					best, bestErr = d.Unit, err
+				end
+			end
+		end
+		if okW and type(was) == "number" then
+			pcall(function()
+				Lit.ClockTime = was
+			end)
+		end
+		return best
+	end
+	function MB.part(spec, parent)
+		local p = Instance.new("Part")
+		p.Name = spec.Name
+		p.Shape = Enum.PartType[spec.Shape] or Enum.PartType.Block
+		p.Size = spec.Size
+		p.CFrame = spec.CFrame
+		p.Color = spec.Color
+		p.Material = Enum.Material[spec.Material] or Enum.Material.SmoothPlastic
+		p.Anchored = true
+		p.CanCollide = spec.Collide == true
+		p.CanTouch = false
+		p.Transparency = spec.See or 0
+		p.CastShadow = spec.Material ~= "Neon" and (spec.See or 0) < 0.5
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p:SetAttribute("NoPhase", true) -- (never phased, flown or blown through)
+		if spec.Tag then
+			p:SetAttribute("MoonTag", spec.Tag)
+		end
+		local L = spec.Light
+		if L then
+			local light = Instance.new(L.Kind or "PointLight")
+			light.Range = L.Range or 16
+			light.Brightness = L.Brightness or 2
+			light.Color = L.Color or Color3.new(1, 1, 1)
+			if L.Kind == "SpotLight" then
+				light.Face = Enum.NormalId[L.Face or "Bottom"]
+				light.Angle = L.Angle or 70
+			end
+			light.Parent = p
+		end
+		local G = spec.Gui
+		if G then
+			local sg = Instance.new("SurfaceGui")
+			sg.Face = Enum.NormalId[G.Face or "Front"]
+			sg.LightInfluence = 0
+			sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+			sg.PixelsPerStud = 24
+			local t = Instance.new("TextLabel")
+			t.BackgroundTransparency = 1
+			t.Size = UDim2.fromScale(1, 1)
+			t.Text = G.Text or ""
+			t.TextScaled = true
+			t.Font = Enum.Font.GothamBlack
+			t.TextColor3 = G.Color or Color3.new(1, 1, 1)
+			t.Parent = sg
+			sg.Parent = p
+		end
+		p.Parent = parent
+		return p
+	end
+	function MB.build()
+		if MB.model then
+			pcall(MB.model.Destroy, MB.model)
+		end
+		MB.model, MB.lay, MB.F = nil, nil, nil
+		table.clear(MB.podParts)
+		workspace:SetAttribute("SpaceMoon", nil)
+		if SPC.Enabled == false or OB.Enabled == false or not OB.layout then
+			return false
+		end
+		local sun = MB.sun()
+		local moon = SPC.moonAt and SPC.moonAt(sun)
+		local lay = OB.layout(moon, sun)
+		local model = Instance.new("Model")
+		model.Name = "MoonBase"
+		local ground = Instance.new("Folder")
+		ground.Name = "Ground"
+		ground.Parent = model
+		for _, spec in lay.parts do
+			local p = MB.part(spec, spec.Cap and ground or model)
+			if spec.Tag == "Pod" then
+				table.insert(MB.podParts, { p, spec.See or 0, spec.Collide == true })
+				if spec.Name == "PodBody" then
+					MB.podBody = p
+				end
+			end
+		end
+		-- the pod's prompt (only he can use it: his screen shows it - MB.launch checks)
+		local P = POD.Prompt or {}
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "DropPodLaunch"
+		prompt.ActionText = P.Action or "Launch"
+		prompt.ObjectText = P.Object or "DROP POD"
+		prompt.HoldDuration = P.Hold or 0
+		-- ((round 99 review) the game's own keys for a prompt, as the snack
+		-- machine's: E and D-pad right are bound by the game (the finisher, the
+		-- items), which presses whatever prompt is showing - with a tap)
+		prompt.KeyboardKeyCode = P.Key or Enum.KeyCode.E
+		prompt.GamepadKeyCode = P.Pad or Enum.KeyCode.DPadRight
+		prompt.MaxActivationDistance = P.Range or 12
+		prompt.RequiresLineOfSight = false
+		prompt.Enabled = true
+		prompt.Parent = MB.podBody or model
+		prompt.Triggered:Connect(function(plr)
+			MB.launch(plr)
+		end)
+		MB.prompt = prompt
+		-- (always loaded on every screen, as the Sky Coffin is: nobody comes
+		-- up onto a floor that hasn't streamed in yet)
+		pcall(function()
+			model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+		end)
+		model.Parent = workspace:FindFirstChild("Map") or workspace
+		MB.model, MB.lay, MB.F, MB.sunDir = model, lay, lay.frame, sun
+		workspace:SetAttribute("SpaceMoon", lay.frame.Moon)
+		-- the city's spawn pads (where a body coming up is a plain spawn)
+		table.clear(MB.pads)
+		for _, d in workspace:GetDescendants() do
+			if d:IsA("SpawnLocation") and not d:IsDescendantOf(model) then
+				table.insert(MB.pads, d)
+			end
+		end
+		return true
+	end
+	-- on (or just over) one of the city's spawn pads: a plain spawn
+	function MB.onPad(pos)
+		local S = (OB.Spawn or {}).Pad or {}
+		for _, pad in MB.pads do
+			local ok, at, size = pcall(function()
+				return pad.Position, pad.Size
+			end)
+			if ok and at and pad.Parent then
+				local rel = pos - at
+				local reach = math.max(size.X, size.Z) / 2 + (S.Out or 4)
+				if math.abs(rel.X) <= reach and math.abs(rel.Z) <= reach and rel.Y > -2 and rel.Y < (S.Up or 12) then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	---------------------------------------------------------------------------
+	-- the owner's spawn
+	---------------------------------------------------------------------------
+	-- the base streamed in for him (one ask at a time)
+	function MB.ask(player)
+		if MB.asking[player] or not MB.lay then
+			return
+		end
+		MB.asking[player] = true
+		local at = MB.lay.spawn.Position
+		task.spawn(function()
+			pcall(function()
+				player:RequestStreamAroundAsync(at, (OB.Spawn or {}).Timeout or 3)
+			end)
+			MB.asking[player] = nil
+			if player.Parent then
+				MB.ready[player] = os.clock()
+			end
+		end)
+	end
+	function MB.fresh(player)
+		return os.clock() - (MB.ready[player] or -1e9) < ((OB.Spawn or {}).Fresh or 30)
+	end
+	-- a new body of his: onto the base's landing pad (MoonSpawn on the body:
+	-- Wait - streaming it in; Base - there; Skip - something else has it)
+	function MB.arrive(player, char)
+		if not (MB.on() and MB.owner(player)) then
+			return
+		end
+		-- ((round 99 review) his screen's word on it - its cover, the pod's
+		-- prompt - even when the owner rule couldn't answer as he joined: a
+		-- group place's web call that failed then)
+		if player:GetAttribute("MoonBase") ~= true then
+			player:SetAttribute("MoonBase", true)
+		end
+		local root = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart", 5)
+		if not root or player.Character ~= char then
+			return
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			-- (down: the base asked for again, so it's there when he's back)
+			hum.Died:Connect(function()
+				if MB.on() then
+					MB.ask(player)
+				end
+			end)
+		end
+		if MB.F and OB.inZone(root.Position, MB.F) then
+			char:SetAttribute("MoonSpawn", "Base")
+			MB.spawned[player] = char
+			return
+		end
+		-- a ranked duel's spawn is the duel's (Kit.RK puts him on his mark);
+		-- a body put anywhere but a city spawn pad, whatever's put it there
+		if player:GetAttribute("RankedDuel") ~= nil or not MB.onPad(root.Position) then
+			char:SetAttribute("MoonSpawn", "Skip")
+			return
+		end
+		char:SetAttribute("MoonSpawn", "Wait")
+		if not MB.fresh(player) then
+			MB.ask(player)
+			local t0 = os.clock()
+			while not MB.fresh(player) and os.clock() - t0 < ((OB.Spawn or {}).Wait or 3) do
+				task.wait(0.05)
+			end
+		end
+		if player.Character ~= char or not char.Parent or not root.Parent or not alive(char) or not MB.on() or player:GetAttribute("RankedDuel") ~= nil then
+			if char.Parent then
+				char:SetAttribute("MoonSpawn", "Skip")
+			end
+			return
+		end
+		iFrames[char] = math.max(iFrames[char] or 0, os.clock() + 1.5)
+		char:PivotTo(MB.lay.spawn)
+		root.AssemblyLinearVelocity = Vector3.zero
+		MB.spawned[player] = char
+		char:SetAttribute("MoonSpawn", "Base")
+	end
+
+	---------------------------------------------------------------------------
+	-- THE DROP POD
+	---------------------------------------------------------------------------
+	-- the pod on the launch pad shown / hidden (put back exactly as it was built)
+	function MB.padPod(on)
+		for _, e in MB.podParts do
+			pcall(function()
+				e[1].Transparency = on and e[2] or 1
+				e[1].CanCollide = on and e[3] or false
+			end)
+		end
+		if MB.prompt then
+			MB.prompt.Enabled = on
+		end
+	end
+	-- where it comes down: the first clear stretch of street Land.Radius
+	-- studs round the city's middle (from the side the moon's on; in under
+	-- the Sky Coffin - it covers the city)
+	function MB.landing()
+		local LD = POD.Land or {}
+		local target = RT.target()
+		local street = (((Config.DevFlight or {}).Bounds or {}).Center or Vector3.new(5, 25, 888)).Y
+		local toMoon = MB.F and Vector3.new(MB.F.Moon.X - target.X, 0, MB.F.Moon.Z - target.Z) or Vector3.new(1, 0, 0)
+		local a0 = toMoon.Magnitude > 1 and math.atan2(toMoon.Z, toMoon.X) or 0
+		local params = RaycastParams.new()
+		local map = workspace:FindFirstChild("Map")
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { map or workspace }
+		pcall(function()
+			params.RespectCanCollide = true
+		end)
+		local from = LD.From or 1000
+		local function streetAt(x, z)
+			local ok, hit = pcall(function()
+				return workspace:Raycast(Vector3.new(x, from, z), Vector3.new(0, -from - 300, 0), params)
+			end)
+			if ok and hit and hit.Position.Y < street + 40 and not (MB.model and hit.Instance:IsDescendantOf(MB.model)) then
+				return hit.Position.Y
+			end
+			return nil
+		end
+		local tries = LD.Tries or 12
+		local radius = LD.Radius or 640
+		local clear = LD.Clear or 16
+		local roof -- (no clear street round it: the first thing it can stand on)
+		for i = 0, tries - 1 do
+			-- (round from the moon's side, either way in turn)
+			local k = math.ceil(i / 2) * (i % 2 == 0 and 1 or -1)
+			local a = a0 + k * 2 * math.pi / tries
+			local x, z = target.X + math.cos(a) * radius, target.Z + math.sin(a) * radius
+			local y = streetAt(x, z)
+			if not roof then
+				local ok, hit = pcall(function()
+					return workspace:Raycast(Vector3.new(x, from, z), Vector3.new(0, -from - 300, 0), params)
+				end)
+				if ok and hit and not (MB.model and hit.Instance:IsDescendantOf(MB.model)) then
+					roof = hit.Position
+				end
+			end
+			if y then
+				local good = true
+				for _, o in { { clear, 0 }, { -clear, 0 }, { 0, clear }, { 0, -clear } } do
+					local y2 = streetAt(x + o[1], z + o[2])
+					if not y2 or math.abs(y2 - y) > 3 then
+						good = false
+						break
+					end
+				end
+				if good then
+					return Vector3.new(x, y, z)
+				end
+			end
+		end
+		return roof or Vector3.new(target.X + math.cos(a0) * radius, street + 0.5, target.Z + math.sin(a0) * radius)
+	end
+	-- the map round where it's going, asked for on his machine
+	function MB.streamFor(player, at, timeout, done)
+		task.spawn(function()
+			pcall(function()
+				player:RequestStreamAroundAsync(at, timeout or 2)
+			end)
+			if done then
+				done()
+			end
+		end)
+	end
+	-- HE LAUNCHES (his prompt: only him, only from the base)
+	function MB.launch(player)
+		if not (MB.on() and MB.owner(player)) or MB.pods[player] then
+			return false
+		end
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local body = MB.podBody
+		if not root or not alive(char) or not body or root.Anchored then
+			return false
+		end
+		if (root.Position - body.Position).Magnitude > (POD.Reach or 16) or not OB.inZone(root.Position, MB.F) then
+			return false
+		end
+		if os.clock() - (MB.podAt[player] or -1e9) < (POD.Cooldown or 8) or player:GetAttribute("RankedDuel") ~= nil then
+			return false
+		end
+		for _, a in { "Ragdolled", "Grabbed", "CarriedBy", "HawksCarriedBy", "DevCarrying", "Parked", "Possessed", "BeingFinished", "Finishing", "Clashing", "Frozen", "Stunned", "TimeStopped", "Submerged" } do
+			if char:GetAttribute(a) then
+				return false
+			end
+		end
+		-- his flight off (the pod's a ride)
+		if player:GetAttribute("DevFlight") and Kit.DF and Kit.DF.setPower then
+			pcall(Kit.DF.setPower, player, false)
+		end
+		local land = MB.landing()
+		local plan = POD.plan(MB.F, MB.lay.pod, land)
+		MB.seq = (MB.seq or 0) + 1
+		plan.Id = MB.seq
+		plan.Player, plan.Char, plan.Root = player, char, root
+		plan.Phase = "Lift"
+		plan.LiftAt = workspace:GetServerTimeNow()
+		plan.Lift = POD.Lift or 1.4
+		MB.pods[player] = plan
+		char:SetAttribute("DropPod", plan.Id)
+		root.Anchored = true
+		root.AssemblyLinearVelocity = Vector3.zero
+		iFrames[char] = math.max(iFrames[char] or 0, os.clock() + (POD.Lift or 1.4) + (POD.StreamWait or 2.5) + (POD.Drop or 3.4) + (POD.Burn or 2.6) + 1)
+		MB.padPod(false)
+		-- ((round 99 review) User: a screen his body isn't streamed in on gets
+		-- nil for it - the pod's still drawn there, his body found when it is)
+		broadcast("DropPod", char, { Kind = "Lift", Id = plan.Id, User = player.UserId, P0 = plan.P0, P1 = plan.P1, Fwd = plan.Fwd, At = plan.LiftAt, Lift = plan.Lift })
+		-- the way down streamed in for him while it lifts off (at most StreamWait s)
+		local pending = 0
+		for _, at in { plan.E1, plan.E2, plan.Q3, plan.L } do
+			pending += 1
+			MB.streamFor(player, at, POD.StreamTimeout or 3, function()
+				pending -= 1
+			end)
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			while (pending > 0 and os.clock() - t0 < (POD.StreamWait or 2.5)) or os.clock() - t0 < plan.Lift do
+				task.wait(0.05)
+			end
+			if MB.pods[player] ~= plan then
+				return
+			end
+			plan.Phase = "Drop"
+			plan.T0 = workspace:GetServerTimeNow()
+			broadcast("DropPod", char, {
+				Kind = "Drop", Id = plan.Id, User = player.UserId, T0 = plan.T0, P1 = plan.P1, Q1 = plan.Q1, Q2 = plan.Q2, E1 = plan.E1, E2 = plan.E2, Q3 = plan.Q3, L = plan.L,
+				Drop = plan.Drop, Burn = plan.Burn, Ease = plan.Ease, Brake = plan.Brake, Fwd = plan.Fwd,
+			})
+		end)
+		return true
+	end
+	-- out of it: on the street (landed) or not (dead, gone, switched off)
+	function MB.podEnd(player, plan, landed)
+		if MB.pods[player] == plan then
+			MB.pods[player] = nil
+		end
+		local char, root = plan.Char, plan.Root
+		if char.Parent and char:GetAttribute("DropPod") == plan.Id then
+			char:SetAttribute("DropPod", nil)
+		end
+		if root.Parent and root.Anchored then
+			root.Anchored = false
+		end
+		MB.podAt[player] = os.clock()
+		if not landed then
+			broadcast("DropPod", char, { Kind = "Abort", Id = plan.Id })
+		end
+		task.delay(POD.Cooldown or 8, function()
+			local busy = false
+			for _, p in MB.pods do
+				busy = busy or p ~= nil
+			end
+			if not busy then
+				MB.padPod(true)
+			end
+		end)
+	end
+	-- down: the slam, the crater, anyone close off their feet - and him out
+	-- of it with a superhero landing
+	function MB.podLand(player, plan)
+		local char, root = plan.Char, plan.Root
+		local at = plan.L
+		local out = Vector3.new(plan.L.X - RT.target().X, 0, plan.L.Z - RT.target().Z)
+		out = out.Magnitude > 1 and out.Unit or plan.Fwd
+		local stand = at + out * 6 + UP * 3
+		pcall(Destruction.Sphere, at, POD.Crater or 7, "Crater")
+		local K = POD.Knock or { 80, 40 }
+		for _, model in queryRadius(char, at, POD.KnockRadius or 28) do
+			if model ~= char and Kit.DF and Kit.DF.canKnock(player, model, true) and not (Kit.RK and Kit.RK.apart and Kit.RK.apart(player, model)) then
+				knockback(model, awayFrom(at, model, out) * K[1] + UP * K[2], 0.35)
+			end
+		end
+		MB.podEnd(player, plan, true)
+		if root.Parent and alive(char) then
+			char:PivotTo(CFrame.lookAt(stand, stand + out))
+			root.AssemblyLinearVelocity = Vector3.zero
+			iFrames[char] = math.max(iFrames[char] or 0, os.clock() + 1)
+		end
+		broadcast("DropPod", char, { Kind = "Land", Id = plan.Id, User = player.UserId, Pos = at, Stand = stand, Dir = out })
+	end
+	-- every frame: each pod down its plan (his anchored body in it)
+	function MB.podStep()
+		local now = workspace:GetServerTimeNow()
+		for player, plan in MB.pods do
+			local char, root = plan.Char, plan.Root
+			if not player.Parent or player.Character ~= char or not root.Parent or not alive(char) then
+				MB.podEnd(player, plan, false)
+			else
+				if player:GetAttribute("DevFlight") and Kit.DF and Kit.DF.setPower then
+					pcall(Kit.DF.setPower, player, false) -- (no flying out of a pod)
+				end
+				local pos, vel, leg
+				if plan.Phase == "Lift" then
+					local k = math.clamp((now - plan.LiftAt) / plan.Lift, 0, 1)
+					k = k * k * (3 - 2 * k)
+					pos, vel, leg = plan.P0:Lerp(plan.P1, k), Vector3.zero, "Lift"
+				else
+					pos, vel, leg = POD.at(plan, now - plan.T0)
+				end
+				if not root.Anchored then
+					root.Anchored = true
+				end
+				root.CFrame = POD.frame(plan.Fwd, pos, vel, leg == "Lift")
+				if leg == "Down" then
+					MB.podLand(player, plan)
+				elseif leg ~= "Lift" then
+					-- the map ahead, asked for on his machine all the way down
+					local S = POD.Stream or {}
+					if os.clock() - (plan.streamAt or -1e9) >= (S.Every or 0.3) then
+						plan.streamAt = os.clock()
+						local ahead = select(1, POD.at(plan, now - plan.T0 + (S.Ahead or 0.7)))
+						MB.streamFor(player, ahead, 1)
+					end
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- RE-ENTRY OVER THE CITY
+	---------------------------------------------------------------------------
+	-- up there: the way back in streamed in for him every Stream.Every s -
+	-- round where he'd come in if he crossed now (his heading as it is),
+	-- over the city's middle, and the street under it
+	-- ((round 99 review) the player he's carrying (nil: nobody, or a dummy) -
+	-- their map's streamed in with his: the place pauses a game whose body
+	-- is put on map it hasn't got)
+	function MB.carriedPlayer(player)
+		local rec = Kit.CR and Kit.CR.by and Kit.CR.by[player]
+		local held = rec and rec.Model
+		return held and held.Parent and Players:GetPlayerFromCharacter(held) or nil
+	end
+	function MB.reAsk(player, s, now, root)
+		local S = RT.Stream or {}
+		if now - (s.askAt or -1e9) < (S.Every or 1.5) or s.asking then
+			return
+		end
+		s.askAt = now
+		s.asking = true
+		local target = RT.target()
+		local back = (SPC.Edge or 4200) - (SPC.Hysteresis or 160)
+		local street = (((Config.DevFlight or {}).Bounds or {}).Center or Vector3.new(5, 25, 888)).Y
+		local p = root.Position
+		local v = root.AssemblyLinearVelocity
+		local points = {
+			RT.dest(Vector3.new(p.X, back - 60, p.Z), Vector3.new(v.X, math.min(v.Y, -1), v.Z)),
+			Vector3.new(target.X, back - 60, target.Z),
+			Vector3.new(target.X, street, target.Z),
+		}
+		local vp = MB.carriedPlayer(player)
+		local who = vp and { player, vp } or { player }
+		local n = #points * #who
+		local function done()
+			n -= 1
+			if n == 0 then
+				s.asking = nil
+				s.ready, s.points, s.with = os.clock(), points, vp
+			end
+		end
+		for _, plr in who do
+			for _, at in points do
+				MB.streamFor(plr, at, S.Timeout or 2, done)
+			end
+		end
+	end
+	-- streamed in round there lately (for him and whoever he's carrying now)?
+	function MB.reFresh(s, dest, vp)
+		local S = RT.Stream or {}
+		if os.clock() - (s.ready or -1e9) >= (S.Fresh or 8) or (vp ~= nil and s.with ~= vp) then
+			return false
+		end
+		for _, at in s.points or {} do
+			if (at - dest).Magnitude <= (S.Within or 700) then
+				return true
+			end
+		end
+		return false
+	end
+	-- coming back in: over the city
+	function MB.reMove(player, char, root)
+		local p, v = root.Position, root.AssemblyLinearVelocity
+		local dest = RT.dest(p, v)
+		if Vector3.new(dest.X - p.X, 0, dest.Z - p.Z).Magnitude < (RT.Near or 500) then
+			return false
+		end
+		char:PivotTo(CFrame.new(dest) * root.CFrame.Rotation)
+		broadcast("ReEntryWarp", char, { From = p, To = dest, V = v })
+		-- whoever he's carrying comes with him (the carry hangs them off his
+		-- fist where he is from the next frame): their map too (asked again -
+		-- it was asked with his before he crossed), their trails
+		local rec = Kit.CR and Kit.CR.by and Kit.CR.by[player]
+		local held = rec and rec.Model
+		if held and held.Parent then
+			local vp = Players:GetPlayerFromCharacter(held)
+			if vp then
+				MB.streamFor(vp, dest, 2)
+			end
+			broadcast("ReEntryWarp", held, { From = p, To = dest, V = v, Carried = true })
+		end
+		return true
+	end
+	function MB.reCross(player, char, root, s)
+		if root.Anchored then
+			return
+		end
+		for _, a in RT.Skip or {} do
+			if char:GetAttribute(a) then
+				return
+			end
+		end
+		local S = RT.Stream or {}
+		local dest = RT.dest(root.Position, root.AssemblyLinearVelocity)
+		local vp = MB.carriedPlayer(player)
+		if MB.reFresh(s, dest, vp) then
+			MB.reMove(player, char, root)
+			return
+		end
+		-- (not streamed in there yet: asked now - for him, and whoever he's
+		-- carrying - he keeps falling a moment, then he's moved from where he
+		-- is then)
+		s.busy = true
+		local waiting = vp and 2 or 1
+		local function done()
+			waiting -= 1
+		end
+		MB.streamFor(player, dest, S.Timeout or 2, done)
+		if vp then
+			MB.streamFor(vp, dest, S.Timeout or 2, done)
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			while waiting > 0 and os.clock() - t0 < (S.Wait or 0.5) do
+				task.wait()
+			end
+			s.busy = nil
+			if player.Character == char and root.Parent and alive(char) and not root.Anchored then
+				MB.reMove(player, char, root)
+			end
+		end)
+	end
+	function MB.reStep(now)
+		if RT.Enabled == false or SPC.Enabled == false then
+			return
+		end
+		local edge = SPC.Edge or 4200
+		local back = edge - (SPC.Hysteresis or 160)
+		for _, player in Players:GetPlayers() do
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			local s = MB.re[player]
+			if not s then
+				s = {}
+				MB.re[player] = s
+			end
+			if s.char ~= char or not root or not alive(char) then
+				s.char, s.up, s.lastY = char, nil, nil
+			end
+			if root and alive(char) then
+				local p = root.Position
+				if p.Y >= edge then
+					s.up = now
+					MB.reAsk(player, s, now, root)
+				elseif s.up and p.Y < back then
+					-- (a real crossing - down through the line, not a warp from
+					-- up there to somewhere down here)
+					local crossed = s.lastY ~= nil and s.lastY >= back and s.lastY - p.Y < (RT.Jump or 1500)
+						and Vector3.new(p.X - (s.lastX or p.X), 0, p.Z - (s.lastZ or p.Z)).Magnitude < (RT.Jump or 1500)
+					s.up = nil
+					if crossed and not s.busy then
+						MB.reCross(player, char, root, s)
+					end
+				end
+				s.lastY, s.lastX, s.lastZ = p.Y, p.X, p.Z
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- the moon's gravity on the base: each machine lightens its own body
+	-- there (QuirkClient); the anti-exploit's told it's low gravity there
+	-- (Kit.AX.floaty: ZeroGUntil - the latest of ours and anyone else's)
+	---------------------------------------------------------------------------
+	function MB.zoneStep()
+		if not MB.F or (OB.Gravity or 1) >= 1 then
+			return
+		end
+		local now = workspace:GetServerTimeNow()
+		for _, player in Players:GetPlayers() do
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root and OB.inZone(root.Position, MB.F) then
+				local cur = tonumber(char:GetAttribute("ZeroGUntil")) or 0
+				if cur < now + 0.8 then
+					char:SetAttribute("ZeroGUntil", now + 1.6)
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------------
+	-- coming and going
+	---------------------------------------------------------------------------
+	function MB.hook(player)
+		if MB.on() and MB.owner(player) then
+			player:SetAttribute("MoonBase", true)
+			MB.ask(player)
+		end
+		player.CharacterAdded:Connect(function(char)
+			MB.arrive(player, char)
+		end)
+		-- ((round 99 review) a body already up before this ran - as the
+		-- game's own onPlayer does - is his first spawn too)
+		local first = player.Character
+		if first then
+			task.spawn(MB.arrive, player, first)
+		end
+	end
+	function MB.forget(player)
+		local plan = MB.pods[player]
+		if plan then
+			MB.podEnd(player, plan, false)
+		end
+		MB.owners[player], MB.ready[player], MB.asking[player], MB.spawned[player] = nil, nil, nil, nil
+		MB.re[player], MB.pods[player], MB.podAt[player] = nil, nil, nil
+	end
+
+	if SPC.Enabled ~= false and OB.Enabled ~= false then
+		local ok, err = pcall(MB.build)
+		if not ok then
+			warn("[MoonBase] " .. tostring(err))
+		end
+	end
+	Players.PlayerAdded:Connect(MB.hook)
+	for _, plr in Players:GetPlayers() do
+		task.spawn(MB.hook, plr)
+	end
+	Players.PlayerRemoving:Connect(MB.forget)
+	local zoneAt = 0
+	RunService.Heartbeat:Connect(function()
+		local now = os.clock()
+		local ok, err = pcall(MB.reStep, now)
+		if not ok then
+			warn("[MoonBase] re-entry: " .. tostring(err))
+		end
+		if next(MB.pods) ~= nil then
+			ok, err = pcall(MB.podStep)
+			if not ok then
+				warn("[MoonBase] pod: " .. tostring(err))
+			end
+		end
+		if now - zoneAt >= 0.25 then
+			zoneAt = now
+			pcall(MB.zoneStep)
+		end
+	end)
+end, function(err)
+	warn("[QuirkServer] moonbase: " .. tostring(err))
 end)
 
 Players.PlayerRemoving:Connect(function(player)
