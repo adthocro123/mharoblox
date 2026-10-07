@@ -80,8 +80,9 @@ and world".
   started another emote, and nothing with `Enabled = false`. Both fail on
   round 102's sources and pass now.
 - Round 102's client section still passes on round 103's sources.
-- Full server suite: still running when this was committed; its result
-  goes in the next commit.
+- Full server suite: 1972 passed, 60 failed (round 102: 1960 / 60). The
+  60 are the same as round 102's apart from the emote-roll order check,
+  which is random. The 12 new passes are round 103's section.
 
 ### Round 102
 
