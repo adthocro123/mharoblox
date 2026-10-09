@@ -211,6 +211,31 @@ def graft(target_path, out_path, source_path, items, exclude=(), rbxl_dir=None, 
         index = {r: i for i, r in enumerate(S.classes[cid]['refs'])}
         by_class[cid].sort(key=lambda r: index[r])
 
+    # (round 107) every UniqueId already in the target: Studio won't open a
+    # place where two instances share one ("DM contains duplicate Unique
+    # ids"), and a source instance grafted in before (or the same one twice)
+    # carries the same id. A copied id that's taken gets a fresh one: the
+    # same time and random parts, the next index nobody's using.
+    taken_ids = set()
+    for cid in T.classes:
+        t, vals = T.prop_values(cid, 'UniqueId')
+        if t == 0x1F:
+            taken_ids.update(v for v in vals if v != bytes(16))
+    reminted = []
+
+    def fresh_id(v):
+        if v == bytes(16) or v not in taken_ids:
+            taken_ids.add(v)
+            return v
+        idx, = struct.unpack_from('>I', v, 0)
+        while True:
+            idx = (idx + 1) & 0xFFFFFFFF
+            w = struct.pack('>I', idx) + v[4:]
+            if w not in taken_ids:
+                taken_ids.add(w)
+                reminted.append((v, w))
+                return w
+
     def source_vals(scid, pname, ptype):
         """values of pname for the selected instances of source class scid"""
         st, vals = S.prop_values(scid, pname)
@@ -225,6 +250,8 @@ def graft(target_path, out_path, source_path, items, exclude=(), rbxl_dir=None, 
                 v = new_ref.get(v, -1) if v != -1 else -1
             elif ptype == 0x1C:
                 v = map_sstr(v)
+            elif ptype == 0x1F and pname == 'UniqueId':
+                v = fresh_id(v)
             elif pname == 'Name' and r in renamed:
                 nb = renamed[r].encode()
                 v = struct.pack('<I', len(nb)) + nb
@@ -255,7 +282,7 @@ def graft(target_path, out_path, source_path, items, exclude=(), rbxl_dir=None, 
                 add = source_vals(scid, pname, ptype) if s_props.get(pname) == ptype else None
                 if add is None:
                     if ptype == 0x1F:
-                        add = [bytes(rnd.getrandbits(8) for _ in range(16)) for _ in refs]
+                        add = [fresh_id(bytes(rnd.getrandbits(8) for _ in range(16))) for _ in refs]
                     elif ptype == 0x13:
                         add = [-1] * len(refs)
                     else:
@@ -311,6 +338,7 @@ def graft(target_path, out_path, source_path, items, exclude=(), rbxl_dir=None, 
             out.extend(new_inst_chunks)
     open(out_path, 'wb').write(b''.join(out))
     report['count'] = M
+    report['reminted'] = reminted  # (round 107) copied UniqueIds that were taken: (old, new)
     report['sstr_added'] = len(sstr_map)
     report['new_ref_of_root'] = {S.path(r): new_ref[r] for r in root_of}
     return report

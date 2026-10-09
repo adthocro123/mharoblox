@@ -7,7 +7,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 |---|---|
 | `src/` | Every script in the place as of Round 106, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
-| `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
+| `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts. `uniqueids.py` (Round 106) finds UniqueIds two instances share: Studio won't open such a place |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
 | `jjba/` | Round 104: the tools that grafted the owner's JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview). Round 106: `assets106.py` (the graft of the Stand arrows, the Rokakaka, the props in the hand and their two clips) and `spots_check.luau` (where the items go, worked out offline) |
 
@@ -24,7 +24,19 @@ city. Three scripts changed (`QuirkConfig`, `VFX`, `QuirkServer`). The
 JJBA place's items, the props held in the hand and two clips were grafted
 in (`jjba/assets106.py`). Not playtested in Studio yet.
 
-**What came over from the JJBA place** (`jjba/assets106.py`; 1,660
+**Fixed after the first upload: the place wouldn't open.** Studio said "DM
+contains duplicate Unique ids". The JJBA place's `AnimParts.MetalPart` had
+come over a second time inside `JJBA.Held` (Round 104 had grafted it as
+`JJBA.MetalPart`), and its 16 instances carried the same UniqueIds as the
+first copy. Nothing uses the second one, so it's left out now. Two
+safeguards:
+- The grafter (`jjba/rbxgraft.py`) gives any copied UniqueId that's
+  already in the place a fresh one.
+- `place/uniqueids.py` checks a place for shared UniqueIds, and
+  `assets106.py` runs it on what it writes. (Repeated HistoryIds are only
+  counted: the round 105 place has the same ones and opens fine.)
+
+**What came over from the JJBA place** (`jjba/assets106.py`; 1,644
 instances; the round 105 place's own 85,459 are unchanged):
 - `ReplicatedStorage.JJBA.Items`: its `Tools` folder. These are the Arrow
   and the Rokakaka as they lie on the ground. Its third item, the Parallel
@@ -1055,6 +1067,7 @@ lune run append_ks.luau ../../QuirkBattlegrounds_City.rbxl clips.json Animations
 cd ../place
 RBXL_PACK=zstd python3 rbxl_replace.py ../../QuirkBattlegrounds_City.rbxl ../anim/Animations.rbxm out.rbxl ReplicatedStorage
 python3 rbxl_check.py out.rbxl
+python3 uniqueids.py out.rbxl   # no UniqueId shared by two instances (Studio refuses the place otherwise)
 ```
 
 ### With the Roblox Studio MCP (the plan for better animations)
@@ -1101,6 +1114,7 @@ lune run dump_sources.luau ../../QuirkBattlegrounds_City.rbxl ../src       # pla
 # ... edit src/ ...
 RBXL_PACK=zstd python3 rbxl_write.py ../../QuirkBattlegrounds_City.rbxl out.rbxl ../src   # src/ -> place (only Source chunks change)
 python3 rbxl_check.py out.rbxl
+python3 uniqueids.py out.rbxl   # no UniqueId shared by two instances (Studio refuses the place otherwise)
 ```
 
 The place is saved by Studio with zstd, so keep `RBXL_PACK=zstd`. Diff two

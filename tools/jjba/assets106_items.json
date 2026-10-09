@@ -8,7 +8,10 @@
   [
    "ReplicatedStorage.AnimParts",
    "ReplicatedStorage.JJBA",
-   "Held"
+   "Held",
+   [
+    "MetalPart"
+   ]
   ],
   [
    "ReplicatedStorage.Animatons.getstand.UseArrow_Dummy3",
