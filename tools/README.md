@@ -5,18 +5,116 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 104, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 105, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
-| `jjba/` | Round 104: the tools that grafted the owner's JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks) |
+| `jjba/` | Round 104: the tools that grafted the owner's JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview) |
 
 You need Python 3 with `numpy pillow lz4 zstandard` (and `ffmpeg` for preview
 videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tools.
 
 ---
 
-## Where things stand (Round 104)
+## Where things stand (Round 105)
+
+Round 105 builds on Round 104. The owner asked: "there should also be a
+cinematic for cmoon as well, port that over pls. fix crazy diamond as well,
+make him look like one of my models". Three scripts changed (`QuirkConfig`,
+`VFX`, `QuirkServer`). No assets were added: the C-MOON scene came over with
+`JJBA.Effects` in Round 104. Not playtested in Studio yet.
+
+**C-MOON's cinematic** (`Config.JJBA.Cinematic.CMoon`; VFX: `VFX.JSC`;
+server: `Kit.JJ.arrive`). This is the JJBA place's own `Cmoon_StartScene`,
+from its `ModEffects` script, its scene `JJBA.Effects.Cmoon.StartScene`,
+and its `Startcutscenecmoon` track.
+- **When it plays.** The JJBA place plays it when you get C-MOON. Here it
+  plays on Pucci's own screen 0.6 s after he's picked, and again if he's
+  picked again. Everyone else sees C-MOON's arrival around him: a green
+  ring and its summon sound.
+- **What it shows**, on the JJBA place's own timeline:
+  - **0 s:** a white flash, then the dark, with its streams of light
+    rushing in.
+  - **7 s:** the Earth (its sky in five shells, its clouds) bursts into
+    view, turning, with the camera jolted and a flare of blur and bloom.
+  - **13.2 s:** a hand rises into the frame and reaches for it. This is its
+    Moon Animator save (`CmoonStartCutScene`), read key by key. The hand
+    wears Pucci's sleeve, hand and gold band.
+  - **13.6 s:** the lens is flung wide. Roblox's widest is 120; the JJBA
+    place asks for 170.
+  - **13.7 s:** the wind bursts out at the camera and it shakes again.
+  - **16.1 s:** the screen goes white, and under it his camera comes back
+    at 17.1 s.
+- **Where it plays.** The scene is cloned 4,000 studs over the street, so
+  nothing of the city is in its sky. The time of day is set to night and
+  the atmosphere cleared while it plays, then put back.
+- **Holding his inputs.** It uses the game's own cutscene lock
+  (`VFX.Cinematic`): his inputs are held, and his camera comes back however
+  it ends. The HUD, chat and player list are hidden while it plays, as the
+  JJBA place does.
+- **Ending it early.** Any key or button after 1.5 s skips it. A hit or a
+  KO ends it at once. Nothing is held on the server, so it's no shelter in
+  a fight.
+- **The white-out at the end.** It lifts about 1.5 s after his camera is
+  back. The JJBA place holds it about 3 s longer.
+- **Sound.** If the JJBA track won't load on that client, the game's own
+  sounds play at the beats instead (`CMoonCineRise / Earth / Wind / White`).
+- `Enabled = false` turns it off.
+
+**Crazy Diamond drawn from the owner's model**
+(`Config.JJBA.Stands.CrazyDiamond`; `JS.paint`).
+- **Which model.** The owner's STAR PLATINUM model (the closest build to
+  Crazy Diamond in the JJBA place), painted in Crazy Diamond's colours.
+  `Paint.Parts` sets each part's colour by name. `false` hides a part: the
+  hair and the loincloth flaps.
+  - **Pink:** the body.
+  - **Light blue:** the shoulder pads, wrist and shin guards, the headband
+    and the mask.
+  - **White:** the bands and knuckles.
+- **Hearts.** Seven, on the forehead, chest, belt, both shoulders and both
+  knees. Each is welded to its part, so it moves with the limb.
+- **Aura and trails.** Star Platinum's aura and arm trails, in pink.
+- **Motion.** It uses Star Platinum's clips: the barrage loop for
+  DORARARA, its pose for the rage. Every other move puts its pose on the
+  rig, as before.
+- **The old figure.** The part-built figure comes back if the model is
+  missing or `Use = false`.
+- **Checked offline** (`jjba/cd_check.luau`): its colours, the hair hidden,
+  21 heart parts that move with their limb, and Star Platinum's own model
+  untouched.
+
+**Tests (round 105).**
+- Server: 10 checks.
+  - The cinematic is sent 0.6 s after Pucci is picked, and nothing is held
+    on the server.
+  - It isn't sent if he's picked away first, for another hero, when it's
+    off, or if he's knocked out by then.
+  - All pass on round 105. On round 104 the section fails: its config
+    checks fail and it stops.
+- Client:
+  - Crazy Diamond: out for DORARARA on the painted model, with its own
+    barrage clip, pink, no hair, hearts showing, a pink aura, and the
+    part-built figure hidden.
+  - The cinematic, run 8x fast:
+    - It takes his camera from the scene's own, 4,000 studs up, at night,
+      with the HUD hidden and a white flash first.
+    - The Earth appears at 7 s and turns.
+    - The hand reaches out in front, and the lens goes wide.
+    - At the end his camera, the HUD and the time of day are back and the
+      scene is gone.
+  - A key skips it after 1.5 s (not before), and a hit ends it.
+  - Someone else's cinematic never plays on your screen.
+- Full suites:
+  - Server: 1992 passed, 56 failed (round 104: 1981 passed, 57 failed).
+    The failures are the same, except one that comes and goes ("deflating:
+    the bangs go with the costume") passed this run. Two other failing
+    checks name a random emote, so their names differ each run.
+  - Client: stops at the same round 34 HUD error as before, with 91
+    problems before it. That's round 104's 89, plus two timing checks
+    (FLOAT 75's Air Force flick, RADIO 84's flicker) that also fail on the
+    uploaded final. None are in round 105's section.
+
+### Round 104
 
 Round 104 is built on the owner's uploaded `final.rbxl` (Round 103 plus
 the other session's Mob, Tokoyami and Pucci). The owner's JJBA place

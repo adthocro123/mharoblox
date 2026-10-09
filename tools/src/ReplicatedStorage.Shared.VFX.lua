@@ -108997,6 +108997,13 @@ end)()
 				d:Destroy()
 			end
 		end
+		-- (round 105) painted as another Stand (Crazy Diamond on Star Platinum's model: Paint)
+		if spec.Paint and JS.paint then
+			local okP, errP = pcall(JS.paint, model, spec.Paint)
+			if not okP then
+				warnOnce("paint " .. kind, errP)
+			end
+		end
 		local scale = spec.Scale or 1
 		if math.abs(scale - 1) > 1e-3 then
 			pcall(function()
@@ -109205,6 +109212,9 @@ end)()
 			if e:IsA("ParticleEmitter") then
 				local c = e:Clone()
 				c.Rate = e.Rate * (spec.AuraRate or 0.35)
+				if spec.AuraColor then
+					c.Color = ColorSequence.new(spec.AuraColor) -- (round 105: Crazy Diamond's pink on Star Platinum's aura)
+				end
 				c.Enabled = false
 				c.Parent = holder
 				table.insert(r.aura, c)
@@ -109214,6 +109224,9 @@ end)()
 			local e = set:FindFirstChild(n)
 			if e and e:IsA("ParticleEmitter") then
 				local c = e:Clone()
+				if spec.AuraColor then
+					c.Color = ColorSequence.new(spec.AuraColor)
+				end
 				c.Enabled = false
 				c.Parent = holder
 				r.bursts[n] = c
@@ -110357,6 +110370,694 @@ end)()
 		end
 		if root.Parent then
 			pomClip(char, "MovePOMVoidBall", "POMThrow", 0.8)
+		end
+	end
+end)()
+
+---------------------------------------------------------------------------
+-- (round 105) C-MOON'S CINEMATIC, the owner's JJBA place's (VFX.JSC;
+-- Config.JJBA.Cinematic): its scene (JJBA.Effects.Cmoon.StartScene) cloned
+-- high over the street and played on Pucci's own screen on its own
+-- timeline. The camera takes the game's cutscene lock (VFX.Cinematic: his
+-- inputs held, his camera given back however it ends); everything else is
+-- worked out from one clock each frame - the JJBA place's tweens, as the
+-- curves they draw. And CRAZY DIAMOND on the owner's STAR PLATINUM model,
+-- painted (JS.paint: Config.JJBA.Stands.CrazyDiamond.Paint).
+-- (Its own function: the main chunk's locals stay as they are.)
+---------------------------------------------------------------------------
+;(function()
+	local JC = Config.JJBA or {}
+	local JS = VFX.JS
+	if not JS then
+		return
+	end
+	local UIS = game:GetService("UserInputService")
+	local CAS = game:GetService("ContextActionService")
+	local StarterGui = game:GetService("StarterGui")
+	local LightingS = game:GetService("Lighting")
+	local JSC = {}
+	VFX.JSC = JSC
+	local IDENT = CFrame.new()
+
+	---------------------------------------------------------------------
+	-- CRAZY DIAMOND: each part painted (or hidden), its hearts put on -
+	-- welded to their part, so the rig reads them like any other piece -,
+	-- its trails pink (JS.build, before it's scaled)
+	---------------------------------------------------------------------
+	function JS.paint(model, paint)
+		local C = paint.Colors or {}
+		local function colour(token)
+			return typeof(token) == "Color3" and token or C[token]
+		end
+		for _, d in model:GetDescendants() do
+			if d:IsA("BasePart") then
+				local token = paint.Parts and paint.Parts[d.Name]
+				if token == false then
+					d.Transparency = 1
+				elseif token ~= nil then
+					local c = colour(token)
+					if c then
+						d.Color = c
+						if d:IsA("UnionOperation") then
+							pcall(function()
+								d.UsePartColor = true
+							end)
+						end
+					end
+				end
+			elseif d:IsA("Trail") and paint.Trail then
+				local c = colour(paint.Trail)
+				if c then
+					d.Color = ColorSequence.new(c)
+				end
+			end
+		end
+		local hc = colour(paint.Heart or "deep") or Color3.fromRGB(222, 66, 146)
+		for _, h in paint.Hearts or {} do
+			local host = model:FindFirstChild(h[1], true)
+			if host and host:IsA("BasePart") then
+				local size = h[4] or 0.4
+				local cf = host.CFrame * CFrame.new(h[2]) * CFrame.Angles(0, math.rad(h[3] or 0), 0)
+				local function piece(sz, at, shape)
+					local p = Instance.new("Part")
+					p.Name = "Heart"
+					p.Shape = shape or Enum.PartType.Block
+					p.Size = sz
+					p.CFrame = at
+					p.Color = hc
+					p.Material = Enum.Material.SmoothPlastic
+					p.TopSurface = Enum.SurfaceType.Smooth
+					p.BottomSurface = Enum.SurfaceType.Smooth
+					p.Parent = host
+					local w = Instance.new("WeldConstraint")
+					w.Part0 = host
+					w.Part1 = p
+					w.Parent = p
+				end
+				for side = -1, 1, 2 do
+					piece(Vector3.one * size * 0.62, cf * CFrame.new(side * size * 0.24, size * 0.14, 0), Enum.PartType.Ball)
+				end
+				piece(Vector3.new(size * 0.58, size * 0.58, size * 0.3), cf * CFrame.new(0, -size * 0.12, 0) * CFrame.Angles(0, 0, math.rad(45)))
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE CURVES: TweenService's (s = 1.70158 for Back), and the hand's
+	-- clip (Hand.Keys: { frame, Transform, ease style, direction } - each
+	-- key's ease runs to the next, as Moon Animator's do)
+	---------------------------------------------------------------------
+	local BACK = 1.70158
+	local function ease(style, dir, u)
+		u = math.clamp(u, 0, 1)
+		local function inn(x)
+			if style == "Back" then
+				return x * x * ((BACK + 1) * x - BACK)
+			elseif style == "Sine" then
+				return 1 - math.cos(x * math.pi / 2)
+			end
+			return x
+		end
+		if dir == "Out" then
+			return 1 - inn(1 - u)
+		elseif dir == "InOut" then
+			return u < 0.5 and inn(u * 2) / 2 or 1 - inn((1 - u) * 2) / 2
+		end
+		return inn(u)
+	end
+	JSC.ease = ease
+	function JSC.hand(spec, t)
+		local H = spec.Hand or {}
+		local keys, fps = H.Keys or {}, H.Fps or 60
+		local n = #keys
+		if n == 0 then
+			return IDENT
+		end
+		local f = t * fps
+		if f <= keys[1][1] then
+			return keys[1][2]
+		end
+		for i = 1, n - 1 do
+			local a, b = keys[i], keys[i + 1]
+			if f < b[1] then
+				return a[2]:Lerp(b[2], ease(a[3] or "Linear", a[4] or "In", (f - a[1]) / math.max(b[1] - a[1], 1e-4)))
+			end
+		end
+		return keys[n][2]
+	end
+	-- the white screens: each { At, In (s to white), Hold, Out (s to clear) }
+	function JSC.white(spec, t)
+		local tr = 1
+		for _, f in spec.Flash or {} do
+			local d = t - (f.At or 0)
+			if d >= 0 then
+				local inT, hold, outT = math.max(f.In or 0.67, 1e-3), f.Hold or 1, math.max(f.Out or 0.67, 1e-3)
+				local v = 1
+				if d < inT then
+					v = 1 - d / inT
+				elseif d < inT + hold then
+					v = 0
+				elseif d < inT + hold + outT then
+					v = (d - inT - hold) / outT
+				end
+				tr = math.min(tr, v)
+			end
+		end
+		return tr
+	end
+	local function trunc(x)
+		return x >= 0 and math.floor(x) or math.ceil(x)
+	end
+	-- the camera's jolts, laid out ahead: each { t, offset } - a lurch toward
+	-- a roll of whole radians and whole studs in or out (as the JJBA place's
+	-- math.random gives them), each group ending back at the frame
+	function JSC.jolts(spec, rng)
+		local SH = spec.Shake or {}
+		local out = {}
+		for _, g in { { spec.Earth, SH.Earth }, { spec.Wind, SH.Wind } } do
+			local at, s = g[1], g[2]
+			if at and s then
+				local cast, every = s.Cast or 4, s.Every or 0.1
+				for k = 1, s.Steps or 0 do
+					local h = cast / 2
+					local lo, hi = trunc(-h), trunc(h)
+					local z, roll = rng:NextInteger(lo, hi), rng:NextInteger(lo, hi)
+					table.insert(out, { t = at + k * every, cf = CFrame.new(0, 0, z) * CFrame.Angles(0, 0, roll * (SH.Roll or 1)) })
+					cast -= cast * (SH.Decay or 1 / 25)
+				end
+				table.insert(out, { t = at + (s.Steps or 0) * every + 1e-3, cf = IDENT })
+			end
+		end
+		table.sort(out, function(a, b)
+			return a.t < b.t
+		end)
+		return out
+	end
+
+	---------------------------------------------------------------------
+	-- THE CINEMATIC (rate: its clock's speed - 1 is the JJBA place's)
+	---------------------------------------------------------------------
+	function JSC.stop(why)
+		local a = JSC.active
+		if a then
+			a.finish(why or "stop")
+		end
+	end
+	function JSC.play(char, kind, rate)
+		local spec = JC.Cinematic and JC.Cinematic[kind or "CMoon"]
+		if not spec or spec.Enabled == false or JC.Enabled == false or JSC.active then
+			return false
+		end
+		local fx = JS.effect(spec.Effect or "Cmoon")
+		local template = fx and fx:FindFirstChild("StartScene")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local cam = workspace.CurrentCamera
+		local me = Players.LocalPlayer
+		if not template or not root or not hum or hum.Health <= 0 or not cam or not me then
+			return false
+		end
+		rate = math.max(tonumber(rate) or 1, 0.01)
+		local scene = template:Clone()
+		local camPart = scene:FindFirstChild("Camera")
+		local RA = scene:FindFirstChild("RA", true)
+		local rootPart = scene:FindFirstChild("Root", true)
+		if not (camPart and camPart:IsA("BasePart") and RA and RA:IsA("BasePart") and rootPart and rootPart:IsA("BasePart")) then
+			scene:Destroy()
+			return false
+		end
+		-- its joints read, then out (the hand's posed here); every part anchored,
+		-- out of physics, and the whole scene moved up over the street
+		local rootC0, rootC1, raC0, raC1 = IDENT, IDENT, IDENT, IDENT
+		for _, d in scene:GetDescendants() do
+			if d:IsA("Motor6D") or d:IsA("Weld") then
+				if d.Part1 == rootPart then
+					rootC0, rootC1 = d.C0, d.C1
+				elseif d.Part1 == RA then
+					raC0, raC1 = d.C0, d.C1
+				end
+			end
+		end
+		local p0 = root.Position
+		local camCF = CFrame.new(p0.X, spec.Sky or 4000, p0.Z) * camPart.CFrame.Rotation
+		local shift = camCF * camPart.CFrame:Inverse()
+		local vrooms = {}
+		for _, d in scene:GetDescendants() do
+			if d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("AnimationController") or d:IsA("LuaSourceContainer") then
+				d:Destroy()
+			end
+		end
+		for _, d in scene:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CanTouch = false
+				d.CastShadow = false
+				d.CFrame = shift * d.CFrame
+				-- (in the dark till the Earth bursts into view: all but the hand)
+				if d ~= RA then
+					d.Transparency = 1
+				end
+			elseif d:IsA("ParticleEmitter") and d.Name == "vroom" then
+				d.Rate = 0
+				d.Enabled = true
+				table.insert(vrooms, d)
+			end
+		end
+		local earth, clouds = scene:FindFirstChild("Earth"), scene:FindFirstChild("Clouds")
+		local earth0, clouds0 = earth and earth.CFrame, clouds and clouds.CFrame
+		-- the hand: his sleeve, his hand and the gold band on it
+		local dress = {}
+		local look = Config.Pucci and Config.Pucci.Look
+		if (spec.Hand or {}).Dress ~= false and look then
+			local colors = look.Colors or {}
+			RA.Color = colors.cassock or RA.Color
+			RA.Material = Enum.Material.SmoothPlastic
+			for _, row in look.Parts or {} do
+				if row[1] == "Right Arm" and row[2] == "Block" and colors[row[6]] then
+					local rot = row[5] or { 0, 0, 0 }
+					local rel = CFrame.new(row[4]) * CFrame.Angles(math.rad(rot[1]), math.rad(rot[2]), math.rad(rot[3]))
+					dress[newPart(row[3], RA.CFrame * rel, colors[row[6]], row[7] and Enum.Material[row[7]] or Enum.Material.SmoothPlastic, nil, scene)] = rel
+				end
+			end
+		end
+		scene.Parent = folder
+
+		-- the game's cutscene lock (his inputs held; his camera back however it ends)
+		local T = spec.Back or 17.07
+		local F = spec.Fov or {}
+		local fov0 = cam.FieldOfView
+		local started = VFX.Cinematic(char, { { T = T / rate + 0.5, From = { camCF.Position, camCF.Position + camCF.LookVector * 10 }, Fov = { fov0, F.Start or 20 } } },
+			{ Own = true, NoBars = true, Quiet = true, World = true })
+		if not started then
+			scene:Destroy()
+			return false
+		end
+		local token = VFX.CinematicToken()
+		local a = { spec = spec, scene = scene, rate = rate }
+		JSC.active = a
+
+		-- the screen: nothing of the game's over it (the JJBA place hides it all),
+		-- its own white and the skip hint on top; the night; its sound (all of it
+		-- put back by teardown, however far it got)
+		local pg = me:FindFirstChildOfClass("PlayerGui")
+		local hidden, core = {}, {}
+		local gui, white, hint, clock0, atm, atmDensity, blur, bloom, track
+		local okSet, errSet = pcall(function()
+			for _, g in pg and pg:GetChildren() or {} do
+				if g:IsA("ScreenGui") and g.Enabled then
+					g.Enabled = false
+					table.insert(hidden, g)
+				end
+			end
+			for _, ty in { Enum.CoreGuiType.Chat, Enum.CoreGuiType.PlayerList, Enum.CoreGuiType.Health } do
+				local ok, was = pcall(function()
+					return StarterGui:GetCoreGuiEnabled(ty)
+				end)
+				if ok and was then
+					pcall(function()
+						StarterGui:SetCoreGuiEnabled(ty, false)
+					end)
+					table.insert(core, ty)
+				end
+			end
+			gui = Instance.new("ScreenGui")
+			gui.Name = "JJBACinematic"
+			gui.IgnoreGuiInset = true
+			gui.ResetOnSpawn = false
+			gui.DisplayOrder = 1000
+			white = Instance.new("Frame")
+			white.Name = "White"
+			white.Size = UDim2.fromScale(1, 1)
+			white.BackgroundColor3 = Color3.new(1, 1, 1)
+			white.BorderSizePixel = 0
+			white.BackgroundTransparency = 1
+			white.Parent = gui
+			hint = Instance.new("TextLabel")
+			hint.Name = "Hint"
+			hint.AnchorPoint = Vector2.new(1, 1)
+			hint.Position = UDim2.new(1, -24, 1, -20)
+			hint.Size = UDim2.fromOffset(300, 24)
+			hint.BackgroundTransparency = 1
+			hint.Font = Enum.Font.GothamMedium
+			hint.TextSize = 16
+			hint.TextColor3 = Color3.new(1, 1, 1)
+			hint.TextStrokeTransparency = 0.6
+			hint.TextXAlignment = Enum.TextXAlignment.Right
+			hint.TextTransparency = 1
+			hint.Text = spec.Hint or ""
+			hint.Parent = gui
+			gui.Parent = pg
+			a.gui = gui
+
+			-- the night, the space round the Earth (put back as it was after - unless
+			-- something else has changed it since)
+			clock0 = LightingS.ClockTime
+			LightingS.ClockTime = 0
+			atm = LightingS:FindFirstChildOfClass("Atmosphere")
+			atmDensity = atm and atm.Density
+			if atm then
+				atm.Density = 0
+			end
+			blur = Instance.new("BlurEffect")
+			blur.Name = "JJBACinematicBlur"
+			blur.Size = 0
+			blur.Parent = LightingS
+			bloom = Instance.new("BloomEffect")
+			bloom.Name = "JJBACinematicBloom"
+			bloom.Intensity, bloom.Size, bloom.Threshold = 0, 0, 2
+			bloom.Parent = LightingS
+
+			-- its sound: the JJBA place's track; the game's own at the beats if that won't load here
+			if type(spec.Track) == "string" and spec.Track ~= "" then
+				track = Instance.new("Sound")
+				track.Name = "JJBACinematic"
+				track.SoundId = spec.Track
+				track.Volume = spec.Volume or 1
+				track.Parent = SoundService
+				pcall(function()
+					track:Play()
+				end)
+			end
+		end)
+		local function trackOn()
+			if not track or JS.failed[spec.Track] then
+				return false
+			end
+			local ok, v = pcall(function()
+				return track.IsLoaded and track.TimeLength > 0
+			end)
+			return ok and v == true
+		end
+		local beats = {}
+		for name, cue in spec.Beats or {} do
+			local at = name == "Start" and 0.6 or spec[name]
+			if type(at) == "number" then
+				table.insert(beats, { t = at, cue = cue })
+			end
+		end
+		table.sort(beats, function(x, y)
+			return x.t < y.t
+		end)
+
+		local t0 = os.clock()
+		local jolts = JSC.jolts(spec, Random.new())
+		local ji, jFrom, jTo, jAt = 1, IDENT, IDENT, -1
+		local SHE = (spec.Shake or {}).Ease or 1
+		local VR = spec.Vroom or {}
+		local vEnd = (spec.Earth or 7) - (VR.Off or 1.07)
+		local vOn, vStep = true, 0
+		local revealed, wind, windMade, windBase = false, nil, false, 0
+		local W = spec.Gust or {}
+		local FL = spec.Flare or {}
+		local BL = spec.Bloom or {}
+		local whiteEnd = 0
+		for _, f in spec.Flash or {} do
+			whiteEnd = math.max(whiteEnd, (f.At or 0) + (f.In or 0.67) + (f.Hold or 1) + (f.Out or 0.67))
+		end
+		local torn, quick, lastHealth = false, nil, hum.Health
+		local conns = {}
+		local function now()
+			return (os.clock() - t0) * rate
+		end
+		local function flare(f, at, t)
+			if not f or not at or t < at then
+				return 0
+			end
+			local d = t - at
+			local inT = f.In or 0.5
+			if d < inT then
+				return math.max(ease("Back", "InOut", d / inT), 0)
+			end
+			return math.max(1 - (d - inT) / (f.Out or 1), 0)
+		end
+
+		-- the end: the world put back (why "end": as the JJBA place's does, the
+		-- white still up over it; a skip: the white lifts at once; a hit or a
+		-- KO: gone)
+		local function teardown(why)
+			if torn then
+				return
+			end
+			torn = true
+			pcall(function()
+				CAS:UnbindAction("JJBACinematicHold")
+			end)
+			for _, c in conns do
+				c:Disconnect()
+			end
+			if VFX.CinematicToken() == token and VFX.InCinematic() then
+				VFX.CancelCinematic()
+			end
+			for _, g in hidden do
+				if g.Parent then
+					g.Enabled = true
+				end
+			end
+			for _, ty in core do
+				pcall(function()
+					StarterGui:SetCoreGuiEnabled(ty, true)
+				end)
+			end
+			if clock0 and LightingS.ClockTime == 0 then
+				LightingS.ClockTime = clock0
+			end
+			if atm and atm.Parent and atm.Density == 0 then
+				atm.Density = atmDensity
+			end
+			if blur then
+				blur:Destroy()
+			end
+			if bloom then
+				bloom:Destroy()
+			end
+			if wind then
+				wind:Destroy()
+				wind = nil
+			end
+			scene:Destroy()
+			if track then
+				if why == "end" then
+					cleanup(track, 12)
+				else
+					tween(track, 0.4, { Volume = 0 })
+					cleanup(track, 0.45)
+				end
+			end
+			if JSC.active == a then
+				JSC.active = nil
+			end
+			if why == "skip" or why == "stop" then
+				if white then
+					quick = { t = now(), from = white.BackgroundTransparency }
+				end
+			elseif why ~= "end" and gui then
+				gui:Destroy()
+			end
+		end
+		a.finish = teardown
+		if not okSet then
+			warn("[VFX.JSC] " .. tostring(errSet))
+			teardown("error")
+			return false
+		end
+
+		local function update(t)
+			-- the camera: the scene's own, jolted
+			while jolts[ji] and jolts[ji].t <= t do
+				jFrom = jFrom:Lerp(jTo, ease("Back", "Out", (jolts[ji].t - jAt) / SHE))
+				jTo, jAt = jolts[ji].cf, jolts[ji].t
+				ji += 1
+			end
+			cam.CameraType = Enum.CameraType.Scriptable
+			cam.CFrame = camCF * (jAt >= 0 and jFrom:Lerp(jTo, ease("Back", "Out", (t - jAt) / SHE)) or IDENT)
+			local fov
+			if t < (spec.Warp or 13.57) then
+				fov = fov0 + ((F.Start or 20) - fov0) * ease("Sine", "InOut", t / (F.In or 1))
+			else
+				fov = (F.Start or 20) + ((F.Warp or 120) - (F.Start or 20)) * ease("Back", "InOut", (t - spec.Warp) / (F.WarpIn or 0.1))
+			end
+			cam.FieldOfView = math.clamp(fov, 1, 120)
+			-- its streams of light, then the Earth
+			if vOn and t >= vEnd then
+				vOn = false
+				for _, e in vrooms do
+					e.Enabled = false
+				end
+			elseif vOn then
+				for _, e in vrooms do
+					e.Rate = (VR.Rate or 500) * math.clamp(t / math.max(vEnd, 0.01), 0, 1)
+				end
+			end
+			local steps = VR.Steps or 50
+			local step = math.clamp(math.floor((t - (VR.At or 0.2)) / (VR.Every or 0.1)), 0, steps)
+			if step ~= vStep then
+				vStep = step
+				local seq = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, (steps - step) / steps) })
+				for _, e in vrooms do
+					e.Transparency = seq
+				end
+			end
+			if not revealed and t >= (spec.Earth or 7) then
+				revealed = true
+				for name, tr in spec.Layers or {} do
+					local p = scene:FindFirstChild(name)
+					if p and p:IsA("BasePart") then
+						p.Transparency = tr
+					end
+				end
+			end
+			if revealed then
+				local turn = math.rad((spec.Spin or 60) * (t - (spec.Earth or 7)))
+				if earth then
+					earth.CFrame = earth0 * CFrame.Angles(0, turn, 0)
+				end
+				if clouds then
+					clouds.CFrame = clouds0 * CFrame.Angles(0, -turn, 0)
+				end
+			end
+			-- the hand (on the scene's camera, not the jolted one)
+			local raCF = camCF * rootC0 * rootC1:Inverse() * raC0 * JSC.hand(spec, math.max(t - (spec.Reach or 13.17), 0)) * raC1:Inverse()
+			RA.CFrame = raCF
+			for p, rel in dress do
+				p.CFrame = raCF * rel
+			end
+			-- the wind at the camera
+			if not windMade and t >= (spec.Wind or 13.72) then
+				windMade = true
+				local w = fx:FindFirstChild("wind")
+				if w and w:IsA("BasePart") then
+					wind = w:Clone()
+					windBase = w.Transparency
+					wind.Anchored = true
+					wind.CanCollide = false
+					wind.CanQuery = false
+					wind.CanTouch = false
+					wind.CFrame = camCF * CFrame.new(0, 0, -(W.Ahead or 5))
+					wind.Size = Vector3.one * 0.01
+					wind.Parent = folder
+				end
+			end
+			if wind then
+				local d = t - (spec.Wind or 13.72)
+				if d >= (W.Life or 1) then
+					wind:Destroy()
+					wind = nil
+				else
+					local k = ease("Back", "Out", d / (W.Time or 3))
+					local sz = (W.Size or Vector3.new(35, 27, 0.42)) * math.max(k, 0.01)
+					wind.Size = Vector3.new(math.max(sz.X, 0.01), math.max(sz.Y, 0.01), math.max(sz.Z, 0.01))
+					wind.Transparency = windBase + (1 - windBase) * math.clamp(k, 0, 1)
+				end
+			end
+			-- the flares
+			local k = math.max(flare(FL.Earth, spec.Earth, t), flare(FL.Reach, spec.Reach, t))
+			blur.Size = (spec.Blur or 20) * k
+			bloom.Intensity = (BL.Intensity or 20) * k
+			bloom.Size = (BL.Size or 24) * math.min(k, 1)
+			bloom.Threshold = 2 + ((BL.Threshold or 0.15) - 2) * math.clamp(k, 0, 1)
+			-- the game's own sound at the beats, if the track isn't playing here
+			while beats[1] and beats[1].t <= t do
+				local b = table.remove(beats, 1)
+				if not trackOn() then
+					VFX.PlaySound(b.cue, nil, 1)
+				end
+			end
+			hint.TextTransparency = (t >= (spec.Skip or 1.5) and hint.Text ~= "") and 0.35 or 1
+		end
+		RunService:BindToRenderStep("JJBACinematic", Enum.RenderPriority.Camera.Value + 2, function()
+			local t = now()
+			if not torn then
+				if not char.Parent or not hum.Parent or hum.Health <= 0 then
+					teardown("ko")
+				elseif VFX.CinematicToken() ~= token or not VFX.InCinematic() then
+					teardown("taken")
+				elseif t >= T then
+					teardown("end")
+				end
+			end
+			if not torn then
+				local okU, errU = pcall(update, t)
+				if not okU then
+					warn("[VFX.JSC] " .. tostring(errU))
+					teardown("error")
+				end
+			elseif hint and gui and gui.Parent then
+				hint.TextTransparency = 1
+			end
+			-- the white
+			if quick then
+				local v = quick.from + (1 - quick.from) * math.clamp((t - quick.t) / (0.3 * rate), 0, 1)
+				white.BackgroundTransparency = v
+				if v >= 1 then
+					RunService:UnbindFromRenderStep("JJBACinematic")
+					gui:Destroy()
+				end
+			elseif gui and gui.Parent then
+				white.BackgroundTransparency = JSC.white(spec, t)
+				if torn and t >= whiteEnd then
+					RunService:UnbindFromRenderStep("JJBACinematic")
+					gui:Destroy()
+				end
+			elseif torn then
+				RunService:UnbindFromRenderStep("JJBACinematic")
+			end
+		end)
+
+		-- any key after Skip ends it (his walk and jump held till then); a hit ends it
+		local function skipNow()
+			return now() >= (spec.Skip or 1.5)
+		end
+		pcall(function()
+			CAS:BindActionAtPriority("JJBACinematicHold", function(_, state)
+				if state == Enum.UserInputState.Begin and skipNow() then
+					teardown("skip")
+				end
+				return Enum.ContextActionResult.Sink
+			end, false, 3000, Enum.PlayerActions.CharacterForward, Enum.PlayerActions.CharacterBackward, Enum.PlayerActions.CharacterLeft,
+				Enum.PlayerActions.CharacterRight, Enum.PlayerActions.CharacterJump, Enum.KeyCode.Thumbstick1, Enum.KeyCode.ButtonA)
+		end)
+		table.insert(conns, UIS.InputBegan:Connect(function(input)
+			if not skipNow() then
+				return
+			end
+			local ty = input.UserInputType
+			if ty == Enum.UserInputType.Keyboard or ty == Enum.UserInputType.MouseButton1 or ty == Enum.UserInputType.Touch or string.find(tostring(ty), "Gamepad") then
+				teardown("skip")
+			end
+		end))
+		table.insert(conns, hum.HealthChanged:Connect(function(h)
+			if h < lastHealth - 0.5 then
+				teardown(h <= 0 and "ko" or "hit")
+			end
+			lastHealth = h
+		end))
+		return true
+	end
+
+	-- the broadcast (Kit.JJ.arrive): his screen plays it; everyone else's
+	-- draws C-MOON's arrival round him
+	function Effects.JJBACinematic(char, data, isLocal)
+		local kind = type(data) == "table" and data.Kind or "CMoon"
+		local spec = JC.Cinematic and JC.Cinematic[kind]
+		if not spec or spec.Enabled == false then
+			return
+		end
+		local me = Players.LocalPlayer
+		if isLocal or (me and me.Character == char) then
+			JSC.play(char, kind, type(data) == "table" and data.Rate or nil)
+			return
+		end
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local O = spec.Others or {}
+		if root and nearCamera(root.Position, 250) then
+			local col = O.Color or Color3.fromRGB(108, 203, 75)
+			shockDisc(root.Position - UP * 2.6, UP, 2, O.Ring or 16, O.Life or 0.7, col)
+			billboardRing(root.Position + UP, 2, (O.Ring or 16) * 0.8, col, 10, O.Life or 0.7)
+			if O.Sound then
+				VFX.PlaySound(O.Sound, root.Position, 1)
+			end
 		end
 	end
 end)()

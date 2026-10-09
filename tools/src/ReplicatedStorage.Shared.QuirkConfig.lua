@@ -4517,10 +4517,6 @@ Config.Pucci = {
 	NewWorld = { Pillar = { Height = 160, Width = 16 }, Range = 900, In = 0.06, Out = 0.5 },
 }
 
--- All Might's hero costume, worn in muscle form and Plus Ultra (catalog
--- clothing ids, applied with a HumanoidDescription). Set Enabled = false to
--- keep the player's own clothes. The casual yellow-pants look is
--- Shirt 1206336891 + Pants 1206335841.
 -- (round 104) THE JJBA PLACE'S STANDS (the owner's jjba.rbxl, ported): its
 -- Stand models, their clips and its effects live in ReplicatedStorage.JJBA
 -- (grafted in as they were - nothing in there runs; no scripts came over).
@@ -4620,6 +4616,122 @@ Config.POM = {
 	Colors = { void = Color3.fromRGB(14, 14, 18), cyan = Color3.fromRGB(0, 250, 255), deep = Color3.fromRGB(0, 120, 160) },
 }
 
+-- (round 105) C-MOON'S CINEMATIC: the owner's JJBA place's ("Cmoon_StartScene"
+-- in its ModEffects; its scene is JJBA.Effects.Cmoon - the Earth, its sky
+-- in five shells and its clouds, a camera with a hand on it, the wind),
+-- ported (VFX.JSC). The JJBA place plays it when you get C-MOON; here it
+-- plays on Pucci's own screen when he's picked (picked again: again -
+-- Kit.JJ.arrive), on the JJBA place's own timeline (s from the start):
+-- - a white flash, then the dark, its streaks of light rushing in (Vroom);
+-- - at Earth: the Earth (its sky, its clouds) bursts into view, turning,
+--   with the camera jolted and a flare of blur and bloom;
+-- - at Reach: a hand rises into the frame and reaches for it (Hand: the
+--   JJBA place's Moon Animator save, CmoonStartCutScene - each key's
+--   Transform at 60 fps, eased as it was);
+-- - at Warp: the lens flung wide (Fov.Warp: Roblox's widest; the JJBA place
+--   asks for 170); at Wind the wind bursts out at the camera, which shakes;
+-- - at White: the screen goes white, and under it at Back his own camera
+--   comes back.
+-- The scene is put Sky studs over the street (nothing of the city in its
+-- sky). Any key or button after Skip s ends it (a hit or a KO does at
+-- once). Everyone else sees C-MOON's arrival round him (Others). Enabled =
+-- false: none of it.
+Config.JJBA.Cinematic = {
+	CMoon = {
+		Enabled = true,
+		Effect = "Cmoon", -- JJBA.Effects.Cmoon (StartScene, wind)
+		Delay = 0.6, -- s after the pick (the picker's closed by then)
+		Sky = 4000,
+		Skip = 1.5,
+		Earth = 7, Reach = 13.17, Warp = 13.57, Wind = 13.72, White = 16.07, Back = 17.07,
+		Fov = { Start = 20, In = 1, Warp = 120, WarpIn = 0.1 },
+		-- its streams of light (Center's "vroom"): Rate climbing to Rate till
+		-- Off s before Earth; their streaks fading in over Steps x Every s
+		Vroom = { Rate = 500, Off = 1.07, At = 0.2, Steps = 50, Every = 0.1 },
+		-- each part's see-through once the Earth's in view (the rest stay hidden)
+		Layers = { Earth = 0, Clouds = 0.7, part = 0.85, part2 = 0.85, part3 = 0.9, part4 = 0.9, part5 = 0.95 },
+		Spin = 60, -- degrees a second the Earth turns (its clouds the other way)
+		-- the camera's jolts: Steps of them Every s apart, each a lurch toward a
+		-- roll of up to Cast / 2 radians and as many studs in or out (whole ones,
+		-- as the JJBA place's math.random gives), Cast less Cast x Decay each
+		-- time; each eased over Ease s (Back, Out) from wherever it's got to
+		Shake = { Earth = { Steps = 125, Every = 0.1, Cast = 4 }, Wind = { Steps = 100, Every = 1 / 60, Cast = 3 }, Decay = 1 / 25, Ease = 1 },
+		-- the flares: blur up to Blur and bloom to Bloom over In s, back over Out
+		Flare = { Earth = { In = 0.5, Out = 1 }, Reach = { In = 1, Out = 1 } },
+		Blur = 20, Bloom = { Intensity = 20, Size = 24, Threshold = 0.15 },
+		-- the wind at the camera (JJBA.Effects.Cmoon.wind): Ahead studs in front,
+		-- growing to Size and fading over Time (Back, Out), gone after Life
+		Gust = { Ahead = 5, Size = Vector3.new(35, 27, 0.42), Time = 3, Life = 1 },
+		-- the white screens: { At, In (s to white), Hold (white), Out (s to
+		-- clear) } - the JJBA place's (its frames of wait()). The last one
+		-- lifts once his camera's back: the JJBA place holds it 3 s more, and
+		-- here he's in a fight
+		Flash = { { At = 0, In = 0.67, Hold = 3, Out = 0.67 }, { At = 16.07, In = 0.67, Hold = 1.2, Out = 0.67 } },
+		Hand = {
+			Fps = 60,
+			Keys = {
+				{ 0, CFrame.new(), "Back", "In" },
+				{ 29, CFrame.new(0.568115, -0.622892, -2.450663, 0.99956, -0.003526, -0.029453, -0.020669, 0.629382, -0.776821, 0.021276, 0.777088, 0.629032), "Back", "Out" },
+				{ 61, CFrame.new(-0.808362, -0.106659, -4.054165, 0.847288, 0.465107, 0.256472, 0.42845, -0.313137, -0.847571, -0.3139, 0.828022, -0.464592) },
+			},
+			Dress = true, -- his sleeve, his hand and the gold band (Config.Pucci.Look's right arm)
+		},
+		-- its sound (the JJBA place's Startcutscenecmoon) - and if that won't
+		-- load on this client, the game's own at its beats (Beats: a cue each)
+		Track = "rbxassetid://109522338817513", Volume = 1,
+		Beats = { Start = "CMoonCineRise", Earth = "CMoonCineEarth", Wind = "CMoonCineWind", White = "CMoonCineWhite" },
+		Others = { Ring = 16, Life = 0.7, Sound = "CMoonOn", Color = Color3.fromRGB(108, 203, 75) },
+		Hint = "Press any key to skip",
+	},
+}
+
+-- (round 105) CRAZY DIAMOND is drawn from the owner's own JJBA model too:
+-- his STAR PLATINUM (the two are the same build of Stand), painted Crazy
+-- Diamond's colours - Paint.Parts: each part's colour by name (false: hidden
+-- - its hair; Crazy Diamond has none), Hearts: its hearts put on (each { the
+-- part it sits on, where in that part's space, its turn about Y in degrees -
+-- its face toward -Z at 0 -, how big }), its arm trails and aura in pink.
+-- Its clips are Star Platinum's (the barrage loop for DORARARA, its pose for
+-- the rage); every other move's pose is put on the rig as before.
+Config.JJBA.Stands.CrazyDiamond = {
+	Model = "StarPlatinum", Scale = 1.12, Tint = Color3.fromRGB(240, 146, 196), Stroke = Color3.fromRGB(70, 10, 50),
+	Outline = Color3.fromRGB(110, 26, 76), Aura = "SP", AuraRate = 0.35, AuraColor = Color3.fromRGB(255, 130, 205),
+	Idle = "SP_Idle", Walk = "SP_Walk", Barrage = "SP_BarrageLoop", Heavy = "SP_Ora", Pose = "SP_Pose",
+	Paint = {
+		Colors = {
+			pink = Color3.fromRGB(240, 146, 196), shade = Color3.fromRGB(216, 116, 172), armor = Color3.fromRGB(142, 214, 238),
+			deep = Color3.fromRGB(222, 66, 146), trim = Color3.fromRGB(236, 242, 250),
+		},
+		Parts = {
+			Head = "pink", Torso = "pink", ["Left Arm"] = "pink", ["Right Arm"] = "pink", ["Left Leg"] = "pink", ["Right Leg"] = "pink",
+			FaceThing = "armor", Hair = false, Headband = "armor", Part = "armor", Scarf = "deep",
+			ABS1 = "shade", ABS2 = "shade", ABS3 = "shade", ABS4 = "shade", ABS5 = "shade", ABS6 = "shade", ABS7 = "shade", ABS8 = "shade",
+			-- (its loincloth flaps: Crazy Diamond wears none)
+			spine14 = "shade", Skirt1 = "armor", Skirt2 = "deep", Skirt3 = false, Skirt4 = false,
+			LKnuckles = "trim", RKnuckles = "trim", LArmGear = "pink", RArmGear = "pink",
+			-- the gold shoulder pads light blue, the white bands white, the wrist and shin guards light blue
+			LeftArmDecor1 = "trim", RightArmDecor1 = "trim", LeftArmDecor2 = "armor", RightArmDecor2 = "armor", LeftArmDecor3 = "armor", RightArmDecor3 = "armor",
+			LLegDecor1 = "armor", RLegDecor1 = "armor", LLegDecor2 = "trim", RLegDecor2 = "trim",
+		},
+		Hearts = {
+			{ "Head", Vector3.new(0, 0.42, -0.62), 0, 0.3 },
+			{ "Torso", Vector3.new(0, -0.82, -0.64), 0, 0.46 },
+			{ "Torso", Vector3.new(0, 0.1, -0.68), 0, 0.36 },
+			{ "Left Arm", Vector3.new(-0.8, 0.45, 0), 90, 0.42 },
+			{ "Right Arm", Vector3.new(0.8, 0.45, 0), -90, 0.42 },
+			{ "Left Leg", Vector3.new(0, -0.15, -0.74), 0, 0.36 },
+			{ "Right Leg", Vector3.new(0, -0.15, -0.74), 0, 0.36 },
+		},
+		Heart = "deep",
+		Trail = "pink",
+	},
+}
+Config.JJBA.Users.CrazyDiamond = "CrazyDiamond"
+
+-- All Might's hero costume, worn in muscle form and Plus Ultra (catalog
+-- clothing ids, applied with a HumanoidDescription). Set Enabled = false to
+-- keep the player's own clothes. The casual yellow-pants look is
+-- Shirt 1206336891 + Pants 1206335841.
 Config.AllMightOutfit = {
 	Enabled = true,
 	Shirt = 9279053597,
@@ -12370,6 +12482,33 @@ do
 	V.YareYare = { Id = "", Text = "Yare yare daze.", VoiceId = "5", Pitch = -3, Speed = 0.9, Volume = 2.6, Range = 220, Bubble = "YARE YARE DAZE..." }
 	V.POMAwaken = { Id = "", Text = "This is my last word.", VoiceId = "5", Pitch = -2, Speed = 0.85, Volume = 3, Range = 300, Bubble = "THIS IS MY LAST WORD." }
 	V.POMLastWordCall = { Id = "", Text = "Last word.", VoiceId = "5", Pitch = -3, Speed = 0.8, Volume = 3.4, Range = 1200, Bubble = "LAST WORD." }
+end
+
+-- (round 105) C-MOON'S CINEMATIC: the JJBA place's own track (Ids.CMCutscene;
+-- VFX.JSC plays it on his screen) - and, on a client it won't load on, the
+-- game's own at its beats: a riser out of the white, the boom as the Earth
+-- bursts into view, the wind at the camera, the white
+do
+	local L = Config.SoundLibraryLicensed
+	Config.JJBA.Ids.CMCutscene = "rbxassetid://109522338817513"
+	local S = Config.Sounds
+	S.CMoonCineRise = {
+		{ Id = L.CriticalRiser, Volume = 1.2 },
+		{ Id = L.FlyHyperRumble, Volume = 1.2, Speed = 0.5, Length = 6.5, Fade = 1, FadeIn = 2 },
+	}
+	S.CMoonCineEarth = {
+		{ Id = L.PowerBoomLong, Volume = 1.6, Speed = 0.7 },
+		{ Id = L.SubBoom, Volume = 1.6, Speed = 0.6, Length = 2, Fade = 1 },
+		{ Id = L.TuttiSuck, Volume = 1.0, Speed = 0.8, Length = 1.4, Fade = 0.5 },
+	}
+	S.CMoonCineWind = {
+		{ Id = L.WhooshBurst, Volume = 1.4, Speed = 0.8 },
+		{ Id = L.SonicBoomAPM, Volume = 1.3 },
+	}
+	S.CMoonCineWhite = {
+		{ Id = L.BigBoomTail, Volume = 1.4, Length = 4, Fade = 2.5 },
+		{ Id = L.EarRing, Volume = 0.25, Speed = 1.2, Length = 2.5, Fade = 1.5 },
+	}
 end
 
 Config.Sounds.UltPlusUltra = Config.Sounds.UltOneForAll

@@ -12,7 +12,7 @@ J.Clips:Clone().Parent = out
 local fx = roblox.Instance.new("Folder")
 fx.Name = "Effects"
 fx.Parent = out
-for _, n in { "DIOKNIFE", "RoadRoller", "POM", "LightHit", "HeavyHit" } do
+for _, n in { "DIOKNIFE", "RoadRoller", "POM", "LightHit", "HeavyHit", "Cmoon" } do -- (round 105: Cmoon - the C-MOON cinematic's scene)
 	local e = J.Effects:FindFirstChild(n)
 	if e then
 		e:Clone().Parent = fx

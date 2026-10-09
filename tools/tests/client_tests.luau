@@ -13059,6 +13059,208 @@ print("== round 104: THE JJBA PLACE'S STANDS (VFX.JS: Star Platinum, The World, 
 	jj.Parent = nil
 end)()
 
+print("== round 105: C-MOON's CINEMATIC (VFX.JSC: the JJBA place's) and CRAZY DIAMOND on the owner's Star Platinum model")
+-- (in a function of its own: the main chunk is at its register limit here)
+;(function()
+	local JS, JSC, CDV = VFX.JS, VFX.JSC, VFX.CDV
+	if not (JS and JSC and CDV) then
+		problem("JJBA 105: VFX.JS / VFX.JSC / VFX.CDV")
+		return
+	end
+	local okF, jj = pcall(function()
+		return r.deserializeModel(fs.readFile(process.env.JJBA_RBXM or "JJBA.rbxm"))[1]
+	end)
+	if not okF or not jj then
+		problem("JJBA 105: the fixture (" .. tostring(jj) .. ")")
+		return
+	end
+	jj.Parent = ReplicatedStorage
+	local Lighting = game:GetService("Lighting")
+	Lighting.ClockTime = 14 -- (Lune's Lighting has no default here; Roblox's is 14)
+	local uis = game:GetService("UserInputService")
+	local wasChar = localPlayer.Character
+	local mine = makeR6("Josuke", Vector3.new(500, 3, 0))
+	localPlayer.Character = mine
+	localPlayer:SetAttribute("Quirk", "CrazyDiamond")
+	mine:SetAttribute("Quirk", "CrazyDiamond")
+	local hum = mine:FindFirstChildOfClass("Humanoid")
+	local fwd = { Dir = Vector3.new(0, 0, -1), Pos = Vector3.new(500, 3, -30), Seed = 5, Origin = Vector3.new(500, 3, 0) }
+
+	-- CRAZY DIAMOND: DORARARA, on the owner's Star Platinum model, painted
+	VFX.Play("Dorarara", mine, fwd, true)
+	task.wait(0.4)
+	local st = CDV.stands[mine]
+	local CDJ = Config.JJBA.Stands.CrazyDiamond
+	if not (st and st.kind == "CrazyDiamond") then
+		problem("CRAZY DIAMOND 105: its Stand out for DORARARA (" .. tostring(st and st.kind) .. ")")
+	elseif not st.js then
+		problem("CRAZY DIAMOND 105: drawn from the owner's Star Platinum model (VFX.JS)")
+	else
+		local rr = st.js
+		if rr.src ~= CDJ.Barrage then
+			problem("...the barrage loop in DORARARA (" .. tostring(rr.src) .. ")")
+		end
+		local torso = rr.byName.Torso
+		if not (torso and torso.Color == CDJ.Paint.Colors.pink) then
+			problem("...painted pink (" .. tostring(torso and torso.Color) .. ")")
+		end
+		if not (rr.byName.Hair and rr.byName.Hair.Transparency >= 0.99) then
+			problem("...no hair")
+		end
+		local hearts, shown = 0, 0
+		for _, p in rr.parts do
+			if p.Name == "Heart" then
+				hearts += 1
+				if p.Transparency < 0.5 then
+					shown += 1
+				end
+			end
+		end
+		if hearts ~= #CDJ.Paint.Hearts * 3 or shown < hearts then
+			problem("...its hearts on and showing (" .. shown .. " of " .. hearts .. ")")
+		end
+		local au = rr.aura and rr.aura[1]
+		if not (au and au.Color.Keypoints[1].Value == CDJ.AuraColor) then
+			problem("...its aura pink")
+		end
+		for _, e in st.parts do
+			if e.part.Transparency < 1 then
+				problem("...and the part-built figure hidden (" .. e.part.Name .. ")")
+				break
+			end
+		end
+		if st.tint ~= CDJ.Tint then
+			problem("...its shouts in its pink")
+		end
+	end
+	task.wait(1.6)
+
+	-- C-MOON'S CINEMATIC on his own screen (its clock run Rate x)
+	localPlayer:SetAttribute("Quirk", "CMoon")
+	mine:SetAttribute("Quirk", "CMoon")
+	task.wait(0.4)
+	local spec = Config.JJBA.Cinematic.CMoon
+	local rate = 8
+	local hud = playerGui:FindFirstChild("QuirkHUD")
+	local hudOn = hud ~= nil and hud.Enabled
+	local clock0 = Lighting.ClockTime
+	VFX.Play("JJBACinematic", mine, { Kind = "CMoon", Rate = rate }, true)
+	task.wait(0.12)
+	local a = JSC.active
+	if not a then
+		problem("C-MOON 105: the cinematic plays on his screen")
+	else
+		local scene = a.scene
+		local camPart = scene:FindFirstChild("Camera")
+		local earth, clouds = scene:FindFirstChild("Earth"), scene:FindFirstChild("Clouds")
+		local RA = scene:FindFirstChild("RA", true)
+		if not (VFX.InOwnCinematic() and cam.CameraType == Enum.CameraType.Scriptable) then
+			problem("...his camera taken (the game's cutscene lock)")
+		end
+		if math.abs(camPart.CFrame.Position.Y - spec.Sky) > 1 then
+			problem("...its scene high over the street (" .. tostring(camPart.CFrame.Position) .. ")")
+		end
+		if (cam.CFrame.Position - camPart.CFrame.Position).Magnitude > 3 then
+			problem("...seen from its own camera")
+		end
+		if Lighting.ClockTime ~= 0 then
+			problem("...at night (" .. tostring(Lighting.ClockTime) .. ")")
+		end
+		if hudOn and hud.Enabled then
+			problem("...nothing of the HUD over it")
+		end
+		local gui = playerGui:FindFirstChild("JJBACinematic")
+		if not (gui and gui:FindFirstChild("White") and gui.White.BackgroundTransparency < 0.95) then
+			problem("...out of a white flash")
+		end
+		if earth.Transparency < 1 then
+			problem("...the Earth hidden in the dark at first")
+		end
+		-- the Earth bursts into view, turning
+		task.wait((spec.Earth + 0.4) / rate - 0.12)
+		if earth.Transparency > 0.01 or math.abs(clouds.Transparency - spec.Layers.Clouds) > 0.01 then
+			problem("...the Earth in view at Earth (" .. earth.Transparency .. ", " .. clouds.Transparency .. ")")
+		end
+		local e0 = earth.CFrame
+		task.wait(0.1)
+		if e0.LookVector:Dot(earth.CFrame.LookVector) > 0.9999 then
+			problem("...the Earth turning")
+		end
+		-- the hand reaches out for it; the lens flung wide
+		local before = camPart.CFrame:PointToObjectSpace(RA.CFrame.Position)
+		task.wait((spec.Reach + 1.2 - spec.Earth - 0.4) / rate - 0.1)
+		local after = camPart.CFrame:PointToObjectSpace(RA.CFrame.Position)
+		if not (before.Z > 0.5 and after.Z < -1) then
+			problem("...the hand reaches out in front (" .. tostring(before) .. " -> " .. tostring(after) .. ")")
+		end
+		if cam.FieldOfView < 100 then
+			problem("...the lens flung wide at Warp (" .. cam.FieldOfView .. ")")
+		end
+		-- the end: his camera, the HUD, the time of day back; the scene gone
+		task.wait((spec.Back - spec.Reach - 1.2) / rate + 0.3)
+		if JSC.active or VFX.InCinematic() or cam.CameraType ~= Enum.CameraType.Custom or scene.Parent ~= nil then
+			problem("...over at Back: his camera back, the scene gone (" .. tostring(cam.CameraType) .. ")")
+		end
+		if Lighting.ClockTime ~= clock0 then
+			problem("...the time of day back")
+		end
+		if hudOn and not hud.Enabled then
+			problem("...the HUD back")
+		end
+	end
+	task.wait(0.6)
+	-- any key after Skip skips it (not before)
+	VFX.Play("JJBACinematic", mine, { Kind = "CMoon", Rate = 2 }, true)
+	task.wait(0.1)
+	if not JSC.active then
+		problem("C-MOON 105: the cinematic again")
+	else
+		local function key()
+			signalOf(uis, "InputBegan"):Fire({ KeyCode = Enum.KeyCode.Unknown, UserInputType = Enum.UserInputType.Keyboard }, false)
+			task.wait(0.05)
+		end
+		key()
+		if not JSC.active then
+			problem("...a key in the first Skip s doesn't skip it")
+		end
+		task.wait(spec.Skip / 2)
+		key()
+		task.wait(0.4)
+		if JSC.active or VFX.InCinematic() or cam.CameraType ~= Enum.CameraType.Custom then
+			problem("...a key after Skip s skips it")
+		end
+		if playerGui:FindFirstChild("JJBACinematic") then
+			problem("...its white gone with it")
+		end
+	end
+	task.wait(0.3)
+	-- a hit ends it
+	VFX.Play("JJBACinematic", mine, { Kind = "CMoon", Rate = 2 }, true)
+	task.wait(0.1)
+	if JSC.active then
+		hum.Health -= 5
+		signalOf(hum, "HealthChanged"):Fire(hum.Health)
+		task.wait(0.1)
+		if JSC.active or VFX.InCinematic() then
+			problem("C-MOON 105: a hit ends the cinematic")
+		end
+	end
+	-- someone else's: C-MOON's arrival round them, never a cinematic here
+	local other = makeR6("Enrico", Vector3.new(510, 3, 0))
+	VFX.Play("JJBACinematic", other, { Kind = "CMoon" }, false)
+	task.wait(0.2)
+	if JSC.active or VFX.InCinematic() then
+		problem("C-MOON 105: someone else's plays only on their screen")
+	end
+	other:Destroy()
+	localPlayer:SetAttribute("Quirk", nil)
+	mine:SetAttribute("Quirk", nil)
+	task.wait(0.8)
+	localPlayer.Character = wasChar
+	mine:Destroy()
+	jj.Parent = nil
+end)()
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")

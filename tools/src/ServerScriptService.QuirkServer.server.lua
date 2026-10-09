@@ -11995,6 +11995,9 @@ local function applyQuirk(player, quirkName)
 		Kit.awakenOff(player.Character) -- ((round 101 review) an awakening still going: its lock off)
 		applyPassives(player, player.Character, true)
 	end
+	if Kit.JJ and Kit.JJ.arrive then
+		Kit.JJ.arrive(player, quirkName) -- (round 105: Pucci picked - C-MOON's cinematic on his screen, the JJBA place's)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -19387,6 +19390,36 @@ do
 				end
 			end
 		end
+	end
+end
+
+-- (round 105) C-MOON'S CINEMATIC (Config.JJBA.Cinematic): picked as Pucci
+-- (applyQuirk), his screen plays the JJBA place's after Delay (VFX.JSC);
+-- everyone else's draws C-MOON's arrival round him. Nothing's held here:
+-- his own screen holds his inputs while it plays (the game's cutscene lock),
+-- any key skips it, and a hit ends it - so it's no shelter in a fight.
+do
+	local JJ = Kit.JJ or {}
+	Kit.JJ = JJ
+	JJ.arrivals = JJ.arrivals or setmetatable({}, { __mode = "k" })
+	function JJ.arrive(player, quirkName)
+		local cine = Config.JJBA and Config.JJBA.Cinematic
+		local spec = cine and cine[quirkName]
+		if not spec or spec.Enabled == false or Config.JJBA.Enabled == false then
+			return
+		end
+		local token = (JJ.arrivals[player] or 0) + 1
+		JJ.arrivals[player] = token
+		task.delay(spec.Delay or 0.6, function()
+			if JJ.arrivals[player] ~= token or not player.Parent or player:GetAttribute("Quirk") ~= quirkName then
+				return
+			end
+			local char = player.Character
+			if not alive(char) then
+				return
+			end
+			broadcast("JJBACinematic", char, { Kind = quirkName })
+		end)
 	end
 end
 

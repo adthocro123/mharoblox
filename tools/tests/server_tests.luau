@@ -14332,6 +14332,66 @@ end)
 	check(balls == 2, "POM's void balls, one on each fist (" .. balls .. ")")
 end)
 
+---------------------------------------------------------------------------
+-- Round 105: C-MOON'S CINEMATIC (picked as Pucci, his screen plays the JJBA
+-- place's) and CRAZY DIAMOND on the owner's Star Platinum model
+---------------------------------------------------------------------------
+;M.section(function()
+	print("== round 105: C-MOON's cinematic on the pick; Crazy Diamond on the owner's model")
+	local spec = Config.JJBA.Cinematic and Config.JJBA.Cinematic.CMoon
+	check(spec ~= nil and spec.Enabled ~= false and spec.Effect == "Cmoon" and spec.Earth < spec.Reach and spec.Reach < spec.Warp and spec.Warp < spec.White and spec.White < spec.Back,
+		"Config.JJBA.Cinematic.CMoon: the JJBA place's timeline")
+	local CD = Config.JJBA.Stands.CrazyDiamond
+	check(CD ~= nil and CD.Model == "StarPlatinum" and type(CD.Paint) == "table" and CD.Paint.Parts.Hair == false and #CD.Paint.Hearts >= 5 and Config.JJBA.Users.CrazyDiamond == "CrazyDiamond",
+		"Crazy Diamond: drawn from the owner's Star Platinum model, painted, its hearts on")
+	check(type(Config.Sounds.CMoonCineEarth) == "table" and Config.JJBA.Ids.CMCutscene == spec.Track, "the cinematic's sound: the JJBA place's track, the game's own behind it")
+	if aChar then
+		aChar.Parent = nil
+	end
+	fire(SelectQuirk, A, "Explosion")
+	aChar, aHum, aRoot = spawnChar(A, CFrame.new(105000, 3, 0))
+	task.wait(0.1)
+	-- picked as Pucci: sent to everyone after Delay (his screen plays it, theirs the arrival)
+	clearSent()
+	fire(SelectQuirk, A, "CMoon")
+	task.wait(0.1)
+	check(#sentTo(A, "JJBACinematic") == 0, "...not at once (the picker's closed first)")
+	task.wait(spec.Delay + 0.2)
+	local got = sentTo(A, "JJBACinematic")
+	check(#got == 1 and got[1].Kind == "CMoon", "picked as Pucci: C-MOON's cinematic (" .. #got .. ")")
+	check((tonumber(aChar:GetAttribute("CombatActionUntil")) or 0) <= workspace:GetServerTimeNow() + 0.05, "...nothing held on the server for it (a key skips it, a hit ends it)")
+	-- switched away before it plays: none
+	clearSent()
+	fire(SelectQuirk, A, "CMoon")
+	fire(SelectQuirk, A, "Explosion")
+	task.wait(spec.Delay + 0.2)
+	check(#sentTo(A, "JJBACinematic") == 0, "...switched away before it plays: none")
+	-- anyone else's hero: none
+	clearSent()
+	fire(SelectQuirk, A, "StarPlatinum")
+	task.wait(spec.Delay + 0.2)
+	check(#sentTo(A, "JJBACinematic") == 0, "another hero: no cinematic")
+	-- off: none
+	spec.Enabled = false
+	clearSent()
+	fire(SelectQuirk, A, "CMoon")
+	task.wait(spec.Delay + 0.2)
+	check(#sentTo(A, "JJBACinematic") == 0, "Enabled = false: none")
+	spec.Enabled = true
+	-- knocked out by then: none
+	fire(SelectQuirk, A, "Explosion")
+	task.wait(0.1)
+	clearSent()
+	fire(SelectQuirk, A, "CMoon")
+	aHum.Health = 0
+	task.wait(spec.Delay + 0.2)
+	check(#sentTo(A, "JJBACinematic") == 0, "knocked out by then: none")
+	aChar.Parent = nil
+	aChar, aHum, aRoot = spawnChar(A, CFrame.new(105000, 3, 0))
+	fire(SelectQuirk, A, "Explosion")
+	task.wait(0.2)
+end)
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}
