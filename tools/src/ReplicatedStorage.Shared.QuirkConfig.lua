@@ -220,11 +220,9 @@ Config.Emotes = {
 	-- silent beat, and LEGENDARY on the second drop - three times his size,
 	-- the hair gone green, a crater twice as wide; the roar, the green ball
 	-- hurled into the sky to go off on the last hit, the laugh, and the
-	-- steam as he shrinks back. (round 103) And the world with him: a column
-	-- of green light into a black-red sky, red-hot seams across the map, the
-	-- rubble rising, and real craters and a shockwave on the server. Its
-	-- props' numbers: Config.FinalForm, after the sound library) 46 beats to
-	-- APM's "Anthemic Step Music" (a dubstep sting, 30 s).
+	-- steam as he shrinks back. Its props' numbers: Config.FinalForm, after
+	-- the sound library) 46 beats to APM's "Anthemic Step Music" (a dubstep
+	-- sting, 30 s).
 	{ Id = "FinalForm", Rarity = "Legendary", Name = "FINAL FORM", Icon = "🌟", Song = "rbxassetid://1836098839", SongStart = 0.02, Volume = 0.65, Bpm = 96 },
 	-- K-POP IDOL: on stage with a headset mic - the big heart, the point
 	-- steps, a body roll, a hair flip, the hook, a spin and a finger heart at
@@ -3157,6 +3155,15 @@ Config.Locomotion = {
 		-- shorter, and at his sprint, under the Guard wings, a touch out
 		-- behind: 0.29 studs clear of the nearest feather, 0.4 of the folded ones)
 		Hawks = { ArmBack = { 20, 24, 16 }, ArmFlare = { 6, 8, 16 } },
+		-- (round 102) Mob: deadpan - upright, the shoulders still, the head a
+		-- touch down, never hurried (a quiet kid, not a fighter)
+		Deadpan = { Hunch = 2, Stiff = 0.6, Cadence = 0.97, Lean = { 2, 16, 20 } },
+		-- (round 102) Tokoyami: calm and controlled - upright, the shoulders
+		-- steady under his cloak, the head a touch down, never in a hurry
+		Brooding = { Hunch = 3, Stiff = 0.5, Cadence = 0.97, Lean = { 2, 16, 20 }, Twist = { 1, 5, 6 } },
+		-- (round 103) Pucci: a priest - upright, the chin level, unhurried, the
+		-- shoulders steady (C-MOON does the fighting)
+		Pious = { Hunch = 0, Stiff = 0.45, Cadence = 0.94, Lean = { 0, 12, 16 }, Twist = { 0.5, 4, 5 } },
 	},
 	Heroes = {
 		Explosion = "Athletic",
@@ -3184,6 +3191,11 @@ Config.Locomotion = {
 		FierceWings = "Hawks",
 		Saitama = "Athletic", -- (round 90: the new hero; round 91: the shared gait)
 		Whirlwind = "Athletic", -- (round 92: Inasa - big, upright, all energy)
+		Mob = "Deadpan", -- (round 102: Mob - quiet, still, hands at his sides)
+		DarkShadow = "Brooding", -- (round 102: Tokoyami - calm, his cloak doing the moving)
+		CMoon = { "Pious", Ult = "Athletic" }, -- (round 103: Pucci - a calm priest; in MADE IN HEAVEN he runs, thirty times faster than everyone)
+		StarPlatinum = "Brooding", -- (round 104: Jotaro - hands in his pockets, in no hurry)
+		POM = "Athletic", -- (round 104)
 	},
 }
 
@@ -3375,10 +3387,1239 @@ function Config.SeriousWave(spec, origin, d, pos)
 	return (spec.Delay or 0) + dist / math.max(speed, 1), inLine, front, dist
 end
 
+-- (round 102) MOB (Mob Psycho 100 - a guest, dev only): his look, his idle,
+-- his power's look on every screen, ???% and ((round 102) round 2) THE
+-- BUILDING HE THROWS (the moves' numbers are Config.Quirks.Mob's). Server:
+-- Kit.MOB (the look, the moves' gameplay, the throw's gameplay and the real
+-- building held out of the world while it's out); every screen: VFX.MOB (the
+-- outline, the pebbles, the moves, the awakening, the world tinted, each
+-- screen's own copy of the building flown over him, thrown and set back down).
+Config.Mob = {
+	-- HIS LOOK (QuirkGear.Cosmetics, built by the server: hidden with WEAR
+	-- COSMETICS off like any hero's): the black gakuran over every limb (Over:
+	-- how far it stands off the body; the sleeves to SleeveShare of the arm,
+	-- his hands under them), its stand-up collar (Collar: how tall, how far
+	-- round the neck), Buttons gold buttons down the front, black trousers and
+	-- shoes (ShoeShare of the leg). The avatar's hair, hats and face decal go
+	-- see-through (Kit.ST.bare) under his own black bowl cut and his plain face.
+	Look = {
+		Uniform = Color3.fromRGB(26, 26, 32),
+		UniformShade = Color3.fromRGB(46, 46, 56), -- (the collar's edge, the cuffs)
+		Button = Color3.fromRGB(226, 188, 74),
+		Shoe = Color3.fromRGB(16, 16, 18),
+		Hair = Color3.fromRGB(14, 14, 18),
+		Ink = Color3.fromRGB(24, 20, 22),
+		Blank = Color3.fromRGB(248, 250, 255), -- (???%: the eyes gone blank white)
+		Over = 0.04,
+		SleeveShare = 0.8,
+		ShoeShare = 0.16,
+		-- (round the base of his head: an R6 head sits on the torso; (round 102
+		-- review) Drop studs down over the torso's top - the head mesh's
+		-- rounded bottom showed under it as a band of chin)
+		Collar = { Height = 0.28, Width = 1.34, Depth = 1.34, Thick = 0.08, Drop = 0.16 },
+		Buttons = 5,
+	},
+	-- THE BOWL CUT, in the head's visible size (v = 1.2 studs for an R6 head;
+	-- these are shares of it): a band of hair round the head, its straight
+	-- bottom edge at BandY (the fringe over his brows - the bowl's line),
+	-- Band studs across; a cap over the top; the nape at the back down to
+	-- NapeY. At ???% it stands on end: Spikes wedges round the head, flared
+	-- up and out (SpikeTilt degrees), Rise studs over the band.
+	Hair = {
+		Band = 1.1, BandY = 0.1, BandTop = 0.46,
+		Cap = Vector3.new(1.1, 0.62, 1.1), CapY = 0.4,
+		Nape = Vector3.new(1.04, 0.46, 0.3), NapeY = -0.3, -- ((round 102 review) down to the collar and round the back: bare scalp showed between them from behind)
+		Spikes = 10, Spike = Vector3.new(0.22, 0.8, 0.4), SpikeTilt = 42, Rise = 0.3,
+	},
+	-- HIS FACE (shares of v; the front of the head): two small dark eyes under
+	-- the fringe, a short flat mouth. ???%: the eyes blank white (BlankEye),
+	-- lit (Neon)
+	Face = {
+		EyeY = -0.02, EyeX = 0.18,
+		Eye = Vector3.new(0.075, 0.12, 0.03),
+		Mouth = Vector3.new(0.12, 0.022, 0.02), MouthY = -0.22,
+		BlankEye = Vector3.new(0.17, 0.11, 0.03),
+	},
+	-- THE PSYCHIC OUTLINE (every screen): a faint white line round him while
+	-- he uses his power - In seconds to show, Hold after the move's start, Out
+	-- to fade (its Transparency at its strongest); within Cull studs
+	Outline = { Color = Color3.fromRGB(236, 244, 255), Transparency = 0.35, In = 0.08, Hold = 0.6, Out = 0.35, Cull = 220 },
+	-- HIS IDLE: standing still Still seconds, a few pebbles off the street rise
+	-- round him and float (Pebbles; LowPebbles on a low-end machine), each
+	-- Size studs, Radius studs out, at Height (from his feet), bobbing Bob
+	-- studs at Rate cycles a second, turning slowly round him (Orbit radians
+	-- a second); he moves, they drop. Within Cull studs of the camera.
+	Idle = {
+		Still = 0.8, Pebbles = 5, LowPebbles = 2, Size = { 0.22, 0.5 }, Radius = { 1.6, 2.8 }, Height = { 0.5, 3.2 },
+		Bob = 0.3, Rate = 0.35, Orbit = 0.25, Rise = 1.2, Cull = 120,
+		Colors = { Color3.fromRGB(118, 114, 112), Color3.fromRGB(146, 140, 134), Color3.fromRGB(96, 92, 92) },
+	},
+	-- THE 4TH M1 (the server's): instead of the send-off they're lifted Float
+	-- studs over Rise seconds, held a beat (Hang), and dropped (Drop studs/s) -
+	-- off their feet on the street (Ragdoll)
+	-- ((round 102) round 2: how his M1s land, on every screen - VFX.MOB.onHit.
+	-- Kinds (by the hit: 1-3, Air, 4, the launcher Up, the downslam Down): the
+	-- ripple's Size, both bodies frozen Stop seconds (the generic hitstop
+	-- held longer), the camera kicked Shake on the two screens involved (and
+	-- an impact Frame), Pebbles kicked off the street by the shove. Whiff:
+	-- every swing's push of air off his fingertips (Ahead studs out, a Ring
+	-- that wide, Reach studs of streaks). The 4th's landing: looked for
+	-- LandWait seconds after the drop, within LandAt studs of the street)
+	M1 = { Float = 6, Rise = 0.28, Hang = 0.22, Drop = 85, Ragdoll = 1.1, LandWait = 0.8, LandAt = 3.6,
+		Kinds = {
+			["1"] = { Size = 1, Stop = 0.065, Shake = 0.45, Pebbles = 3 },
+			["2"] = { Size = 1.05, Stop = 0.065, Shake = 0.5, Pebbles = 3 },
+			["3"] = { Size = 1.15, Stop = 0.075, Shake = 0.6, Pebbles = 4 },
+			Air = { Size = 1, Stop = 0.06, Shake = 0.45, Pebbles = 0 },
+			["4"] = { Size = 1.6, Stop = 0.11, Shake = 1.1, Pebbles = 6, Frame = 0.045 },
+			Up = { Size = 1.5, Stop = 0.13, Shake = 1, Pebbles = 6, Frame = 0.04 },
+			Down = { Size = 1.5, Stop = 0.12, Shake = 0.8, Pebbles = 5 },
+		},
+		Whiff = { Ahead = 2.2, Ring = 3, Reach = 6 },
+	},
+	-- ((round 102) round 2) HIS POWER'S LAYERS (THE SPEC's section 3) - the
+	-- wind-up at a hand (Gather: motes drawn in from Reach studs at Pull
+	-- studs/s, Rate a second - LowRate on a low-end machine - a Core of
+	-- light swelling, a Light that far)
+	Fx = {
+		Gather = { Reach = 2.6, Pull = 9, Rate = 70, LowRate = 25, Core = 0.9, Light = 9 },
+	},
+	-- ???% (every screen): the aura cycles the iridescent Colors once every Hue
+	-- seconds (his outline, the motes off him); the world round him tinted -
+	-- on a screen within Range studs of him, the grade (Saturation, Contrast,
+	-- a Tint cycling Tints) eased in over In seconds and given back exactly
+	-- when it ends (Out)
+	Ult = {
+		Hue = 2.4,
+		Colors = {
+			Color3.fromRGB(255, 120, 214), Color3.fromRGB(170, 120, 255), Color3.fromRGB(110, 200, 255),
+			Color3.fromRGB(120, 255, 210), Color3.fromRGB(255, 244, 150), Color3.fromRGB(255, 160, 140),
+		},
+		Tint = { Range = 280, Saturation = -0.18, Contrast = 0.14, Brightness = 0.02, In = 0.6, Out = 1, Strength = 1,
+			Tints = { Color3.fromRGB(255, 226, 246), Color3.fromRGB(226, 232, 255), Color3.fromRGB(228, 255, 244) } },
+		Motes = { Rate = 9, Life = { 0.8, 1.3 }, Size = 0.35, Lift = 3 },
+	},
+	-- ((round 102) round 2) THE BUILDING HE THROWS (???%: SKYSCRAPER - the
+	-- move's gameplay numbers are Config.Quirks.Mob.Ult.Special's): any
+	-- building in Workspace.Map[Folder] (at least MinParts parts). The server
+	-- holds the real one out of the world while it's out (not collided with,
+	-- not queried, never carved) and puts it back exactly; every screen hides
+	-- it and flies its own copy.
+	Building = {
+		Folder = "Buildings", MinParts = 4,
+		-- R's tap on him (MoveMobSkyscraper): his power gathering in his hand,
+		-- the hand thrown up at PressHit seconds (the clip's Hit); held up from
+		-- PressHold (PoseMobSkyscraperHold) while he aims
+		PressHit = 0.3, PressHold = 0.62,
+		-- THE TEAR-OUT (Snap seconds after R's tap): shaking (Shake studs), Tear
+		-- seconds, TearUp studs up out of the street; then Rise seconds up to the
+		-- float
+		Snap = 0.12, Tear = 0.8, TearUp = 5, Shake = 0.7, Rise = 1.3,
+		-- THE FLOAT: over his right shoulder - its near face Side studs to his
+		-- right, its bottom Height studs over his feet, its middle Ahead x its
+		-- depth in front of him; turned with him; trailing him (Follow per
+		-- second); turning (Turn degrees either way at TurnRate cycles a
+		-- second), tilting (Tilt degrees) and bobbing (Bob studs at BobRate);
+		-- leaning out from him (Lean degrees)
+		-- ((round 102 review) Height 16 -> 28: "floats up over him" - at 16 its
+		-- foundation hung 7 studs off the street and to anyone watching it
+		-- looked barely lifted; at 28 there's daylight under it, and his own
+		-- camera still has its flank and foundation at the top right)
+		Float = { Side = 14, Height = 28, Ahead = 0.25, Follow = 2.2, Turn = 5, TurnRate = 0.07, Tilt = 2, Bob = 1.8, BobRate = 0.2, Lean = 5 },
+		-- THE THROW (the ability's Windup, Pitch, Sink, Arc): the windup pulls it
+		-- back Pull studs as it turns end-first; in flight it trembles Shake
+		-- studs; jammed in the street it shakes StayShake studs, settling
+		Pull = 12, FlyShake = 0.5, StayShake = 0.6,
+		-- ((round 102 review) THE NEAREST IT LANDS: jammed in at the Pitch its
+		-- near face leans back toward him, so a deep building thrown close came
+		-- down over him (a 166-stud tower inside ~100 studs buried him in it):
+		-- the spot's never nearer than keeps that face ThrowClear studs off his
+		-- body (MinRange at least - the server's and his aim ring's)
+		ThrowClear = 8,
+		-- ((round 102 review) HELD BY HIS POWER (THE SPEC: "objects he holds
+		-- outlined white and trembling", iridescent at ???%): an outline round
+		-- the whole of it (one Highlight - not on a low-end machine; Outline:
+		-- its transparency) and a tremble (Tremble studs) while it floats
+		Outline = 0.3, Tremble = 0.35,
+		-- THE SET-DOWN (thrown, or the ult over while it floats): first pulled
+		-- out of the street (PullShare of SetDown, Out studs back the way it
+		-- came in, turned upright again), over its lot (the bottom Over studs
+		-- up, an Arc on the way), then lowered in (Lower: the last share of it) -
+		-- and the real building given back the moment it's down, on every
+		-- screen and the server. A slab of the street crumbles instead.
+		-- MaxTime: whatever happens, it's home this long after the press.
+		SetDown = 3.2, PullShare = 0.22, Out = 24, Over = 16, Lower = 0.32, Arc = 26, MaxTime = 24,
+		-- the foundation under it (Depth studs of earth and broken concrete,
+		-- Rocks chunks hanging off it), dirt pouring off it while it's out
+		-- (Dirt: per second, how long each lasts, how big); grit and glass
+		-- raining off it as it tears out (Rain: per second for RainTime seconds)
+		Foundation = { Depth = 9, Rocks = 12, Color = Color3.fromRGB(92, 74, 58), Concrete = Color3.fromRGB(150, 146, 140) },
+		Dirt = { Rate = 22, LowRate = 6, Life = { 1.6, 2.4 }, Size = { 1.5, 4.5 } },
+		Rain = { Rate = 60, LowRate = 15, Time = 2.2 },
+		-- the pit left on its lot while it's out (Rim: the broken chunks round it)
+		Pit = { Rim = 16, Color = Color3.fromRGB(58, 48, 40) },
+		-- NOTHING IN REACH: a slab of the street torn up beside him (Size studs,
+		-- its near edge Side studs to his right), thrown the same way
+		Slab = { Size = Vector3.new(44, 14, 44), Side = 10 },
+		-- the copies: made Batch a frame; on a low-end machine the LowSkip
+		-- folders aren't copied (only hidden: they're inside); every copy is
+		-- moved in one BulkMoveTo a frame. A camera further than FarStep studs
+		-- from it (or a low-end machine) moves its float every other frame.
+		Batch = 160, LowSkip = { "Stairs", "Benches" }, FarStep = 600,
+		-- (a camera inside it - or within CameraClear studs of it: its copies
+		-- thinned out of the way; small, or a big one floating over his
+		-- shoulder goes see-through on his own screen)
+		CameraClear = 2,
+		-- NOBODY LEFT IN THE LOT: anyone within ClearMargin studs of its edge as
+		-- it's lowered in is shoved out (ClearSpeed studs/s - his own screen's)
+		-- and, still in it at the end, put just outside it (a dummy by the server)
+		ClearMargin = 3, ClearSpeed = 90,
+		-- THE SPOT on his own screen while he aims: a ring the size of the crush
+		-- on the street (Dashes, its Color - his iridescence), a cross in it, a
+		-- line of dots from him to it
+		Marker = { Dashes = 28, Thick = 0.5, Transparency = 0.35, Dots = 10, Spin = 0.5 },
+	},
+}
+
+-- (round 102) TOKOYAMI (My Hero Academia, Class 1-A - "Tsukuyomi"; dev only):
+-- his look, his cloak, and DARK SHADOW - the living shadow in him, drawn on
+-- every screen as a creature of its own (the moves' numbers are
+-- Config.Quirks.DarkShadow's). Server: Kit.TK (the look, every move's
+-- gameplay); every screen: VFX.TK (Dark Shadow's body and its keyed poses,
+-- the cloak, the moves, BLACK ANKH's armour, the ult's monster, the dim).
+-- No light meter (the owner: "simple shadow").
+Config.Tokoyami = {
+	-- HIS LOOK (QuirkGear.Cosmetics, built by the server: hidden with WEAR
+	-- COSMETICS off like any hero's look; the avatar's hair, hats and face
+	-- go see-through under his head - Kit.ST.bare). Sizes are x the head's
+	-- visible size (the bird head) or studs (the costume).
+	Look = {
+		Feather = Color3.fromRGB(20, 18, 26), -- his head: black with a violet sheen
+		FeatherSheen = Color3.fromRGB(44, 36, 66), -- the crest's tips
+		BeakColor = Color3.fromRGB(58, 52, 64),
+		EyeColor = Color3.fromRGB(214, 28, 40), -- red
+		Glint = Color3.fromRGB(255, 236, 236),
+		Cloak = Color3.fromRGB(30, 24, 42), -- the long dark cloak
+		CloakLining = Color3.fromRGB(58, 30, 74),
+		Suit = Color3.fromRGB(36, 34, 46),
+		Glove = Color3.fromRGB(24, 22, 30),
+		Boot = Color3.fromRGB(18, 16, 22),
+		Buckle = Color3.fromRGB(176, 146, 72),
+		Over = 0.04, -- studs the suit stands off the body
+		-- THE HEAD (x the visible head): the skull over the whole head, the nape
+		-- running down into the collar, the crest of feathers swept back off
+		-- the crown (each: x, y, z, how far out it fans), the short beak
+		-- (Upper / Lower: its two halves, hinged on the face Hinge.Y up, tipped
+		-- Droop degrees), the red eyes (EyeX / EyeY: where on the face - each
+		-- sits on the skull, looking out of it)
+		Skull = Vector3.new(1.24, 1.2, 1.28), SkullY = 0.03,
+		Nape = Vector3.new(0.96, 0.7, 0.86), NapeY = -0.24, NapeZ = 0.24,
+		Crest = { { 0, 0.44, 0.22, 0 }, { 0.2, 0.38, 0.28, 0.5 }, { -0.2, 0.38, 0.28, 0.5 }, { 0.34, 0.22, 0.34, 0.9 }, { -0.34, 0.22, 0.34, 0.9 } },
+		CrestSize = Vector3.new(0.12, 0.34, 0.66), CrestRake = 32,
+		Beak = { Upper = Vector3.new(0.3, 0.22, 0.58), Lower = Vector3.new(0.22, 0.12, 0.4), Hinge = Vector3.new(0, -0.1, -0.5), Droop = 12, Open = 6 },
+		Eye = Vector3.new(0.17, 0.2, 0.05), EyeX = 0.25, EyeY = 0.08, GlintSize = 0.05,
+		-- THE COSTUME: the mantle over his shoulders, the tall collar round his
+		-- neck (Collar: height, thickness, how far round), the cloak open down
+		-- the front (FrontPanel: its width and how far below the torso), the
+		-- belt and its buckle, gloves to GloveShare of the arm, boots BootShare
+		Mantle = Vector3.new(1.3, 0.5, 1.5), Shoulder = Vector3.new(1.3, 0.78, 1.36),
+		Collar = { Height = 0.62, Thick = 0.1, Width = 1.25, Depth = 1.3, Flare = 10 },
+		FrontPanel = { Width = 0.42, Below = 0.3 },
+		GloveShare = 0.26, BootShare = 0.3,
+	},
+	-- THE CLOAK's tail (hinged segments off his back, swung on every screen
+	-- from how he moves - VFX.TK.cloak): each { width x the torso, height
+	-- studs }; Rest degrees off his back; Lift / Fall: how far running /
+	-- falling throws it back; Max; the flutter; Gust: how hard a move throws it
+	Cloak = {
+		Segments = { { 1.22, 0.72 }, { 1.28, 0.7 }, { 1.32, 0.66 }, { 1.36, 0.6 }, { 1.4, 0.5 } },
+		Thick = 0.1, Rest = 5, Lift = 2.4, Fall = 1.5, Max = 80, Flutter = 2.5, FlutterSpeed = 0.22, Rate = 1.3, Blend = 9, Side = 1.1, Wind = 24,
+		Gust = { M1 = 0.35, Move = 0.7, Fly = 1 }, Cull = 160, LowCull = 80,
+	},
+	-- DARK SHADOW's BODY (every screen's own, anchored parts posed every
+	-- frame - VFX.TK.rig). Studs at Scale 1; the anchor is his chest
+	-- (Anchor: from his root), its pose places its body from there (Out
+	-- ahead of him, Up, Side to his right). Body / Belly: its broad chest
+	-- and the waist tapering into the trail; the shoulders; the head on its
+	-- neck (Skull, the two yellow eyes, the beak - Upper / Lower hinged at
+	-- Hinge, Droop degrees down - the crest raked back); each arm: Upper /
+	-- Fore lengths and thickness, the hand, Claws claws Claw long; the trail
+	-- (Segments ellipsoids from his chest to its waist, From..To thick, out
+	-- of him Out studs before it bends up to it). ReachArm: how far ahead of
+	-- its shoulders its claws strike (a strike at someone places its body
+	-- that far short of them, x its scale)
+	Model = {
+		Anchor = Vector3.new(0, 0.35, -0.55),
+		Body = Vector3.new(2.4, 2.5, 1.9), BodyY = 0.3,
+		Belly = Vector3.new(1.8, 1.9, 1.5), BellyY = -1.0, BellyZ = 0.15,
+		Shoulder = Vector3.new(1.05, 1.0, 1.05), ShoulderX = 1.2, ShoulderY = 0.95,
+		Neck = Vector3.new(0, 1.55, -0.32),
+		Skull = Vector3.new(1.6, 1.4, 1.8),
+		Eye = Vector3.new(0.42, 0.52, 0.18), EyeX = 0.46, EyeY = 0.22, EyeZ = -0.74, EyeYaw = 28,
+		Beak = { Upper = Vector3.new(0.72, 0.5, 1.8), Lower = Vector3.new(0.56, 0.3, 1.35), Hinge = Vector3.new(0, -0.2, -0.66), Droop = 14 },
+		Crest = { { 0, 0.6, 0.3, 0 }, { 0.34, 0.48, 0.4, 0.7 }, { -0.34, 0.48, 0.4, 0.7 } }, CrestSize = Vector3.new(0.2, 0.5, 1.15), CrestRake = 38,
+		Arm = { Upper = 2.0, Fore = 2.2, Thick = 0.82, ForeThick = 0.66, Hand = Vector3.new(0.86, 0.74, 0.86), Claw = Vector3.new(0.16, 0.32, 1.35), Claws = 3, ClawGap = 0.24 },
+		Trail = { Segments = 7, From = 0.55, To = 1.5, Out = 1.4, Drop = 1.3 },
+		-- ((round 102 review) its wings' membranes (a pose's Wing spreads them:
+		-- BLACK FALLEN ANGEL): a sail from each shoulder out to its claws and
+		-- down to its flank (FlankX / Y / Z off its body), the trailing edge
+		-- sagging Sag below the line between them (all x its scale), Thick
+		-- studs, as solid as Transparency
+		Wing = { Thick = 0.08, FlankX = 0.9, FlankY = -1.6, FlankZ = 0.2, Sag = 1.1, Transparency = 0.18 },
+		Wing3 = Color3.fromRGB(30, 16, 46),
+		ReachArm = 5,
+		Body3 = Color3.fromRGB(24, 14, 36), -- its body: near black, violet in it
+		Claw3 = Color3.fromRGB(46, 30, 66),
+		Beak3 = Color3.fromRGB(36, 24, 50),
+		Eye3 = Color3.fromRGB(255, 226, 92), -- glowing yellow
+		Rim = Color3.fromRGB(150, 80, 255), -- the faint purple rim round it (one Highlight)
+		Transparency = 0.03, RimFill = 0.9, RimOutline = 0.3,
+		-- the soft smoky trail: smoke off its body and the trail (Rate a
+		-- second; LowRate on a low-end machine), Size, Life
+		Smoke = { Color = Color3.fromRGB(40, 22, 58), Rate = 12, LowRate = 4, Size = { 1.4, 2.8 }, Life = { 0.5, 0.9 } },
+		EyeLight = { Brightness = 1.2, Range = 7 },
+		Cull = 260, -- studs from the camera: past this it isn't drawn
+		Lod = { Near = 110, LowNear = 50 }, -- ((round 102 review) studs: further than this it's posed every other frame (LowNear on a low-end machine)
+		CameraFade = 3, -- studs: closer than this to the camera, it thins out (never a wall of black over his own lens)
+		Hidden = 0.08, -- a Scale under this is "in him" (not drawn)
+		Clamp = { MinOut = -3, MaxOut = 80 },
+	},
+	-- ITS POSES (VFX.TK: every move's clip is keys of these). Out / Up / Side:
+	-- its body from his chest (studs: ahead, up, to his right); Yaw (+ to his
+	-- left) / Pitch (+ leaning on, forward) / Roll (+ to its right) of its
+	-- body; Scale; Head = { pitch (+ down), yaw (+ left), roll }; Jaw: the beak
+	-- open, degrees; RA / LA, each arm = { Raise (0 hanging, 90 ahead, 180 up),
+	-- Out (from its side), Swing (+ in across it), Bend (the elbow), Spread (its
+	-- claws fanned, degrees), Curl (its claws hooked in, degrees) }. Anything a
+	-- pose leaves out is Base's.
+	Poses = {
+		Base = { Out = 3, Up = 1.1, Side = 0.3, Yaw = 0, Pitch = 8, Roll = 0, Scale = 1, Head = { 4, 0, 0 }, Jaw = 12, RA = { 40, 20, 0, 45, 18, 20 }, LA = { 40, 20, 0, 45, 18, 20 } },
+		In = { Out = 0.35, Up = 0.4, Side = 0, Pitch = 0, Scale = 0.05, Head = { 0, 0, 0 }, Jaw = 0, RA = { 10, 10, 0, 90, 0, 60 }, LA = { 10, 10, 0, 90, 0, 60 } },
+		-- (in him even in the ult - In is its Loom there: the awakening's wait for the hit)
+		Hidden = { Out = 0.35, Up = 0.4, Side = 0, Pitch = 0, Scale = 0.05, Head = { 0, 0, 0 }, Jaw = 0, RA = { 10, 10, 0, 90, 0, 60 }, LA = { 10, 10, 0, 90, 0, 60 } },
+		-- between moves: a wisp - a small shadow curled out of his collar by
+		-- his right shoulder, its eyes in it
+		Peek = { Out = 0.45, Up = 1.55, Side = 1.0, Pitch = -5, Scale = 0.26, Head = { 6, 22, -8 }, Jaw = 4, RA = { 20, 15, 40, 100, 8, 60 }, LA = { 20, 15, 40, 100, 8, 60 } },
+		Ready = { Out = 3, Up = 1.1, Side = 0.3, Pitch = 8, Head = { 4, 0, 0 }, Jaw = 12 },
+		-- M1: 1 (the right claw raked across, right to left; 2 is it mirrored:
+		-- the left claw back across), 3 the overhead chop, 4 the two-handed slam,
+		-- the scoop up (the uppercut), the slam down (the downslam)
+		Coil1 = { Out = 2.4, Up = 1.2, Side = 0.6, Yaw = -30, Pitch = 6, Head = { 2, 14, 0 }, Jaw = 22, RA = { 78, 78, -40, 38, 32, 10 }, LA = { 34, 24, 12, 62, 14, 30 } },
+		Hit1 = { Out = 3.2, Up = 1.0, Side = 0.2, Yaw = 10, Pitch = 18, Head = { 8, -4, 0 }, Jaw = 38, RA = { 84, 14, -8, 12, 36, 4 }, LA = { 30, 30, -10, 62, 14, 30 } },
+		Follow1 = { Out = 3.2, Up = 1.0, Side = 0.2, Yaw = 30, Pitch = 22, Head = { 10, -14, 0 }, Jaw = 20, RA = { 78, 10, 52, 26, 26, 20 }, LA = { 30, 30, -10, 62, 14, 30 } },
+		Coil3 = { Out = 2.2, Up = 2.3, Side = 0.3, Pitch = -18, Head = { -14, 0, 0 }, Jaw = 32, RA = { 172, 16, 0, 72, 30, 10 }, LA = { 118, 30, 0, 52, 20, 20 } },
+		Hit3 = { Out = 3.2, Up = 1.4, Side = 0.3, Pitch = 34, Head = { 22, 0, 0 }, Jaw = 16, RA = { 110, 8, 6, 6, 32, 4 }, LA = { 62, 26, 0, 42, 18, 20 } },
+		Follow3 = { Out = 3.2, Up = 1.2, Side = 0.3, Pitch = 42, Head = { 26, 0, 0 }, Jaw = 10, RA = { 96, 8, 6, 14, 24, 16 }, LA = { 56, 26, 0, 42, 18, 20 } },
+		Rise4 = { Out = 2.0, Up = 3.3, Side = 0, Scale = 1.25, Pitch = -24, Head = { -22, 0, 0 }, Jaw = 58, RA = { 172, -20, 0, 56, 42, 0 }, LA = { 172, -20, 0, 56, 42, 0 } },
+		Slam4 = { Out = 3.4, Up = 2.2, Side = 0, Scale = 1.25, Pitch = 40, Head = { 30, 0, 0 }, Jaw = 8, RA = { 100, 16, 16, 0, 36, 0 }, LA = { 100, 16, 16, 0, 36, 0 } },
+		Crush4 = { Out = 3.4, Up = 1.6, Side = 0, Scale = 1.25, Pitch = 46, Head = { 34, 0, 0 }, Jaw = 6, RA = { 96, 18, 18, 6, 30, 12 }, LA = { 96, 18, 18, 6, 30, 12 } },
+		LowUp = { Out = 2.6, Up = 0.2, Side = 0.3, Pitch = 30, Head = { 18, 0, 0 }, Jaw = 20, RA = { 14, 26, 12, 22, 30, 0 }, LA = { 30, 24, 0, 60, 18, 30 } },
+		HitUp = { Out = 3.0, Up = 2.3, Side = 0.3, Pitch = -14, Head = { -26, 0, 0 }, Jaw = 44, RA = { 162, 10, 10, 14, 32, 0 }, LA = { 40, 24, 0, 60, 18, 30 } },
+		HighDown = { Out = 2.0, Up = 2.8, Side = 0, Pitch = -10, Head = { -6, 0, 0 }, Jaw = 30, RA = { 170, 20, 0, 60, 34, 0 }, LA = { 170, 20, 0, 60, 34, 0 } },
+		HitDown = { Out = 2.4, Up = 0.6, Side = 0, Pitch = 58, Head = { 34, 0, 0 }, Jaw = 10, RA = { 92, 12, 14, 0, 34, 0 }, LA = { 92, 12, 14, 0, 34, 0 } },
+		-- 1: DARK SHADOW - drawn back into a coil, then flung out flat along the
+		-- line, claws wide; the grab (claws shut), the drag, lifted, dropped
+		LungeCoil = { Out = 1.4, Up = 1.0, Side = 0, Pitch = -8, Head = { -6, 0, 0 }, Jaw = 0, RA = { 18, 36, -20, 84, 0, 50 }, LA = { 18, 36, -20, 84, 0, 50 } },
+		LungeFly = { Out = 4, Up = 0.7, Side = 0, Pitch = 72, Head = { -58, 0, 0 }, Jaw = 55, RA = { 162, 22, 0, 0, 48, 0 }, LA = { 162, 22, 0, 0, 48, 0 } },
+		LungeGrab = { Out = 4, Up = 0.9, Side = 0, Pitch = 50, Head = { -34, 0, 0 }, Jaw = 0, RA = { 125, 18, 16, 24, 4, 72 }, LA = { 125, 18, 16, 24, 4, 72 } },
+		LungeDrag = { Out = 4, Up = 1.2, Side = 0, Pitch = 22, Head = { -8, 0, 0 }, Jaw = 12, RA = { 104, 16, 18, 36, 4, 80 }, LA = { 104, 16, 18, 36, 4, 80 } },
+		LungeLift = { Out = 3.6, Up = 2.4, Side = 0, Pitch = -6, Head = { -14, 0, 0 }, Jaw = 30, RA = { 100, 18, 12, 30, 4, 80 }, LA = { 100, 18, 12, 30, 4, 80 } },
+		LungeDrop = { Out = 3.6, Up = 1.6, Side = 0, Pitch = 40, Head = { 24, 0, 0 }, Jaw = 40, RA = { 96, 30, 0, 10, 46, 0 }, LA = { 96, 30, 0, 10, 46, 0 } },
+		-- 2: ABYSSAL CLAW - risen huge over him, both arms up, then both claws
+		-- brought down in a wide arc in front; (the ult's second slam: Rise2)
+		ClawRise = { Out = 0.9, Up = 3.7, Side = 0, Scale = 1.6, Pitch = -20, Head = { -26, 0, 0 }, Jaw = 62, RA = { 160, -40, -10, 40, 46, 0 }, LA = { 160, -40, -10, 40, 46, 0 } },
+		ClawSlam = { Out = 3.2, Up = 1.8, Side = 0, Scale = 1.6, Pitch = 50, Head = { 30, 0, 0 }, Jaw = 22, RA = { 108, 34, 26, 4, 46, 0 }, LA = { 108, 34, 26, 4, 46, 0 } },
+		ClawCrush = { Out = 3.4, Up = 1.4, Side = 0, Scale = 1.6, Pitch = 56, Head = { 32, 0, 0 }, Jaw = 14, RA = { 106, 30, 34, 10, 40, 10 }, LA = { 106, 30, 34, 10, 40, 10 } },
+		ClawRise2 = { Out = 1.4, Up = 4.0, Side = 0, Scale = 1.6, Yaw = -22, Pitch = -16, Head = { -20, 10, 0 }, Jaw = 66, RA = { 170, -30, -20, 40, 46, 0 }, LA = { 150, -40, 0, 50, 40, 0 } },
+		-- 3: SHADOW GUARD - wrapped round him from behind, its arms crossed in
+		-- front of him, its head over his; flinching at a hit; the counter (its
+		-- right claw lashed out at whoever hit him)
+		GuardWrap = { Out = -1.6, Up = 1.9, Side = 0, Scale = 1.15, Pitch = 18, Head = { 14, 0, 0 }, Jaw = 16, RA = { 60, 10, 60, 15, 30, 40 }, LA = { 60, 10, 60, 15, 30, 40 } },
+		GuardFlinch = { Out = -1.8, Up = 1.8, Side = 0, Scale = 1.15, Pitch = 26, Head = { 22, 0, 0 }, Jaw = 48, RA = { 54, 14, 56, 22, 36, 46 }, LA = { 54, 14, 56, 22, 36, 46 } },
+		Counter = { Out = -0.6, Up = 1.8, Side = 0, Scale = 1.15, Pitch = 20, Head = { 0, -6, 0 }, Jaw = 40, RA = { 92, 10, 0, 0, 40, 0 }, LA = { 60, 10, 60, 15, 30, 40 } },
+		-- 4: BLACK ANKH - poured over him (then it's his armour)
+		AnkhWrap = { Out = 0.3, Up = 0.6, Side = 0, Scale = 0.75, Pitch = 4, Head = { 10, 0, 0 }, Jaw = 0, RA = { 110, 50, 80, 110, 0, 70 }, LA = { 110, 50, 80, 110, 0, 70 } },
+		-- R: BLACK FALLEN ANGEL - behind him, its arms spread as wings, beating
+		-- ((round 102 review) Wing: its membranes spread between its arms and its flanks - Model.Wing)
+		Wings = { Out = -1.1, Up = 1.5, Side = 0, Scale = 1.15, Pitch = 28, Wing = 1, Head = { -30, 0, 0 }, Jaw = 22, RA = { 10, 95, -20, 10, 52, 0 }, LA = { 10, 95, -20, 10, 52, 0 } },
+		WingsDown = { Out = -1.0, Up = 1.3, Side = 0, Scale = 1.15, Pitch = 30, Wing = 1, Head = { -28, 0, 0 }, Jaw = 18, RA = { 10, 70, -10, 20, 44, 12 }, LA = { 10, 70, -10, 20, 44, 12 } },
+		WingsUp = { Out = -1.1, Up = 1.7, Side = 0, Scale = 1.15, Pitch = 26, Wing = 1, Head = { -32, 0, 0 }, Jaw = 26, RA = { 10, 120, -26, 0, 56, 0 }, LA = { 10, 120, -26, 0, 56, 0 } },
+		-- THE ULT: bursting out of him roaring (Burst), then looming over him
+		-- (Loom: the ult's idle - Ult moves and scales it); RAMPAGE's swings
+		Burst = { Out = 1.0, Up = 2.6, Side = 0, Pitch = -26, Head = { -40, 0, 0 }, Jaw = 80, RA = { 30, 100, -20, 10, 62, 0 }, LA = { 30, 100, -20, 10, 62, 0 } },
+		Loom = { Out = 1.6, Up = 1.6, Side = 0.4, Pitch = 26, Head = { 18, 0, 0 }, Jaw = 16, RA = { 58, 36, 10, 50, 40, 20 }, LA = { 58, 36, 10, 50, 40, 20 } },
+		RampL = { Out = 2.2, Up = 1.2, Side = 0, Yaw = 48, Pitch = 22, Head = { 10, -30, 0 }, Jaw = 64, RA = { 88, 62, -60, 10, 46, 0 }, LA = { 60, 30, 20, 40, 30, 10 } },
+		RampUp = { Out = 1.6, Up = 2.6, Side = 0, Pitch = -24, Head = { -34, 0, 0 }, Jaw = 80, RA = { 165, -35, 0, 40, 50, 0 }, LA = { 165, -35, 0, 40, 50, 0 } },
+		RampSmash = { Out = 2.8, Up = 1.4, Side = 0, Pitch = 50, Head = { 30, 0, 0 }, Jaw = 20, RA = { 104, 20, 20, 0, 40, 0 }, LA = { 104, 20, 20, 0, 40, 0 } },
+		-- the finisher: it engulfs them
+		Swallow = { Out = 3.0, Up = 1.4, Side = 0, Pitch = 30, Head = { 10, 0, 0 }, Jaw = 70, RA = { 96, 40, 70, 40, 30, 40 }, LA = { 96, 40, 70, 40, 30, 40 } },
+	},
+	-- ITS CLIPS: { T (seconds), pose, easing into it ("out" / "in" / "inout" /
+	-- "lin"), Aim = how much of it is at its target (its body placed so its
+	-- claws reach them, turned to them), Mirror = the pose the other way
+	-- round, Arm = its striking arm ("R" / "L" / "B" both) aimed at them -
+	-- raised or lowered so its claws meet them, however high it is }. The
+	-- first key is replaced by wherever it is when the clip
+	-- starts. Hit (and Hit2..): the move's beats - each one a number of the
+	-- move (the client block checks they match). Hold: it stays on its last
+	-- key until told otherwise; Loop = { from, to }: it goes round between
+	-- them (the wings beating). In the ult, "In" is its Loom.
+	Clips = {
+		M1_1 = { Hit = 0.12, Keys = { { 0, "In" }, { 0.055, "Coil1", "out" }, { 0.12, "Hit1", "out", Aim = 1, Arm = "R" }, { 0.2, "Follow1", "inout", Aim = 1, Arm = "R" }, { 0.32, "Ready", "inout" }, { 0.46, "In", "in" } } },
+		M1_2 = { Hit = 0.125, Mirror = true, Keys = { { 0, "In" }, { 0.06, "Coil1", "out" }, { 0.125, "Hit1", "out", Aim = 1, Arm = "R" }, { 0.2, "Follow1", "inout", Aim = 1, Arm = "R" }, { 0.32, "Ready", "inout" }, { 0.46, "In", "in" } } },
+		M1_3 = { Hit = 0.13, Keys = { { 0, "In" }, { 0.07, "Coil3", "out" }, { 0.13, "Hit3", "in", Aim = 1, Arm = "R" }, { 0.22, "Follow3", "out", Aim = 1, Arm = "R" }, { 0.34, "Ready", "inout" }, { 0.48, "In", "in" } } },
+		M1_4 = { Hit = 0.18, Keys = { { 0, "In" }, { 0.1, "Rise4", "out" }, { 0.18, "Slam4", "in", Aim = 1, Arm = "B" }, { 0.3, "Crush4", "out", Aim = 1, Arm = "B" }, { 0.5, "Crush4", "inout", Aim = 1, Arm = "B" }, { 0.66, "Ready", "inout" }, { 0.82, "In", "in" } } },
+		M1Up = { Hit = 0.16, Keys = { { 0, "In" }, { 0.08, "LowUp", "out", Aim = 0.6 }, { 0.16, "HitUp", "out", Aim = 0.6 }, { 0.3, "HitUp", "inout", Aim = 0.4 }, { 0.44, "Ready", "inout" }, { 0.58, "In", "in" } } },
+		M1Down = { Hit = 0.17, Keys = { { 0, "In" }, { 0.09, "HighDown", "out" }, { 0.17, "HitDown", "in", Aim = 1, Arm = "B" }, { 0.32, "HitDown", "inout", Aim = 1, Arm = "B" }, { 0.46, "Ready", "inout" }, { 0.6, "In", "in" } } },
+		-- (Hit: the lunge's Startup - it's flung out; the flight itself, the
+		-- catch, the drag and the drop follow the server's word)
+		Lunge = { Hit = 0.22, Hold = true, Keys = { { 0, "In" }, { 0.14, "LungeCoil", "out" }, { 0.22, "LungeFly", "out" } } },
+		LungeCatch = { Hold = true, Keys = { { 0, "LungeFly" }, { 0.06, "LungeGrab", "out", Aim = 1, Arm = "B" }, { 0.2, "LungeDrag", "inout", Aim = 1, Arm = "B" }, { 0.42, "LungeLift", "inout", Aim = 1 } } },
+		LungeDrop = { Keys = { { 0, "LungeLift", Aim = 1 }, { 0.08, "LungeDrop", "in", Aim = 1, Arm = "B" }, { 0.3, "Ready", "inout" }, { 0.46, "In", "in" } } },
+		LungeMiss = { Keys = { { 0, "LungeFly" }, { 0.1, "LungeGrab", "out" }, { 0.3, "LungeCoil", "in" }, { 0.44, "In", "in" } } },
+		-- (Hit: ABYSSAL CLAW's Windup; Hit2: the ult's second slam, Windup + Gap)
+		Claw = { Hit = 0.5, Keys = { { 0, "In" }, { 0.24, "ClawRise", "out" }, { 0.42, "ClawRise", "inout" }, { 0.5, "ClawSlam", "in", Aim = 0.5, Arm = "B" }, { 0.62, "ClawCrush", "out", Aim = 0.5, Arm = "B" }, { 0.95, "ClawCrush", "inout", Aim = 0.5, Arm = "B" }, { 1.15, "Ready", "inout" }, { 1.35, "In", "in" } } },
+		ClawTwin = { Hit = 0.5, Hit2 = 0.95, Keys = { { 0, "In" }, { 0.24, "ClawRise", "out" }, { 0.42, "ClawRise", "inout" }, { 0.5, "ClawSlam", "in", Aim = 0.5, Arm = "B" }, { 0.62, "ClawCrush", "out", Aim = 0.5, Arm = "B" },
+			{ 0.8, "ClawRise2", "out" }, { 0.95, "ClawSlam", "in", Aim = 0.5, Arm = "B", Mirror = true }, { 1.07, "ClawCrush", "out", Aim = 0.5, Arm = "B", Mirror = true }, { 1.4, "ClawCrush", "inout", Aim = 0.5, Arm = "B" }, { 1.6, "Ready", "inout" }, { 1.8, "In", "in" } } },
+		Guard = { Hold = true, Keys = { { 0, "In" }, { 0.08, "GuardWrap", "out" } } },
+		GuardHit = { Hold = true, Keys = { { 0, "GuardWrap" }, { 0.05, "GuardFlinch", "out" }, { 0.22, "GuardWrap", "inout" } } },
+		Counter = { Hit = 0.08, Hold = true, Keys = { { 0, "GuardWrap" }, { 0.08, "Counter", "out", Aim = 1, Arm = "R" }, { 0.22, "Counter", "inout", Aim = 1, Arm = "R" }, { 0.42, "GuardWrap", "inout" } } },
+		GuardEnd = { Keys = { { 0, "GuardWrap" }, { 0.22, "In", "in" } } },
+		-- (Hit: BLACK ANKH's Startup - poured over him, his armour from there)
+		Ankh = { Hit = 0.35, Keys = { { 0, "In" }, { 0.14, "AnkhWrap", "out" }, { 0.35, "In", "in" } } },
+		Fly = { Loop = { 0.32, 0.72 }, Keys = { { 0, "In" }, { 0.16, "Wings", "out" }, { 0.32, "WingsUp", "inout" }, { 0.52, "WingsDown", "in" }, { 0.72, "WingsUp", "out" } } },
+		FlyEnd = { Keys = { { 0, "Wings" }, { 0.28, "In", "in" } } },
+		-- (the awakening: Hit = Config.Awaken.HitAt - it bursts out of him on the pose's hit)
+		Awaken = { Hit = 0.3, Keys = { { 0, "Hidden" }, { 0.05, "Hidden", "lin" }, { 0.3, "Hidden", "lin" }, { 0.36, "Burst", "out" }, { 0.95, "Burst", "inout" }, { 1.5, "Loom", "inout" } } },
+		-- (RAMPAGE's three hits: the ult's Extra's Hits)
+		Rampage = { Hit = 0.35, Hit2 = 0.8, Hit3 = 1.25, Keys = { { 0, "In" }, { 0.2, "RampL", "out", Mirror = true }, { 0.35, "RampL", "in" }, { 0.6, "RampL", "inout" },
+			{ 0.8, "RampL", "in", Mirror = true }, { 1.02, "RampUp", "out" }, { 1.25, "RampSmash", "in" }, { 1.5, "RampSmash", "inout" }, { 1.8, "In", "inout" } } },
+		Swallow = { Keys = { { 0, "In" }, { 0.16, "Swallow", "out", Aim = 1, Arm = "B" }, { 0.7, "LungeLift", "inout", Aim = 1 }, { 1.0, "LungeDrop", "in", Aim = 1 }, { 1.25, "In", "in" } } },
+	},
+	-- BETWEEN MOVES: a wisp - its smoke off his collar, and (standing still
+	-- After seconds out of a fight) the little shadow peeking out by his
+	-- shoulder, blinking; Blend: seconds into / out of it
+	Peek = { After = 2.5, Blend = 0.35, Blink = 3.2, Look = 1.8 },
+	-- THE ULT (ABYSSAL DARK SHADOW): its poses Scale times the size (a pose
+	-- already bigger than its own, only x its scale ^ ScalePow more), moved
+	-- (Out x OutMul + OutAdd, Up x UpMul + UpAdd, Side + Side) - it looms over
+	-- him and strikes down from up there; darker, its eyes purple fire; never
+	-- still (Wild: its head jerking round every Look s by up to Yaw / Pitch
+	-- degrees, its beak snapping Jaw degrees every Snap s, a roar every Roar
+	-- s, breathing)
+	Ult = {
+		Scale = 2.6, ScalePow = 0.4, OutMul = 0.8, OutAdd = 1.2, UpMul = 1, UpAdd = 7.5, Side = 0.8,
+		Body3 = Color3.fromRGB(10, 4, 18), Eye3 = Color3.fromRGB(196, 92, 255), Rim = Color3.fromRGB(180, 70, 255),
+		Fire = { Rate = 18, Size = { 0.6, 1.6 }, Color = Color3.fromRGB(186, 80, 255) },
+		Wild = { Look = 0.7, Yaw = 35, Pitch = 16, Jaw = 42, Snap = 1.4, Roar = 6, Breath = 0.05 },
+		Blend = 0.4, -- ((round 102 review) s: into its ult form and back out of it, eased (it snapped)
+	},
+	-- THE WORLD DIMMED round him in the ult (each screen's own grade - a
+	-- ColorCorrectionEffect it makes and takes away, on the camera: nothing
+	-- of Lighting's is touched; as strong as the nearest Tokoyami in his ult
+	-- is near)
+	Dim = { Range = 260, In = 0.6, Out = 1.2, Brightness = -0.1, Contrast = 0.14, Saturation = -0.45, Tint = Color3.fromRGB(196, 182, 228) },
+	-- THE M1s on screen (VFX.TK.onHit: a landed claw - Size of its marks,
+	-- Stop: the freeze, Shake on the two screens involved, Frame: an impact
+	-- frame); UltReach: studs more reach in the ult (its claws are huge)
+	M1 = {
+		Kinds = { ["1"] = { Size = 1, Stop = 0.06, Shake = 0.45 }, ["2"] = { Size = 1, Stop = 0.06, Shake = 0.45 }, ["3"] = { Size = 1.1, Stop = 0.07, Shake = 0.55 },
+			["4"] = { Size = 1.5, Stop = 0.11, Shake = 1, Frame = 0.04 }, Up = { Size = 1.3, Stop = 0.09, Shake = 0.8 }, Down = { Size = 1.4, Stop = 0.1, Shake = 0.9, Frame = 0.04 },
+			Air = { Size = 0.9, Stop = 0.05, Shake = 0.4 } },
+		UltReach = 4,
+		-- THE 4TH (Kit.TK.m1Finish - not the send-off): slammed into the street
+		-- in front of him, off their feet (Ragdoll), a little bounce, a crater
+		Slam = { Down = 70, Ragdoll = 1.2, Bounce = 18, Crater = 4.5, Delay = 0.08 },
+	},
+	-- BLACK ANKH's armour on every screen (welded over his body: a helm with
+	-- its beak and yellow eyes, pauldrons and their spikes, the chest, the
+	-- gauntlets and their claws, greaves; studs x the limb)
+	Ankh = {
+		Helm = Vector3.new(1.22, 1.16, 1.26), Beak = Vector3.new(0.36, 0.26, 0.8), Eye = Vector3.new(0.2, 0.12, 0.05),
+		Pauldron = Vector3.new(1.4, 0.95, 1.5), Spike = Vector3.new(0.16, 0.3, 0.9),
+		Gauntlet = 0.62, Claw = Vector3.new(0.18, 0.32, 1.9), Claws = 3,
+		Grow = 0.25, Fade = 0.3, Smoke = 6,
+	},
+	-- R: BLACK FALLEN ANGEL (his own machine flies him - VFX.TK.fly) - the
+	-- feathers of shadow shed off its wings (Shed a second), a beat sound
+	-- every Beat s
+	Fly = { Shed = 10, Beat = 0.42 },
+	-- ((round 102 review) DARK SHADOW'S "AIYO!" on a catch (VFX.TK.shout):
+	-- the game's comic shout over its head (Width x Height px, Above studs
+	-- over it, tipped Tilt degrees, seen within Range, up Life s) with its
+	-- squawk (Sounds.TokoAiyo) - no text-to-speech
+	Shout = { Aiyo = "AIYO!", Width = 190, Height = 64, Above = 2.4, Tilt = -7, Range = 160, Life = 0.9, Back = Color3.fromRGB(22, 12, 32) },
+	-- ((round 102 review) a clip that holds (the lunge out, the catch, the
+	-- guard) lets go by itself after this many seconds if the server's word
+	-- never comes
+	HoldLife = 6,
+}
+
+-- (round 103) PUCCI / C-MOON (Config.Quirks.CMoon: his moves' numbers). His
+-- look (Kit.CM.look, built by the server: hidden with WEAR COSMETICS off like
+-- any hero's look; the avatar's hair, hats and face go see-through under his -
+-- Kit.ST.bare); C-MOON's body, poses and clips (every screen builds and poses
+-- it: VFX.CM); the INVERTED status, the gravity leases (Kit.CM.G) and every
+-- screen's side of them; the barrage's and the flip's look.
+Config.Pucci = {
+	-- HIS LOOK (the C-MOON-era "New Moon" Pucci): every piece welded to his
+	-- R6 body, in that limb's own space - studs on a stock 2x2x1 torso / 1x2x1
+	-- limb (x the limb's size), the head's in a 1.2-stud visible head (x its
+	-- visible size). A piece: { Limb, Shape ("Block" / "Ell" / "Cyl"), Size,
+	-- Pos, Rot (degrees, CFrame.Angles), Colour, Material?, Glow? (Neon
+	-- white-gold in the ult) }. Covers: the cassock over the torso and arms
+	-- (Over studs proud); Star: the gold five-pointed star on his cap
+	Look = {
+		Colors = {
+			skin = Color3.fromRGB(123, 79, 53), hair = Color3.fromRGB(243, 241, 238), shave = Color3.fromRGB(94, 59, 39),
+			cassock = Color3.fromRGB(22, 20, 27), cassock2 = Color3.fromRGB(36, 32, 44), gold = Color3.fromRGB(216, 176, 72),
+			belt = Color3.fromRGB(42, 34, 51), eye = Color3.fromRGB(43, 27, 54), brow = Color3.fromRGB(240, 238, 232),
+			shoe = Color3.fromRGB(14, 12, 16), mouth = Color3.fromRGB(70, 38, 30), glow = Color3.fromRGB(255, 236, 170),
+		},
+		Over = 0.04,
+		Covers = { Torso = "cassock", Arms = "cassock", Hand = 0.36 },
+		Parts = {
+			-- the head: his skin over the avatar's, very short white hair (a cap
+			-- hiding the head mesh's top), the shaved lines at each temple (a
+			-- hexagon joined to the brow by a zig-zag), dark eyes, white brows, the
+			-- mouth, the braids threaded through his collar
+			{ "Head", "Ell", Vector3.new(1.18, 1.2, 1.14), Vector3.new(0, 0, 0), { 0, 0, 0 }, "skin" },
+			{ "Head", "Ell", Vector3.new(1.34, 0.86, 1.35), Vector3.new(0, 0.24, 0.03), { 0, 0, 0 }, "hair" },
+			{ "Head", "Block", Vector3.new(0.04, 0.05, 0.16), Vector3.new(0.615, 0.26, 0.05), { 0, 0, 0 }, "shave" },
+			{ "Head", "Block", Vector3.new(0.04, 0.05, 0.16), Vector3.new(0.615, 0.18, -0.16), { 40, 0, 0 }, "shave" },
+			{ "Head", "Block", Vector3.new(0.04, 0.05, 0.16), Vector3.new(0.615, 0.33, -0.2), { -40, 0, 0 }, "shave" },
+			{ "Head", "Block", Vector3.new(0.04, 0.18, 0.04), Vector3.new(0.4, 0.09, -0.43), { 0, 0, 32 }, "shave" },
+			{ "Head", "Block", Vector3.new(0.04, 0.05, 0.16), Vector3.new(-0.615, 0.26, 0.05), { 0, 0, 0 }, "shave" },
+			{ "Head", "Block", Vector3.new(0.04, 0.05, 0.16), Vector3.new(-0.615, 0.18, -0.16), { 40, 0, 0 }, "shave" },
+			{ "Head", "Block", Vector3.new(0.04, 0.05, 0.16), Vector3.new(-0.615, 0.33, -0.2), { -40, 0, 0 }, "shave" },
+			{ "Head", "Block", Vector3.new(0.04, 0.18, 0.04), Vector3.new(-0.4, 0.09, -0.43), { 0, 0, -32 }, "shave" },
+			{ "Head", "Ell", Vector3.new(0.17, 0.11, 0.05), Vector3.new(0.22, 0.06, -0.58), { 0, 0, 0 }, "eye" },
+			{ "Head", "Ell", Vector3.new(0.17, 0.11, 0.05), Vector3.new(-0.22, 0.06, -0.58), { 0, 0, 0 }, "eye" },
+			{ "Head", "Block", Vector3.new(0.24, 0.05, 0.04), Vector3.new(0.22, 0.17, -0.59), { 0, 0, -8 }, "brow" },
+			{ "Head", "Block", Vector3.new(0.24, 0.05, 0.04), Vector3.new(-0.22, 0.17, -0.59), { 0, 0, 8 }, "brow" },
+			{ "Head", "Block", Vector3.new(0.24, 0.035, 0.03), Vector3.new(0, -0.26, -0.585), { 0, 0, 0 }, "mouth" },
+			{ "Head", "Ell", Vector3.new(0.13, 0.62, 0.13), Vector3.new(0.22, -0.25, 0.5), { 14, 0, 0 }, "hair" },
+			{ "Head", "Ell", Vector3.new(0.13, 0.62, 0.13), Vector3.new(-0.22, -0.25, 0.5), { 14, 0, 0 }, "hair" },
+			-- the cassock: a high collar, THE GOLD CROSS across his chest, the
+			-- double belt and its gold buckle, the back of the robe
+			{ "Torso", "Block", Vector3.new(1.16, 0.34, 1.0), Vector3.new(0, 1.0, 0.02), { 0, 0, 0 }, "cassock" },
+			{ "Torso", "Block", Vector3.new(0.24, 1.46, 0.06), Vector3.new(0, 0.18, -0.53), { 0, 0, 0 }, "gold", "Metal", true },
+			{ "Torso", "Block", Vector3.new(1.34, 0.24, 0.06), Vector3.new(0, 0.5, -0.53), { 0, 0, 0 }, "gold", "Metal", true },
+			{ "Torso", "Block", Vector3.new(2.06, 0.16, 1.06), Vector3.new(0, -0.6, 0), { 0, 0, 0 }, "belt" },
+			{ "Torso", "Block", Vector3.new(2.06, 0.16, 1.06), Vector3.new(0, -0.84, 0), { 0, 0, 0 }, "belt" },
+			{ "Torso", "Block", Vector3.new(0.34, 0.4, 0.06), Vector3.new(0, -0.72, -0.55), { 0, 0, 0 }, "gold", "Metal", true },
+			{ "Torso", "Block", Vector3.new(2.1, 1.2, 0.12), Vector3.new(0, -1.5, 0.52), { -8, 0, 0 }, "cassock" },
+			-- his hands, the gold wristbands, a double cross on each
+			{ "Right Arm", "Block", Vector3.new(1.01, 0.36, 1.01), Vector3.new(0, -0.82, 0), { 0, 0, 0 }, "skin" },
+			{ "Right Arm", "Block", Vector3.new(1.06, 0.18, 1.06), Vector3.new(0, -0.56, 0), { 0, 0, 0 }, "gold", "Metal" },
+			{ "Right Arm", "Block", Vector3.new(0.04, 0.36, 0.08), Vector3.new(0.54, -0.25, 0), { 0, 0, 0 }, "gold", "Metal" },
+			{ "Right Arm", "Block", Vector3.new(0.04, 0.06, 0.26), Vector3.new(0.54, -0.2, 0), { 0, 0, 0 }, "gold", "Metal" },
+			{ "Right Arm", "Block", Vector3.new(0.04, 0.06, 0.2), Vector3.new(0.54, -0.31, 0), { 0, 0, 0 }, "gold", "Metal" },
+			{ "Left Arm", "Block", Vector3.new(1.01, 0.36, 1.01), Vector3.new(0, -0.82, 0), { 0, 0, 0 }, "skin" },
+			{ "Left Arm", "Block", Vector3.new(1.06, 0.18, 1.06), Vector3.new(0, -0.56, 0), { 0, 0, 0 }, "gold", "Metal" },
+			{ "Left Arm", "Block", Vector3.new(0.04, 0.36, 0.08), Vector3.new(-0.54, -0.25, 0), { 0, 0, 0 }, "gold", "Metal" },
+			{ "Left Arm", "Block", Vector3.new(0.04, 0.06, 0.26), Vector3.new(-0.54, -0.2, 0), { 0, 0, 0 }, "gold", "Metal" },
+			{ "Left Arm", "Block", Vector3.new(0.04, 0.06, 0.2), Vector3.new(-0.54, -0.31, 0), { 0, 0, 0 }, "gold", "Metal" },
+			-- the robe: each half follows its leg (it never clips a stride), a
+			-- lighter hem band, the shoes
+			{ "Right Leg", "Block", Vector3.new(1.16, 1.62, 1.18), Vector3.new(0.06, 0.12, 0), { 0, 0, 4 }, "cassock" },
+			{ "Right Leg", "Block", Vector3.new(1.2, 0.08, 1.22), Vector3.new(0.1, -0.7, 0), { 0, 0, 0 }, "cassock2" },
+			{ "Right Leg", "Block", Vector3.new(0.98, 0.28, 1.2), Vector3.new(0, -0.86, -0.12), { 0, 0, 0 }, "shoe" },
+			{ "Left Leg", "Block", Vector3.new(1.16, 1.62, 1.18), Vector3.new(-0.06, 0.12, 0), { 0, 0, -4 }, "cassock" },
+			{ "Left Leg", "Block", Vector3.new(1.2, 0.08, 1.22), Vector3.new(-0.1, -0.7, 0), { 0, 0, 0 }, "cassock2" },
+			{ "Left Leg", "Block", Vector3.new(0.98, 0.28, 1.2), Vector3.new(0, -0.86, -0.12), { 0, 0, 0 }, "shoe" },
+		},
+		Star = { At = Vector3.new(0, 0.4, -0.61), Inner = 0.07, Outer = 0.17, Thick = 0.03, Disc = Vector3.new(0.15, 0.15, 0.03) },
+	},
+
+	-- C-MOON's BODY (every screen's own, anchored parts posed every frame -
+	-- VFX.CM): its skeleton (Bones: { parent, offset at rest } in studs at
+	-- Scale 1 - -Z its front, +X its right; a crown flap's bone turns on its
+	-- Hinge, Side the way out), every part on a bone (Parts: { Bone, Shape -
+	-- "Block" / "Ell" (a sphere SpecialMesh) / "Ball" / "Cyl" (a Part.Shape
+	-- Cylinder: its LENGTH IS ITS X, so every vertical limb is turned 90 about
+	-- Z) -, Size, Pos, Rot (degrees, CFrame.Angles), colour token, material,
+	-- Fine = hidden past the detail distance }), its triangles (Tris: two
+	-- wedges each, TK.tri's way), its arrows (Arrows: { Bone, At, Normal - out
+	-- of the surface -, Up - where it points -, Width, colour, rim colour or
+	-- false }: a head Width wide and 0.62 Width tall, a shaft 0.38 x 0.62 Width,
+	-- 0.07 thick). Generated from the design's model (S/cmoon/research): port
+	-- changes back there.
+	Model = {
+		Colors = {
+			pale = Color3.fromRGB(216, 212, 220), shade = Color3.fromRGB(183, 177, 193), stripe = Color3.fromRGB(44, 34, 54),
+			eye = Color3.fromRGB(232, 36, 52), socket = Color3.fromRGB(30, 22, 36), mouth = Color3.fromRGB(26, 20, 32),
+			teeth = Color3.fromRGB(242, 238, 228), green = Color3.fromRGB(76, 138, 62), glow = Color3.fromRGB(108, 203, 75),
+			olive = Color3.fromRGB(122, 122, 58), fur = Color3.fromRGB(86, 84, 42), vein = Color3.fromRGB(118, 146, 104),
+			gold = Color3.fromRGB(214, 174, 60),
+		},
+		Bones = {
+			pelvis = { false, Vector3.new(0, 0, 0) },
+			waist = { "pelvis", Vector3.new(0, 0.42, 0) },
+			chest = { "waist", Vector3.new(0, 1.3, 0) },
+			head = { "chest", Vector3.new(0, 0.98, 0.04) },
+			crownFR = { "head", Vector3.new(0, 0, 0), Hinge = Vector3.new(0.26, 0.98, -0.1), Side = 1 },
+			crownRR = { "head", Vector3.new(0, 0, 0), Hinge = Vector3.new(0.36, 0.8, 0.22), Side = 1 },
+			crownFL = { "head", Vector3.new(0, 0, 0), Hinge = Vector3.new(-0.26, 0.98, -0.1), Side = -1 },
+			crownRL = { "head", Vector3.new(0, 0, 0), Hinge = Vector3.new(-0.36, 0.8, 0.22), Side = -1 },
+			upperR = { "chest", Vector3.new(1.17, 0.42, 0) },
+			upperL = { "chest", Vector3.new(-1.17, 0.42, 0) },
+			foreR = { "upperR", Vector3.new(0, -1.25, 0) },
+			foreL = { "upperL", Vector3.new(0, -1.25, 0) },
+			fistR = { "foreR", Vector3.new(0, -1.12, 0) },
+			fistL = { "foreL", Vector3.new(0, -1.12, 0) },
+			thighR = { "pelvis", Vector3.new(0.47, -0.16, 0) },
+			thighL = { "pelvis", Vector3.new(-0.47, -0.16, 0) },
+			shinR = { "thighR", Vector3.new(0, -1.36, 0) },
+			shinL = { "thighL", Vector3.new(0, -1.36, 0) },
+			footR = { "shinR", Vector3.new(0, -1.18, 0) },
+			footL = { "shinL", Vector3.new(0, -1.18, 0) },
+		},
+		Parts = {
+			{ "pelvis", "Block", Vector3.new(1.62, 0.66, 0.98), Vector3.new(0, -0.08, 0), { 0, 0, 0 }, "olive", "SmoothPlastic" },
+			{ "pelvis", "Ell", Vector3.new(1.8, 0.38, 1.1), Vector3.new(0, 0.3, 0), { 0, 0, 0 }, "fur", "Fabric" },
+			{ "pelvis", "Block", Vector3.new(0.06, 0.08, 0.72), Vector3.new(0.82, -0.04, 0), { 0, 0, 0 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "pelvis", "Block", Vector3.new(0.06, 0.08, 0.72), Vector3.new(0.82, -0.22, 0), { 0, 0, 0 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "pelvis", "Block", Vector3.new(0.06, 0.08, 0.72), Vector3.new(-0.82, -0.04, 0), { 0, 0, 0 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "pelvis", "Block", Vector3.new(0.06, 0.08, 0.72), Vector3.new(-0.82, -0.22, 0), { 0, 0, 0 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "waist", "Ell", Vector3.new(1, 1.2, 0.76), Vector3.new(0, 0.45, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "waist", "Ell", Vector3.new(0.27, 0.22, 0.12), Vector3.new(0.15, 0.2, -0.296), { 0, 0, 0 }, "shade", "SmoothPlastic", Fine = true },
+			{ "waist", "Ell", Vector3.new(0.27, 0.22, 0.12), Vector3.new(-0.15, 0.2, -0.296), { 0, 0, 0 }, "shade", "SmoothPlastic", Fine = true },
+			{ "waist", "Ell", Vector3.new(0.27, 0.22, 0.12), Vector3.new(0.15, 0.42, -0.332), { 0, 0, 0 }, "shade", "SmoothPlastic", Fine = true },
+			{ "waist", "Ell", Vector3.new(0.27, 0.22, 0.12), Vector3.new(-0.15, 0.42, -0.332), { 0, 0, 0 }, "shade", "SmoothPlastic", Fine = true },
+			{ "waist", "Ell", Vector3.new(0.27, 0.22, 0.12), Vector3.new(0.15, 0.64, -0.312), { 0, 0, 0 }, "shade", "SmoothPlastic", Fine = true },
+			{ "waist", "Ell", Vector3.new(0.27, 0.22, 0.12), Vector3.new(-0.15, 0.64, -0.312), { 0, 0, 0 }, "shade", "SmoothPlastic", Fine = true },
+			{ "chest", "Block", Vector3.new(2.2, 0.9, 1.08), Vector3.new(0, 0.28, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "chest", "Block", Vector3.new(1.16, 0.36, 0.88), Vector3.new(0, -0.33, 0.02), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "chest", "Block", Vector3.new(2.24, 0.1, 1.12), Vector3.new(0, 0.62, 0), { 0, 0, 0 }, "stripe", "SmoothPlastic" },
+			{ "chest", "Block", Vector3.new(2.24, 0.1, 1.12), Vector3.new(0, 0.36, 0), { 0, 0, 0 }, "stripe", "SmoothPlastic" },
+			{ "chest", "Block", Vector3.new(2.24, 0.1, 1.12), Vector3.new(0, 0.1, 0), { 0, 0, 0 }, "stripe", "SmoothPlastic" },
+			{ "chest", "Ell", Vector3.new(1.36, 0.5, 0.94), Vector3.new(0, 0.78, 0.06), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "chest", "Cyl", Vector3.new(0.42, 0.5, 0.5), Vector3.new(0, 0.94, 0.05), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "chest", "Block", Vector3.new(0.16, 1.1, 0.1), Vector3.new(0, -0.05, 0.56), { 0, 0, 0 }, "stripe", "SmoothPlastic" },
+			{ "head", "Ell", Vector3.new(1.04, 1.2, 1.1), Vector3.new(0, 0.56, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "head", "Block", Vector3.new(0.84, 0.36, 0.86), Vector3.new(0, 0.03, -0.06), { 8, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "head", "Block", Vector3.new(0.98, 0.1, 0.98), Vector3.new(0, 0.24, -0.04), { 0, 0, 0 }, "mouth", "SmoothPlastic" },
+			{ "head", "Block", Vector3.new(0.66, 0.08, 0.06), Vector3.new(0, 0.17, -0.47), { 0, 0, 0 }, "mouth", "SmoothPlastic" },
+			{ "head", "Block", Vector3.new(0.12, 0.1, 0.05), Vector3.new(-0.24, 0.13, -0.49), { 0, 0, 0 }, "teeth", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.12, 0.09, 0.05), Vector3.new(-0.24, 0.31, -0.431), { 0, 0, 0 }, "teeth", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.12, 0.1, 0.05), Vector3.new(-0.08, 0.13, -0.49), { 0, 0, 0 }, "teeth", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.12, 0.09, 0.05), Vector3.new(-0.08, 0.31, -0.493), { 0, 0, 0 }, "teeth", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.12, 0.1, 0.05), Vector3.new(0.08, 0.13, -0.49), { 0, 0, 0 }, "teeth", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.12, 0.09, 0.05), Vector3.new(0.08, 0.31, -0.493), { 0, 0, 0 }, "teeth", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.12, 0.1, 0.05), Vector3.new(0.24, 0.13, -0.49), { 0, 0, 0 }, "teeth", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.12, 0.09, 0.05), Vector3.new(0.24, 0.31, -0.431), { 0, 0, 0 }, "teeth", "SmoothPlastic", Fine = true },
+			{ "head", "Ell", Vector3.new(0.48, 0.48, 0.2), Vector3.new(0.23, 0.62, -0.44), { 0, 0, 0 }, "socket", "SmoothPlastic" },
+			{ "head", "Ell", Vector3.new(0.4, 0.4, 0.22), Vector3.new(0.23, 0.62, -0.52), { 0, 0, 0 }, "eye", "Neon" },
+			{ "head", "Block", Vector3.new(0.045, 0.2, 0.045), Vector3.new(0.12, 0.867, -0.485), { 0, 0, 24 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.045, 0.26, 0.045), Vector3.new(0.23, 0.89, -0.42), { 0, 0, 0 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.045, 0.26, 0.045), Vector3.new(0.34, 0.867, -0.337), { 0, 0, -24 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.045, 0.2, 0.045), Vector3.new(0.431, 0.801, -0.245), { 0, 0, -48 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Ell", Vector3.new(0.48, 0.48, 0.2), Vector3.new(-0.23, 0.62, -0.44), { 0, 0, 0 }, "socket", "SmoothPlastic" },
+			{ "head", "Ell", Vector3.new(0.4, 0.4, 0.22), Vector3.new(-0.23, 0.62, -0.52), { 0, 0, 0 }, "eye", "Neon" },
+			{ "head", "Block", Vector3.new(0.045, 0.2, 0.045), Vector3.new(-0.443, 0.786, -0.23), { 0, 0, 52 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.045, 0.26, 0.045), Vector3.new(-0.357, 0.858, -0.322), { 0, 0, 28 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.045, 0.26, 0.045), Vector3.new(-0.249, 0.889, -0.407), { 0, 0, 4 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.045, 0.2, 0.045), Vector3.new(-0.138, 0.874, -0.476), { 0, 0, -20 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Cyl", Vector3.new(0.415, 0.08, 0.08), Vector3.new(-0.23, 0.97, -0.273), { 0, 60.15, -15.46 }, "vein", "SmoothPlastic", Fine = true },
+			{ "head", "Cyl", Vector3.new(0.231, 0.08, 0.08), Vector3.new(-0.05, 0.95, -0.417), { 0, -7.55, 18.29 }, "vein", "SmoothPlastic", Fine = true },
+			{ "head", "Cyl", Vector3.new(0.23, 0.08, 0.08), Vector3.new(0.12, 0.93, -0.417), { 0, 8.49, -31.72 }, "vein", "SmoothPlastic", Fine = true },
+			{ "head", "Cyl", Vector3.new(0.17, 0.08, 0.08), Vector3.new(0.25, 0.84, -0.418), { 0, -12.79, -37.96 }, "vein", "SmoothPlastic", Fine = true },
+			{ "crownFR", "Ell", Vector3.new(0.12, 1.05, 0.9), Vector3.new(0.36, 1.02, -0.12), { 32.56, 22.91, -37.38 }, "pale", "SmoothPlastic" },
+			{ "crownFR", "Ell", Vector3.new(0.135, 0.12, 0.74), Vector3.new(0.438, 1.132, -0.088), { 32.56, 22.91, -37.38 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "crownRR", "Ell", Vector3.new(0.12, 0.9, 0.84), Vector3.new(0.46, 0.84, 0.24), { 24, 0, -72 }, "pale", "SmoothPlastic" },
+			{ "crownRR", "Ell", Vector3.new(0.135, 0.12, 0.74), Vector3.new(0.593, 0.88, 0.258), { 24, 0, -72 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "crownFL", "Ell", Vector3.new(0.12, 1.05, 0.9), Vector3.new(-0.36, 1.02, -0.12), { 32.56, -22.91, 37.38 }, "pale", "SmoothPlastic" },
+			{ "crownFL", "Ell", Vector3.new(0.135, 0.12, 0.74), Vector3.new(-0.438, 1.132, -0.088), { 32.56, -22.91, 37.38 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "crownRL", "Ell", Vector3.new(0.12, 0.9, 0.84), Vector3.new(-0.46, 0.84, 0.24), { 24, 0, 72 }, "pale", "SmoothPlastic" },
+			{ "crownRL", "Ell", Vector3.new(0.135, 0.12, 0.74), Vector3.new(-0.593, 0.88, 0.258), { 24, 0, 72 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Ell", Vector3.new(1, 0.86, 0.56), Vector3.new(0, 0.5, 0.38), { 0, 0, 0 }, "fur", "Fabric" },
+			{ "head", "Ell", Vector3.new(0.86, 0.5, 0.5), Vector3.new(0, 0.12, 0.34), { 0, 0, 0 }, "fur", "Fabric" },
+			{ "head", "Block", Vector3.new(0.1, 0.06, 0.72), Vector3.new(0.13, 1.14, 0.02), { 0, 0, 0 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "head", "Block", Vector3.new(0.1, 0.06, 0.72), Vector3.new(-0.13, 1.14, 0.02), { 0, 0, 0 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "upperR", "Ell", Vector3.new(0.98, 0.9, 0.98), Vector3.new(0, -0.04, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "upperR", "Cyl", Vector3.new(1.05, 0.66, 0.66), Vector3.new(0, -0.68, 0), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "upperR", "Cyl", Vector3.new(0.1, 0.7, 0.7), Vector3.new(0, -0.5, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "upperR", "Cyl", Vector3.new(0.1, 0.7, 0.7), Vector3.new(0, -0.92, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "foreR", "Ball", Vector3.new(0.66, 0.66, 0.66), Vector3.new(0, 0, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "foreR", "Cyl", Vector3.new(0.95, 0.7, 0.7), Vector3.new(0, -0.52, 0), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "foreR", "Cyl", Vector3.new(0.1, 0.74, 0.74), Vector3.new(0, -0.3, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "foreR", "Cyl", Vector3.new(0.1, 0.74, 0.74), Vector3.new(0, -0.72, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "foreR", "Cyl", Vector3.new(0.2, 0.8, 0.8), Vector3.new(0, -1.02, 0), { 0, 0, 90 }, "olive", "SmoothPlastic" },
+			{ "fistR", "Block", Vector3.new(0.74, 0.6, 0.8), Vector3.new(0, -0.3, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "fistR", "Ell", Vector3.new(0.78, 0.4, 0.84), Vector3.new(0, -0.62, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "fistR", "Block", Vector3.new(0.7, 0.1, 0.26), Vector3.new(0, -0.72, -0.24), { 0, 0, 0 }, "shade", "SmoothPlastic", Fine = true },
+			{ "upperL", "Ell", Vector3.new(0.98, 0.9, 0.98), Vector3.new(0, -0.04, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "upperL", "Cyl", Vector3.new(1.05, 0.66, 0.66), Vector3.new(0, -0.68, 0), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "upperL", "Cyl", Vector3.new(0.1, 0.7, 0.7), Vector3.new(0, -0.5, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "upperL", "Cyl", Vector3.new(0.1, 0.7, 0.7), Vector3.new(0, -0.92, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "foreL", "Ball", Vector3.new(0.66, 0.66, 0.66), Vector3.new(0, 0, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "foreL", "Cyl", Vector3.new(0.95, 0.7, 0.7), Vector3.new(0, -0.52, 0), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "foreL", "Cyl", Vector3.new(0.1, 0.74, 0.74), Vector3.new(0, -0.3, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "foreL", "Cyl", Vector3.new(0.1, 0.74, 0.74), Vector3.new(0, -0.72, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "foreL", "Cyl", Vector3.new(0.2, 0.8, 0.8), Vector3.new(0, -1.02, 0), { 0, 0, 90 }, "olive", "SmoothPlastic" },
+			{ "fistL", "Block", Vector3.new(0.74, 0.6, 0.8), Vector3.new(0, -0.3, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "fistL", "Ell", Vector3.new(0.78, 0.4, 0.84), Vector3.new(0, -0.62, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "fistL", "Block", Vector3.new(0.7, 0.1, 0.26), Vector3.new(0, -0.72, -0.24), { 0, 0, 0 }, "shade", "SmoothPlastic", Fine = true },
+			{ "thighR", "Cyl", Vector3.new(0.32, 0.92, 0.92), Vector3.new(0, -0.12, 0), { 0, 0, 90 }, "green", "SmoothPlastic" },
+			{ "thighR", "Cyl", Vector3.new(1.1, 0.84, 0.84), Vector3.new(0, -0.74, 0), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "thighR", "Cyl", Vector3.new(0.1, 0.88, 0.88), Vector3.new(0, -0.5, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "thighR", "Cyl", Vector3.new(0.1, 0.88, 0.88), Vector3.new(0, -1, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "shinR", "Ball", Vector3.new(0.76, 0.76, 0.76), Vector3.new(0, 0, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "shinR", "Cyl", Vector3.new(1.02, 0.74, 0.74), Vector3.new(0, -0.58, 0), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "shinR", "Cyl", Vector3.new(0.1, 0.78, 0.78), Vector3.new(0, -0.36, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "shinR", "Cyl", Vector3.new(0.1, 0.78, 0.78), Vector3.new(0, -0.8, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "footR", "Cyl", Vector3.new(0.28, 0.84, 0.84), Vector3.new(0, 0.04, 0), { 0, 0, 90 }, "olive", "SmoothPlastic" },
+			{ "footR", "Block", Vector3.new(0.84, 0.46, 1.1), Vector3.new(0, -0.2, -0.16), { 0, 0, 0 }, "olive", "SmoothPlastic" },
+			{ "footR", "Ell", Vector3.new(0.84, 0.46, 0.56), Vector3.new(0, -0.2, -0.7), { 0, 0, 0 }, "olive", "SmoothPlastic" },
+			{ "thighL", "Cyl", Vector3.new(0.32, 0.92, 0.92), Vector3.new(0, -0.12, 0), { 0, 0, 90 }, "green", "SmoothPlastic" },
+			{ "thighL", "Cyl", Vector3.new(1.1, 0.84, 0.84), Vector3.new(0, -0.74, 0), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "thighL", "Cyl", Vector3.new(0.1, 0.88, 0.88), Vector3.new(0, -0.5, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "thighL", "Cyl", Vector3.new(0.1, 0.88, 0.88), Vector3.new(0, -1, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "shinL", "Ball", Vector3.new(0.76, 0.76, 0.76), Vector3.new(0, 0, 0), { 0, 0, 0 }, "pale", "SmoothPlastic" },
+			{ "shinL", "Cyl", Vector3.new(1.02, 0.74, 0.74), Vector3.new(0, -0.58, 0), { 0, 0, 90 }, "pale", "SmoothPlastic" },
+			{ "shinL", "Cyl", Vector3.new(0.1, 0.78, 0.78), Vector3.new(0, -0.36, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "shinL", "Cyl", Vector3.new(0.1, 0.78, 0.78), Vector3.new(0, -0.8, 0), { 0, 0, 90 }, "stripe", "SmoothPlastic", Fine = true },
+			{ "footL", "Cyl", Vector3.new(0.28, 0.84, 0.84), Vector3.new(0, 0.04, 0), { 0, 0, 90 }, "olive", "SmoothPlastic" },
+			{ "footL", "Block", Vector3.new(0.84, 0.46, 1.1), Vector3.new(0, -0.2, -0.16), { 0, 0, 0 }, "olive", "SmoothPlastic" },
+			{ "footL", "Ell", Vector3.new(0.84, 0.46, 0.56), Vector3.new(0, -0.2, -0.7), { 0, 0, 0 }, "olive", "SmoothPlastic" },
+		},
+		Tris = {
+			{ "chest", Vector3.new(0.56, -0.17, 0), Vector3.new(1.1, -0.17, 0), Vector3.new(0.52, -0.52, 0), 0.96, "pale" },
+			{ "chest", Vector3.new(-0.56, -0.17, 0), Vector3.new(-1.1, -0.17, 0), Vector3.new(-0.52, -0.52, 0), 0.96, "pale" },
+			{ "head", Vector3.new(-0.09, 0.42, -0.535), Vector3.new(0.09, 0.42, -0.535), Vector3.new(0, 0.3, -0.52), 0.05, "mouth" },
+			{ "crownFR", Vector3.new(0.529, 1.375, -0.117), Vector3.new(0.495, 0.816, 0.169), Vector3.new(0.993, 1.26, 0.527), 0.1, "pale" },
+			{ "crownRR", Vector3.new(0.768, 0.972, 0.189), Vector3.new(0.443, 0.691, 0.56), Vector3.new(1.025, 0.769, 0.852), 0.1, "pale" },
+			{ "crownFL", Vector3.new(-0.529, 1.375, -0.117), Vector3.new(-0.495, 0.816, 0.169), Vector3.new(-0.993, 1.26, 0.527), 0.1, "pale" },
+			{ "crownRL", Vector3.new(-0.768, 0.972, 0.189), Vector3.new(-0.443, 0.691, 0.56), Vector3.new(-1.025, 0.769, 0.852), 0.1, "pale" },
+		},
+		Arrows = {
+			{ "pelvis", Vector3.new(0, 0.1, -0.54), Vector3.new(0, 0, -1), Vector3.new(0, 1, 0), 0.86, "green", "gold" },
+			{ "head", Vector3.new(0, 1, -0.394), Vector3.new(0, 0.684, -0.729), Vector3.new(0, 0.729, 0.684), 0.32, "green", false },
+			{ "upperR", Vector3.new(0.5, 0, 0), Vector3.new(1, 0, 0), Vector3.new(0, 1, 0), 0.7, "green", false },
+			{ "upperR", Vector3.new(0.34, -0.72, 0), Vector3.new(1, 0, 0), Vector3.new(0, 1, 0), 0.3, "green", false, Fine = true },
+			{ "foreR", Vector3.new(0.37, -0.52, 0), Vector3.new(1, 0, 0), Vector3.new(0, 1, 0), 0.22, "green", false, Fine = true },
+			{ "upperL", Vector3.new(-0.5, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 1, 0), 0.7, "green", false },
+			{ "upperL", Vector3.new(-0.34, -0.72, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 1, 0), 0.3, "green", false, Fine = true },
+			{ "foreL", Vector3.new(-0.37, -0.52, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 1, 0), 0.22, "green", false, Fine = true },
+			{ "thighR", Vector3.new(0.44, -0.75, 0), Vector3.new(1, 0, 0), Vector3.new(0, 1, 0), 0.32, "green", false, Fine = true },
+			{ "shinR", Vector3.new(0, -0.04, -0.4), Vector3.new(0, 0, -1), Vector3.new(0, 1, 0), 0.26, "green", false, Fine = true },
+			{ "footR", Vector3.new(0, 0, -0.73), Vector3.new(0, 0.55, -0.83), Vector3.new(0, 0.83, 0.55), 0.24, "green", false, Fine = true },
+			{ "thighL", Vector3.new(-0.44, -0.75, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 1, 0), 0.32, "green", false, Fine = true },
+			{ "shinL", Vector3.new(0, -0.04, -0.4), Vector3.new(0, 0, -1), Vector3.new(0, 1, 0), 0.26, "green", false, Fine = true },
+			{ "footL", Vector3.new(0, 0, -0.73), Vector3.new(0, 0.55, -0.83), Vector3.new(0, 0.83, 0.55), 0.24, "green", false, Fine = true },
+		},
+		-- the punching face: this far down its fist bone (x its scale); a strike
+		-- at someone places its body so that face lands Through studs short of
+		-- their middle (Aim), within Clamp of him (studs from his root: Out
+		-- ahead, Up)
+		Fist = Vector3.new(0, -0.8, 0), Through = 0.55,
+		Clamp = { MinOut = -4, MaxOut = 40, MinUp = -2.5, MaxUp = 8 },
+		-- its outline (one Highlight, enabled only while it's out - a screen
+		-- draws 31 at most), its red pulse (the rush and the vital spot)
+		Outline = { Transparency = 0.15, Pulse = 0.75 },
+		-- LOD: past Detail studs from the camera (LowDetail on a low-end machine)
+		-- its Fine parts are hidden; past Near (LowNear) it's posed every other
+		-- frame; past Cull it isn't drawn; closer than CameraFade to the camera it
+		-- thins out (never a wall over his own lens)
+		Lod = { Detail = 70, LowDetail = 35, Near = 110, LowNear = 50 },
+		Cull = 260, CameraFade = 3,
+	},
+
+	-- ITS POSES (VFX.CM: every move's clip is keys of these). Out / Up / Side:
+	-- its pelvis from his root (studs: ahead, up, to his right); Yaw (+ to his
+	-- left) / Pitch (+ leaning on) / Roll (+ to its right) of its whole body;
+	-- Scale; Twist / Lean / Tilt: its spine (the waist 0.4 of it, the chest
+	-- 0.6); Head = { pitch (+ down), yaw (+ left), roll }; Crown: its four flaps
+	-- flared out, degrees; RA / LA = { Raise (0 hanging, 90 ahead, 180 up), Out,
+	-- Swing (+ in across it), Bend (the elbow), Twist (the forearm) }; RL / LL =
+	-- { Raise (+ ahead), Out, Swing, Bend (the knee, + back), Point (the toes)
+	-- }; Lit: its arrows lit (Neon green - its gravity moves and touches) over
+	-- 0.5; Flip: its arrows pointing DOWN over 0.5. Anything left out is Base's.
+	Poses = {
+		Base = { Out = -2.3, Up = 1, Side = 2, Yaw = -8, Pitch = 6, Roll = 0, Scale = 0.92, Twist = 0, Lean = 4, Tilt = 0, Crown = 0, Lit = 0, Flip = 0, Head = { 6, 0, 0 }, RA = { 14, 10, 4, 34, 0 }, LA = { 14, 10, 4, 34, 0 }, RL = { 16, 6, 0, 34, 30 }, LL = { 8, 6, 0, 26, 34 } },
+		Ready = { Out = 3, Up = 0.6, Side = 0.4, Yaw = 0, Pitch = 10, Lean = 6, Head = { 6, 0, 0 }, RA = { 46, 20, 30, 100, 0 }, LA = { 52, 18, 28, 106, 0 }, RL = { 26, 8, 0, 50, 30 }, LL = { 10, 8, 0, 40, 34 } },
+		-- M1: a right straight (2: mirrored), a right hook, the 4th "SHAA!" (a touch), the uppercut, the hammer
+		Coil1 = { Out = 2.8, Up = 0.6, Side = 0.4, Pitch = 8, Twist = -24, Lean = 4, RA = { 58, 22, 8, 132, 0 }, LA = { 70, 16, 30, 122, 0 }, RL = { 26, 8, 0, 50, 30 }, LL = { 10, 8, 0, 40, 34 } },
+		Hit1 = { Out = 3.4, Up = 0.6, Side = 0.3, Pitch = 12, Twist = 22, Lean = 12, RA = { 92, 0, 8, 6, 0 }, LA = { 55, 18, 30, 125, 0 }, RL = { 30, 8, 0, 50, 30 }, LL = { -6, 8, 0, 30, 34 } },
+		Coil3 = { Out = 2.8, Up = 0.6, Side = 0.4, Pitch = 8, Twist = -32, Lean = 4, RA = { 80, 52, -20, 92, 0 }, LA = { 70, 16, 30, 122, 0 }, RL = { 26, 8, 0, 50, 30 }, LL = { 10, 8, 0, 40, 34 } },
+		Hit3 = { Out = 3.3, Up = 0.6, Side = 0.2, Pitch = 12, Twist = 36, Lean = 10, RA = { 90, 24, 52, 78, 0 }, LA = { 55, 18, 30, 125, 0 }, RL = { 30, 8, 0, 50, 30 }, LL = { -6, 8, 0, 30, 34 } },
+		Coil4 = { Out = 2.3, Up = 0.7, Side = 0.5, Pitch = 4, Twist = -42, Lean = -4, Crown = 6, Head = { 0, 12, 0 }, RA = { 68, 22, 0, 142, 0 }, LA = { 76, 14, 34, 118, 0 }, RL = { 20, 8, 0, 50, 30 }, LL = { 14, 8, 0, 40, 34 } },
+		Hit4 = { Out = 3.9, Up = 0.6, Side = 0.2, Pitch = 16, Twist = 36, Lean = 18, Crown = 16, Lit = 1, Head = { 10, -8, 0 }, RA = { 95, 0, 4, 0, 0 }, LA = { 28, 22, 8, 64, 0 }, RL = { 40, 8, 0, 40, 30 }, LL = { -24, 8, 0, 30, 40 } },
+		LowUp = { Out = 3, Up = -0.1, Side = 0.3, Pitch = 24, Lean = 18, Head = { 14, 0, 0 }, RA = { 18, 12, 10, 112, 0 }, LA = { 60, 18, 26, 110, 0 }, RL = { 40, 8, 0, 80, 20 }, LL = { -10, 8, 0, 50, 30 } },
+		HitUp = { Out = 3.3, Up = 1.6, Side = 0.3, Pitch = -10, Lean = -12, Crown = 10, Lit = 1, Head = { -20, 0, 0 }, RA = { 166, 0, 8, 28, 0 }, LA = { 30, 20, 10, 70, 0 }, RL = { 10, 8, 0, 20, 30 }, LL = { -16, 8, 0, 30, 34 } },
+		HighDown = { Out = 2.6, Up = 2.4, Side = 0.2, Pitch = -8, Head = { -8, 0, 0 }, RA = { 170, 10, 0, 60, 0 }, LA = { 170, 10, 0, 60, 0 }, RL = { 30, 8, 0, 60, 30 }, LL = { 20, 8, 0, 60, 30 } },
+		HitDown = { Out = 3.2, Up = 0.6, Side = 0.2, Pitch = 40, Lean = 20, Head = { 30, 0, 0 }, RA = { 72, 10, 12, 10, 0 }, LA = { 72, 10, 12, 10, 0 }, RL = { -20, 8, 0, 40, 30 }, LL = { -30, 8, 0, 30, 30 } },
+		-- 1 USHAAAA!: the lunge in (both arms drawn back, the crown flared), the
+		-- rush (the arms snapping, alternating), the breath, THE VITAL SPOT
+		RushCoil = { Out = 2.2, Up = 0.6, Side = 0.2, Pitch = 4, Lean = -6, Crown = 14, Head = { -4, 0, 0 }, RA = { 60, 24, 10, 142, 0 }, LA = { 60, 24, 10, 142, 0 }, RL = { 20, 10, 0, 50, 30 }, LL = { 6, 10, 0, 40, 34 } },
+		RushR = { Out = 3.2, Up = 0.7, Side = 0.2, Pitch = 10, Twist = 16, Lean = 14, Crown = 10, Head = { 6, -4, 0 }, RA = { 92, 2, 10, 4, 0 }, LA = { 62, 24, 18, 134, 0 }, RL = { 30, 10, 0, 50, 30 }, LL = { -4, 10, 0, 30, 34 } },
+		RushL = { Out = 3.2, Up = 0.7, Side = 0.2, Pitch = 10, Twist = -16, Lean = 14, Crown = 10, Head = { 6, 4, 0 }, RA = { 62, 24, 18, 134, 0 }, LA = { 92, 2, 10, 4, 0 }, RL = { 30, 10, 0, 50, 30 }, LL = { -4, 10, 0, 30, 34 } },
+		Breath = { Out = 2.9, Up = 0.7, Side = 0.3, Pitch = 4, Twist = -26, Lean = 2, Crown = 4, Head = { 4, 14, 0 }, RA = { 70, 30, -4, 148, 0 }, LA = { 84, 10, 22, 104, 0 }, RL = { 20, 10, 0, 50, 30 }, LL = { 10, 10, 0, 40, 34 } },
+		Vital = { Out = 3.7, Up = 0.6, Side = 0.1, Pitch = 16, Twist = 30, Lean = 20, Crown = 18, Lit = 1, Head = { 10, -8, 0 }, RA = { 96, 0, 6, 0, 0 }, LA = { 22, 24, 0, 70, 0 }, RL = { 40, 8, 0, 40, 30 }, LL = { -26, 8, 0, 30, 40 } },
+		-- 2 GRAVITY FLIP: the palm on the street (the telegraph: its arrows lit
+		-- and turned down), upside down over him (arms and legs spread on
+		-- nothing), snapping upright as it flips gravity back at him
+		FlipPalm = { Out = 2.6, Up = 0.3, Side = 0.2, Pitch = 46, Lean = 10, Crown = 8, Lit = 1, Flip = 1, Head = { 20, 0, 0 }, RA = { 44, 14, 10, 16, 0 }, LA = { 30, 30, 0, 50, 0 }, RL = { -34, 6, 0, 40, 30 }, LL = { -22, 6, 0, 30, 30 } },
+		Inverted = { Out = 0.4, Up = 7.4, Side = 0, Yaw = 0, Pitch = -4, Roll = 180, Lean = 0, Crown = 20, Lit = 1, Head = { -26, 0, 0 }, RA = { 4, 84, 0, 12, 0 }, LA = { 4, 84, 0, 12, 0 }, RL = { 4, 24, 0, 14, 20 }, LL = { 4, 24, 0, 14, 20 } },
+		FlipDown = { Out = 1.2, Up = 3.4, Side = 0, Pitch = 28, Lean = 16, Crown = 12, Lit = 1, Head = { 30, 0, 0 }, RA = { 30, 46, 0, 10, 0 }, LA = { 30, 46, 0, 10, 0 }, RL = { -20, 12, 0, 30, 30 }, LL = { -20, 12, 0, 30, 30 } },
+		-- the passive: upside down beside him while he falls up
+		FallUp = { Out = -1.2, Up = 5.6, Side = 3.2, Yaw = 0, Pitch = -4, Roll = 180, Lean = 0, Crown = 20, Lit = 1, Head = { -26, 0, 0 }, RA = { 8, 44, 0, 24, 0 }, LA = { 8, 70, 0, 14, 0 }, RL = { 4, 18, 0, 14, 20 }, LL = { 4, 24, 0, 14, 20 } },
+		-- 3 INSIDE OUT: both palms on the street, the slabs torn up overhead, the throw
+		SlamPalm = { Out = 4, Up = 0.1, Side = 0, Pitch = 58, Lean = 16, Lit = 1, Head = { 24, 0, 0 }, RA = { 66, 16, 14, 18, 0 }, LA = { 66, 16, 14, 18, 0 }, RL = { -40, 8, 0, 60, 30 }, LL = { -30, 8, 0, 50, 30 } },
+		Rip = { Out = 3.6, Up = 0.9, Side = 0, Pitch = -4, Lean = -14, Crown = 10, Head = { -22, 0, 0 }, RA = { 150, 30, -10, 40, 0 }, LA = { 150, 30, -10, 40, 0 }, RL = { 10, 8, 0, 30, 30 }, LL = { 0, 8, 0, 30, 30 } },
+		Throw = { Out = 3.4, Up = 0.8, Side = 0.2, Pitch = 12, Twist = 36, Lean = 18, Crown = 6, Head = { 6, -10, 0 }, RA = { 100, 10, 40, 10, 0 }, LA = { 40, 30, -20, 60, 0 }, RL = { 34, 8, 0, 40, 30 }, LL = { -20, 8, 0, 30, 40 } },
+		-- R SELF-INVERSION: wrapped round him from behind; the backhand at whoever hit him
+		Wrap = { Out = -1.3, Up = 1.2, Side = 0, Pitch = 10, Scale = 0.95, Lean = 8, Lit = 1, Head = { 16, 0, 0 }, RA = { 62, 10, 62, 58, 0 }, LA = { 62, 10, 62, 58, 0 }, RL = { 10, 6, 0, 30, 30 }, LL = { 10, 6, 0, 30, 30 } },
+		Backhand = { Out = 2.4, Up = 0.6, Side = 0, Pitch = 10, Twist = -42, Lean = 8, Crown = 10, Lit = 1, Head = { 4, 20, 0 }, RA = { 88, 62, -62, 8, 0 }, LA = { 60, 20, 20, 110, 0 }, RL = { 20, 8, 0, 40, 30 }, LL = { 0, 8, 0, 40, 30 } },
+		-- 4 NEW MOON: low under them, the uppercut; then it floats looking up after them
+		UpperLow = { Out = 4.6, Up = -0.3, Side = 0, Pitch = 30, Lean = 20, Head = { 18, 0, 0 }, RA = { 20, 10, 10, 120, 0 }, LA = { 52, 20, 10, 100, 0 }, RL = { 40, 6, 0, 80, 20 }, LL = { -30, 6, 0, 40, 30 } },
+		UpperHit = { Out = 5, Up = 1.8, Side = 0, Pitch = -14, Lean = -10, Crown = 14, Lit = 1, Head = { -26, 0, 0 }, RA = { 168, 0, 6, 18, 0 }, LA = { 20, 20, 0, 60, 0 }, RL = { 10, 6, 0, 20, 30 }, LL = { -20, 6, 0, 30, 30 } },
+		LookUp = { Out = 1.6, Up = 1.6, Side = 1.4, Pitch = -6, Lean = -8, Head = { -40, 0, 0 }, RA = { 30, 20, 10, 60, 0 }, LA = { 30, 20, 10, 60, 0 } },
+		-- the awakening: arms spread over him, head back - then it turns to light
+		Spread = { Out = -1.4, Up = 2.4, Side = 0, Pitch = -4, Scale = 1.05, Lean = -10, Crown = 22, Lit = 1, Head = { -24, 0, 0 }, RA = { 90, 80, -20, 10, 0 }, LA = { 90, 80, -20, 10, 0 }, RL = { 0, 10, 0, 20, 40 }, LL = { 0, 10, 0, 20, 40 } },
+		-- ((round 103, builder B) MADE IN HEAVEN's own (the same body's upper
+		-- half; its horse: Horse - the barrel's pitch, negative rears -, Neck,
+		-- and Gallop = { right raise, right knee, left raise, left knee } held
+		-- by GallopW - else its front legs gallop on the air by themselves):
+		-- looming over him, bursting out rearing, a hand-blade slash, rearing
+		-- up into the light (THE NEW WORLD)
+		Loom = { Out = -1.8, Up = 2.4, Side = 3.5, Yaw = -12, Pitch = 4, Scale = 0.95, Lean = 4, Head = { 4, 0, 0 }, RA = { 40, 14, 20, 60, 0 }, LA = { 40, 14, 20, 60, 0 }, Horse = 0 },
+		Burst = { Out = -1.6, Up = 3.4, Side = 2.6, Yaw = -10, Pitch = -24, Scale = 0.95, Lean = -8, Lit = 1, Head = { -20, 0, 0 }, RA = { 150, 40, 0, 30, 0 }, LA = { 150, 40, 0, 30, 0 }, Horse = -26, GallopW = 1, Gallop = { 110, 90, 70, 70, 0 } },
+		Slash = { Out = 2.6, Up = 0.9, Side = 0.2, Yaw = 0, Pitch = 10, Scale = 0.95, Twist = 40, Lean = 14, Head = { 6, -12, 0 }, RA = { 98, 34, -46, 8, 0 }, LA = { 50, 20, 20, 90, 0 }, Horse = -16 },
+		Rear = { Out = -0.8, Up = 7.6, Side = 1.2, Yaw = 0, Pitch = -24, Scale = 1, Lean = -10, Lit = 1, Head = { -30, 0, 0 }, RA = { 170, 30, 0, 10, 0 }, LA = { 170, 30, 0, 10, 0 }, Horse = -26, GallopW = 1, Gallop = { 110, 90, 70, 70, 0 } },
+	},
+	-- ITS CLIPS (TK's format): { T (seconds), pose, easing into it ("out" /
+	-- "in" / "inout" / "lin"), Aim = how much of it is at its target (its body
+	-- placed so its striking fist lands on them, turned to them), Arm = the
+	-- striking fist ("R" / "L" / "B" both), Mirror }. The first key is replaced
+	-- by wherever it is when the clip starts. Hit (Hit2): the move's beats - each
+	-- a number of the move (the server check holds them). Hold: it stays on its
+	-- last key until told otherwise (a holding clip lets go by itself after
+	-- HoldLife s). Rush: its loop (RushR / RushL every Beat s, VFX.CM.rushDrive)
+	Clips = {
+		M1_1 = { Hit = 0.12, Keys = { { 0, "Ready" }, { 0.055, "Coil1", "out" }, { 0.12, "Hit1", "out", Aim = 1, Arm = "R" }, { 0.2, "Hit1", "inout", Aim = 1, Arm = "R" }, { 0.32, "Ready", "inout" } } },
+		M1_2 = { Hit = 0.125, Mirror = true, Keys = { { 0, "Ready" }, { 0.06, "Coil1", "out" }, { 0.125, "Hit1", "out", Aim = 1, Arm = "R" }, { 0.2, "Hit1", "inout", Aim = 1, Arm = "R" }, { 0.32, "Ready", "inout" } } },
+		M1_3 = { Hit = 0.13, Keys = { { 0, "Ready" }, { 0.07, "Coil3", "out" }, { 0.13, "Hit3", "in", Aim = 1, Arm = "R" }, { 0.22, "Hit3", "inout", Aim = 1, Arm = "R" }, { 0.34, "Ready", "inout" } } },
+		M1_4 = { Hit = 0.18, Keys = { { 0, "Ready" }, { 0.1, "Coil4", "out" }, { 0.18, "Hit4", "in", Aim = 1, Arm = "R" }, { 0.36, "Hit4", "inout", Aim = 1, Arm = "R" }, { 0.6, "Ready", "inout" } } },
+		M1Up = { Hit = 0.16, Keys = { { 0, "Ready" }, { 0.08, "LowUp", "out", Aim = 0.6 }, { 0.16, "HitUp", "out", Aim = 1, Arm = "R" }, { 0.3, "HitUp", "inout", Aim = 0.5 }, { 0.45, "Ready", "inout" } } },
+		M1Down = { Hit = 0.17, Keys = { { 0, "Ready" }, { 0.09, "HighDown", "out", Aim = 0.6 }, { 0.17, "HitDown", "in", Aim = 1, Arm = "B" }, { 0.32, "HitDown", "inout", Aim = 1, Arm = "B" }, { 0.48, "Ready", "inout" } } },
+		-- (Hit: the rush's Startup - then the loop; RushFinish is laid so its Hit
+		-- lands on THE VITAL SPOT: the rush's Breath + 0.06 after it starts)
+		Rush = { Hit = 0.18, Hold = true, Beat = 0.038, Keys = { { 0, "Ready" }, { 0.1, "RushCoil", "out", Aim = 0.5 }, { 0.18, "RushR", "in", Aim = 1, Arm = "R" } } },
+		RushFinish = { Hit = 0.14, Keys = { { 0, "RushL", Aim = 1, Arm = "L" }, { 0.08, "Breath", "out", Aim = 0.7 }, { 0.14, "Vital", "in", Aim = 1, Arm = "R" }, { 0.45, "Vital", "inout", Aim = 1, Arm = "R" }, { 0.75, "Ready", "inout" } } },
+		-- (Hit: the flip's Telegraph; Hit2: FlipAt)
+		Flip = { Hit = 0.25, Hit2 = 1.4, Keys = { { 0, "Ready" }, { 0.12, "FlipPalm", "out" }, { 0.25, "FlipPalm", "inout" }, { 0.6, "Inverted", "inout" }, { 1.3, "Inverted", "inout" }, { 1.4, "FlipDown", "in" }, { 1.8, "Ready", "inout" } } },
+		FallUp = { Hold = true, Keys = { { 0, "Ready" }, { 0.12, "FallUp", "out" } } },
+		-- (builder B's moves: INSIDE OUT - Startup / Throw; SELF-INVERSION; NEW MOON - Startup / SlingAt; the finisher; the awakening - Config.Awaken.HitAt)
+		InsideOut = { Hit = 0.3, Hit2 = 0.55, Keys = { { 0, "Ready" }, { 0.18, "SlamPalm", "out" }, { 0.3, "SlamPalm", "inout" }, { 0.42, "Rip", "out" }, { 0.55, "Throw", "in", Aim = 0.5 }, { 0.85, "Ready", "inout" } } },
+		Guard = { Hold = true, Keys = { { 0, "Ready" }, { 0.06, "Wrap", "out" } } },
+		Counter = { Hit = 0.06, Keys = { { 0, "Wrap" }, { 0.06, "Backhand", "out", Aim = 1, Arm = "R" }, { 0.3, "Backhand", "inout", Aim = 1, Arm = "R" }, { 0.5, "Wrap", "inout" } } },
+		NewMoon = { Hit = 0.2, Hit2 = 1.4, Keys = { { 0, "Ready" }, { 0.12, "UpperLow", "out", Aim = 0.6 }, { 0.2, "UpperHit", "out", Aim = 1, Arm = "R" }, { 0.5, "UpperHit", "inout" }, { 0.9, "LookUp", "inout" }, { 1.4, "LookUp", "inout" }, { 1.7, "Ready", "inout" } } },
+		Vital = { Hit = 0.6, Keys = { { 0, "Ready" }, { 0.45, "Breath", "out", Aim = 0.8 }, { 0.6, "Vital", "in", Aim = 1, Arm = "R" }, { 1.0, "LookUp", "inout" } } },
+		Awaken = { Hit = 0.3, Keys = { { 0, "Base" }, { 0.18, "Spread", "out" }, { 0.3, "Spread", "inout" } } },
+		-- ((round 103, builder B) MADE IN HEAVEN's: bursting out (from the
+		-- awakening's hit), the hand-blade slashes (TIME ACCELERATION: Slash
+		-- each way), rearing up into the light (THE NEW WORLD's windup: held)
+		Burst = { Keys = { { 0, "Burst" }, { 0.9, "Burst", "inout" }, { 1.4, "Loom", "inout" } } },
+		Slash = { Hit = 0.05, Keys = { { 0, "Loom" }, { 0.05, "Slash", "out", Aim = 1, Arm = "R" }, { 0.2, "Slash", "inout", Aim = 1, Arm = "R" }, { 0.45, "Loom", "inout" } } },
+		SlashL = { Hit = 0.05, Mirror = true, Keys = { { 0, "Loom" }, { 0.05, "Slash", "out", Aim = 1, Arm = "R" }, { 0.2, "Slash", "inout", Aim = 1, Arm = "R" }, { 0.45, "Loom", "inout" } } },
+		Rear = { Hold = true, Keys = { { 0, "Loom" }, { 0.7, "Rear", "out" } } },
+	},
+	HoldLife = 6,
+	-- HOW IT FLOATS beside him (never on the street - "down" means nothing to
+	-- it): a bob (Bob studs, BobSpeed rad/s), a slow roll drift (+-Roll degrees
+	-- at RollHz) and pitch drift (+-Pitch at PitchHz), its head looking round
+	-- (up to +-Look degrees every LookEvery s), the crown swaying (+-Crown); it
+	-- follows him with a lag (Follow: the ease's rate at rest, FollowFight
+	-- while it's out for a move), leaning into his run (Lean degrees at
+	-- LeanAt studs/s); lifted Clear studs clear of the street if its feet
+	-- would go under it
+	Idle = { Bob = 0.2, BobSpeed = 2.2, Roll = 7, RollHz = 0.35, Pitch = 4, PitchHz = 0.27, Look = 14, LookEvery = 2.6, Crown = 3, Follow = 9, FollowFight = 26,
+		Lean = 12, LeanAt = 20, Clear = 0.3, Probe = 0.1 },
+	-- OUT AND IN: out with any move or M1 (Ready), back to its place behind him
+	-- Back s after; faded out Fade s after his last action (out for the whole
+	-- ult); its entrance (Summon s: drawn in its stripe colour - its
+	-- underside - growing from SummonScale, then its colours and a lilac
+	-- ripple); its exit (Exit s)
+	Show = { Back = 0.6, Fade = 8, Summon = 0.12, SummonScale = 0.6, Exit = 0.3 },
+	-- the effects' colours (every screen)
+	Fx = { Lilac = Color3.fromRGB(196, 168, 255), Violet = Color3.fromRGB(86, 40, 140), Green = Color3.fromRGB(108, 203, 75), White = Color3.fromRGB(255, 255, 255),
+		Dark = Color3.fromRGB(30, 18, 44) },
+	-- C-MOON's and his bubbles (VFX.CM.shout: the game's comic bubble - C-MOON's
+	-- in the Code font, mechanical; his in the comic font)
+	Shout = { Width = 170, Height = 56, Above = 2.2, Tilt = -6, Range = 160, Life = 0.8, Back = Color3.fromRGB(28, 22, 36),
+		Lines = { Rush = "USHAAAA!", Usha = "USHA", Sha = "SHA!", Shaa = "SHAA!", Vital = "SHAA!!", Call = "C-MOON.", Once = "Only once.", Fall = "Fall away from me.",
+			-- ((round 103, builder B) the rest of his: SELF-INVERSION, NEW MOON, the
+			-- ult's start and its end - original lines in his manner)
+			Inside = "Turn inside out.", Sky = "Fall into the sky.", Heaven = "Heaven draws near.", Universe = "The universe begins again.", Accel = "Time accelerates." } },
+	-- INVERTED (the rule every touch uses - Kit.CM.invert / touched): a C-MOON
+	-- touch on a body that isn't inverted turns it inside out for Time s - it
+	-- drains Drain a second (a tick every Tick s), walks at Slow x its speed;
+	-- a touch on an inverted body FLIPS IT BACK: the drain left at once plus
+	-- FlipDamage (a short stun FlipStun). Every screen (VFX.CM.inverted): a
+	-- negative-colour shell of them (Shell s), stripes stamped across them
+	-- (Stamp s), down-arrows drifting off them (one every Glyph s)
+	Invert = { Time = 6, Drain = 3, Tick = 0.5, Slow = 0.8, FlipDamage = 10, FlipStun = 0.35, Shell = 0.35, Stamp = 0.3, Glyph = 0.4 },
+	-- THE GRAVITY LEASES (Kit.CM.G): a push of Push s every Step s (raw, never
+	-- a ragdoll: Inasa's pull recipe), at most RiseSpeed studs/s rising /
+	-- falling away, FallSpeed falling in (under the ragdoll's and the walls'
+	-- speeds); out of their moves (Stun s, renewed); dropped when they're
+	-- OffPath studs off where it was taking them (someone else threw them),
+	-- landed within Land studs of the street; never past the city's edge (a
+	-- probe Edge studs down ahead of them - EdgeAhead s of its sideways
+	-- speed); never further out than the move's reach + Tether. Every screen
+	-- (VFX.CM.grav: the body's CMoonGrav / CMoonGravUntil - dropped Expire s
+	-- after it should have ended, cleared or not): the falling-up pose, and on
+	-- their own screen the camera rolled toward the new "down" (Roll degrees at
+	-- most, eased in at RollRate, back to level over RollBack s) and a green
+	-- grade (Grade)
+	Grav = { Step = 0.1, Push = 0.15, RiseSpeed = 60, FallSpeed = 100, KeepAtFlip = 30, Stun = 0.25, OffPath = 12, Land = 4, Edge = 60, EdgeAhead = 0.5, Tether = 12,
+		Expire = 0.2, Roll = 20, RollRate = 6, RollBack = 0.25, Grade = { Tint = Color3.fromRGB(215, 255, 215), Saturation = -0.15 },
+		Pose = "CMoonFallUp", Slung = "CMoonSlung", Lines = 0.12 },
+	-- THE M1s on screen (VFX.CM.onHit: a landed fist - Ring studs across, Sparks,
+	-- Stop: the freeze, Shake on the two screens involved); the 4th's FALL
+	-- AWAY (Away: a lease Time s, "down" Out away and Up up at Accel x gravity -
+	-- Kit.CM.m1Finish) and the uppercut's FALL UP a little (Up: Time s, at most
+	-- Cap studs, at Accel)
+	M1 = {
+		Kinds = { ["1"] = { Ring = 3, Sparks = 6, Stop = 0.05, Shake = 0.4 }, ["2"] = { Ring = 3, Sparks = 6, Stop = 0.05, Shake = 0.4 }, ["3"] = { Ring = 3.4, Sparks = 7, Stop = 0.06, Shake = 0.5 },
+			["4"] = { Ring = 6, Sparks = 12, Stop = 0.1, Shake = 1, Frame = 0.04 }, Up = { Ring = 4.5, Sparks = 9, Stop = 0.08, Shake = 0.8 }, Down = { Ring = 5, Sparks = 10, Stop = 0.09, Shake = 0.9 },
+			Air = { Ring = 2.6, Sparks = 5, Stop = 0.04, Shake = 0.35 } },
+		Damage = 1.25,
+		Away = { Time = 0.5, Out = 1, Up = 0.3, Accel = 0.55 },
+		Up = { Time = 0.45, Cap = 12, Accel = 0.6, Roof = 3 },
+	},
+	-- 1 USHAAAA! on screen (VFX.CM.rush): its arms swap every Clips.Rush.Beat s
+	-- (a micro-freeze of FreezeFor s every FreezeEvery swaps); GHOST ARMS (a pool
+	-- of Ghosts, never built per punch: Rate a second, each Life s on an arc
+	-- from round its shoulder (up to Fan studs out from it) to a point on them -
+	-- anywhere Face studs either side of
+	-- their middle -, bowed up to Spread studs sideways / Lift up at its middle -
+	-- lilac, a trail); a USHA bubble every BubbleEvery ticks, a
+	-- seam ring every SeamEvery; one light at its fists (Light); a low shake
+	-- for cameras within ShakeRange; the bed climbing BedPitch over the rush
+	-- and cut at the breath. THE VITAL SPOT: the freeze (Stop), the negative
+	-- impact frame on the two screens involved (Frame s), the FOV kick (Fov,
+	-- eased back over FovBack s), the shake (Shake: intensity, radius, time)
+	Rush = { FreezeEvery = 3, FreezeFor = 0.03, Ghosts = 14, Rate = 50, Life = 0.14, Spread = 2.2, Lift = 1.4, Face = 1.1, Fan = 1.6, BubbleEvery = 6, SeamEvery = 4,
+		Light = { Range = 8, Brightness = 3 }, ShakeRange = 60, ShakeLevel = 0.5, BedPitch = { 1.0, 1.12 },
+		Stop = 0.12, Frame = 0.05, Fov = 8, FovBack = 0.25, Shake = { 2.8, 90, 0.35 } },
+	-- 2 GRAVITY FLIP on screen (VFX.CM.flip): rings at the radius and at Inner
+	-- (the telegraph), Chunks of street falling up (ChunkSize studs, rising
+	-- ChunkRise studs, tumbling), streaks rising, a faint dome (Dome: its
+	-- transparency), a green grade on screens inside it (Grade); the snap's
+	-- violet ring at the slam's Ring; each slam's crater ring and dust
+	Flip = { Inner = 8, Chunks = { 14, 20 }, ChunkSize = { 0.7, 2.2 }, ChunkRise = 26, Dome = 0.88, Streaks = 14, Grade = 0.6, Shake = { 1.6, 80, 0.3 } },
+	-- THE PASSIVE (FALL UP) on screen: green streaks rising past him, rings on the street
+	FallUp = { Streaks = 8, Ring = 9 },
+	-- the passive: gravity turns hits aside - he takes this much of every hit (Kit.CM.taken)
+	Taken = 0.85,
+
+	-- ((round 103, builder B) the rest of the kit on screen)
+	-- 3 INSIDE OUT (VFX.CM: Effects.InsideOut): the street's disc in front torn
+	-- into Disc slabs (Slab: width, thickness, length - the street's own colour
+	-- on top, C-MOON's dark stripe underneath with lilac seams), peeled up
+	-- (Peel studs) and turned over, held Rip studs over it, then the server's
+	-- slabs thrown spinning (Spin turns a second) with a trail (Trail s); each
+	-- one that lands bursts into Chunks dark pieces. The ult's: white-gold
+	-- streaks (Fast: the trail's colour, its life)
+	InsideOut = { Disc = { 5, 7 }, Slab = Vector3.new(3.4, 0.8, 4.4), Peel = 2.5, Rip = 6, Spin = 3, Trail = 0.18, Chunks = 5, Shake = { 1.1, 60, 0.25 },
+		Fast = { Color = Color3.fromRGB(255, 236, 170), Trail = 0.1 } },
+	-- R SELF-INVERSION on screen: his body turned inside out (a negative shell
+	-- of it that follows him, Shell its transparency, pulsing Pulse times a
+	-- second), a violet seam ring round his waist spinning Spin rad/s with a
+	-- lilac one above it and one below (Rings: their radius); a hit passing
+	-- through him: a white ring where it struck, the frame negative on his and
+	-- the attacker's screens (Frame s)
+	Inside = { Shell = 0.5, Pulse = 6, Spin = 9, Rings = { 1.9, 2.4 }, Frame = 0.04 },
+	-- 4 NEW MOON on screen: the aim marked on the street MarkAt s before the
+	-- sling (a violet ring CrashRadius across), a line of light down the sling,
+	-- the crash's ring and dust
+	NewMoon = { MarkAt = 0.35, Streaks = 8, Shake = { 2.2, 90, 0.35 } },
+
+	-- MADE IN HEAVEN (the ult's form of the same body, every screen's: built on
+	-- the awakening's hit, gone with the ult). Its humanoid half is C-MOON's
+	-- upper bones (every C-MOON clip works on its arms); its legs are THE FRONT
+	-- HALF OF A HORSE fused at its waist (Horse: its bones off the pelvis -
+	-- { parent, offset, Tip: degrees tipped forward at rest }; a pose's Horse /
+	-- Neck / Gallop move them), the thick cable arching from its shoulder
+	-- blades to the horse's cut-off rear (Cable: From on the chest, To on the
+	-- barrel, bowed Up / Back, Segments, Thick), clock faces on its shoulders,
+	-- forearms, the horse's forehead, shoulders and the cut-off rear (their
+	-- hands turn: a lap every Clock.Minute s - the hour hand x Clock.Hour
+	-- slower -, Clock.Faster x as fast by the ult's end), the speedometer
+	-- face's needle rocking (Needle degrees). Parts: Model's format; Outline
+	-- its Highlight (white-gold). Generated from the design (S/cmoon/research).
+	Heaven = {
+		Colors = {
+			white = Color3.fromRGB(243, 241, 234), whiteshade = Color3.fromRGB(214, 210, 200), face = Color3.fromRGB(15, 15, 18), vine = Color3.fromRGB(78, 155, 58),
+			yellow = Color3.fromRGB(230, 194, 74), clock = Color3.fromRGB(245, 235, 208), hand = Color3.fromRGB(26, 26, 26), rim = Color3.fromRGB(201, 162, 58),
+			needle = Color3.fromRGB(220, 40, 40), heye = Color3.fromRGB(191, 232, 240), collar = Color3.fromRGB(40, 36, 48), hoof = Color3.fromRGB(60, 56, 64),
+			cut = Color3.fromRGB(150, 146, 140), fur = Color3.fromRGB(232, 230, 222),
+		},
+		Horse = {
+			hbody = { "pelvis", Vector3.new(0, -0.3, 0) },
+			hneck = { "hbody", Vector3.new(0, 0.3, -1.45), Tip = 28 },
+			hhead = { "hneck", Vector3.new(0, 1.6, -0.15), Tip = 14 },
+			hupR = { "hbody", Vector3.new(0.5, -0.5, -1.25) },
+			hupL = { "hbody", Vector3.new(-0.5, -0.5, -1.25) },
+			hlowR = { "hupR", Vector3.new(0, -1.15, 0) },
+			hlowL = { "hupL", Vector3.new(0, -1.15, 0) },
+		},
+		-- its front legs galloping on the air by themselves (Gallop: the stride
+		-- - raise and knee, each leg - at Rate strides a second)
+		Gallop = { Raise = { 20, 60 }, Knee = { 20, 80 }, Rate = 1.6 },
+		Cable = { From = Vector3.new(0, 0.4, 0.5), To = Vector3.new(0, 0.3, 0.9), Up = 1.6, Back = 1.4, Segments = 8, Thick = 0.3, Color = "whiteshade" },
+		Clock = { Minute = 2, Hour = 12, Faster = 4 },
+		Needle = { Swing = 70, Rate = 3 },
+		Outline = { Color = Color3.fromRGB(255, 236, 170), Transparency = 0.2 },
+		-- in a strike the horse rears this much more (its head out of the punch line)
+		Rear = -20,
+		Parts = {
+			{ "waist", "Ell", Vector3.new(0.9, 1.3, 0.72), Vector3.new(0, 0.6, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "chest", "Block", Vector3.new(1.9, 0.86, 1), Vector3.new(0, 0.28, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "chest", "Block", Vector3.new(1.1, 0.4, 0.86), Vector3.new(0, -0.32, 0.02), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "chest", "Ell", Vector3.new(1.2, 0.46, 0.86), Vector3.new(0, 0.76, 0.06), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "chest", "Cyl", Vector3.new(0.42, 0.46, 0.46), Vector3.new(0, 0.94, 0.05), { 0, 0, 90 }, "white", "SmoothPlastic" },
+			{ "chest", "Ell", Vector3.new(0.22, 0.5, 0.12), Vector3.new(-0.3, 1, -0.36), { 0, 0, -18 }, "white", "SmoothPlastic" },
+			{ "chest", "Ell", Vector3.new(0.22, 0.5, 0.12), Vector3.new(0.3, 1, -0.36), { 0, 0, 18 }, "white", "SmoothPlastic" },
+			{ "chest", "Ell", Vector3.new(0.22, 0.5, 0.12), Vector3.new(0, 1.08, -0.36), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "chest", "Ell", Vector3.new(0.22, 0.5, 0.12), Vector3.new(-0.18, 0.94, -0.36), { 0, 0, -10.8 }, "white", "SmoothPlastic" },
+			{ "chest", "Ell", Vector3.new(0.22, 0.5, 0.12), Vector3.new(0.18, 0.94, -0.36), { 0, 0, 10.8 }, "white", "SmoothPlastic" },
+			{ "head", "Ell", Vector3.new(0.92, 1.34, 1), Vector3.new(0, 0.62, 0.04), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "head", "Ell", Vector3.new(0.8, 0.96, 0.24), Vector3.new(0, 0.6, -0.42), { 0, 0, 0 }, "face", "SmoothPlastic" },
+			{ "head", "Cyl", Vector3.new(0.06, 0.62, 0.62), Vector3.new(0, 0.66, -0.55), { 0, 90, 0 }, "rim", "Metal" },
+			{ "head", "Cyl", Vector3.new(0.06, 0.54, 0.54), Vector3.new(0, 0.66, -0.58), { 0, 90, 0 }, "clock", "SmoothPlastic" },
+			{ "head", "Block", Vector3.new(0.025, 0.07, 0.03), Vector3.new(-0.182, 0.765, -0.62), { 0, 0, 60 }, "hand", "SmoothPlastic", Tick = true },
+			{ "head", "Block", Vector3.new(0.025, 0.07, 0.03), Vector3.new(-0.105, 0.842, -0.62), { 0, 0, 30 }, "hand", "SmoothPlastic", Tick = true },
+			{ "head", "Block", Vector3.new(0.025, 0.07, 0.03), Vector3.new(0, 0.87, -0.62), { 0, 0, 0 }, "hand", "SmoothPlastic", Tick = true },
+			{ "head", "Block", Vector3.new(0.025, 0.07, 0.03), Vector3.new(0.105, 0.842, -0.62), { 0, 0, -30 }, "hand", "SmoothPlastic", Tick = true },
+			{ "head", "Block", Vector3.new(0.025, 0.07, 0.03), Vector3.new(0.182, 0.765, -0.62), { 0, 0, -60 }, "hand", "SmoothPlastic", Tick = true },
+			{ "head", "Block", Vector3.new(0.035, 0.24, 0.03), Vector3.new(0.06, 0.74, -0.63), { 0, 0, -30 }, "needle", "Neon" },
+			{ "head", "Cyl", Vector3.new(0.07, 0.86, 0.94), Vector3.new(0, 1.06, 0.04), { 0, 0, 90 }, "vine", "SmoothPlastic" },
+			{ "head", "Cyl", Vector3.new(0.07, 0.86, 0.94), Vector3.new(0, 0.98, 0.04), { 0, 0, 102 }, "vine", "SmoothPlastic" },
+			{ "head", "Cyl", Vector3.new(0.07, 0.86, 0.94), Vector3.new(0, 1.12, 0.04), { 0, 0, 80 }, "vine", "SmoothPlastic" },
+			{ "head", "Ell", Vector3.new(0.16, 0.34, 0.12), Vector3.new(0.44, 0.92, 0.04), { 0, 0, -20 }, "yellow", "SmoothPlastic" },
+			{ "head", "Ell", Vector3.new(0.16, 0.34, 0.12), Vector3.new(-0.44, 0.92, 0.04), { 0, 0, 20 }, "yellow", "SmoothPlastic" },
+			{ "head", "Cyl", Vector3.new(0.5, 0.12, 0.12), Vector3.new(0, 0.62, 0.52), { 60, 0, 90 }, "yellow", "SmoothPlastic" },
+			{ "upperR", "Ell", Vector3.new(0.8, 0.74, 0.8), Vector3.new(0, -0.04, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "upperR", "Cyl", Vector3.new(0.06, 0.56, 0.56), Vector3.new(0.42, -0.02, 0), { 0, 0, 0 }, "rim", "Metal" },
+			{ "upperR", "Cyl", Vector3.new(0.06, 0.5, 0.5), Vector3.new(0.45, -0.02, 0), { 0, 0, 0 }, "clock", "SmoothPlastic" },
+			{ "upperR", "Block", Vector3.new(0.03, 0.17, 0.04), Vector3.new(0.49, 0.06, 0.029), { 20, 0, 0 }, "hand", "SmoothPlastic" },
+			{ "upperR", "Block", Vector3.new(0.03, 0.12, 0.04), Vector3.new(0.49, -0.041, 0.056), { 110, 0, 0 }, "hand", "SmoothPlastic" },
+			{ "upperR", "Cyl", Vector3.new(1.05, 0.52, 0.52), Vector3.new(0, -0.68, 0), { 0, 0, 90 }, "white", "SmoothPlastic" },
+			{ "foreR", "Ball", Vector3.new(0.54, 0.54, 0.54), Vector3.new(0, 0, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "foreR", "Ell", Vector3.new(0.7, 1, 0.7), Vector3.new(0, -0.55, 0), { 0, 0, 0 }, "fur", "Fabric" },
+			{ "foreR", "Cyl", Vector3.new(0.06, 0.403, 0.403), Vector3.new(0.36, -0.55, 0), { 0, 0, 0 }, "rim", "Metal" },
+			{ "foreR", "Cyl", Vector3.new(0.06, 0.36, 0.36), Vector3.new(0.39, -0.55, 0), { 0, 0, 0 }, "clock", "SmoothPlastic" },
+			{ "foreR", "Block", Vector3.new(0.03, 0.122, 0.04), Vector3.new(0.43, -0.492, 0.021), { 20, 0, 0 }, "hand", "SmoothPlastic" },
+			{ "foreR", "Block", Vector3.new(0.03, 0.086, 0.04), Vector3.new(0.43, -0.565, 0.041), { 110, 0, 0 }, "hand", "SmoothPlastic" },
+			{ "fistR", "Block", Vector3.new(0.56, 0.6, 0.66), Vector3.new(0, -0.32, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "fistR", "Ell", Vector3.new(0.58, 0.32, 0.68), Vector3.new(0, -0.62, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "upperL", "Ell", Vector3.new(0.8, 0.74, 0.8), Vector3.new(0, -0.04, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "upperL", "Cyl", Vector3.new(0.06, 0.56, 0.56), Vector3.new(-0.42, -0.02, 0), { 0, 180, 0 }, "rim", "Metal" },
+			{ "upperL", "Cyl", Vector3.new(0.06, 0.5, 0.5), Vector3.new(-0.45, -0.02, 0), { 0, 180, 0 }, "clock", "SmoothPlastic" },
+			{ "upperL", "Block", Vector3.new(0.03, 0.17, 0.04), Vector3.new(-0.49, 0.06, -0.029), { 160, 0, -180 }, "hand", "SmoothPlastic" },
+			{ "upperL", "Block", Vector3.new(0.03, 0.12, 0.04), Vector3.new(-0.49, -0.041, -0.056), { 70, 0, -180 }, "hand", "SmoothPlastic" },
+			{ "upperL", "Cyl", Vector3.new(1.05, 0.52, 0.52), Vector3.new(0, -0.68, 0), { 0, 0, 90 }, "white", "SmoothPlastic" },
+			{ "foreL", "Ball", Vector3.new(0.54, 0.54, 0.54), Vector3.new(0, 0, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "foreL", "Ell", Vector3.new(0.7, 1, 0.7), Vector3.new(0, -0.55, 0), { 0, 0, 0 }, "fur", "Fabric" },
+			{ "foreL", "Cyl", Vector3.new(0.06, 0.403, 0.403), Vector3.new(-0.36, -0.55, 0), { 0, 180, 0 }, "rim", "Metal" },
+			{ "foreL", "Cyl", Vector3.new(0.06, 0.36, 0.36), Vector3.new(-0.39, -0.55, 0), { 0, 180, 0 }, "clock", "SmoothPlastic" },
+			{ "foreL", "Block", Vector3.new(0.03, 0.122, 0.04), Vector3.new(-0.43, -0.492, -0.021), { 160, 0, -180 }, "hand", "SmoothPlastic" },
+			{ "foreL", "Block", Vector3.new(0.03, 0.086, 0.04), Vector3.new(-0.43, -0.565, -0.041), { 70, 0, -180 }, "hand", "SmoothPlastic" },
+			{ "fistL", "Block", Vector3.new(0.56, 0.6, 0.66), Vector3.new(0, -0.32, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "fistL", "Ell", Vector3.new(0.58, 0.32, 0.68), Vector3.new(0, -0.62, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "hbody", "Ell", Vector3.new(1.7, 1.55, 2.7), Vector3.new(0, 0, -0.45), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "hbody", "Cyl", Vector3.new(0.1, 1.5, 1.4), Vector3.new(0, 0, 0.86), { 0, 90, 0 }, "cut", "SmoothPlastic" },
+			{ "hbody", "Cyl", Vector3.new(0.06, 1.008, 1.008), Vector3.new(0, 0, 0.92), { 0, -90, 0 }, "rim", "Metal" },
+			{ "hbody", "Cyl", Vector3.new(0.06, 0.9, 0.9), Vector3.new(0, 0, 0.95), { 0, -90, 0 }, "clock", "SmoothPlastic" },
+			{ "hbody", "Block", Vector3.new(0.03, 0.306, 0.04), Vector3.new(-0.052, 0.144, 0.99), { 90, -70, 90 }, "hand", "SmoothPlastic" },
+			{ "hbody", "Block", Vector3.new(0.03, 0.216, 0.04), Vector3.new(-0.101, -0.037, 0.99), { 90, 20, 90 }, "hand", "SmoothPlastic" },
+			{ "hbody", "Cyl", Vector3.new(0.06, 0.694, 0.694), Vector3.new(0.84, 0.15, -1.2), { 0, 0, 0 }, "rim", "Metal" },
+			{ "hbody", "Cyl", Vector3.new(0.06, 0.62, 0.62), Vector3.new(0.87, 0.15, -1.2), { 0, 0, 0 }, "clock", "SmoothPlastic" },
+			{ "hbody", "Block", Vector3.new(0.03, 0.211, 0.04), Vector3.new(0.91, 0.249, -1.164), { 20, 0, 0 }, "hand", "SmoothPlastic" },
+			{ "hbody", "Block", Vector3.new(0.03, 0.149, 0.04), Vector3.new(0.91, 0.125, -1.13), { 110, 0, 0 }, "hand", "SmoothPlastic" },
+			{ "hbody", "Cyl", Vector3.new(0.06, 0.694, 0.694), Vector3.new(-0.84, 0.15, -1.2), { 0, 180, 0 }, "rim", "Metal" },
+			{ "hbody", "Cyl", Vector3.new(0.06, 0.62, 0.62), Vector3.new(-0.87, 0.15, -1.2), { 0, 180, 0 }, "clock", "SmoothPlastic" },
+			{ "hbody", "Block", Vector3.new(0.03, 0.211, 0.04), Vector3.new(-0.91, 0.249, -1.236), { 160, 0, -180 }, "hand", "SmoothPlastic" },
+			{ "hbody", "Block", Vector3.new(0.03, 0.149, 0.04), Vector3.new(-0.91, 0.125, -1.27), { 70, 0, -180 }, "hand", "SmoothPlastic" },
+			{ "hbody", "Cyl", Vector3.new(0.3, 1.3, 1.3), Vector3.new(0, 0.35, -1.45), { 0, 90, 25 }, "collar", "SmoothPlastic" },
+			{ "hneck", "Ell", Vector3.new(1, 2, 1.1), Vector3.new(0, 0.8, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "hneck", "Wedge", Vector3.new(0.1, 0.36, 0.32), Vector3.new(0, 0.4, 0.5), { 0, 0, 0 }, "whiteshade", "SmoothPlastic" },
+			{ "hneck", "Wedge", Vector3.new(0.1, 0.36, 0.32), Vector3.new(0, 0.74, 0.5), { 0, 0, 0 }, "whiteshade", "SmoothPlastic" },
+			{ "hneck", "Wedge", Vector3.new(0.1, 0.36, 0.32), Vector3.new(0, 1.08, 0.5), { 0, 0, 0 }, "whiteshade", "SmoothPlastic" },
+			{ "hneck", "Wedge", Vector3.new(0.1, 0.36, 0.32), Vector3.new(0, 1.42, 0.5), { 0, 0, 0 }, "whiteshade", "SmoothPlastic" },
+			{ "hneck", "Wedge", Vector3.new(0.1, 0.36, 0.32), Vector3.new(0, 1.76, 0.5), { 0, 0, 0 }, "whiteshade", "SmoothPlastic" },
+			{ "hhead", "Ell", Vector3.new(0.84, 0.86, 1.8), Vector3.new(0, 0, -0.6), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "hhead", "Ell", Vector3.new(0.68, 0.62, 0.7), Vector3.new(0, -0.12, -1.42), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "hhead", "Cyl", Vector3.new(0.06, 0.381, 0.381), Vector3.new(0, 0.28, -0.75), { 0, 90, 70 }, "rim", "Metal" },
+			{ "hhead", "Cyl", Vector3.new(0.06, 0.34, 0.34), Vector3.new(0, 0.308, -0.76), { 0, 90, 70 }, "clock", "SmoothPlastic" },
+			{ "hhead", "Block", Vector3.new(0.03, 0.116, 0.04), Vector3.new(0.02, 0.364, -0.723), { 160, 70, -90 }, "hand", "SmoothPlastic" },
+			{ "hhead", "Block", Vector3.new(0.03, 0.082, 0.04), Vector3.new(0.038, 0.341, -0.787), { 160, -20, -90 }, "hand", "SmoothPlastic" },
+			{ "hhead", "Block", Vector3.new(0.06, 0.4, 0.44), Vector3.new(0.4, 0.08, -0.42), { 0, 8, 0 }, "collar", "SmoothPlastic" },
+			{ "hhead", "Ell", Vector3.new(0.1, 0.2, 0.26), Vector3.new(0.36, 0.1, -0.78), { 0, 0, 0 }, "heye", "Neon" },
+			{ "hhead", "Ell", Vector3.new(0.14, 0.34, 0.16), Vector3.new(0.22, 0.46, -0.1), { -20, 0, -14 }, "white", "SmoothPlastic" },
+			{ "hhead", "Block", Vector3.new(0.06, 0.4, 0.44), Vector3.new(-0.4, 0.08, -0.42), { 0, -8, 0 }, "collar", "SmoothPlastic" },
+			{ "hhead", "Ell", Vector3.new(0.1, 0.2, 0.26), Vector3.new(-0.36, 0.1, -0.78), { 0, 0, 0 }, "heye", "Neon" },
+			{ "hhead", "Ell", Vector3.new(0.14, 0.34, 0.16), Vector3.new(-0.22, 0.46, -0.1), { -20, 0, 14 }, "white", "SmoothPlastic" },
+			{ "hupR", "Cyl", Vector3.new(1.2, 0.52, 0.52), Vector3.new(0, -0.55, 0), { 0, 0, 90 }, "white", "SmoothPlastic" },
+			{ "hlowR", "Ball", Vector3.new(0.44, 0.44, 0.44), Vector3.new(0, 0, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "hlowR", "Cyl", Vector3.new(1.15, 0.36, 0.36), Vector3.new(0, -0.58, 0), { 0, 0, 90 }, "white", "SmoothPlastic" },
+			{ "hlowR", "Block", Vector3.new(0.46, 0.3, 0.52), Vector3.new(0, -1.22, -0.04), { 0, 0, 0 }, "hoof", "SmoothPlastic" },
+			{ "hlowR", "Block", Vector3.new(0.5, 0.06, 0.56), Vector3.new(0, -1.39, -0.04), { 0, 0, 0 }, "yellow", "Metal" },
+			{ "hupL", "Cyl", Vector3.new(1.2, 0.52, 0.52), Vector3.new(0, -0.55, 0), { 0, 0, 90 }, "white", "SmoothPlastic" },
+			{ "hlowL", "Ball", Vector3.new(0.44, 0.44, 0.44), Vector3.new(0, 0, 0), { 0, 0, 0 }, "white", "SmoothPlastic" },
+			{ "hlowL", "Cyl", Vector3.new(1.15, 0.36, 0.36), Vector3.new(0, -0.58, 0), { 0, 0, 90 }, "white", "SmoothPlastic" },
+			{ "hlowL", "Block", Vector3.new(0.46, 0.3, 0.52), Vector3.new(0, -1.22, -0.04), { 0, 0, 0 }, "hoof", "SmoothPlastic" },
+			{ "hlowL", "Block", Vector3.new(0.5, 0.06, 0.56), Vector3.new(0, -1.39, -0.04), { 0, 0, 0 }, "yellow", "Metal" },
+		},
+	},
+	-- THE ULT'S WORLD: TIME ACCELERATES (VFX.CM.heaven - every screen within
+	-- Range of an ulting Pucci, by how near; Lighting is never written). A sun
+	-- of this screen's own (Sun: a Neon ball Size across, Dist studs out from
+	-- the camera, its glow Glow x its size) sweeping a full arc over the city
+	-- every Lap s - Lap[1] at the ult's start, Lap[2] by its end, NewWorldLap
+	-- through THE NEW WORLD's windup - with a trail Trail of a lap behind it;
+	-- day and night strobing once a lap (a ColorCorrectionEffect this screen
+	-- makes on its camera: Day / Night, Depth of the way); the clock ticking
+	-- (Tick: every this many s, the ult's start to its end); an afterimage of
+	-- him every Ghost.Every s while he moves faster than MinSpeed (Life s,
+	-- seen within Range). ((round 103, builder B) the streak is Segments
+	-- cylinders; the grade swings never faster than StrobeHz a second - a lap
+	-- of 0.15 s is a ring of light round the sky, never a strobe on anyone's
+	-- screen)
+	Accel = {
+		Range = 700,
+		StrobeHz = 1.2,
+		Sun = { Size = 60, Glow = 2.6, Dist = 900, Lap = { 6, 1.2 }, Trail = 0.35, Tilt = 0.35, Segments = 14, Color = Color3.fromRGB(255, 244, 214) },
+		NewWorldLap = 0.15,
+		Day = { Brightness = 0.04, Tint = Color3.fromRGB(255, 240, 215), Saturation = 0, Contrast = 0.04 },
+		Night = { Brightness = -0.22, Tint = Color3.fromRGB(150, 170, 255), Saturation = -0.2, Contrast = 0.1 },
+		White = { Brightness = 0.35, Tint = Color3.fromRGB(255, 252, 240), Saturation = -0.3, Contrast = -0.1 },
+		Depth = 0.6, In = 0.8, Out = 0.6,
+		Tick = { 0.5, 0.12 },
+		Ghost = { Every = 0.1, Life = 0.3, MinSpeed = 4, Range = 220 },
+		Color = Color3.fromRGB(255, 236, 170),
+	},
+	-- THE ULT'S MOVES on screen. TIME ACCELERATION (Blitz): his own machine
+	-- puts him Behind studs behind each in turn (never into a wall, never off
+	-- the street) and back; an afterimage left at every spot (Ghost s), a line
+	-- of light joining them (Line s), a hand-blade arc on each (Arc studs).
+	-- ACCELERATE (Step): his own machine carries him down the line he takes -
+	-- probed every Probe studs, Pad short of a wall, never where there's no
+	-- street within Ground below - with Ghosts afterimages along it. THE NEW
+	-- WORLD (NewWorld): a pillar of light up through him (Pillar), the white-out
+	-- on every screen within Range (In s up, the move's WhiteOut held, Out s away)
+	Blitz = { Behind = 3.4, Ghost = 0.6, Line = 0.45, Arc = 3.2 },
+	Step = { Probe = 2.5, Pad = 1.6, Ground = 14, Ghosts = 6 },
+	NewWorld = { Pillar = { Height = 160, Width = 16 }, Range = 900, In = 0.06, Out = 0.5 },
+}
+
 -- All Might's hero costume, worn in muscle form and Plus Ultra (catalog
 -- clothing ids, applied with a HumanoidDescription). Set Enabled = false to
 -- keep the player's own clothes. The casual yellow-pants look is
 -- Shirt 1206336891 + Pants 1206335841.
+-- (round 104) THE JJBA PLACE'S STANDS (the owner's jjba.rbxl, ported): its
+-- Stand models, their clips and its effects live in ReplicatedStorage.JJBA
+-- (grafted in as they were - nothing in there runs; no scripts came over).
+-- Every screen clones a user's Stand from JJBA.Stands, anchors it and poses
+-- it itself each frame (VFX.JS): the joints of its own rig, from a clip in
+-- JJBA.Clips (the JJBA place's own animations, and its Moon Animator saves
+-- turned into KeyframeSequences) or from the pose the old part-built Stand
+-- would have held there (so every move it already had still moves it).
+-- Enabled = false (or a Stand's Use = false): the part-built Stands again.
+Config.JJBA = {
+	Enabled = true,
+	Folder = "JJBA", -- ReplicatedStorage.JJBA (Stands, Clips, Effects)
+	-- per Stand: its model, how big it's drawn (x its own size: the JJBA
+	-- rigs are a 2x2x1 R6 torso - the game's Stands are a little bigger), its
+	-- colour for the shouts / outline / afterimages, its aura (JJBA.Effects.
+	-- ParticleEffect.<Aura>.Auras, on its limbs while it's out), and its clips:
+	-- Idle (at his shoulder), Walk (while he moves), Barrage (the rush, looped),
+	-- Heavy (the big single punch), and each move's own
+	Stands = {
+		StarPlatinum = {
+			Model = "StarPlatinum", Scale = 1.12, Tint = Color3.fromRGB(150, 110, 255), Stroke = Color3.fromRGB(34, 16, 80),
+			Outline = Color3.fromRGB(46, 20, 104), Aura = "SP", AuraRate = 0.35,
+			Idle = "SP_Idle", Walk = "SP_Walk", Barrage = "SP_BarrageLoop", Heavy = "SP_Ora", Finger = "SP_StarFinger", Pose = "SP_Pose",
+		},
+		TheWorld = {
+			Model = "TheWorld", Scale = 1.12, Tint = Color3.fromRGB(236, 194, 70), Stroke = Color3.fromRGB(70, 44, 6),
+			Outline = Color3.fromRGB(74, 50, 8), Aura = "TW", AuraRate = 0.35,
+			Idle = "TW_Idle", Walk = "TW_Walk", Barrage = "TW_BarrageLoop", Heavy = "TW_KnivesStand", Knives = "TW_Knives", Rush = "TW_Barrage",
+		},
+		-- C-MOON and MADE IN HEAVEN ride Pucci's own rig (VFX.CM): its bones
+		-- place their limbs (Map: CM's bone for each part), so every pose of his
+		-- moves holds; their own clips play over it where a move asks
+		CMoon = {
+			Model = "CMoon", Scale = 1.28, Tint = Color3.fromRGB(96, 178, 74), Stroke = Color3.fromRGB(20, 40, 16),
+			Aura = "Cmoon", AuraRate = 0.25,
+			Idle = "CM_Idle", Barrage = "CM_BarrageLoop", Heavy = "CM_HeavyPunch", CenterGravity = "CM_CenterGravity", Block = "CM_Block",
+		},
+		MadeInHeaven = {
+			Model = "MadeInHeaven", Scale = 1.45, Tint = Color3.fromRGB(255, 244, 214), Stroke = Color3.fromRGB(60, 54, 40),
+			Aura = "MIH", AuraRate = 0.25,
+			Idle = "MIH_Idle", Walk = "MIH_Walk", Barrage = "MIH_BarrageLoop", Heavy = "MIH_Heavy", Rush = "MIH_Barrage",
+		},
+	},
+	-- whose Stand is whose (Pucci's ult turns C-MOON into MADE IN HEAVEN)
+	Users = { StarPlatinum = "StarPlatinum", TheWorld = "TheWorld", CMoon = "CMoon" },
+	Heaven = "MadeInHeaven",
+	-- how long a clip blends in on the Stand, and back to its pose after
+	Fade = 0.1,
+	-- the summon (the JJBA place's: the Stand fades in out of its aura, a
+	-- burst of its stars - JJBA.Effects.ParticleEffect.<Aura>.AppearStars -
+	-- and the summon sound) and the dismiss (its Disappear burst)
+	Summon = { Burst = 18, Life = 0.6 },
+	-- past this far from the camera a Stand drops its aura (and the fine
+	-- detail the JJBA models have none of): studs
+	Detail = 140,
+	-- the effects (JJBA.Effects): the impact models a hit leaves (LightHit,
+	-- HeavyHit: their parts flung out and faded), how long they live
+	Hits = { Light = { "LightHit", "LightHit2" }, Heavy = { "HeavyHit", "HeavyHitEffect" }, Life = 0.45, Size = 1 },
+}
+
+-- (round 104) STAR PLATINUM: Jotaro's look (his own parts over the avatar,
+-- like any hero's: hidden with WEAR COSMETICS off) - the cap with its gold
+-- badge (the torn back fused to his hair), the long black coat (its high
+-- collar, the gold chain on the left lapel), the open front
+Config.Jotaro = {
+	Colors = {
+		coat = Color3.fromRGB(26, 26, 32), coat2 = Color3.fromRGB(40, 40, 50), gold = Color3.fromRGB(214, 176, 64),
+		shirt = Color3.fromRGB(46, 70, 70), cap = Color3.fromRGB(22, 22, 28),
+	},
+	-- { limb, size, offset, rotation (degrees), colour, material? }
+	Parts = {
+		{ "Head", Vector3.new(1.26, 0.42, 1.26), Vector3.new(0, 0.5, 0.02), { 0, 0, 0 }, "cap" },
+		{ "Head", Vector3.new(1.3, 0.12, 0.62), Vector3.new(0, 0.34, -0.5), { -6, 0, 0 }, "cap" },
+		{ "Head", Vector3.new(0.22, 0.22, 0.06), Vector3.new(0.18, 0.52, -0.64), { 0, 0, 0 }, "gold", "Metal" },
+		{ "Head", Vector3.new(0.24, 0.12, 0.06), Vector3.new(-0.12, 0.52, -0.64), { 0, 0, 0 }, "gold", "Metal" },
+		{ "Torso", Vector3.new(2.08, 2.04, 1.08), Vector3.new(0, 0, 0), { 0, 0, 0 }, "coat" },
+		{ "Torso", Vector3.new(0.5, 1.9, 0.08), Vector3.new(0, -0.04, -0.56), { 0, 0, 0 }, "shirt" },
+		{ "Torso", Vector3.new(1.5, 0.5, 0.24), Vector3.new(0, 1.12, 0.44), { 12, 0, 0 }, "coat2" },
+		{ "Torso", Vector3.new(0.08, 0.08, 0.9), Vector3.new(-0.5, 0.6, -0.56), { 0, 32, 0 }, "gold", "Metal" },
+		{ "Torso", Vector3.new(2.1, 1.6, 0.1), Vector3.new(0, -1.7, 0.5), { -6, 0, 0 }, "coat" },
+		{ "Right Arm", Vector3.new(1.06, 1.7, 1.06), Vector3.new(0, 0.16, 0), { 0, 0, 0 }, "coat" },
+		{ "Left Arm", Vector3.new(1.06, 1.7, 1.06), Vector3.new(0, 0.16, 0), { 0, 0, 0 }, "coat" },
+		{ "Right Leg", Vector3.new(1.06, 2.02, 1.06), Vector3.new(0, 0, 0), { 0, 0, 0 }, "coat" },
+		{ "Left Leg", Vector3.new(1.06, 2.02, 1.06), Vector3.new(0, 0, 0), { 0, 0, 0 }, "coat" },
+	},
+}
+
+-- (round 104) POM (the JJBA place's: no Stand - his own body, two
+-- anti-physical void balls riding his fists, a black-and-cyan aura): the
+-- aura (JJBA.Effects.ParticleEffect.POM.Auras, on his limbs), the balls
+-- (JJBA.Effects.POM.AntiPHYSeball, at his hands while he fights), his jump
+-- (a random JumpPower each one, like the JJBA place's), the void ball
+Config.POM = {
+	Aura = { Rate = 0.6, Limbs = { "Torso", "Right Arm", "Left Arm" } },
+	Balls = { Size = 1.1, Show = 0.9, Spin = 3 },
+	Jump = { Min = 75, Max = 110 },
+	Colors = { void = Color3.fromRGB(14, 14, 18), cyan = Color3.fromRGB(0, 250, 255), deep = Color3.fromRGB(0, 120, 160) },
+}
+
 Config.AllMightOutfit = {
 	Enabled = true,
 	Shirt = 9279053597,
@@ -4050,7 +5291,10 @@ Config.M1 = {
 		Manifest = "Mixed", -- a tentacle lash, a talon kick, a clam fist, a crab-shell kick
 		Creation = "Weapon", -- (round 60) Creati swings the staff / sword / spear in her hand
 		FierceWings = "Feather", -- (round 86) Hawks: his two longest primaries drawn as swords (VFX.WeaponKit.Feather)
+		DarkShadow = "DarkShadow", -- (round 102) Tokoyami: Dark Shadow's claws (VFX M1_SETS.DarkShadow: a hand out, the claw raked across, back across, an overhead chop, the two-handed slam; BLACK ANKH's own set while he wears it - M1_SETS.Ankh)
+		Mob = "Mob", -- (round 102) Mob: no punches - psychic flicks (VFX M1_SETS.Mob: a two-finger shove, the other hand's, a flick up, the 4th lifts them and drops them)
 		Whirlwind = "Whirlwind", -- (round 99) Inasa: his own (VFX M1_SETS.Whirlwind: a straight, the gloved hook, the palm, the gale haymaker; his own uppercut and downslam)
+		CMoon = "CMoon", -- (round 103) Pucci: C-MOON's strikes (VFX M1_SETS.CMoon: his gestures - a hand out, the other, a sweep, the benediction; C-MOON throws the punches, VFX.CM.swing)
 	},
 }
 
@@ -5655,6 +6899,15 @@ Config.Finishers = {
 		Saitama = { Name = "ONE PUNCH.", Time = 1.1, Forward = 160, Up = 95 },
 		-- (round 92) Inasa: a gust under them that throws them up out of sight
 		Whirlwind = { Name = "SKY-HIGH SEND-OFF!!", Time = 1.2, Forward = 70, Up = 175 },
+		-- (round 102) Mob: 100% - lifted, held, and thrown into the sky
+		Mob = { Name = "100%", Time = 1.25, Forward = 50, Up = 170 },
+		-- (round 102) Tokoyami: Dark Shadow engulfs them, lifts them, and throws them away
+		DarkShadow = { Name = "ABYSSAL SWALLOW", Time = 1.25, Forward = 120, Up = 110 },
+		-- (round 103) Pucci: one slow, precise punch through the chest - they
+		-- turn inside out and fall up into the sky
+		CMoon = { Name = "ONLY ONCE. AT A VITAL SPOT.", Time = 1.3, Forward = 30, Up = 150 },
+		StarPlatinum = { Name = "ORA ORA ORA... ORA!!", Time = 1.3, Forward = 140, Up = 60 }, -- (round 104)
+		POM = { Name = "VOID FIST", Time = 1.2, Forward = 120, Up = 70 }, -- (round 104)
 	},
 }
 
@@ -5786,6 +7039,22 @@ Config.Awaken = {
 		FierceWings = { Clip = "MoveHawksAwaken", Motion = "HawksAwaken", Aura = "feathers", Sound = false, Burst = { Flare = false }, Ground = { Dust = false } }, -- ((round 101, awaken_m) his clip retimed onto the hit (was HitAt 0.28, Legacy); VFX.AK.FX.FierceWings plays UltFierceWings from the press)
 		Saitama = { Clip = "MoveSaitamaAwaken", Motion = "SaitamaAwaken", HitAt = 0.32, Aura = "none", Burst = { Flare = false, Ring = false, Light = false }, Ground = { Dust = false } },
 		Whirlwind = { Clip = "MoveAwakenWhirlwind", Aura = "none", Shot = { Dist = 1.2 }, Burst = { Ring = false }, Ground = { Dust = false } }, -- ((round 101, awaken_e) his own wind on the street; B pulled back out of his storm - (review) 1.2, not 2.5: at 2.5 he was the smallest hero in his own cut-in)
+		-- ((round 102) Mob: his own pose (MoveAwakenMob: still - then the counter breaks), his own impact pair in
+		-- iridescent colours (Big: the cut-in waits out its two frames), burst and aura (VFX.AK.FX.Mob); no flare (his outline is the aura), the dust his own
+		-- (the street lifting round him))
+		Mob = { Clip = "MoveAwakenMob", Big = true, Aura = "motes", Burst = { Flare = false }, Ground = { Dust = false } },
+		-- ((round 102) Tokoyami: his own pose (MoveAwakenDarkShadow: holding it in, then thrown open), his own impact pair
+		-- (black and violet: Big - the cut-in waits out its two frames), Dark Shadow bursting out of him huge (VFX.AK.FX.DarkShadow);
+		-- no flare (its eyes are the light), the ring and the dust his own (the shadow flooding out over the street); Shot B a stud
+		-- back for the monster over him)
+		DarkShadow = { Clip = "MoveAwakenDarkShadow", Big = true, Aura = "ink", Shot = { Dist = 1, High = 0.4 }, Burst = { Flare = false, Ring = false }, Ground = { Dust = false } },
+		-- ((round 103) Pucci: his own pose (MoveAwakenCMoon: hands pressed together, rising, counting primes - then flung
+		-- up, turned to light), his own impact pair (Config.Awaken.CMoon.Negative: Big - the cut-in waits out its two
+		-- frames); the flare his (he turns to light), the ring and the dust his own (clock faces flung out along the street))
+		CMoon = { Clip = "MoveAwakenCMoon", Big = true, Aura = "motes", Shot = { Dist = 1.1, High = 0.6 }, Burst = { Flare = true, Ring = false }, Ground = { Dust = false } },
+		-- ((round 104) Jotaro: The World's awakening pose (a Stand user's), Star Platinum behind him; POM: All Might's)
+		StarPlatinum = { Clip = "MoveAwakenTheWorld", Big = true, Aura = "motes" },
+		POM = { Clip = "MoveAwakenPlusUltra", Big = true, Aura = "ink" },
 	},
 }
 
@@ -5906,6 +7175,79 @@ Config.Awaken.TheWorld = {
 Config.Awaken.Saitama = {
 	Dust = { Count = 12, From = 3, To = { 18, 26 } }, -- (the dust round him blown flat on the hit)
 	Gust = { { 0.5, 1.6 }, { 1, 1.4 } }, -- (his cape: stirring from the press, snapping on the hit - level, s)
+}
+-- (round 102) MOB: ???% (VFX.AK.FX.Mob). The press: his counter over his
+-- head (Counter: From% climbing to 100 by the hit, every screen), a few
+-- stones off the street rising round him (Stones: how many, how far out, how
+-- high by the hit). The hit: the counter breaks to ???%, held Hold seconds
+-- after the hit; his own impact pair (Negative: frame 1 / 2 - the world, him,
+-- the grade) in the aura's colours; the burst - a ring of pressure out along
+-- the street (Ring studs, x his scale) and the stones flung out (Fling
+-- studs/s); the air bending round him (Warp: a sphere Size studs, its life)
+Config.Awaken.Mob = {
+	Counter = { From = 96, Hold = 1, Size = { 5, 1.6 }, Offset = 4.2, Glitch = 0.05 },
+	Stones = { Count = 10, Radius = { 3, 7 }, Height = { 1.5, 4.5 }, Size = { 0.6, 1.6 }, Fling = 60 },
+	Negative = {
+		World = { Color3.fromRGB(120, 255, 236), Color3.fromRGB(255, 120, 220) },
+		Figure = { Color3.fromRGB(150, 60, 255), Color3.fromRGB(255, 255, 255) },
+		Bright = { 0.15, 0.1 }, Contrast = { 2.4, 2.8 }, Saturation = { 0.2, 0.1 },
+		Tint = { Color3.fromRGB(200, 255, 245), Color3.fromRGB(255, 210, 245) },
+	},
+	Ring = 46, Warp = { Size = 26, Life = 0.6 },
+	-- ((round 102) round 2: the press - his power gathering in both hands
+	-- (Gather: its size); the hit, layered - a Pillar of his iridescence up
+	-- through him (Height x Width studs, gone over Life), Sparkles prismatic
+	-- motes thrown off him, Wind streaks tearing out along the street (Reach
+	-- studs), Cracks racing out round him (Crack studs long), a white Flash
+	-- on his own screen)
+	Gather = 1.2, Pillar = { Height = 70, Width = 9, Life = 0.8 }, Sparkles = 40, Wind = 10, Reach = 36, Cracks = 8, Crack = { 10, 22 }, Flash = 0.18,
+}
+-- (round 102) TOKOYAMI: ABYSSAL DARK SHADOW (VFX.AK.FX.DarkShadow). The
+-- press: the shadow seeping out of him (Seep: smoke a second, how far round
+-- him) and a pool of it spreading on the street under him (Pool studs
+-- across by the hit), Dark Shadow's two eyes opening in it at his chest at
+-- Eyes s; the hit: it BURSTS out of him huge, roaring (its clip,
+-- Config.Tokoyami.Clips.Awaken), a ring of darkness out along the street
+-- (Ring studs, x his scale), a column of shadow up through him (Pillar:
+-- Height x Width, gone over Life), plumes of shadow thrown off him (Burst:
+-- how many, how fast), the street cracked (Cracks, Crack studs long), a
+-- black flash on his own screen (Flash s); his own impact pair (Negative:
+-- frame 1 / 2 - the world, him, the grade): violet and black, then black
+-- and the gold of its eyes
+Config.Awaken.DarkShadow = {
+	Seep = { Rate = 16, Radius = 2.5 }, Pool = 16, Eyes = 0.1,
+	Ring = 44, Pillar = { Height = 40, Width = 12, Life = 0.9 }, Burst = { Count = 14, Speed = 50 }, Cracks = 8, Crack = { 10, 20 }, Flash = 0.12,
+	Negative = {
+		World = { Color3.fromRGB(150, 70, 255), Color3.fromRGB(8, 4, 14) },
+		Figure = { Color3.fromRGB(6, 2, 10), Color3.fromRGB(255, 214, 80) },
+		Bright = { 0.05, -0.15 }, Contrast = { 2.6, 3 }, Saturation = { 0.15, -0.2 },
+		Tint = { Color3.fromRGB(205, 170, 255), Color3.fromRGB(140, 110, 170) },
+	},
+}
+
+-- (round 103) PUCCI: MADE IN HEAVEN (the awakening's numbers; his part of
+-- it on every screen is VFX.AK.FX.CMoon). The press: he rises, his hands
+-- pressed together, counting primes to steady himself (Primes: one every
+-- PrimeGap s on billboards circling his head), his clip lifting his body Rise
+-- studs (the root stays on the street), a new moon rising behind him (Moon: a
+-- black disc Size across with a thin bright rim, Back studs behind him, Up
+-- over him), Motes of light falling UP round him; the hit: he turns to light
+-- (Light: a pillar Height x Width gone over Life, a white-gold Flash s on his
+-- screen), C-MOON breaks into Shards of light, MADE IN HEAVEN bursts out, a
+-- ring of clock faces flung out along the street (Clocks); his own impact
+-- pair (Negative: frame 1 the world white-gold and him black, frame 2 the
+-- vine's green and him white)
+Config.Awaken.CMoon = {
+	Primes = { 2, 3, 5, 7, 11, 13, 17, 19, 23 }, PrimeGap = 0.03, Rise = 2.5,
+	Moon = { Size = 10, Back = 4.5, Up = 7, Ahead = 9, AheadUp = 3 }, Motes = 18, -- ((round 103, builder B) 10 across: at 12 it hid him from everyone behind him; (round 103 review) on his own screen Ahead studs in front of him and AheadUp higher - his camera is behind him)
+	Light = { Pillar = { Height = 70, Width = 10, Life = 0.9 }, Flash = 0.2 }, Shards = 20,
+	Clocks = { Count = 8, Radius = 14, Size = 2.4, Life = 1.4 },
+	Negative = {
+		World = { Color3.fromRGB(255, 244, 214), Color3.fromRGB(78, 155, 58) },
+		Figure = { Color3.fromRGB(0, 0, 0), Color3.fromRGB(255, 255, 255) },
+		Bright = { 0.2, 0.05 }, Contrast = { 2.6, 2.4 }, Saturation = { -0.3, 0.1 },
+		Tint = { Color3.fromRGB(255, 244, 214), Color3.fromRGB(200, 255, 190) },
+	},
 }
 
 -- (round 101, awaken_m) THE MATTER HEROES' own numbers (their VFX.AK.FX
@@ -6091,6 +7433,11 @@ Config.Animations = {
 		FierceWings = "", -- (round 86) procedural (the wings thrown open)
 		Saitama = "", -- (round 90) his own clip ("OK.")
 		Whirlwind = "", -- (round 92) his own clip (the bow, then arms wide: "I LOVE THIS!!!")
+		Mob = "", -- (round 102) his own clip (MoveAwakenMob: still, then the counter breaks)
+		DarkShadow = "", -- (round 102) his own clip (MoveAwakenDarkShadow: Dark Shadow held in, then let out)
+		CMoon = "", -- (round 103) his own clip (MoveAwakenCMoon: hands pressed together, rising - then turned to light)
+		StarPlatinum = "", -- (round 104) a clip (MoveAwakenTheWorld)
+		POM = "", -- (round 104) a clip (MoveAwakenPlusUltra)
 	},
 	-- Every move by its Id (see the quirk tables below)
 	Moves = {
@@ -6134,6 +7481,11 @@ Config.Animations = {
 		RazorStrafe = "", PeregrineStoop = "", GaleBeat = "", FeatherDrill = "", -- (round 92, hawksair: his flying moveset - his own clips, anim/moves_hawks_air.py)
 		NormalPunch = "", ConsecutivePunches = "", SeriousSneeze = "", SeriousSideHops = "", SeriousTableFlip = "", SeriousPunch = "", -- (round 90) Saitama
 		SlicingGust = "", GaleCannon = "", DragonWhirlwind = "", WindWall = "", WindRide = "", SkyCyclone = "", -- (round 92) Inasa
+		PsychicLift = "", PsychicBarrier = "", DebrisStorm = "", PsychicFloat = "", SpiritWave = "", MobSkyscraper = "", -- (round 102) Mob (round 2: ???%: SKYSCRAPER - TOWER DROP / TWIN CRUSH gone)
+		ShadowLunge = "", AbyssalClaw = "", ShadowGuard = "", BlackFallenAngel = "", BlackAnkh = "", ShadowRampage = "", -- (round 102) Tokoyami (his own clips, anim/moves_toko.py)
+		CMoonRush = "", GravityFlip = "", InsideOut = "", SelfInversion = "", NewMoon = "", HeavenBlitz = "", HeavenStep = "", NewWorld = "", -- (round 103) Pucci (his own clips, anim/moves_cmoon.py)
+		OraRush = "", StarFinger = "", OraHeavy = "", StarWorld = "", BearingShot = "", OraFinale = "", -- (round 104) Jotaro (the JJBA place's clips, VFX.JS)
+		POMFist = "", POMDouble = "", POMCharge = "", POMVoid = "", POMSlam = "", POMLastWord = "", -- (round 104) POM
 	},
 }
 
@@ -6434,6 +7786,18 @@ Config.UltMusic = {
 		-- lands on the hit (VFX.AK.lead), so Start is the drop itself now - it
 		-- was 0.3 s before it, for the old awakening's own duck)
 		Whirlwind = { Id = "rbxassetid://1839223123", Start = 17.16, FadeIn = 0.3 },
+		-- (round 102) Mob: Void (Bibliotheque - gritty guitar that builds and
+		-- builds; already Suneater's, here from the same loud stretch): the
+		-- counter climbing past what he can hold in
+		Mob = { Id = "rbxassetid://1837089134", Start = 29 },
+		-- (round 102) Tokoyami: Wheel Of Darkness (Gregor F Narholz - already
+		-- Gojo's and DIO's; from its darkest stretch): the abyss let out
+		DarkShadow = { Id = "rbxassetid://1848131944", Start = 12 },
+		-- (round 103) Pucci: Judgment Day C (Gregor F Narholz - already
+		-- Overhaul's; from its swell): a priest's judgement, heaven drawing near
+		CMoon = { Id = "rbxassetid://1848125982", Start = 55 },
+		StarPlatinum = { Id = "rbxassetid://132349602685027", Start = 0, Fallback = { Id = "rbxassetid://1848131944", Start = 40 } }, -- (round 104: the JJBA place's MusicOST.SP)
+		POM = { Id = "rbxassetid://121457518705605", Start = 0, Fallback = { Id = "rbxassetid://1848125982", Start = 20 } }, -- (round 104: its MusicOST.POM)
 	},
 }
 
@@ -6545,6 +7909,18 @@ Config.Voice = {
 	EndeavorAwaken = { Id = "", Text = "Watch me.", VoiceId = "5", Pitch = -4, Speed = 0.9, Volume = 3.2, Range = 260 },
 	DabiAwaken = { Id = "", Text = "It's me... Toya!", VoiceId = "5", Pitch = -1, Speed = 1, Volume = 3, Range = 260 },
 	HawksAwaken = { Id = "", Text = "Let's wrap this up.", VoiceId = "5", Pitch = 0, Speed = 1.05, Volume = 2.8, Range = 240 },
+	-- (round 102) MOB: quiet, polite, a boy's voice (text-to-speech pushed up,
+	-- slow and soft) - he apologises, and then he isn't there any more
+	MobAwaken = { Id = "", Text = "...Sorry.", VoiceId = "5", Pitch = 3, Speed = 0.8, Volume = 2.4, Range = 240, Bubble = "...sorry." },
+	-- (round 102) TOKOYAMI: Dark Shadow let out - "Aiyo!" (canon) - on the
+	-- awakening, like every hero's line there (TokoyamiAwaken: pitched right
+	-- down, slow). ((round 102 review) Its small "Aiyo!" on a catch isn't a
+	-- line any more: a shout and its own squawk - Config.Tokoyami.Shout,
+	-- Sounds.TokoAiyo)
+	TokoyamiAwaken = { Id = "", Text = "Aiyoooo!", VoiceId = "5", Pitch = -8, Speed = 0.7, Volume = 3.4, Range = 300, Bubble = "AIYO!!" },
+	-- (round 103) PUCCI: the one spoken line, on his awakening (everything
+	-- else he and C-MOON say is a speech bubble - VFX.CM.shout)
+	PucciAwaken = { Id = "", Text = "Made in Heaven.", VoiceId = "5", Pitch = -2, Speed = 0.85, Volume = 3, Range = 300, Bubble = "MADE IN HEAVEN." },
 }
 
 -- (round 76) who says what, and when. Awaken: the line when you awaken (G),
@@ -6563,6 +7939,11 @@ Config.VoiceCues = {
 		Overhaul = "OverhaulAwaken", Decay = "ShigarakiAwaken", Compress = "CompressAwaken", Double = "TwiceAwaken", Limitless = "GojoAwaken",
 		CrazyDiamond = "JosukeAwaken", PlusUltra = "IAmHere", Hellflame = "EndeavorAwaken", Blueflame = "DabiAwaken", PrimeDeku = "DekuAwaken",
 		PrimeMight = "IAmHere", TheWorld = "Wry", FierceWings = "HawksAwaken", Saitama = "SaitamaOK", Whirlwind = "InasaAwaken",
+		Mob = "MobAwaken", -- (round 102)
+		DarkShadow = "TokoyamiAwaken", -- (round 102: Dark Shadow's, let out)
+		CMoon = "PucciAwaken", -- (round 103: "Made in Heaven.")
+		StarPlatinum = "JotaroAwaken", -- (round 104: the JJBA place's own line)
+		POM = "POMAwaken", -- (round 104)
 	},
 	Moves = {
 		-- All Might: true form, muscle form, Plus Ultra
@@ -6797,6 +8178,9 @@ L.SeriousRiser = { take("1843490542", 3.96) } -- Critical Mass - SFX Riser 1 (AP
 -- (round 101) FINAL FORM's build (cut at the hush, before its top: the
 -- silence before the drop)
 L.CriticalRiser = { take("1843490542", 1.76) } -- Critical Mass - SFX Riser 1 (APM): its top (6.76 s) 5.0 s after Start
+-- (round 102) EXPLOSIVE SPEED's realization: the same riser, its top on his
+-- launch (Config.ESpeed.Beats.Launch, 4 s after the catch)
+L.ESpeedRiser = { take("1843490542", 2.76) } -- Critical Mass - SFX Riser 1 (APM): its top (6.76 s) 4.0 s after Start
 
 -- (round 101) FINAL FORM (the emote: Config.Emotes), remade as a rage
 -- transformation in the spirit of the 2018 film's - a monster waking up,
@@ -7061,16 +8445,16 @@ Config.FinalForm = {
 		{ 5.4, 0.02, 0.12, 0.15, Color3.fromRGB(238, 255, 226), ease = "out" },
 		-- ((round 102) the surge: the storm closing in, greener on every hit)
 		{ 6.25, 0.02, 0.12, 0.15, Color3.fromRGB(238, 255, 226) },
-		{ 13.75, -0.1, 0.2, 0.05, Color3.fromRGB(255, 220, 205) },
-		{ 14.375, -0.1, 0.2, 0.05, Color3.fromRGB(255, 220, 205) },
-		{ 14.475, -0.26, 0.2, -0.7, Color3.fromRGB(255, 205, 200) }, -- (the silent beat: darker still)
-		{ 14.999, -0.26, 0.2, -0.7, Color3.fromRGB(255, 205, 200) },
+		{ 13.75, -0.1, 0.2, 0.05, Color3.fromRGB(200, 255, 190) },
+		{ 14.375, -0.1, 0.2, 0.05, Color3.fromRGB(200, 255, 190) },
+		{ 14.475, -0.26, 0.2, -0.7, Color3.fromRGB(196, 255, 196) }, -- (the silent beat: darker still)
+		{ 14.999, -0.26, 0.2, -0.7, Color3.fromRGB(196, 255, 196) },
 		{ 15.0, 0.45, 0.12, 0.4, Color3.fromRGB(220, 255, 200) }, -- (LEGENDARY: the whiteout)
-		{ 15.5, -0.06, 0.22, 0.15, Color3.fromRGB(255, 212, 198), ease = "out" }, -- ((round 103) the world red and dark)
-		{ 24.999, -0.06, 0.22, 0.15, Color3.fromRGB(255, 212, 198) },
+		{ 15.5, 0.04, 0.16, 0.25, Color3.fromRGB(228, 255, 214), ease = "out" },
+		{ 24.999, 0.04, 0.16, 0.25, Color3.fromRGB(228, 255, 214) },
 		{ 25.0, 0.3, 0.1, 0.3, Color3.fromRGB(220, 255, 205) }, -- (the sky going off)
-		{ 25.5, -0.04, 0.18, 0.12, Color3.fromRGB(255, 216, 204), ease = "out" },
-		{ 26.25, -0.04, 0.18, 0.12, Color3.fromRGB(255, 216, 204) },
+		{ 25.5, 0.03, 0.14, 0.2, Color3.fromRGB(232, 255, 220), ease = "out" },
+		{ 26.25, 0.03, 0.14, 0.2, Color3.fromRGB(232, 255, 220) },
 		{ 28.4, 0, 0, 0, Color3.fromRGB(255, 255, 255), ease = "sine" },
 	},
 	-- { t, Intensity, Size, Threshold } (not on a low-end machine)
@@ -7218,87 +8602,208 @@ Config.FinalForm = {
 			Scream2 = { L.FlyScream, 12.875, { { 12.875, 2.6 }, { 14.3, 2.6 }, { 14.375, 0, ramp = true } }, { { 0, 1 } }, 14.4 },
 			Inhale = { L.SuckIn, 4.04, { { 4.04, 1.6 } }, { { 0, 1 } }, 5.2 },
 			Inhale2 = { L.SuckIn, 14.15, { { 14.15, 1.8 } }, { { 0, 0.9 } }, 15.05 },
-			-- ((round 103) the column of light roaring, pitched up over the rumble)
-			Pillar = { L.FlyHyperRumble, 15.0, { { 15.0, 2.2 }, { 19.4, 2.2 }, { 20.0, 0, ramp = true } }, { { 0, 1.35 } }, 20.1 },
 		},
 		Range = { 16, 220 }, -- (the beds' roll-off)
 	},
-	-- ((round 103) THE WORLD: what FINAL FORM does to the map, from the 2018
-	-- film's shot of it - Broly inside a column of green light going up into
-	-- a black-red sky, the land round him scorched black and split by
-	-- glowing red seams. On every screen near him (not only his), and on the
-	-- server: real craters and the shockwave. t: seconds, as above)
-	World = {
-		-- the column of light: from LEGENDARY, him inside it through the roar
-		-- and the glare, then drawn in to nothing as the Eraser Cannon starts.
-		-- Layers: { material, of its width, Transparency }; Streaks: light
-		-- racing up inside it; Base: the glow where it meets the street
-		-- (studs across, Transparency); Light: { range, brightness }
-		Pillar = {
-			From = 15.0, Grow = 0.35, Hold = 19.4, Out = 20.0,
-			Height = 900, Width = { 34, 40 }, -- (studs across, breathing between them on the beat)
-			Layers = { { "ForceField", 1.0, 0.2 }, { "Neon", 0.84, 0.74 }, { "Neon", 0.38, 0.6 } },
-			Streaks = { Count = { 26, 10 }, Size = Vector3.new(0.7, 34, 0.7), Speed = 110, Transparency = 0.3 },
-			Base = { 60, 0.3 },
-			Light = { 60, 6 },
-			Color = Color3.fromRGB(96, 255, 150), Core = Color3.fromRGB(225, 255, 235),
-		},
-		-- the sky: a storm ceiling over the city, black-red, turning slowly
-		-- (studs over the street, across, thick; Show: its Transparency at
-		-- full), drawn in over the surge, gone with the power
-		Sky = {
-			Height = { 175, 165 }, Size = { 950, 680 }, Thick = { 6, 4 }, Show = { 0.12, 0.25 },
-			Colors = { Color3.fromRGB(58, 10, 8), Color3.fromRGB(22, 4, 4) },
-			In = { 9.0, 15.0 }, Out = { 25.6, 28.0 }, Spin = 3,
-		},
-		-- the land: red-hot seams racing out across the map from him (Reach
-		-- studs; Segs jagged pieces, up to +- Jag degrees each; a branch off
-		-- some), each over a scorched black streak; growing through the
-		-- surge, all the way out at LEGENDARY, cooling as he powers down.
-		-- Count: { a machine that keeps up's, a low-end one's }
-		Lava = {
-			Count = { 18, 8 }, Branches = { 10, 3 }, From = 7, Reach = { 80, 170 }, Segs = 9, Jag = 24,
-			Width = { 0.5, 1.3 }, Char = 3.2, CharT = 0.35, -- (the scorched streak: times the seam's width, its Transparency)
-			Grow = { 6.25, 14.375 }, Burst = 15.0, Cool = { 26.25, 28.4 },
-			Color = Color3.fromRGB(255, 64, 18), Hot = Color3.fromRGB(255, 176, 60), Char3 = Color3.fromRGB(16, 12, 12),
-		},
-		-- the ground under him scorched black at LEGENDARY (studs across, Transparency)
-		Scorch = { 80, 0.25 },
-		-- the city's loose rubble lifting off the street all round him and
-		-- hanging in the air through the hold (Ring: studs out; Top: studs up;
-		-- Bob: +- studs), dropped when the sky goes off
-		Debris = { Count = { 34, 12 }, Ring = { 16, 85 }, Size = { 0.8, 3.6 }, Rise = { 10.0, 15.0 }, RiseTime = 2.5, Top = { 5, 30 }, Bob = 1.2, Drop = 25.0, Fall = 1.6 },
-		-- everyone else's screen within Range studs of him: the world dark and
-		-- red (a ColorCorrection on their camera, named FinalFormWorld; full
-		-- inside half the Range, gone at it). Keys as Grade's
-		Grade = {
-			Range = 700,
-			Keys = {
-				{ 0, 0, 0, 0, Color3.fromRGB(255, 255, 255) },
-				{ 9.0, 0, 0, 0, Color3.fromRGB(255, 255, 255) },
-				{ 14.375, -0.12, 0.12, -0.15, Color3.fromRGB(255, 214, 204) },
-				{ 14.999, -0.2, 0.15, -0.3, Color3.fromRGB(255, 205, 195) },
-				{ 15.0, 0.3, 0.1, 0.1, Color3.fromRGB(235, 255, 225) }, -- (LEGENDARY's flash)
-				{ 15.6, -0.1, 0.2, 0.05, Color3.fromRGB(255, 208, 196), ease = "out" },
-				{ 24.999, -0.1, 0.2, 0.05, Color3.fromRGB(255, 208, 196) },
-				{ 25.0, 0.25, 0.1, 0.1, Color3.fromRGB(235, 255, 225) }, -- (the sky going off)
-				{ 25.6, -0.08, 0.16, 0.05, Color3.fromRGB(255, 212, 200), ease = "out" },
-				{ 26.25, -0.08, 0.16, 0.05, Color3.fromRGB(255, 212, 200) },
-				{ 28.4, 0, 0, 0, Color3.fromRGB(255, 255, 255), ease = "sine" },
-			},
-		},
-		-- the server (Kit.FF): { 0-based beat, crater radius (studs), the
-		-- Destruction profile, Push = { studs, out studs/s, up } } - only while
-		-- he's still in it (within Drift studs of where he started, nothing
-		-- else pressed). Enabled = false: the visuals only
-		Server = {
-			Enabled = true, Drift = 3, Lead = 0.05,
-			Hits = {
-				{ Beat = 8, Radius = 14, Profile = "Crater", Push = { 24, 45, 22 } },
-				{ Beat = 24, Radius = 38, Profile = "FlightCrater", Push = { 46, 85, 40 } },
-			},
-		},
+}
+
+---------------------------------------------------------------------------
+-- (round 102) EXPLOSIVE SPEED, THE CUTSCENE (Bakugo's R in DYNAMIGHT, once
+-- he's caught someone: the server's Kit.ESX, every screen's VFX.ESX). The
+-- owner's reference (a fan-made Bakugo cutscene) cut to ~10 s, its beats in
+-- order - seconds from the catch (Beats): THE REALIZATION (the push-in
+-- behind his head with them beyond, the crouch in the smoke, the bead of
+-- sweat on his palm, the gauntlet coming up through the sparkles, the smoke
+-- wall and the lightning, a black-and-white frame and a star, the ring
+-- sweeping out of the dark, the white-hot disc and its pillar, the leap in
+-- silhouette), THE LAUNCH and his palm going off at their face, THE SPEED
+-- BLITZ (the skim along the slab, the streak past it, popping up behind it,
+-- the flurry from every side) and THE WHITE-OUT (the last blast: they're
+-- launched; him small in the white, fading to black; a star).
+-- The two of them (his screen and theirs) get the cinematic: the shots, the
+-- 2.35:1 letterbox, the grade, the flares and motes (GUI); everyone else
+-- sees it play out in the street with their camera left alone.
+-- A shot: { Name, At, T, From = { eye, look }, To, Fov, Roll (degrees, a
+-- dutch tilt), Grade, Style } - a point is { anchor, x, y, z }: studs right
+-- / up / along the anchor's frame (its F: from him to them; y from the
+-- root, the street ~3 under it). Anchors: H his spot, T theirs, M halfway,
+-- A his in front of them (the palm), D the double (at the shot's start /
+-- end), S the slab, P where he pops up, K / TK him / them at this flurry
+-- hit (its F: from him to them), B where the last blast goes off from.
+---------------------------------------------------------------------------
+Config.ESpeed = {
+	-- the catch: he stops Stop studs short of them; the boom of it shoves them
+	-- on down the lane (and him back, if the street behind them runs out) till
+	-- they're Sep apart - what the street allows (a wall: Room studs short of
+	-- it), never under MinSep while there's room; over Shove seconds, in the
+	-- black. Front: his palm spot (A, and the last blast's, B) that far short
+	-- of them. StreamAround: the street round them sent to both screens.
+	-- (round 102 review) WitnessRange: a screen further off than this (anyone
+	-- else's) plays none of it
+	Stop = 6, Sep = 16, MinSep = 7, Room = 2.5, Shove = 0.25, Front = 2.6, StreamAround = true, WitnessRange = 900,
+	Beats = {
+		Push = 0, Wide = 0.7, Crouch = 0.62, Bead = 1.2, BeadBurst = 1.6, Gauntlet = 1.75, SmokeWall = 2.1,
+		Impact = 2.6, Star = 2.68, Ring = 2.75, Disc = 3.2, Leap = 3.65, Launch = 4.0, Back = 4.4, Cross = 4.7,
+		Face = 4.77, Palm = 5.0, PalmHit = 5.03, Glow = 5.32, Strobe = 5.5, Skim = 5.8, SkimFrame = 5.95,
+		Streak = 6.6, Flash = 6.95, Pop = 7.07, Black = 7.55, Flurry = 7.63, Blast = 9.0, White = 9.0, Star2 = 9.75, End = 10.0,
 	},
+	-- the server moves his (hidden) body on these: to their face at Launch, to
+	-- the pop spot at PopAt, to the last blast's spot Lead before the flurry
+	Moves = { PopAt = 5.56, Lead = 0.025 },
+	-- his real body hidden on every screen (from, to): the double has it
+	-- (the launch, the skim, the flurry) or the cut does
+	-- (every shot's eye kept Clear studs short of anything of the map between
+	-- it and what it's on)
+	Clear = 1,
+	Hidden = { { 4.0, 4.4 }, { 5.5, 7.07 }, { 7.55, 9.0 } },
+	-- THE FLURRY: Hits cuts of Gap seconds from Beats.Flurry, each blow Contact
+	-- into its cut; him Radius studs off them at Angle degrees round them (0:
+	-- in front of them, his side; 90: their right as he sees it; "above":
+	-- Above studs over them), facing them; they're lifted Lift a blow; each
+	-- blow a blast of Explode
+	Flurry = {
+		Hits = 7, Gap = 0.196, Contact = 0.06, Radius = 2.8, Above = 4.2, Lift = 0.22, Explode = 0.42,
+		Angles = { 100, 180, -30, "above", -100, 145, 0 },
+		-- each cut's camera (in that blow's frame), pushing in Push studs: { eye, look, fov }
+		-- (close two-shots from a new side every cut, a touch from above so the
+		-- street's behind them, as the reference has them - (round 102 review)
+		-- tighter, their heads filling the picture: over his shoulder, side by
+		-- side, over theirs, under him above them, side by side the other way,
+		-- closer still, over his other shoulder)
+		Cams = {
+			{ { "K", -2.79, 0.31, -2.07 }, { "K", 0.3, 1.11, 1.76 }, 40 },
+			{ { "K", 3.38, 0.81, -2.14 }, { "K", -0.23, 0.92, 1.8 }, 40 },
+			{ { "K", 4.4, 2.3, 1.2 }, { "K", 0, 1.3, 1.6 }, 44 },
+			{ { "K", 4.18, 3.02, -0.83 }, { "K", -0.09, -1.44, 0.89 }, 50 },
+			{ { "K", 4.7, 4.01, 3.7 }, { "K", 0.05, 1.44, 2.21 }, 44 },
+			{ { "K", -3.77, 3.83, 4.0 }, { "K", 0.27, 1.52, 2.33 }, 40 },
+			{ { "K", -4.2, 2.0, 0.6 }, { "K", 0, 1.3, 1.6 }, 44 },
+		},
+		-- (round 102 review) the reference's flurry is all close-ups of the
+		-- two of them as dark shapes edged in gold: both bodies get the Rim
+		-- (outline colour, fill colour, fill transparency) on the two screens
+		Push = 0.3, Rim = { Color3.fromRGB(255, 214, 120) },
+	},
+	-- THE BLITZ's set pieces, round them: the slab of street torn up beside
+	-- them (At: right / along of them; Size: thick, high, long; Tilt out; up
+	-- in Rise from Beats.Strobe, its edges RimColor, Rim thick), his pop spot
+	-- (Pop), the double's skim (Points: right / along of them, the beat each
+	-- reaches; Height: its root over the street; Tilt: flat out)
+	Slab = { At = { 9.0, 1.5 }, Size = Vector3.new(3.2, 5.5, 13), Tilt = -18, Rise = 0.2, Color = Color3.fromRGB(42, 36, 34), Face = Color3.fromRGB(226, 184, 110), FaceSide = 1, RimColor = Color3.fromRGB(255, 240, 200), Rim = 0.12 },
+	Pop = { At = { 7.4, 9.4 } },
+	Skim = {
+		Height = 1.15, Tilt = 80,
+		Points = { { 13.0, -6.5, 5.8 }, { 13.0, 6.5, 6.6 }, { 7.4, 10.0, 6.8 } },
+	},
+	-- the launch: the double from his spot to A, Height over the street, tipped Tilt degrees forward;
+	-- a Pop of fire off each palm as it goes
+	Launch = { Height = 1.4, Tilt = 68, Pop = 0.7 },
+	-- the double while it's a blur (a Highlight on it): gold-lit for the launch
+	-- (Fill, FillT), dark with a white edge (Outline) for the skim (SkimFillT)
+	Glow = { Fill = Color3.fromRGB(255, 226, 140), FillT = 0.45, SkimFillT = 0.4, Outline = Color3.new(1, 1, 1) },
+	-- the white-out: the world white behind him (a sheet Back studs past him);
+	-- White seconds of it, Grey greying (GreyDepth of black over it), Black to
+	-- black; his afterimages (Ghosts, where the flurry had him, fading over
+	-- GhostLife from Alpha)
+	WhiteOut = { Back = 9, White = 0.4, Grey = 0.22, GreyDepth = 0.5, Black = 0.13, Alpha = 0.18, Ghosts = 5, GhostLife = 0.9 },
+	-- A shot: { Name, At, T, From = { eye, look }, To, Fov, Roll (degrees, a
+	-- dutch tilt), Grade, Style, Into (a grade it blends into), Subject ("T":
+	-- the focus on them), Back ("Black" / "White": a sheet BackAt studs past
+	-- what it's on - the reference's voids; Floor: the street under it too;
+	-- Fore: a slab of rubble { right, down, ahead, size, tilt } in the lens'
+	-- frame), Rim ({ colour, fill, fill
+	-- transparency }: a light rimming his body) } - a point is { anchor, x, y,
+	-- z }: studs right / up / along the anchor's frame (its F: from him to
+	-- them; y from the root, the street ~3 under it). Anchors: H his spot, T
+	-- theirs, M halfway, A his in front of them (the palm), D the double (at
+	-- the shot's start / end), S the slab, P where he pops up, B where the last
+	-- blast goes off from; the flurry's cuts are Flurry.Cams (K / TK: him /
+	-- them at that blow, its F from him to them)
+	Shots = {
+		{ Name = "Push", At = 0, T = 0.7, From = { { "H", -4.2, 1.0, -19 }, { "H", 0.4, 1.3, 9.6 } }, To = { { "H", -3.6, 1.05, -16 }, { "H", 0.4, 1.3, 9.6 } }, Fov = { 13, 12 }, Grade = "Haze", Rim = { Color3.fromRGB(255, 214, 120) } },
+		{ Name = "Wide", At = 0.7, T = 0.5, From = { { "M", -27, -1.3, -0.5 }, { "M", 0, -0.6, 0.3 } }, To = { { "M", -26.3, -1.45, -0.5 }, { "M", 0, -0.7, 0.3 } }, Fov = { 30, 29 }, Grade = "Haze", Into = "Dusk" },
+		{ Name = "Bead", At = 1.2, T = 0.55, From = { { "H", -1.2, -1.1, 6.5 }, { "H", -0.2, 0.4, 0 } }, To = { { "H", -1.0, -1.05, 5.8 }, { "H", -0.2, 0.45, 0 } }, Fov = { 30, 29 }, Grade = "Gold", Rim = { Color3.fromRGB(255, 214, 120) } },
+		{ Name = "Gauntlet", At = 1.75, T = 0.35, From = { { "H", -2.9, 0.0, 6.2 }, { "H", 0.3, 0.3, 0 } }, To = { { "H", -2.7, 0.1, 5.7 }, { "H", 0.3, 0.4, 0 } }, Fov = { 44, 43 }, Roll = { -18, -22 }, Grade = "Gold", Rim = { Color3.fromRGB(255, 214, 120) } },
+		{ Name = "SmokeWall", At = 2.1, T = 0.5, From = { { "H", 32, -1.2, 6 }, { "H", 0, 0.2, 0 } }, To = { { "H", 31, -1.15, 5.8 }, { "H", 0, 0.25, 0 } }, Fov = { 30, 29 }, Grade = "Glare", Fore = { 4.2, -2.3, 9.0, Vector3.new(7, 1.8, 3), -10 } },
+		{ Name = "Impact", At = 2.6, T = 0.15, From = { { "M", -26, -1.4, -7 }, { "M", 0, 0, 0 } }, Fov = { 34 }, Grade = "Mono" },
+		{ Name = "Ring", At = 2.75, T = 0.45, From = { { "H", 2.0, -2.6, 9.0 }, { "H", 0, 1.6, 0 } }, To = { { "H", 1.9, -2.55, 8.4 }, { "H", 0, 1.65, 0 } }, Fov = { 40, 39 }, Grade = "Black", Back = "Black", BackAt = 1.5, Rim = { Color3.fromRGB(255, 120, 40) } },
+		{ Name = "Disc", At = 3.2, T = 0.45, From = { { "H", 1.5, 4.5, 13 }, { "H", 0, 0.5, 0 } }, To = { { "H", 1.3, 4.2, 11.8 }, { "H", 0, 0.55, 0 } }, Fov = { 48, 47 }, Grade = "Fire", Back = "Black", BackAt = 16 },
+		{ Name = "Leap", At = 3.65, T = 0.35, From = { { "H", 0.5, -1.5, 5.5 }, { "H", 0, 2.6, 0 } }, Fov = { 56 }, Grade = "White", Back = "White", BackAt = 3 },
+		{ Name = "Launch", At = 4.0, T = 0.4, From = { { "D", -12, -0.4, -1.0 }, { "D", 0, -0.6, 0.6 } }, To = { { "D", -12, -0.4, -1.0 }, { "D", 0, -0.6, 0.6 } }, Fov = { 30, 31 }, Grade = "Gold", Style = "Linear" },
+		{ Name = "Back", At = 4.4, T = 0.37, From = { { "A", 2.6, 0.9, -3.4 }, { "A", -0.35, 0.8, 0.65 } }, To = { { "A", 2.4, 0.95, -3.1 }, { "A", -0.35, 0.8, 0.65 } }, Fov = { 46, 44 }, Grade = "Night", Rim = { Color3.fromRGB(255, 200, 90) } },
+		{ Name = "Face", At = 4.77, T = 0.23, From = { { "T", -4.6, 1.0, -2.6 }, { "T", 0.2, 1.2, 0.2 } }, To = { { "T", -4.4, 1.0, -2.5 }, { "T", 0.2, 1.2, 0.2 } }, Fov = { 40, 39 }, Grade = "Night", Subject = "T", Back = "Black", BackAt = 6 },
+		{ Name = "Palm", At = 5.0, T = 0.32, From = { { "T", -4.4, 1.0, -2.9 }, { "T", 0.3, 1.3, 0.1 } }, To = { { "T", -4.3, 1.0, -2.8 }, { "T", 0.3, 1.3, 0.1 } }, Fov = { 42, 41 }, Grade = "Night", Subject = "T", Back = "Black", BackAt = 6 },
+		{ Name = "Glow", At = 5.32, T = 0.18, From = { { "T", -2.4, 1.5, -1.6 }, { "T", 0, 1.45, 0 } }, Fov = { 30 }, Grade = "Ember", Subject = "T", Back = "Black", BackAt = 6 },
+		{ Name = "Strobe", At = 5.5, T = 0.3, From = { { "T", 0.6, 7.0, -9.5 }, { "T", 2.4, -3.0, -7.0 } }, To = { { "T", 0.6, 7.0, -9.0 }, { "T", 2.4, -3.0, -6.5 } }, Fov = { 56 }, Grade = "Skim", Style = "Linear" },
+		{ Name = "Skim", At = 5.8, T = 0.8, From = { { "D", 1.6, 12.5, 3.2 }, { "D", 0.4, -1.15, -1.0 } }, To = { { "D", 1.6, 12.5, 3.2 }, { "D", 0.4, -1.15, -1.0 } }, Fov = { 38 }, Roll = { 0, 0 }, Grade = "Skim", Style = "Linear" },
+		{ Name = "Streak", At = 6.6, T = 0.35, From = { { "T", 8.95, 1.4, 12.7 }, { "T", 7.8, 1.8, 6 } }, To = { { "T", 8.9, 1.4, 12.6 }, { "T", 7.8, 1.8, 6 } }, Fov = { 50 }, Grade = "Night", Back = "Black", BackAt = 14 },
+		{ Name = "Flash", At = 6.95, T = 0.12, From = { { "T", 8.9, 1.4, 12.6 }, { "T", 7.8, 1.8, 6 } }, Fov = { 50 }, Grade = "Mono" },
+		{ Name = "Pop", At = 7.07, T = 0.48, From = { { "T", 8.9, 1.4, 12.6 }, { "T", 7.8, 1.8, 6 } }, To = { { "T", 8.85, 1.45, 12.45 }, { "T", 7.8, 1.8, 6 } }, Fov = { 50, 49 }, Grade = "Night", Rim = { Color3.new(1, 1, 1) }, Back = "Black", BackAt = 14 },
+		{ Name = "Black", At = 7.55, T = 0.08, From = { { "T", 8.85, 1.45, 12.45 }, { "T", 7.8, 1.8, 6 } }, Fov = { 49 }, Grade = "Night" },
+		{ Name = "Flurry", At = 7.63, T = 1.37 }, -- (its cuts: Flurry.Cams)
+		{ Name = "White", At = 9.0, T = 0.75, From = { { "B", 5.5, -0.6, 26 }, { "B", -1.2, 0.6, 0 } }, To = { { "B", 5.3, -0.55, 25.2 }, { "B", -1.2, 0.6, 0 } }, Fov = { 34, 33 }, Grade = "WhiteOut", Back = "White", BackAt = 3, Floor = true, Fore = { 3.4, -1.7, 8.5, Vector3.new(3.5, 1.2, 2.2), -14 } },
+		{ Name = "Star", At = 9.75, T = 0.25, From = { { "B", 5.3, -0.55, 25.2 }, { "B", -1.2, 0.6, 0 } }, Fov = { 33 }, Grade = "WhiteOut" },
+	},
+	-- the grades (the two screens): ColorCorrection Tint / Bright / Contrast /
+	-- Sat, Bloom { Intensity, Size, Threshold }, Blur (size), Focus { far,
+	-- near, in-focus radius } (depth of field round what the shot's on)
+	Grades = {
+		Haze = { Tint = Color3.fromRGB(255, 224, 168), Bright = 0.1, Contrast = 0.15, Sat = 0.05, Bloom = { 1.2, 40, 0.75 }, Focus = { 0.3, 0.3, 4 } },
+		Dusk = { Tint = Color3.fromRGB(255, 190, 112), Bright = -0.34, Contrast = 0.35, Sat = 0.1, Bloom = { 1.4, 30, 0.7 }, Focus = { 0.4, 0, 8 } },
+		Gold = { Tint = Color3.fromRGB(255, 214, 150), Bright = 0.02, Contrast = 0.3, Sat = 0.12, Bloom = { 1.1, 34, 0.8 }, Focus = { 0.6, 0.35, 2.5 } },
+		Glare = { Tint = Color3.fromRGB(255, 220, 160), Bright = 0.08, Contrast = 0.15, Sat = 0.05, Bloom = { 1.6, 48, 0.6 }, Focus = { 0.45, 0, 6 } },
+		Mono = { Tint = Color3.new(1, 1, 1), Bright = 0.25, Contrast = 3, Sat = -1 },
+		Black = { Tint = Color3.fromRGB(255, 150, 70), Bright = -0.55, Contrast = 0.8, Sat = 0.25, Bloom = { 2.2, 40, 0.55 } },
+		Fire = { Tint = Color3.fromRGB(255, 208, 150), Bright = 0.06, Contrast = 0.4, Sat = 0.25, Bloom = { 2.2, 44, 0.55 } },
+		White = { Tint = Color3.new(1, 1, 1), Bright = 0.15, Contrast = 1.5, Sat = -1 },
+		Night = { Tint = Color3.fromRGB(255, 212, 164), Bright = -0.22, Contrast = 0.6, Sat = -0.1, Bloom = { 1.4, 30, 0.7 }, Focus = { 0.5, 0.2, 3 } },
+		Ember = { Tint = Color3.fromRGB(255, 140, 60), Bright = 0.06, Contrast = 0.7, Sat = 0.45, Bloom = { 2, 40, 0.6 } },
+		Skim = { Tint = Color3.fromRGB(255, 200, 160), Bright = -0.06, Contrast = 0.3, Sat = 0.1, Blur = 3 },
+		WhiteOut = { Tint = Color3.new(1, 1, 1), Bright = 0.04, Contrast = 0.15, Sat = 0, Bloom = { 0.8, 30, 0.92 } },
+		Flurry = { Tint = Color3.fromRGB(255, 210, 156), Bright = -0.02, Contrast = 0.55, Sat = 0.15, Bloom = { 1.6, 30, 0.7 }, Focus = { 0.6, 0, 2.5 } },
+	},
+	-- the screen (his and theirs): the letterbox (Aspect), the motes (Count
+	-- dots of Size pixels drifting Drift screens a second), the cross flares
+	-- (Long / Short arms, Thick, Core: of the picture's height), the sparkles
+	-- (Size: of the picture's height), the lightning at the edge (Count bolts
+	-- of Segs, Width pixels), the strobe (a frame every Strobe seconds); the
+	-- layer's DisplayOrder
+	Aspect = 2.35,
+	Motes = { Count = 26, Size = { 2, 5 }, Drift = 0.05 },
+	Flare = { Long = 0.9, Short = 0.55, Thick = 0.012, Core = 0.05 },
+	Sparkles = { Size = { 0.025, 0.06 } },
+	Bolts = { Count = 3, Segs = 9, Width = 3, Color = Color3.fromRGB(255, 176, 48) },
+	Strobe = 0.033,
+	Screen = { Order = 60 },
+	-- the 3D pieces (every screen): the smoke round him and the sparks off his
+	-- gauntlets (rate, size, life), the bead (Bubble / Core studs across, its
+	-- Light), the smoke wall (its emitters, Width studs across), the ring and
+	-- the disc on the street (radii: white core, orange band, red rim; the
+	-- disc grows over Grow; Pillar: width, height; Beam: its glow), the
+	-- leap's white world (Back: the sheet this far past him; Sheet: its
+	-- size), the embers (Count, Size, Life)
+	Smoke = { Rate = 18, Size = { 4, 9 }, Life = { 1.6, 2.6 }, Color = Color3.fromRGB(214, 196, 168) },
+	Sparks = { Rate = 34, Size = 0.32, Life = { 0.25, 0.5 } },
+	Bead = { Bubble = 0.95, Core = 0.36, Light = 4, Range = 9, Color = Color3.fromRGB(255, 120, 34) },
+	Wall = { Rate = 46, Size = { 7, 14 }, Width = 26, Life = { 1.2, 2 } },
+	Disc = { Core = 9, Band = 11, Rim = 13.5, Grow = 0.3, Pillar = { 2, 70 }, Beam = 0.5 },
+	Leap = { Back = 3, Sheet = 600 },
+	-- the ring's shot: the beam of light down out of his fist (Width, Color,
+	-- Alpha, its Light); the ring sweeping across the lens (the two screens:
+	-- From / To { x, y, width } of the picture, Tilt degrees, Flat: its height
+	-- for its width, Thick: its edge in pixels)
+	RingBeam = { Width = 0.45, Color = Color3.fromRGB(255, 96, 30), Alpha = 0.15, Light = 6 },
+	Sweep = { From = { 0.25, 0.9, 0.35 }, To = { 0.6, 0.72, 0.75 }, Tilt = -32, Flat = 0.3, Thick = 9 },
+	Embers = { Count = 22, Size = { 0.08, 0.18 }, Life = 0.9 },
+	-- what's said (the two screens: a line under the picture) - two, short
+	Lines = { { At = 1.3, Hold = 0.9, Text = "IT'S PAIN." }, { At = 5.55, Hold = 1.4, Text = "EXPLOSIVE SPEED!!" } },
+	-- the sounds (Config.Sounds cues) on their beats: { t, cue, gain }
+	Sounds = {
+		{ 0.05, "ESpeedRiser" }, { 1.6, "ESpeedTing" }, { 2.6, "ESpeedImpact" }, { 2.75, "ESpeedRing" }, { 3.2, "ESpeedDisc" },
+		{ 3.65, "ESpeedImpact" }, { 4.0, "BlitzGo" }, { 4.7, "ESpeedTing" }, { 5.03, "BlitzOpen" }, { 5.44, "ESpeedImpact" },
+		{ 5.5, "BlitzPass" }, { 5.95, "BlitzBoom" }, { 6.6, "BlitzPass" }, { 6.95, "BlitzBoom" }, { 9.0, "BigExplosion", 1.15 }, { 9.75, "ESpeedTing" },
+	},
+	Low = { Particles = 0.5 }, -- (a low-end machine: this much of every emitter)
 }
 -- (round 77) whose punches sound like their own (by the attacker's quirk):
 -- { light hit cue, heavy hit cue }
@@ -7311,6 +8816,11 @@ Config.HitSounds = {
 	FierceWings = { "FeatherHit", "FeatherHeavyHit", M1 = { "FeatherSlash", "FeatherSlashHeavy" } },
 	Saitama = { "SaitamaHit", "SaitamaHeavyHit" }, -- (round 90) a dull, heavy thud with something cartoonish in it
 	Whirlwind = { "InasaHit", "InasaHeavyHit" }, -- (round 92) a meaty punch with a burst of air behind it
+	Mob = { "MobHit", "MobHeavyHit" }, -- (round 102) no fist: a dull psychic thump and a snap of pressure
+	DarkShadow = { "TokoHit", "TokoHeavyHit" }, -- (round 102) Dark Shadow's claws: a wet, dark tear (the 4th a slam)
+	CMoon = { "CMoonHit", "CMoonHeavyHit" }, -- (round 103) C-MOON's fists: a dry crack on a body thump (the heavy one with a sub under it)
+	StarPlatinum = { "SPHit", "SPHeavyHit" }, -- (round 104) Star Platinum's fists (the JJBA place's punch hits)
+	POM = { "POMHitM1", "POMHeavyHit" }, -- (round 104) his fists, the void on them
 }
 
 Config.Audio = {
@@ -7705,6 +9215,14 @@ Config.Sounds = {
 	BlitzPass = { Gap = 0.05, { Id = L.WhooshBurst, Volume = 0.8, Speed = 1.6, Length = 0.3 }, { Id = L.WhooshSwishBy, Volume = 0.7, Speed = 1.4, Length = 0.3 } },
 	BlitzBoom = { Gap = 0.05, { Id = L.SonicCrack, Volume = 0.7, Speed = { 1.15, 1.3 }, Length = 0.5, Fade = 0.2, Peak = true }, { Id = L.ExplosionCrack, Volume = 0.5, Speed = 2, Length = 0.2 } },
 	BlitzHit = { Gap = 0.05, { Id = L.ExplosionCrack, Volume = 1.1, Speed = { 1.2, 1.4 }, Length = 0.45 }, { Id = L.WhooshExplosion, Volume = 0.6, Speed = 1.35, Length = 0.35 }, { Id = L.BodyImpact, Volume = 0.8, Speed = 1.3, Length = 0.3 } },
+	-- (round 102) EXPLOSIVE SPEED's cutscene (Config.ESpeed.Sounds): the
+	-- realization's riser (its top on the launch), the bead's ting, the
+	-- black-and-white frames' boom, the ring's sweep and the disc's roar
+	ESpeedRiser = { Range = 300, { Id = L.ESpeedRiser, Volume = 2.2, Length = 4.05, Fade = 0.1 }, { Id = L.EnergyGrowl, Volume = 0.5, Speed = 0.6, Delay = 2.4, Length = 1.6, Fade = 0.3 } },
+	ESpeedTing = { Range = 200, Gap = 0.1, { Id = L.BladeRing, Volume = 0.7, Speed = 1.6, Length = 0.6, Fade = 0.35 } },
+	ESpeedImpact = { Range = 300, Gap = 0.1, { Id = L.SubBoom, Volume = 1.3, Speed = 0.85, Length = 0.8, Fade = 0.4 }, { Id = L.ExplosionCrack, Volume = 0.7, Speed = 0.9, Length = 0.4 } },
+	ESpeedRing = { Range = 300, { Id = L.WhooshBurst, Volume = 1.2, Speed = 0.8, Length = 0.6 }, { Id = L.SuckShort, Volume = 1.4, Speed = 0.9, Length = 0.5, Fade = 0.2 } },
+	ESpeedDisc = { Range = 400, { Id = L.PowerBoom, Volume = 1.1, Speed = 0.8, Length = 0.9, Fade = 0.4 }, { Id = L.BigBoomTail, Volume = 0.8, Length = 1.2, Fade = 0.6 } },
 	HowitzerSpin = {
 		{ Id = L.ExplosionCrack, Volume = 1.18, Speed = 1.4, Length = 0.3 },
 		{ Id = L.ExplosionCrack, Volume = 1.18, Speed = 1.5, Length = 0.3, Delay = 0.18 },
@@ -8713,6 +10231,563 @@ Config.Sounds = {
 		{ Id = L.FlyGust, Volume = 1.3, Delay = 0.1, Length = 2.4, Fade = 1.4, Near = 40 },
 		{ Id = L.VortexBlast, Volume = 1, Length = 1.2, Fade = 0.6 },
 		{ Id = L.DirtBurst, Volume = 0.7, Delay = 0.05, Length = 1, Fade = 0.5 },
+	},
+	-- (round 102) MOB. Every take is the library's own, already in L. No
+	-- fists: a dull thump of pressure and the snap of it; his power a soft
+	-- shimmer, never a roar - until ???%, and the building.
+	-- ((round 102) round 2: THE M1s, layered - the swing's whoosh (MobFlick,
+	-- every swing: a whiff is only that), then on a landed hit a dull
+	-- psychic thump and a crisp snap (MobHit), the 4th a heavier boom
+	-- (MobHeavyHit) and their landing (MobM1Slam))
+	MobHit = {
+		Gap = 0.03,
+		{ Id = L.BoomThump, Volume = 0.75, Speed = { 1.15, 1.3 }, Length = 0.35 },
+		{ Id = L.BodyImpact, Volume = 0.55, Speed = { 0.85, 0.95 }, Length = 0.3 },
+		{ Id = L.EnergySnap, Volume = 0.5, Speed = { 1.35, 1.55 }, Length = 0.22 },
+		{ Id = L.SonicCrack, Volume = 0.18, Speed = { 1.6, 1.8 }, Length = 0.2 },
+	},
+	MobHeavyHit = {
+		Gap = 0.04,
+		{ Id = L.BodySlamThump, Volume = 1, Speed = { 0.85, 0.95 }, Length = 0.7 },
+		{ Id = L.AirPound, Volume = 0.7, Speed = 1.2, Length = 0.6, Peak = true },
+		{ Id = L.EnergySnap, Volume = 0.6, Speed = 1.1, Length = 0.3 },
+		{ Id = L.SubBoom, Volume = 0.9, Speed = { 1, 1.1 }, Length = 0.9 },
+	},
+	-- the flick (an M1's swing): a quick slice of air and a faint snap
+	MobFlick = {
+		{ Id = L.AirySlice, Volume = 1, Speed = { 1.2, 1.4 }, Length = 0.25 },
+		{ Id = L.SwishThin, Volume = 0.45, Speed = { 1.3, 1.5 }, Length = 0.2 },
+		{ Id = L.EnergySnap, Volume = 0.16, Speed = { 1.6, 1.8 }, Length = 0.15 },
+	},
+	-- the 4th's landing: dropped on the street (the thud, the crack, the grit)
+	MobM1Slam = {
+		Gap = 0.05,
+		{ Id = L.BodyFallHuge, Volume = 0.9, Speed = { 1, 1.1 }, Length = 0.8 },
+		{ Id = L.BoulderCrack, Volume = 0.6, Speed = 1.2, Length = 0.6 },
+		{ Id = L.DirtBurst, Volume = 0.5, Speed = 1.1, Length = 0.5 },
+	},
+	-- his power gathering at his hand (a move's wind-up): drawn in, humming
+	MobGather = {
+		{ Id = L.SuckShort, Volume = 0.45, Speed = 1.25, Length = 0.5 },
+		{ Id = L.MagicFlutter, Volume = 0.35, Speed = 1.3, Length = 0.6, Fade = 0.3 },
+	},
+	-- his power going out of him (a move's start): a soft rising shimmer
+	MobPsychic = {
+		{ Id = L.PowerUp, Volume = 0.5, Speed = { 1.15, 1.3 }, Length = 0.6, Fade = 0.3 },
+		{ Id = L.MagicZoom, Volume = 0.35, Speed = 1.4, Length = 0.5, Fade = 0.3 },
+	},
+	-- LIFT: up off the street, held there rattling, slammed down
+	MobLiftUp = {
+		{ Id = L.SuckShort, Volume = 0.8, Length = 0.6 },
+		{ Id = L.AscendWhoosh, Volume = 1 },
+		{ Id = L.StoneGrind, Volume = 0.5, Speed = 1.4, Length = 0.5 },
+	},
+	MobLiftHold = { { Id = L.GlassShiver, Volume = 0.7, Speed = 1.2, Length = 0.8, Fade = 0.3 } },
+	MobLiftSlam = {
+		{ Id = L.BodySlamThump, Volume = 1.4, Speed = 0.8, Length = 0.9, Peak = true },
+		{ Id = L.DeepImpact7, Volume = 0.8, Length = 0.6 },
+		{ Id = L.BoulderCrack, Volume = 0.8, Delay = 0.03, Length = 0.9 },
+		{ Id = L.SubBoom, Volume = 1 },
+	},
+	-- PSYCHIC BARRIER: up (the air sucked tight round him), a hit on it, down
+	MobBarrierUp = {
+		{ Id = L.LightSuck, Volume = 0.7, Length = 0.8, Fade = 0.3 },
+		{ Id = L.PowerUp, Volume = 0.8, Speed = 1.1, Length = 0.9, Fade = 0.4 },
+		{ Id = L.SweepAperture, Volume = 0.5, Speed = 1.3, Length = 1, Fade = 0.5 },
+	},
+	MobBarrierHit = {
+		Gap = 0.05,
+		{ Id = L.PowerHit, Volume = 0.7, Speed = { 0.9, 1.1 }, Length = 0.5 },
+		{ Id = L.BladeRing, Volume = 0.3, Speed = 1.6, Length = 0.4 },
+	},
+	MobBarrierEnd = { { Id = L.LightSuck, Volume = 0.5, Speed = 1.3, Length = 0.5, Fade = 0.2 } },
+	-- DEBRIS STORM: the street torn up, the chunks wheeling round him, each
+	-- one thrown, each one landing
+	MobDebrisRip = {
+		{ Id = L.EarthCracking, Volume = 1.2, Length = 1.4, Fade = 0.6 },
+		{ Id = L.RockBurst, Volume = 0.8, Speed = 1.1, Length = 1 },
+		{ Id = L.StoneGrind, Volume = 1, Speed = 0.9, Length = 0.8 },
+	},
+	MobDebrisOrbit = {
+		{ Id = L.DebrisMove, Volume = 1, Length = 0.8 },
+		{ Id = L.HowlingWind, Volume = 0.4, Speed = 1.4, Length = 0.8, Fade = 0.3 },
+	},
+	MobDebrisThrow = {
+		Gap = 0.06,
+		{ Id = L.WhooshSwishBy, Volume = 0.9, Speed = { 1.1, 1.3 }, Length = 0.4 },
+		{ Id = L.GiantSwish, Volume = 0.4, Speed = 1.3, Length = 0.4 },
+	},
+	MobDebrisHit = {
+		Gap = 0.05,
+		{ Id = L.BoulderCrack, Volume = 0.9, Speed = { 0.9, 1.1 }, Length = 0.7 },
+		{ Id = L.DebrisImpact, Volume = 0.8, Length = 0.8 },
+	},
+	-- SPIRIT WAVE: a palm out, and the air in front of him goes
+	MobWave = {
+		{ Id = L.AirPound, Volume = 1.2, Length = 1.2, Peak = true },
+		{ Id = L.SonicPressure, Volume = 0.8, Length = 1.4, Fade = 0.8 },
+		{ Id = L.WindBlast, Volume = 0.8, Length = 1.2, Fade = 0.6 },
+		{ Id = L.SubBoom, Volume = 1 },
+	},
+	-- FLOAT: off the street on nothing; down again, softly
+	MobFloat = {
+		{ Id = L.AscendWhoosh, Volume = 0.8 },
+		{ Id = L.MagicZoom, Volume = 0.5, Speed = 0.8, Length = 1, Fade = 0.5 },
+	},
+	MobFloatLand = {
+		{ Id = L.BodyFall, Volume = 0.4, Speed = 1.3, Length = 0.3 },
+		{ Id = L.AirRelease, Volume = 0.6, Length = 0.6 },
+	},
+	-- the awakening: the counter breaking - the air sucked out, a crack, the
+	-- pressure, every window in the street shivering, thunder rolling off
+	UltMob = {
+		Range = 900,
+		{ Id = L.SubSuck, Volume = 1, Length = 0.6 },
+		{ Id = L.SonicCrack, Volume = 0.6, Delay = 0.02 },
+		{ Id = L.AirPound, Volume = 1.2, Length = 1.2, Peak = true },
+		{ Id = L.ThunderRoll, Volume = 0.6, Delay = 0.05, Length = 3, Fade = 2, Near = 40 },
+		{ Id = L.GlassShiver, Volume = 1, Length = 2.5, Fade = 1.5 },
+		{ Id = L.PowerBoom, Volume = 0.6 },
+	},
+	-- ((round 102) round 2) THE BUILDING (???%: SKYSCRAPER). Played FLAT on
+	-- every screen (the whole city hears it, each machine at its own gain by
+	-- how far it is: VFX.MOB.far) - the loudest thing in his kit. Torn out of
+	-- the street (the quake, the street cracking, glass and grit raining off
+	-- it); the long rumble as it rises; its groan as it hangs over him;
+	-- turned end-first (stone and girders straining, the air drawn in);
+	-- thrown (the giant whoosh, the air torn); THE IMPACT (the quake, the
+	-- boom, thunder, a wall of glass and concrete, the rubble raining after);
+	-- pulled out of the street again; set down in its lot
+	MobBuildingTear = {
+		{ Id = L.QuakeBlast, Volume = 1.7, Length = 3.5, Fade = 2 },
+		{ Id = L.EarthCracking, Volume = 1.6, Length = 2.5, Fade = 1 },
+		{ Id = L.Rumbler, Volume = 1.4, Length = 4, Fade = 2 },
+		{ Id = L.StoneGrind, Volume = 1.4, Speed = 0.6, Length = 2.6, Fade = 1 },
+		{ Id = L.GlassDebris, Volume = 1.1, Delay = 0.35, Length = 2.4, Fade = 1 },
+		{ Id = L.WallCrashRubble, Volume = 0.9, Delay = 0.5, Length = 2.2, Fade = 1 },
+	},
+	MobBuildingRise = {
+		{ Id = L.FlyHyperRumble, Volume = 1.6, Length = 3, Fade = 1, FadeIn = 0.5 },
+		{ Id = L.Quake, Volume = 0.8, Length = 2.5, Fade = 1.5 },
+	},
+	MobBuildingGroan = {
+		{ Id = L.StoneGrind, Volume = 2, Speed = 0.42, Length = 2.6, Fade = 1.2 },
+		{ Id = L.WoodCreak, Volume = 1.2, Speed = 0.5, Length = 2, Fade = 1 },
+		{ Id = L.MetalCrash, Volume = 0.5, Speed = 0.45, Delay = 0.3, Length = 1.6, Fade = 1 },
+	},
+	MobBuildingWindup = {
+		{ Id = L.SubSuck, Volume = 1.2, Speed = 0.9, Length = 0.8, Fade = 0.3 },
+		{ Id = L.StoneGrind, Volume = 1.6, Speed = 0.55, Length = 1.2, Fade = 0.6 },
+		{ Id = L.MetalCrash, Volume = 0.7, Speed = 0.5, Length = 1, Fade = 0.6 },
+	},
+	MobBuildingThrow = {
+		{ Id = L.GiantSwish, Volume = 1.6, Speed = 0.5, Length = 1.4 },
+		{ Id = L.FlyByWhomp, Volume = 1.2, Speed = 0.65, Length = 1.4, Fade = 0.6 },
+		{ Id = L.TearingAir, Volume = 1, Speed = 0.8, Length = 1.2, Fade = 0.5 },
+		{ Id = L.WindRoar, Volume = 0.8, Speed = 0.8, Length = 1.2, Fade = 0.6 },
+	},
+	MobBuildingImpact = {
+		{ Id = L.QuakeBlast, Volume = 2.4, Length = 4.5, Fade = 2.8, Near = 80 },
+		{ Id = L.DeepImpact, Volume = 1.8, Length = 4, Peak = true, Fade = 2.4, Near = 80 },
+		{ Id = L.ThunderBlast, Volume = 1.3, Length = 4, Fade = 2.5, Near = 80 },
+		{ Id = L.WallCrash, Volume = 1.8 },
+		{ Id = L.GlassSmash, Volume = 1.5, Delay = 0.06 },
+		{ Id = L.SubBoom, Volume = 1.8, Speed = 0.7 },
+		{ Id = L.BigBoomTail, Volume = 1.2, Delay = 0.1, Length = 5, Fade = 3.5 },
+		{ Id = L.RockBurst, Volume = 1.3, Speed = 0.8, Delay = 0.25, Length = 2.5, Fade = 1.2 },
+		{ Id = L.GlassDebris, Volume = 1.2, Delay = 0.45, Length = 2.6, Fade = 1.2 },
+	},
+	MobBuildingPull = {
+		{ Id = L.EarthCracking, Volume = 1.5, Length = 2, Fade = 1 },
+		{ Id = L.StoneGrind, Volume = 1.4, Speed = 0.55, Length = 1.8, Fade = 1 },
+		{ Id = L.DebrisMove, Volume = 1.2, Speed = 0.8, Length = 1.5, Fade = 0.8 },
+	},
+	MobBuildingSetDown = {
+		{ Id = L.QuakeBlast, Volume = 1.6, Length = 3, Fade = 2 },
+		{ Id = L.EarthCracking, Volume = 1.6, Delay = 0.05, Length = 2.2, Fade = 1 },
+		{ Id = L.StoneGrind, Volume = 1.4, Speed = 0.6, Length = 2, Fade = 1 },
+		{ Id = L.Rumbler, Volume = 1.2, Length = 3, Fade = 2 },
+	},
+	-- a slab of the street (nothing in reach) crumbling after its throw
+	MobSlabCrumble = {
+		{ Id = L.RockBurst, Volume = 1.2, Length = 1.4 },
+		{ Id = L.DebrisImpact, Volume = 1, Delay = 0.1, Length = 1.2 },
+	},
+	-- his counter: a tick for every %, and its break to ???%
+	MobCounterTick = {
+		{ Id = L.SwordTick, Volume = 0.6, Speed = 1.7, Length = 0.12 },
+		{ Id = L.EnergySnap, Volume = 0.25, Speed = 2, Length = 0.12 },
+	},
+	MobCounterBreak = {
+		{ Id = L.GlassBreak, Volume = 0.9, Speed = 1.2 },
+		{ Id = L.Static, Volume = 0.6, Speed = 0.8, Length = 0.5 },
+	},
+	-- (round 102) TOKOYAMI - DARK SHADOW. Its voice is layered out of the
+	-- library's creature takes (the giant crab monster's growl and roar, the
+	-- lion's searing roar, the beast's gargled inhale, the energy growl),
+	-- pitched by how big it is; its body is wet shadow (a fleshy slap, a
+	-- juicy splat, a suction pop) and cloth (his cloak, its wings); its
+	-- claws a blade's scrape and swish. Out of his chest: a suck of air, it
+	-- unfurling, a low growl. ((round 102 review) Its voice up: the creature
+	-- takes are quiet files - the kaiju plays the same roar at 3.2, the
+	-- Nomu at 1.8 - and at 0.45-0.8 its growls sat under its own swishes)
+	TokoEmerge = {
+		{ Id = L.SuckShort, Volume = 0.5, Speed = 1.3, Length = 0.35, Fade = 0.15 },
+		{ Id = L.ClothBloom, Volume = 0.5, Speed = 1.4, Length = 0.4, Fade = 0.2 },
+		{ Id = L.MonsterGrowl, Volume = 0.9, Speed = 1.5, Length = 0.5, Fade = 0.25 },
+	},
+	-- a claw raked through the air (the M1's swing); the 4th coming down
+	TokoClaw = {
+		{ Id = L.SwishLarge, Volume = 0.8, Speed = { 0.75, 0.85 } },
+		{ Id = L.SwordFoil, Volume = 0.5, Speed = { 0.7, 0.8 }, Length = 0.4 },
+		{ Id = L.CapeFlap, Volume = 0.35, Speed = 1.2, Length = 0.3, Fade = 0.15 },
+	},
+	TokoClawHeavy = {
+		{ Id = L.GiantSwish, Volume = 1.0, Speed = 0.8, Length = 0.8 },
+		{ Id = L.MonsterGrowl, Volume = 1.1, Speed = 1.2, Length = 0.6, Fade = 0.3 },
+	},
+	-- a claw landing (his HitSounds): wet, dark, torn; the 4th's slam
+	TokoHit = {
+		{ Id = L.MeatyThud, Volume = 0.9, Speed = { 0.85, 0.95 } },
+		{ Id = L.JuicySplat, Volume = 0.35, Speed = { 1.2, 1.4 }, Length = 0.3 },
+		{ Id = L.BladeScrape, Volume = 0.4, Speed = 1.3, Length = 0.25, Fade = 0.1 },
+	},
+	TokoHeavyHit = {
+		{ Id = L.BodySlamThump, Volume = 1.2 },
+		{ Id = L.GutsSplat, Volume = 0.6, Speed = 0.9, Length = 0.5 },
+		{ Id = L.SubBoom, Volume = 0.8, Speed = 0.9 },
+		{ Id = L.BladeScrape, Volume = 0.5, Speed = 1.1, Length = 0.35, Fade = 0.15 },
+	},
+	TokoSlamGround = {
+		{ Id = L.DeepImpact7, Volume = 1.0 },
+		{ Id = L.EarthCrack, Volume = 0.7, Length = 1, Fade = 0.5 },
+		{ Id = L.DirtBurst, Volume = 0.6, Length = 0.8 },
+	},
+	-- its voice: small (out, pleased with itself), big (risen over him, the counter)
+	TokoGrowl = {
+		{ Id = L.MonsterGrowl, Volume = 1.1, Speed = { 1.35, 1.6 }, Length = 0.7, Fade = 0.3 },
+		{ Id = L.EnergyGrowl, Volume = 0.3, Speed = 0.7, Length = 0.5 },
+	},
+	TokoRoar = {
+		{ Id = L.MonsterRoar, Volume = 1.6, Speed = { 1.05, 1.2 }, Length = 1.4, Fade = 0.6 },
+		{ Id = L.BeastRumble, Volume = 0.7, Speed = 1.1, Length = 1.2, Fade = 0.5 },
+	},
+	-- 1: DARK SHADOW - flung out down the line; shut on them; hauled back; dropped
+	TokoLunge = {
+		{ Id = L.GiantSwish, Volume = 1.0, Speed = 1.15 },
+		{ Id = L.MagicZoom, Volume = 0.6, Speed = 0.8, Length = 0.6 },
+		{ Id = L.MonsterGrowl, Volume = 1.0, Speed = 1.4, Length = 0.6, Fade = 0.3 },
+	},
+	TokoGrab = {
+		{ Id = L.JuicySplat, Volume = 0.6, Speed = 0.9, Length = 0.4 },
+		{ Id = L.MeatyThud, Volume = 0.9, Speed = 0.8 },
+		{ Id = L.CanPop, Volume = 0.5, Speed = 0.6 },
+	},
+	-- ((round 102 review) its "AIYO!" on a catch (with the shout over its
+	-- head - Config.Tokoyami.Shout): the creature takes pitched way up into
+	-- a small, pleased squawk - the snap of its beak, the "ai" (the roar's
+	-- front, chirped), the "yo!" a beat after (the growl, squeaked)
+	TokoAiyo = {
+		Gap = 0.2,
+		-- (the creature takes are quiet files - the kaiju plays them at 1.4-3.2)
+		{ Id = L.EnergySnap, Volume = 0.5, Speed = 1.6, Length = 0.15 },
+		{ Id = L.MonsterRoar, Volume = 1.3, Speed = { 2.2, 2.4 }, Length = 0.24, Fade = 0.08 },
+		{ Id = L.MonsterGrowl, Volume = 1.4, Speed = { 2.0, 2.15 }, Length = 0.36, Fade = 0.16, Delay = 0.17 },
+	},
+	TokoDrag = {
+		{ Id = L.FlyByWhomp, Volume = 0.7, Speed = 1.1, Length = 0.6, Fade = 0.3 },
+		{ Id = L.ClothBloom, Volume = 0.4, Speed = 0.9, Length = 0.5 },
+	},
+	TokoDrop = {
+		{ Id = L.BodySlamThump, Volume = 1.1 },
+		{ Id = L.BodyFall, Volume = 0.8 },
+		{ Id = L.DirtBurst, Volume = 0.5, Length = 0.7 },
+	},
+	-- 2: ABYSSAL CLAW - risen huge over him (the air drawn in, the roar, its
+	-- arms opening like wings); both claws down: the street and a dark wave
+	TokoClawRise = {
+		{ Id = L.TuttiSuck, Volume = 0.8, Length = 0.6, Fade = 0.2 },
+		{ Id = L.MonsterRoar, Volume = 1.7, Speed = 0.95, Length = 1.0, Fade = 0.5 },
+		{ Id = L.WingFlapBig, Volume = 0.8, Speed = 0.7 },
+	},
+	TokoClawSlam = {
+		{ Id = L.DeepImpact7, Volume = 1.4 },
+		{ Id = L.BodySlamThump, Volume = 1.3 },
+		{ Id = L.GutsSplat, Volume = 0.7, Speed = 0.8, Length = 0.6 },
+		{ Id = L.EarthCracking, Volume = 1.1, Length = 1.6, Fade = 0.8 },
+		{ Id = L.SubBoom, Volume = 1.2, Speed = 0.8 },
+		{ Id = L.AirPound, Volume = 0.8, Speed = 0.8 },
+	},
+	-- 3: SHADOW GUARD - wrapped round him; a hit stopped on it; its claw
+	-- lashed out at them; let go
+	TokoGuardUp = {
+		{ Id = L.ClothBloom, Volume = 0.8, Speed = 0.8, Length = 0.6 },
+		{ Id = L.WingFlapBig, Volume = 0.7, Speed = 0.85 },
+		{ Id = L.EnergyGrowl, Volume = 0.5, Speed = 0.6, Length = 0.6, Fade = 0.3 },
+	},
+	TokoGuardHit = {
+		{ Id = L.MeatyThud, Volume = 0.9, Speed = 0.7 },
+		{ Id = L.SwordClash, Volume = 0.35, Speed = 0.6, Length = 0.3 },
+		{ Id = L.EnergySnap, Volume = 0.4, Speed = 0.7 },
+	},
+	TokoCounter = {
+		{ Id = L.SwishLarge, Volume = 1.0, Speed = 0.7 },
+		{ Id = L.MonsterGrowl, Volume = 1.1, Speed = 1.25, Length = 0.6, Fade = 0.3 },
+		{ Id = L.SwordFoil, Volume = 0.5, Speed = 0.7, Length = 0.4 },
+	},
+	TokoGuardEnd = { { Id = L.LightSuck, Volume = 0.45, Speed = 1.3, Length = 0.4, Fade = 0.2 } },
+	-- 4: BLACK ANKH - poured over him and set as armour; let go of him; his
+	-- own clawed arm raking (its M1s' swing)
+	TokoAnkhOn = {
+		{ Id = L.FleshReshape, Volume = 0.8, Speed = 0.8 },
+		{ Id = L.ClothBloom, Volume = 0.7, Speed = 0.7, Length = 0.6 },
+		{ Id = L.PowerUp, Volume = 0.6, Speed = 0.7, Length = 0.8, Fade = 0.3 },
+		{ Id = L.MonsterGrowl, Volume = 1.0, Speed = 1.1, Length = 0.7, Fade = 0.3 },
+	},
+	TokoAnkhOff = {
+		{ Id = L.LightSuck, Volume = 0.6, Speed = 1.1, Length = 0.5, Fade = 0.2 },
+		{ Id = L.ClothTick, Volume = 0.5, Speed = 0.8 },
+	},
+	TokoAnkhSlash = {
+		{ Id = L.SwordFoil, Volume = 0.8, Speed = { 0.8, 0.9 } },
+		{ Id = L.BladeScrape, Volume = 0.45, Speed = 1.2, Length = 0.3, Fade = 0.1 },
+		{ Id = L.SwishThin, Volume = 0.6, Speed = 0.9 },
+	},
+	-- R: BLACK FALLEN ANGEL - the wings out and up off the street; each beat;
+	-- down again; (and his cloak thrown about - a dash)
+	TokoFly = {
+		{ Id = L.WingFlapsDragon, Volume = 1.2, Speed = 0.9 },
+		{ Id = L.AscendWhoosh, Volume = 0.8 },
+		{ Id = L.ClothBloom, Volume = 0.6, Speed = 0.8, Length = 0.6 },
+	},
+	TokoFlap = { { Id = L.WingFlapBig, Volume = 0.7, Speed = { 0.8, 0.95 } } },
+	TokoLand = {
+		{ Id = L.BodyFall, Volume = 0.6 },
+		{ Id = L.CapeSnap, Volume = 0.6, Speed = 0.9 },
+	},
+	TokoCloak = { { Id = L.CapeFlap, Volume = 0.5, Speed = { 0.9, 1.05 }, Length = 0.5, Fade = 0.2 } },
+	-- THE ULT: the press - the shadow seeping out of him (the air sucked into
+	-- it, the beast's breath); UltDarkShadow (the kit's hit sound) - it BURSTS
+	-- out of him roaring: the loudest thing in his kit; its roars and growls
+	-- while it's out; RAMPAGE; the finisher (engulfed)
+	TokoAwakenSeep = {
+		{ Id = L.TuttiSuck, Volume = 0.9, Length = 0.8, Fade = 0.3 },
+		{ Id = L.BeastRumble, Volume = 0.8, Speed = 0.7, Length = 1.2, Fade = 0.5 },
+		{ Id = L.EnergyGrowl, Volume = 0.6, Speed = 0.5, Length = 0.8, Fade = 0.3 },
+	},
+	UltDarkShadow = {
+		Range = 900, -- ((round 102 review) heard across the map like every hero's awakening hit (UltMob's, UltSaitama's...): it was the 400 default)
+		{ Id = L.MonsterRoar, Volume = 2.4, Speed = 0.8, Length = 2.6, Fade = 1.2 },
+		{ Id = L.RoarBlast, Volume = 1.8, Speed = 0.85, Length = 2.2, Fade = 1 },
+		{ Id = L.BeastRumble, Volume = 1.4, Speed = 0.7, Length = 2, Fade = 1 },
+		{ Id = L.SubSuck, Volume = 1.2, Length = 0.8, Fade = 0.3 },
+		{ Id = L.BigBoomTail, Volume = 1.4, Length = 4, Fade = 2.5 },
+		{ Id = L.WingFlapHuge, Volume = 1.2, Speed = 0.7 },
+	},
+	TokoUltRoar = {
+		{ Id = L.MonsterRoar, Volume = 1.9, Speed = { 0.8, 0.9 }, Length = 1.8, Fade = 0.8 },
+		{ Id = L.BeastRumble, Volume = 0.9, Speed = 0.75, Length = 1.4, Fade = 0.6 },
+	},
+	TokoUltGrowl = { { Id = L.MonsterGrowl, Volume = 1.5, Speed = { 0.8, 0.95 }, Length = 1.2, Fade = 0.5 } },
+	TokoRampage = {
+		{ Id = L.MonsterRoar, Volume = 2.1, Speed = 0.9, Length = 2, Fade = 0.8 },
+		{ Id = L.WhooshBurst, Volume = 1.0, Speed = 0.8 },
+		{ Id = L.WingFlapHuge, Volume = 1.0, Speed = 0.75 },
+	},
+	TokoRampageHit = {
+		{ Id = L.GiantSwish, Volume = 1.2, Speed = 0.75 },
+		{ Id = L.BodySlamThump, Volume = 1.2 },
+		{ Id = L.GutsSplat, Volume = 0.7, Speed = 0.8, Length = 0.6 },
+		{ Id = L.SubBoom, Volume = 1.0, Speed = 0.8 },
+	},
+	TokoSwallow = {
+		{ Id = L.GutsSplat, Volume = 1.0, Speed = 0.7 },
+		{ Id = L.MonsterGrowl, Volume = 1.4, Speed = 1.05, Length = 1.2, Fade = 0.5 },
+		{ Id = L.SubSuck, Volume = 0.8, Length = 0.8 },
+	},
+	-- (round 103) PUCCI / C-MOON (every take already in L: the r86 catalog's
+	-- licensed PSE / APM ids). C-MOON appearing (a reversed suck, a snap, a
+	-- thin ring); its jabs and its fists landing (a dry crack on a body
+	-- thump; the heavy one a sub under it); THE INSIDE-OUT POP (a turn - an
+	-- orchestral suck pitched way up, a resonant boom, a ring) and the second
+	-- touch FLIPPING IT BACK
+	CMoonOn = {
+		{ Id = L.SuckShort, Volume = 1.6, Speed = 1.4, Length = 0.4 },
+		{ Id = L.EnergySnap, Volume = 0.8, Speed = 1.3 },
+		{ Id = L.EarRing, Volume = 0.25, Speed = 1.6, Length = 0.4, Fade = 0.25 },
+	},
+	CMoonJab = { { Id = L.SwishThin, Volume = 0.8, Speed = { 1.3, 1.5 }, Length = 0.2 }, { Id = L.FeatherSwish, Volume = 0.7, Speed = { 1.2, 1.5 }, Length = 0.25 } },
+	CMoonHit = { { Id = L.CrackyPunch, Volume = 1.1, Speed = { 1.1, 1.3 }, Length = 0.3 }, { Id = L.BodyHit, Volume = 0.7 } },
+	CMoonHeavyHit = {
+		{ Id = L.CrackThud, Volume = 1.2, Speed = 0.9 },
+		{ Id = L.SubBoom, Volume = 0.8, Speed = 0.9, Length = 1, Fade = 0.5 },
+		{ Id = L.AirPound, Volume = 0.8, Peak = true },
+	},
+	CMoonInvert = {
+		{ Id = L.TuttiSuck, Volume = 1.1, Speed = 2.2, Length = 0.4, Fade = 0.15 },
+		{ Id = L.BoomThump, Volume = 1.0, Speed = 1.6 },
+		{ Id = L.EarRing, Volume = 0.4, Length = 0.5, Fade = 0.3 },
+	},
+	CMoonFlipBack = {
+		{ Id = L.SuckShort, Volume = 1.2, Speed = 1.8, Length = 0.35 },
+		{ Id = L.BoomThump, Volume = 1.1, Speed = 1.3 },
+		{ Id = L.PowerHit, Volume = 0.9 },
+		{ Id = L.SonicCrack, Volume = 0.7, Peak = true },
+	},
+	-- 1 USHAAAA!: the suck-in; the bed under the cracks (looped, its pitch
+	-- climbing, cut dead at the breath); a crack per tick (two takes, random
+	-- speed, never stacked: Gap); THE VITAL SPOT - louder and longer than
+	-- DORA's finish, the inside-out pop after it
+	CMoonRushStart = {
+		{ Id = L.SuckShort, Volume = 1.8, Speed = 1.2, Length = 0.45 },
+		{ Id = L.EnergySnap, Volume = 1.0 },
+		{ Id = L.WhooshBurst, Volume = 0.9, Speed = 1.4, Length = 0.5 },
+	},
+	CMoonRushBed = { { Id = L.FlyRush, Volume = 1.4, Speed = 1.5 } },
+	CMoonRushHit = {
+		Gap = 0.045,
+		{ Id = L.CrackyPunch, Volume = 1.0, Speed = { 1.1, 1.45 }, Length = 0.2 },
+		{ Id = L.FeatherSwish, Volume = 0.8, Speed = { 1.3, 1.7 }, Length = 0.15 },
+	},
+	CMoonRushFinish = {
+		Range = 500,
+		{ Id = L.CrackThud, Volume = 1.4, Speed = 0.8 },
+		{ Id = L.AirPound, Volume = 1.1, Peak = true },
+		{ Id = L.SubBoom, Volume = 1.3, Speed = 0.8, Length = 1.4, Fade = 0.6 },
+		{ Id = L.SonicCrack, Volume = 1.0, Peak = true },
+		{ Id = L.DeepImpact7, Volume = 1.2 },
+		{ Id = L.TuttiSuck, Volume = 0.9, Speed = 1.8, Length = 0.5, Fade = 0.2 },
+	},
+	-- 2 GRAVITY FLIP: the telegraph (a sub suck, a ring); everyone falling up
+	-- (the swell, the rise, windows and dishes rattling, a girder's groan);
+	-- its bed while they hang; the flip (a reversed suck, a whomp); a slam
+	-- per body (never stacked: Gap)
+	CMoonFlipCall = {
+		{ Id = L.SubSuck, Volume = 1.4, Length = 0.9, Fade = 0.3 },
+		{ Id = L.EarRing, Volume = 0.5, Length = 0.6, Fade = 0.3 },
+		{ Id = L.LightSuck, Volume = 0.9, Speed = 0.8, Length = 0.8, Fade = 0.3 },
+	},
+	CMoonFlipRise = {
+		{ Id = L.TuttiSuck, Volume = 1.0, Speed = 0.8, Length = 1.2, Fade = 0.4 },
+		{ Id = L.AscendWhoosh, Volume = 1.0, Speed = 0.8 },
+		{ Id = L.GlassShiver, Volume = 0.9, Length = 1.4, Fade = 0.6 },
+		{ Id = L.MetalCrash, Volume = 0.6, Speed = 0.6, Length = 1.2, Fade = 0.6 },
+	},
+	CMoonFlipBed = {
+		{ Id = L.FlyHyperRumble, Volume = 2.4, Speed = 0.7, Length = 1.4, Fade = 0.5 },
+		{ Id = { take("9119420108", 0) }, Volume = 1.4, Speed = 0.9, Length = 1.4, Fade = 0.5 }, -- (Spaceship Pass By 2: L.SpaceTone, the space block's)
+	},
+	CMoonFlipSnap = { { Id = L.SuckShort, Volume = 1.4, Speed = 0.7, Length = 0.5 }, { Id = L.FlyByWhomp, Volume = 1.0 } },
+	CMoonFlipSlam = {
+		Gap = 0.08, Range = 500,
+		{ Id = L.DeepImpact7, Volume = 1.3 },
+		{ Id = L.QuakeBlast, Volume = 1.1, Length = 1.5, Fade = 0.6 },
+		{ Id = L.EarthCracking, Volume = 1.0, Length = 1.6, Fade = 0.6 },
+		{ Id = L.BodySlamThump, Volume = 1.0 },
+	},
+	-- THE PASSIVE: he falls up (a light suck, the rise, an airy tone); his landing
+	CMoonFallUp = {
+		{ Id = L.LightSuck, Volume = 1.0, Speed = 0.9, Length = 0.8, Fade = 0.3 },
+		{ Id = L.AscendWhoosh, Volume = 1.0, Speed = 0.9 },
+		{ Id = { take("9119420108", 0) }, Volume = 0.8, Length = 1.2, Fade = 0.5 },
+	},
+	CMoonLand = { { Id = L.BodyFall, Volume = 0.8 }, { Id = L.LightSuck, Volume = 0.6, Speed = 1.4, Length = 0.5, Fade = 0.2 } },
+	CMoonDash = { { Id = L.LightSuck, Volume = 0.5, Speed = 1.6, Length = 0.4, Fade = 0.15 } }, -- (his dash: he falls sideways - the default dash's sound plays too)
+	-- MADE IN HEAVEN (the awakening's hit, heard across the map): a swell, a
+	-- long boom on a sub, the tail, a bell's toll (S.Ping pitched way down),
+	-- the burst - the loudest thing in his kit (a server check holds it)
+	UltCMoon = {
+		Range = 900,
+		{ Id = L.TuttiSuck, Volume = 1.6, Length = 1.4, Fade = 0.5 },
+		{ Id = L.PowerBoomLong, Volume = 1.8, Speed = 0.8 },
+		{ Id = L.SubBoom, Volume = 1.8, Speed = 0.6, Length = 2, Fade = 1 },
+		{ Id = L.BigBoomTail, Volume = 1.6, Length = 4, Fade = 2.5 },
+		{ Id = S.Ping, Volume = 1.2, Speed = 0.5, Length = 2.5, Fade = 1.5 },
+		{ Id = L.WhooshBurst, Volume = 1.2, Speed = 0.8 },
+		{ Id = L.SonicBoomAPM, Volume = 1.4 },
+	},
+	-- ((round 103, builder B) the rest of his kit) 3 INSIDE OUT: C-MOON's
+	-- palms on the street (a crack, a thump); the slabs torn up and turned
+	-- over (rock cracking, stone grinding, the inside-out suck pitched up);
+	-- thrown (a giant swish); each one landing (debris, a rock burst, a body);
+	-- the ult's (accelerated: the swish pitched up on a zoom)
+	CMoonPalm = { { Id = L.EarthCrack, Volume = 1.2 }, { Id = L.BoomThump, Volume = 0.9, Speed = 1.2 } },
+	CMoonTilesRip = {
+		{ Id = L.RockCrack, Volume = 1.1 },
+		{ Id = L.StoneGrind, Volume = 1.0, Length = 0.8, Fade = 0.3 },
+		{ Id = L.TuttiSuck, Volume = 0.6, Speed = 2, Length = 0.4, Fade = 0.15 },
+	},
+	CMoonTilesThrow = { { Id = L.GiantSwish, Volume = 1.1 }, { Id = L.WhooshBurst, Volume = 0.9, Speed = 1.3, Length = 0.5 } },
+	CMoonTileHit = { Gap = 0.05, { Id = L.DebrisImpact, Volume = 1.2 }, { Id = L.RockBurst, Volume = 1.0 }, { Id = L.BodyHit, Volume = 0.8 } },
+	HeavenTiles = { { Id = L.GiantSwish, Volume = 1.1, Speed = 1.5 }, { Id = L.MagicZoom, Volume = 0.9, Speed = 1.2 } },
+	-- R SELF-INVERSION: he turns himself inside out (the pop pitched higher,
+	-- a long ring); a hit passing through him (a short suck, a thin ring);
+	-- C-MOON's backhand (a big swish, a crack - the attacker's inside-out pop
+	-- is CMoonInvert's)
+	CMoonInvertSelf = {
+		{ Id = L.TuttiSuck, Volume = 1.0, Speed = 2.5, Length = 0.45, Fade = 0.15 },
+		{ Id = L.EarRing, Volume = 0.5, Length = 0.8, Fade = 0.4 },
+		{ Id = L.LightSwell, Volume = 0.7, Speed = 1.4, Length = 0.7, Fade = 0.3 },
+	},
+	CMoonPhase = { Gap = 0.06, { Id = L.SuckShort, Volume = 1.1, Speed = 2, Length = 0.3 }, { Id = L.EarRing, Volume = 0.35, Speed = 1.3, Length = 0.35, Fade = 0.2 } },
+	CMoonCounter = { { Id = L.SwishLarge, Volume = 1.0 }, { Id = L.CrackThud, Volume = 1.1 }, { Id = L.AirPound, Volume = 0.7, Peak = true } },
+	-- 4 NEW MOON: the uppercut (a crack, the air's pound, the rise); the sling
+	-- (a reversed suck, a whomp); the crash (heard far off); C-MOON's swing at nothing
+	CMoonUppercut = { { Id = L.CrackThud, Volume = 1.2 }, { Id = L.AirPound, Volume = 1.0, Peak = true }, { Id = L.AscendWhoosh, Volume = 1.0 } },
+	CMoonSling = { { Id = L.SuckShort, Volume = 1.3, Speed = 0.7, Length = 0.5 }, { Id = L.FlyByWhomp, Volume = 1.0 }, { Id = L.WhooshBurst, Volume = 0.8, Speed = 0.9, Length = 0.5 } },
+	CMoonCrash = {
+		Range = 500,
+		{ Id = L.DeepImpact7, Volume = 1.4 },
+		{ Id = L.QuakeBlast, Volume = 1.2, Length = 1.5, Fade = 0.6 },
+		{ Id = L.RockBurst, Volume = 1.0 },
+		{ Id = L.SubBoom, Volume = 1.1, Length = 1.2, Fade = 0.5 },
+	},
+	CMoonWhiff = { { Id = L.SwishLarge, Volume = 0.8, Speed = 1.2 } },
+	-- THE FINISHER (ONLY ONCE. AT A VITAL SPOT.): one slow crack, the
+	-- inside-out suck, a ring, a sub
+	CMoonVital = {
+		{ Id = L.CrackThud, Volume = 1.4, Speed = 0.75 },
+		{ Id = L.TuttiSuck, Volume = 1.0, Speed = 1.6, Length = 0.5, Fade = 0.2 },
+		{ Id = L.EarRing, Volume = 0.6, Length = 0.8, Fade = 0.4 },
+		{ Id = L.SubBoom, Volume = 1.2, Speed = 0.7, Length = 1.4, Fade = 0.6 },
+	},
+	-- MADE IN HEAVEN: the press (the riser, a clock ticking under it); C-MOON
+	-- breaking into light (glass, a snap); the ult's clock (its tick, every
+	-- screen near him, faster as it goes - Gap keeps two from stacking)
+	CMoonAwakenRise = {
+		{ Id = L.AwakenRiser, Volume = 1.4 },
+		{ Id = L.SwordTick, Volume = 0.6, Speed = 0.55 },
+		{ Id = L.WoodClunk, Volume = 0.4, Speed = 1.6, Delay = 0.15 },
+	},
+	CMoonShatter = { { Id = L.GlassSmash, Volume = 0.9, Speed = 1.3 }, { Id = L.EnergySnap, Volume = 0.8, Speed = 0.8 } },
+	HeavenTick = { Gap = 0.1, Range = 300, { Id = L.SwordTick, Volume = 0.9, Speed = { 0.55, 0.8 }, Length = 0.25 }, { Id = L.WoodClunk, Volume = 0.5, Speed = 1.6, Length = 0.2 } }, -- (DIO's ClockTick's two takes, a touch higher)
+	-- the ult's moves: HEAVEN'S RUSH (a crack and a tick per hit); TIME
+	-- ACCELERATION (the zoom out of time; a blade slash per one); ACCELERATE
+	-- (a zoom, a burst); THE NEW WORLD (the riser over the roar - the
+	-- white-out: the long boom, the sonic boom, the tail, the swell, the
+	-- bell - just under MADE IN HEAVEN's own hit)
+	HeavenRushHit = { Gap = 0.035, { Id = L.CrackyPunch, Volume = 1.0, Speed = { 1.2, 1.5 }, Length = 0.2 }, { Id = L.SwordTick, Volume = 0.6, Speed = { 1.3, 1.6 }, Length = 0.2 } },
+	HeavenBlitzGo = { { Id = L.MagicZoom, Volume = 1.0 }, { Id = L.SuckShort, Volume = 1.2, Speed = 1.6, Length = 0.35 } },
+	HeavenBlitzSlash = {
+		Gap = 0.04,
+		{ Id = L.SwordFoil, Volume = 1.0 },
+		{ Id = L.SwishThin, Volume = 0.9, Speed = 1.6, Length = 0.25 },
+		{ Id = L.BladeScrape, Volume = 0.6, Length = 0.4, Fade = 0.2 },
+	},
+	HeavenStep = { { Id = L.MagicZoom, Volume = 1.1 }, { Id = L.WhooshBurst, Volume = 0.9, Speed = 1.5, Length = 0.5 } },
+	NewWorldRise = {
+		Range = 900,
+		{ Id = L.CriticalRiser, Volume = 1.6 },
+		{ Id = L.FlyHyperRumble, Volume = 2.0, Speed = 0.6, Length = 3.2, Fade = 0.5, FadeIn = 0.8 },
+		{ Id = L.SwordTick, Volume = 0.7, Speed = 1.8, Delay = 1.4 },
+	},
+	NewWorldWhite = {
+		Range = 900,
+		{ Id = L.PowerBoomLong, Volume = 2.0, Speed = 0.7 },
+		{ Id = L.SonicBoomAPM, Volume = 1.6 },
+		{ Id = L.BigBoomTail, Volume = 1.8, Length = 4, Fade = 2.5 },
+		{ Id = L.TuttiSuck, Volume = 1.4, Speed = 0.7, Length = 1.2, Fade = 0.5 },
+		{ Id = S.Ping, Volume = 1.4, Speed = 0.4, Length = 3, Fade = 2 },
 	},
 	-- SKYBREAKER CYCLONE. Played FLAT on every screen (the whole city hears
 	-- it, each machine at its own gain by how far it is: VFX.IN.far). The
@@ -10144,6 +12219,159 @@ Config.Sounds = {
 	},
 }
 -- (round 101, awaken_p) ALL MIGHT, PLUS ULTRA's awakening: All Might's own boom (he had the shared Ult)
+-- (round 104) THE JJBA PLACE'S SOUNDS (its Sounds folders, by id). Every one
+-- is a LAYER on a cue (over the game's own layers, never instead of them):
+-- an id private to its uploader just doesn't play, and the cue still does.
+-- Config.JJBA.Ids: every one of them, for the preload (VFX.JS: an id that
+-- fails to load is noted, and a voice line on it falls back to its text).
+do
+	local J = {
+		-- Star Platinum
+		StarFinger = "rbxassetid://3895246074", FingerHit = "rbxassetid://5720053973", HeavyPunch = "rbxassetid://5585054247",
+		HeavyPunchHit = "rbxassetid://5584874657", OraOra = "rbxassetid://5600185403", TimeStopSP = "rbxassetid://6969408664",
+		StarWorldVoice = "rbxassetid://2190160236", TimeResumeSP = "rbxassetid://2554016882",
+		-- The World
+		Muda = "rbxassetid://616593932", ZaWarudoVoice = "rbxassetid://2553929805", TimeStop = "rbxassetid://6540088254",
+		TimeStop3 = "rbxassetid://6670060327", TimeResumeVoice = "rbxassetid://4748344579", TimeResumeSFX = "rbxassetid://5687891658",
+		KnifeMuda = "rbxassetid://4415007771", KnifeHit = "rbxassetid://935843979", RoadRollerVoice = "rbxassetid://6364581258",
+		KnifeSwing = { "rbxassetid://3755635752", "rbxassetid://3755635916", "rbxassetid://3755636152", "rbxassetid://4085939047" },
+		KnifeDrop = { "rbxassetid://6330977750", "rbxassetid://6330977860", "rbxassetid://6330977986" },
+		KnifeClash = { "rbxassetid://6330969584", "rbxassetid://6330969708", "rbxassetid://6330969966" },
+		TWSummon = "rbxassetid://7042767974",
+		-- C-MOON
+		CMBarrage = "rbxassetid://6720651784", CMCenterVoice = "rbxassetid://139194413520707", CMGravityAct = "rbxassetid://83855002344093",
+		CMGravityDis = "rbxassetid://71636660726368", CMEvolve = "rbxassetid://93318833838184", CMEvolveStart = "rbxassetid://129743386292814",
+		CMEvolveEnd = "rbxassetid://87052890463470", CMDeshift = "rbxassetid://91896289687635", CMGravityFreeze = "rbxassetid://77814990709630",
+		CMGravity = "rbxassetid://6410257317", CMShift = "rbxassetid://97881253696801", CMHit = "rbxassetid://75897719468646",
+		CMInversion = "rbxassetid://72161832770536", PucciMIHVoice = "rbxassetid://126303551566254", CMSplash = "rbxassetid://84987182522569",
+		CMSummon = "rbxassetid://7201230880", Tick = "rbxassetid://3782476462",
+		-- MADE IN HEAVEN
+		MIHAccelerate = "rbxassetid://4095610922", MIHAccelStart = "rbxassetid://8004825017", MIHBarrage = "rbxassetid://6750494233",
+		MIHDash = "rbxassetid://6759980915", MIHDesummon = "rbxassetid://6846383994", MIHJab = "rbxassetid://6742564064",
+		MIHHeavy = "rbxassetid://6755297853", MIHMultiSpeed = "rbxassetid://6769135393", MIHSummon = "rbxassetid://6706982465",
+		MIHSummon2 = "rbxassetid://6742136920",
+		-- POM
+		POMCharge = "rbxassetid://6796766306", POMDebris = "rbxassetid://6803316575", POMHeavyHit = "rbxassetid://6796766788",
+		POMJump = "rbxassetid://6819941137", POMLastWord = "rbxassetid://167190804",
+		-- everyone's
+		GroundHit = "rbxassetid://2648563122", Knockback = "rbxassetid://6083381620", Swing = "rbxassetid://6706981173",
+		SummonStand = "rbxassetid://5978825194", StandEnergy = "rbxassetid://515938960", Stab = "rbxassetid://220833976",
+		Ringing = "rbxassetid://9069161602", Block = "rbxassetid://3201554155", Break = "rbxassetid://2454464400",
+	}
+	Config.JJBA.Ids = J
+	local S = Config.Sounds
+	-- a layer on a cue (made if it isn't there)
+	local function add(name, layer, range)
+		local cue = S[name]
+		if type(cue) == "string" then
+			cue = { Range = range or 300, cue ~= "" and { Id = cue } or nil }
+		elseif type(cue) == "table" and cue.Id ~= nil then
+			cue = { Range = cue.Range or range or 300, cue }
+		elseif type(cue) ~= "table" then
+			cue = { Range = range or 300 }
+		end
+		S[name] = cue
+		table.insert(cue, layer)
+	end
+	-- the summon (every Stand), the stand barrages, DIO's knives and stopped time
+	add("StandOn", { Id = J.SummonStand, Volume = 0.6, Speed = 1, Length = 1.2 })
+	add("TimeStop", { Id = J.TimeStop, Volume = 1, Speed = 1, Length = 3 })
+	add("TimeResume", { Id = J.TimeResumeSFX, Volume = 0.9, Speed = 1, Length = 2.5 })
+	add("ClockTick", { Id = J.Tick, Volume = 0.35, Speed = 1.57, Length = 0.4 })
+	add("KnifeThrow", { Id = J.KnifeSwing, Volume = 0.5, Speed = { 0.95, 1.1 }, Length = 0.5 })
+	add("KnifeHit", { Id = J.KnifeHit, Volume = 0.5, Speed = { 0.95, 1.1 }, Length = 0.5 })
+	add("RoadRollerLand", { Id = J.GroundHit, Volume = 1, Speed = 0.9, Length = 1.5 })
+	-- C-MOON / MADE IN HEAVEN (VFX.CM's own cues: the layers ride on whichever exist)
+	for name, layer in {
+		CMoonOn = { Id = J.CMSummon, Volume = 0.5, Length = 1.5 },
+		CMoonRushStart = { Id = J.CMBarrage, Volume = 0.6, Length = 2 },
+		CMoonHit = { Id = J.CMHit, Volume = 0.25, Speed = { 0.95, 1.1 }, Length = 0.5 },
+		CMoonHeavyHit = { Id = J.CMInversion, Volume = 0.5, Length = 1.2 },
+		CMoonInvert = { Id = J.CMInversion, Volume = 0.45, Length = 1.2 },
+		CMoonVital = { Id = J.CMInversion, Volume = 0.6, Length = 1.2 },
+		CMoonFlipCall = { Id = J.CMGravityAct, Volume = 0.8, Length = 2 },
+		CMoonFlipRise = { Id = J.CMShift, Volume = 0.8, Length = 2 },
+		CMoonFlipSnap = { Id = J.CMDeshift, Volume = 0.8, Length = 2 },
+		CMoonFallUp = { Id = J.CMGravity, Volume = 0.4, Length = 1.5 },
+		CMoonSling = { Id = J.CMGravityDis, Volume = 0.7, Length = 1.5 },
+		CMoonCrash = { Id = J.CMSplash, Volume = 0.6, Length = 1.5 },
+		CMoonAwakenRise = { Id = J.CMEvolveStart, Volume = 0.8, Length = 3 },
+		CMoonShatter = { Id = J.CMEvolveEnd, Volume = 0.6, Length = 3 },
+		HeavenTick = { Id = J.Tick, Volume = 0.3, Speed = 1.57, Length = 0.4 },
+		HeavenRushHit = { Id = J.MIHJab, Volume = 0.25, Speed = { 0.95, 1.1 }, Length = 0.6 },
+		HeavenBlitzGo = { Id = J.MIHMultiSpeed, Volume = 0.8, Length = 2 },
+		HeavenBlitzSlash = { Id = J.MIHHeavy, Volume = 0.5, Length = 1 },
+		HeavenStep = { Id = J.MIHDash, Volume = 0.8, Length = 1.2 },
+		NewWorldRise = { Id = J.MIHAccelStart, Volume = 0.6, Length = 4 },
+	} do
+		if S[name] ~= nil then
+			add(name, layer)
+		end
+	end
+
+	-- STAR PLATINUM's own cues (each one the game's layers + the JJBA place's)
+	S.StarSummon = { Range = 300, { Id = J.SummonStand, Volume = 0.6, Length = 1.2 }, { Id = J.StandEnergy, Volume = 0.35, Speed = 1.2, Length = 1 } }
+	S.OraVoice = { Range = 320, Gap = 0.5, { Id = J.OraOra, Volume = 0.7, Length = 2.4 } }
+	S.OraFinish = { Range = 400, { Id = J.HeavyPunch, Volume = 0.8, Length = 1 }, { Id = J.HeavyPunchHit, Volume = 1, Length = 1 } }
+	S.StarFingerShot = { Range = 300, { Id = J.StarFinger, Volume = 0.8, Length = 1.2 }, { Id = J.Swing, Volume = 0.6, Speed = 1.3, Length = 0.4 } }
+	S.StarFingerHit = { Range = 300, { Id = J.FingerHit, Volume = 1.4, Length = 1 }, { Id = J.Stab, Volume = 1.2, Speed = 1.1, Length = 0.5 } }
+	S.OraHeavy = { Range = 400, { Id = J.HeavyPunch, Volume = 0.8, Length = 1 }, { Id = J.Knockback, Volume = 0.7, Speed = 0.6, Length = 1 } }
+	S.OraHeavyHit = { Range = 500, { Id = J.HeavyPunchHit, Volume = 1.6, Length = 1.2 }, { Id = J.GroundHit, Volume = 0.9, Length = 1.2 } }
+	S.StarWorld = { Range = 800, { Id = J.TimeStopSP, Volume = 1, Length = 4 } }
+	S.BearingFlick = { Range = 300, { Id = J.Swing, Volume = 0.8, Speed = 1.6, Length = 0.3 }, { Id = J.Stab, Volume = 0.6, Speed = 1.8, Length = 0.3 } }
+	S.BearingHit = { Range = 300, { Id = J.FingerHit, Volume = 0.9, Speed = 1.3, Length = 0.6 } }
+	-- DIO: the rush's voice (MUDA MUDA...), the knives' voice
+	S.MudaVoice = { Range = 320, Gap = 0.5, { Id = J.Muda, Volume = 0.7, Length = 2.6 } }
+	S.KnifeVoice = { Range = 300, Gap = 0.5, { Id = J.KnifeMuda, Volume = 0.7, Length = 1.6 } }
+	-- POM: the fist, the double, the charge, the void, the slam, the jump, LAST WORD
+	S.POMSwing = { Range = 260, { Id = J.Swing, Volume = 0.8, Speed = { 0.95, 1.1 }, Length = 0.4 } }
+	S.POMHit = { Range = 300, { Id = J.POMHeavyHit, Volume = 0.8, Speed = { 1.05, 1.2 }, Length = 0.8 } }
+	S.POMHeavyHit = { Range = 450, { Id = J.POMHeavyHit, Volume = 1.6, Length = 1.2 }, { Id = J.GroundHit, Volume = 0.8, Length = 1 } }
+	S.POMCharge = { Range = 350, { Id = J.POMCharge, Volume = 1.6, Length = 1.6 } }
+	S.POMVoid = { Range = 400, { Id = J.StandEnergy, Volume = 0.8, Speed = 0.6, Length = 2 }, { Id = J.Ringing, Volume = 0.25, Speed = 0.6, Length = 1.5 } }
+	S.POMErase = { Range = 400, Gap = 0.08, { Id = J.POMDebris, Volume = 0.9, Speed = { 0.9, 1.1 }, Length = 1.2 } }
+	S.POMSlam = { Range = 500, { Id = J.GroundHit, Volume = 1.4, Speed = 0.8, Length = 1.5 }, { Id = J.POMDebris, Volume = 1.2, Length = 1.5 } }
+	S.POMJump = { Range = 260, { Id = J.POMJump, Volume = 1.2, Speed = 1.3, Length = 1 } }
+	S.POMLastWord = { Range = 700, { Id = J.POMLastWord, Volume = 0.7, Length = 4 }, { Id = J.Ringing, Volume = 0.4, Speed = 0.5, Length = 3 } }
+	-- the M1s' contact (Config.HitSounds)
+	S.SPHit = { Range = 260, { Id = J.HeavyPunchHit, Volume = 0.5, Speed = { 1.1, 1.3 }, Length = 0.5 } }
+	S.SPHeavyHit = { Range = 360, { Id = J.HeavyPunchHit, Volume = 1.2, Length = 1 } }
+	S.POMHitM1 = { Range = 260, { Id = J.POMHeavyHit, Volume = 0.55, Speed = { 1.2, 1.4 }, Length = 0.5 } }
+	-- the awakenings
+	S.UltStarPlatinum = { Range = 1200, { Id = J.TimeStopSP, Volume = 0.8, Length = 3 }, { Id = J.StandEnergy, Volume = 0.6, Speed = 0.8, Length = 2 } }
+	S.UltPOM = { Range = 1200, { Id = J.POMCharge, Volume = 1.4, Speed = 0.8, Length = 2 }, { Id = J.Ringing, Volume = 0.3, Speed = 0.5, Length = 2 } }
+	if type(S.UltCMoon) == "table" then
+		table.insert(S.UltCMoon, { Id = J.CMEvolve, Volume = 0.7, Length = 4 })
+	end
+	if type(S.UltTheWorld) == "table" then
+		table.insert(S.UltTheWorld, { Id = J.TWSummon, Volume = 0.6, Length = 2 })
+	end
+
+	-- THE VOICES: the JJBA place's own clip for each line (Fallback: the text-
+	-- to-speech line it falls back to when the clip won't load - VFX.JS)
+	local V = Config.Voice
+	local function clip(name, id, tts, extra)
+		V[name .. "TTS"] = tts
+		local line = { Id = id, Volume = 0.8, Gain = 2, Range = tts.Range or 300, Length = 5, Fallback = name .. "TTS", Bubble = tts.Bubble, JJBA = true }
+		for k, v in extra or {} do
+			line[k] = v
+		end
+		V[name] = line
+	end
+	for name, id in { ZaWarudo = J.ZaWarudoVoice, TimeResume = J.TimeResumeVoice, RoadRoller = J.RoadRollerVoice, PucciAwaken = J.PucciMIHVoice } do
+		if V[name] then
+			clip(name, id, V[name])
+		end
+	end
+	clip("StarWorld", J.StarWorldVoice, { Id = "", Text = "Star Platinum: The World!", VoiceId = "5", Pitch = -3, Speed = 0.95, Volume = 3, Range = 320, Bubble = "STAR PLATINUM: THE WORLD!!" })
+	clip("TimeResumeSP", J.TimeResumeSP, { Id = "", Text = "And time... resumes.", VoiceId = "5", Pitch = -3, Speed = 0.9, Volume = 3, Range = 300, Bubble = "...TIME RESUMES." })
+	clip("JotaroAwaken", J.StarWorldVoice, { Id = "", Text = "Star Platinum!", VoiceId = "5", Pitch = -3, Speed = 0.95, Volume = 3, Range = 300, Bubble = "STAR PLATINUM!!" })
+	clip("CMoonCenter", J.CMCenterVoice, { Id = "", Text = "I am the center of gravity.", VoiceId = "5", Pitch = -2, Speed = 0.9, Volume = 2.6, Range = 260, Bubble = "I AM THE CENTER OF GRAVITY." })
+	V.YareYare = { Id = "", Text = "Yare yare daze.", VoiceId = "5", Pitch = -3, Speed = 0.9, Volume = 2.6, Range = 220, Bubble = "YARE YARE DAZE..." }
+	V.POMAwaken = { Id = "", Text = "This is my last word.", VoiceId = "5", Pitch = -2, Speed = 0.85, Volume = 3, Range = 300, Bubble = "THIS IS MY LAST WORD." }
+	V.POMLastWordCall = { Id = "", Text = "Last word.", VoiceId = "5", Pitch = -3, Speed = 0.8, Volume = 3.4, Range = 1200, Bubble = "LAST WORD." }
+end
+
 Config.Sounds.UltPlusUltra = Config.Sounds.UltOneForAll
 
 
@@ -10279,37 +12507,28 @@ Config.Quirks = {
 			-- stored in his palms race through his whole body and pop. He drops
 			-- into a sprinter's crouch, the street cracking under him (WindUp),
 			-- then he's a blur straight down the aim, flat out like a missile
-			-- (Speed, up to Range; the lane is Width either side). The first one
-			-- in it: he flips over as he reaches them (FlipTime), upside down face
-			-- to face, his head FlipRise up so it's level with theirs; time slows
-			-- right down (SlowMo) as his palm comes up to their face - and the
-			-- Explosion goes off point blank (chapter 405): Damage, and
-			-- SplashDamage to anyone round them (Radius). Nobody: he skids to a
-			-- stop at the end of the lane. (round 76) He says it first: "I'M THE
-			-- FINAL BOSS, GOT IT?" - a longer crouch for it (WindUp: 0.7s before).
-			-- (round 83) THE BLITZ, a leapfrog down the lane (chapter 406: he
-			-- speeds past All For One again and again, blast after blast): his
-			-- palm goes off in their face on "GOT" (OpenAt after the press,
-			-- OpenDamage) and throws them down the lane; he overtakes them in a
-			-- blur and from in front blasts them back and higher (BlastDamage) -
-			-- Overtakes times, each leg longer (LegLength + LegGrow a leg) and
-			-- quicker (FirstLeg x Ramp, never under MinLeg), Rise higher each
-			-- time over an Arc; he hangs back for most of a leg and is past them
-			-- in the last DashShare of it, Settle in front before the blast; the
-			-- boom of him passing hits too (BoomDamage, from overtake BoomFrom
-			-- on). The last overtake ends in the flip, a short time-crawl
-			-- (SlowMo, was 1.3) and the Explosion (Damage). Every hit is
-			-- unblockable; his cutscene's last shot (BlastShot) runs on after it.
-			-- Caught with their back to a wall, the catch slides back down the
-			-- lane till the first leg has MinFirstLeg studs (and him room in
-			-- front of them). (round 92) 28 all told -> 39 (45 with the ult's
-			-- x1.15): the opener 4, each blast 4, each boom 3, the Explosion 14
+			-- (Speed, up to Range; the lane is Width either side). Nobody in it:
+			-- he skids to a stop at the end of the lane. (round 76) He says it
+			-- first: "I'M THE FINAL BOSS, GOT IT?" - a longer crouch for it
+			-- (WindUp; OpenAt: "GOT", after the press).
+			-- (round 102) THE CUTSCENE (the owner's reference, condensed to ~10 s:
+			-- Config.ESpeed has every beat). The first one in the lane is caught:
+			-- he stops short of them and the boom of it shoves them back, and both
+			-- are locked for the scene - the realization (his push-in, the crouch
+			-- in the smoke, the bead of sweat, the gauntlet, the smoke wall, the
+			-- ring and the disc, the leap), the launch at them and his palm going
+			-- off at their face (PalmDamage), THE SPEED BLITZ (the skim, the
+			-- streak past the slab, the flurry from every side: FlurryDamage a
+			-- hit) and the last blast at the white-out (Damage: they're launched
+			-- Launch[1] studs/s down the lane, Launch[2] up, ragdolled and
+			-- stunned; SplashDamage round them in Radius; a Crater-stud crater).
+			-- Every hit unblockable; nobody else touches either of them till it's
+			-- over. (round 92: 39 all told, 45 with the ult's x1.15; round 102:
+			-- 5 + 7 x 3 + 16 = 42, 45 with the ult)
 			Special = {
-				Id = "ExplosiveSpeed", Name = "EXPLOSIVE SPEED", Cooldown = 20, Damage = 14, SplashDamage = 8, Radius = 10,
-				Range = 75, Width = 4.5, Speed = 320, WindUp = 1.25, SlowMo = 0.5, FlipTime = 0.14, FlipRise = 3, ActionTime = 0.7, CutIn = false,
-				OpenAt = 1.5, OpenDamage = 4, Overtakes = 4, FirstLeg = 0.32, Ramp = 0.8, MinLeg = 0.14,
-				LegLength = 7, LegGrow = 3, Rise = 1.2, Arc = 0.6, DashShare = 0.4, Settle = 0.06,
-				BlastDamage = 4, BoomDamage = 3, BoomFrom = 2, BlastShot = 0.8, MinFirstLeg = 2.5,
+				Id = "ExplosiveSpeed", Name = "EXPLOSIVE SPEED", Cooldown = 20, Damage = 16, SplashDamage = 8, Radius = 10,
+				Range = 75, Width = 4.5, Speed = 320, WindUp = 1.25, ActionTime = 0.7, CutIn = false, OpenAt = 1.5, Uninterruptible = true,
+				PalmDamage = 5, FlurryDamage = 3, Launch = { 200, 70 }, Ragdoll = 2.2, Stun = 1.8, Crater = 14,
 			},
 			-- 4: FULL-BODY CLUSTER (round 63) - his last stand against Shigaraki,
 			-- chapter 362 "Light Fades to Rain" (Episode 149 of the anime).
@@ -11631,6 +13850,7 @@ Config.Quirks = {
 		DevOnly = true,
 		Stand = true, -- (a Stand fights beside him)
 		StandReach = 3, -- the M1s are the Stand's, from out in front of him
+		TimeStopImmune = true, -- (round 104: he moves in Star Platinum's stopped time - and Jotaro in his)
 		WalkSpeed = 21,
 		JumpPower = 58,
 		Abilities = {
@@ -12850,9 +15070,475 @@ Config.Quirks = {
 				Radius = 8, Damage = 12, Push = 90, Lift = 70, Ragdoll = 1.4, Trail = 0.2, ActionTime = 1.95, CutIn = false },
 		},
 	},
+
+	-- (round 102) MOB (Mob Psycho 100, by ONE - Saitama's author; a guest, DEV
+	-- ONLY: DevOnly is the one flag, the HERO ROSTER switch releases him live).
+	-- Shigeo "Mob" Kageyama: a quiet, polite middle-schooler in a black school
+	-- uniform, the most powerful psychic alive, who keeps his feelings held in.
+	-- Telekinesis does everything: no punches - two fingers flicked and they're
+	-- shoved; people lifted and dropped; a barrier nothing gets through; the
+	-- street torn up and thrown; a wave of pressure; floating. His ult meter is
+	-- his emotion counter (the HUD says MOB and the % - Meter); at 100% it
+	-- bursts, and at ???% he's gone: the iridescent aura, the world bending.
+	-- ((round 102) round 2, the owner: "I was thinking more of a move where
+	-- he moves the closest building to him after hitting r in his ult" - "Hurl
+	-- it where I aim": nothing lifts on its own any more; R in the ult tears
+	-- the CLOSEST building out of the street and he throws it end-first at
+	-- the aimed spot, then it flies home and sets down exactly as it was
+	-- (???%: SKYSCRAPER). TOWER DROP and TWIN CRUSH are gone; 1 and 3 in the
+	-- ult are ???% versions of LIFT and DEBRIS STORM.) Nothing one-shots
+	-- (player health 300). His look, his idle, his power's look and the
+	-- building's: Config.Mob.
+	Mob = {
+		DisplayName = "MOB",
+		Description = "Dev: Shigeo \"Mob\" Kageyama of Mob Psycho 100 - quiet, polite, the strongest psychic alive. M1: psychic flicks (the 4th lifts them and drops them). 1 Lift (held up shaking, slammed down). 2 Psychic Barrier (nothing gets in). 3 Debris Storm (the street torn up and thrown). R Float. 4 Spirit Wave (a cone of pressure). Ult: ???% - R SKYSCRAPER: the closest building torn out of the street and hurled where you aim (R again to throw); 1 ???% LIFT, 3 ???% DEBRIS STORM.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Quiet, polite, and he can lift a skyscraper.",
+		Color = Color3.fromRGB(150, 205, 255),
+		AccentColor = Color3.fromRGB(34, 34, 40),
+		ModeName = "PSYCHIC",
+		CutInCorner = "BottomRight",
+		CutInImage = "",
+		DevOnly = true,
+		WalkSpeed = 19,
+		JumpPower = 50,
+		-- THE EMOTION COUNTER (the HUD's ult meter, his way): Label over the %
+		-- while it climbs, Full once it's full, Active while the ult's on;
+		-- ((round 102 review) his own screen ticks every TickEvery % it climbs)
+		Meter = { Label = "MOB", Full = "100%", Active = "???%", TickEvery = 10 },
+		Abilities = {
+			-- LIFT: two fingers up (Startup, the clip's Hit) and whoever's
+			-- nearest in front (Range, Cone degrees either side of the aim) is
+			-- lifted off the street - Height studs over Rise seconds - held there
+			-- shaking HoldTime seconds (not Hold: an ability's Hold is the held-move table), then slammed down (SlamSpeed studs/s): Damage
+			-- on the slam, off their feet (Ragdoll). Nobody in front: nothing.
+			{ Id = "PsychicLift", Name = "LIFT", Cooldown = 8, Startup = 0.2, Range = 34, Cone = 28, Height = 8, Rise = 0.35, HoldTime = 0.65,
+				SlamSpeed = 110, Damage = 15, Ragdoll = 1.2, Crater = 4, ActionTime = 0.9, CutIn = false },
+			-- PSYCHIC BARRIER: a dome round him (Radius) for Time seconds from
+			-- Startup. Every hit from outside it is stopped - not a burn or an
+			-- unblockable one - with a ripple where it lands; anyone walking in is
+			-- shoved back out (Push / Lift, once every PushGap each). A stance: he
+			-- walks at WalkSpeed and does nothing else while it's up.
+			{ Id = "PsychicBarrier", Name = "PSYCHIC BARRIER", Cooldown = 13, Startup = 0.12, Time = 2.4, Radius = 8.5, Push = 45, Lift = 12, PushGap = 0.5,
+				WalkSpeed = 6, ActionTime = 2.4, CutIn = false },
+			-- DEBRIS STORM: the street round him torn up (Startup, the clip's
+			-- Hit) - Chunks pieces (ChunkSize studs) orbiting him Orbit seconds -
+			-- then flung down the aim one after another (Gap apart, Speed studs/s,
+			-- out to Range): each at whoever's nearest the aim's line (within Cone
+			-- degrees) or the aimed spot, hitting everyone within HitRadius of where
+			-- it lands: Damage, shoved (Push / Lift, held Stun); the last one
+			-- (Final) harder and off their feet
+			{ Id = "DebrisStorm", Name = "DEBRIS STORM", Cooldown = 11, Startup = 0.35, Orbit = 0.45, Chunks = 6, Gap = 0.09, Speed = 190, Range = 90, Cone = 14,
+				ChunkSize = { 2, 3.6 }, HitRadius = 5.5, Damage = 4, Push = 34, Lift = 12, Stun = 0.45,
+				Final = { Damage = 7, Push = 90, Lift = 35, Ragdoll = 1.1 }, ActionTime = 1, CutIn = true },
+		},
+		-- R: FLOAT - off the street on nothing (Launch seconds, rising at Up
+		-- studs/s), then he glides where his camera looks (pitched MinPitch..
+		-- MaxPitch degrees) at Speed studs/s for Time seconds, and comes down
+		-- softly (falling at most FallSpeed studs/s, till he lands or DropTime).
+		-- His own machine flies him (VFX.MOB.float).
+		Special = { Id = "PsychicFloat", Name = "FLOAT", Cooldown = 7, Launch = 0.15, Up = 30, Time = 1.6, Speed = 44, MinPitch = -15, MaxPitch = 20,
+			FallSpeed = 12, DropTime = 2.5, ActionTime = 0.3, CutIn = false },
+		-- 4: SPIRIT WAVE - a palm out (Windup, the clip's Hit) and a cone of
+		-- pressure down the aim (Range, Cone degrees either side): Damage,
+		-- shoved back hard (Push / Lift, off their feet); the loose rubble in it
+		-- thrown with them and the street scoured
+		Extra = { Id = "SpiritWave", Name = "SPIRIT WAVE", Cooldown = 12, Windup = 0.28, Range = 42, Cone = 34, Damage = 11, Push = 150, Lift = 45, Ragdoll = 1.3,
+			ActionTime = 0.8, CutIn = true },
+		Ult = {
+			Name = "???%",
+			Shout = "...sorry.",
+			Color = Color3.fromRGB(214, 176, 255),
+			AccentColor = Color3.fromRGB(140, 255, 232),
+			Duration = 25,
+			WalkSpeed = 20,
+			JumpPower = 50,
+			Abilities = {
+				-- ((round 102) round 2) ???%: LIFT - LIFT, bigger: up to Targets
+				-- of the nearest in front (a wider Cone, further Range) lifted
+				-- higher, held, and slammed down harder - a ring of his power off
+				-- each slam (RingRadius: RingDamage to anyone else round it, off
+				-- their feet). The clip's beats are LIFT's own (Startup, Rise,
+				-- HoldTime - MoveMobLift), the cooldown short.
+				{ Id = "PsychicLift", Name = "???%: LIFT", Cooldown = 5, Startup = 0.2, Range = 48, Cone = 40, Targets = 3, Height = 13, Rise = 0.35, HoldTime = 0.65,
+					SlamSpeed = 150, Damage = 18, Ragdoll = 1.6, Crater = 7, RingRadius = 13, RingDamage = 5, RingPush = 70, RingLift = 30, ActionTime = 0.9, CutIn = false },
+				{ Id = "PsychicBarrier", Name = "???%: BARRIER", Cooldown = 9, Startup = 0.12, Time = 3.2, Radius = 11, Push = 60, Lift = 16, PushGap = 0.5,
+					-- (in the ult a hit on it pushes back: whoever threw it from within
+					-- RepelRange is shoved off it - RepelDamage, RepelPush / RepelLift)
+					RepelRange = 16, RepelDamage = 6, RepelPush = 80, RepelLift = 24,
+					WalkSpeed = 8, ActionTime = 3.2, CutIn = false },
+				-- ((round 102) round 2) ???%: DEBRIS STORM - more of the street
+				-- (Chunks, bigger: ChunkSize), thrown faster (Gap, Speed) and
+				-- further (Range), each hitting wider (HitRadius); the last one
+				-- harder (Final). The clip's beats are DEBRIS STORM's (Startup,
+				-- Orbit - MoveMobDebris).
+				{ Id = "DebrisStorm", Name = "???%: DEBRIS STORM", Cooldown = 7, Startup = 0.35, Orbit = 0.45, Chunks = 10, Gap = 0.06, Speed = 260, Range = 120, Cone = 18,
+					ChunkSize = { 2.6, 4.2 }, HitRadius = 7, Damage = 4, Push = 40, Lift = 14, Stun = 0.45,
+					Final = { Damage = 9, Push = 110, Lift = 45, Ragdoll = 1.4 }, ActionTime = 1, CutIn = true },
+			},
+			-- ((round 102) round 2) R: ???%: SKYSCRAPER - the owner: "a move where
+			-- he moves the closest building to him after hitting r in his ult",
+			-- "Hurl it where I aim". TAP R: the building in Workspace.Map[
+			-- Config.Mob.Building.Folder] closest to him (the flat distance to its
+			-- footprint, within Reach studs; none: a slab of the street torn up
+			-- beside him - Config.Mob.Building.Slab) tears out of the street and
+			-- floats up over his shoulder. Aim (a ring on his own screen where it
+			-- will land: MinRange..Range studs off, on the street), then R AGAIN
+			-- (Hold.Max seconds: it goes by itself): it turns end-first (Windup
+			-- seconds: its top at the spot) and flies (Speed studs/s - Fly
+			-- seconds at least MinFly, at most MaxFly) in at Pitch degrees under
+			-- the horizon, Sink studs into the street. THE IMPACT: crushed within
+			-- Radius of the spot (half the building's width, at most MaxRadius) -
+			-- Damage, thrown (Push / Lift), off their feet (Ragdoll); out to
+			-- RingRadius further - RingDamage, RingPush / RingLift; a crater
+			-- (Crater studs) in the real street. It stays jammed in Stay seconds,
+			-- then lifts out and flies home (Config.Mob.Building.SetDown) and the
+			-- real building is given back exactly as it was. One building at a
+			-- time: R comes back AfterHome seconds after it's home (the server
+			-- puts the cooldown there). The ult ending while it floats sends it
+			-- home; once thrown it lands, and goes home.
+			Special = { Id = "MobSkyscraper", Name = "???%: SKYSCRAPER", Cooldown = 14, Reach = 280, Range = 220, MinRange = 50,
+				Windup = 0.35, Speed = 260, MinFly = 0.4, MaxFly = 0.9, Pitch = 62, Sink = 14, Arc = 30,
+				Radius = 30, MaxRadius = 56, Damage = 34, Push = 70, Lift = 55, Ragdoll = 2.2, RingRadius = 70, RingDamage = 10, RingPush = 130, RingLift = 55,
+				Crater = 26, Stay = 1.4, AfterHome = 1.5, ActionTime = 0.5, CutIn = true, Uninterruptible = true,
+				-- ((round 102 review) a short building's never mostly buried: Sink
+				-- at most SinkShare of its height; crushed is also anyone inside
+				-- the building as it's jammed in (CrushPad studs of slack) - the
+				-- twins' whole wall, not only the circle round the spot; and the
+				-- nearest a building lands is its own (Config.Mob.Building.ThrowClear))
+				SinkShare = 0.2, CrushPad = 3,
+				-- (a held-move table: tap to start, R again to throw - Toggle; he
+				-- walks at Speed while he aims; Max: it goes by itself. No generic
+				-- Marker: his own screen draws the spot - VFX.MOB.B.marker)
+				Hold = { Max = 4, Speed = 8, Toggle = true, Names = { "SKYSCRAPER: AIM" }, Color = Color3.fromRGB(255, 150, 220) } },
+			Extra = { Id = "SpiritWave", Name = "???%: SPIRIT WAVE", Cooldown = 8, Windup = 0.28, Range = 60, Cone = 42, Damage = 14, Push = 175, Lift = 55, Ragdoll = 1.5,
+				ActionTime = 0.8, CutIn = true },
+		},
+	},
+
+	-- (round 102) TOKOYAMI (Fumikage Tokoyami, Class 1-A - "Tsukuyomi"; DEV
+	-- ONLY: DevOnly is the one flag, the HERO ROSTER switch releases him
+	-- live). The owner: "I think we should add tokoyami for sure", "simple
+	-- shadow" - DARK SHADOW is a creature that lives in him and fights for
+	-- him; no light meter, no lighting mechanic. He's calm and barely moves:
+	-- a hand out, his cloak sways - Dark Shadow pours out of his chest, does
+	-- the move and snaps back in (between moves only a wisp). Every hit is
+	-- the server's (Kit.TK); every screen draws Dark Shadow (VFX.TK, its
+	-- body and poses: Config.Tokoyami). His M1s are its claws (BladeReach:
+	-- further than a punch; the 4th a two-handed slam that puts them down -
+	-- Config.Tokoyami.M1.Slam). Ult: ABYSSAL DARK SHADOW - off the leash,
+	-- three times the size, the world dimmed round him: its 1 grabs up to
+	-- three, its 2 slams twice, its guard counters everyone, its 4 is
+	-- RAMPAGE. Nothing one-shots (player health 300).
+	DarkShadow = {
+		DisplayName = "TOKOYAMI",
+		Description = "Dev: Fumikage Tokoyami - calm, and the shadow living in him is anything but. M1: Dark Shadow's claws (further than a punch; the 4th a two-handed slam). 1 Dark Shadow (a long lunge: the first it reaches is grabbed and dragged back). 2 Abyssal Claw (it rises huge and brings both claws down). 3 Shadow Guard (it wraps round him: hits from the front stopped, the first attacker clawed). R Black Fallen Angel (it carries him). 4 Black Ankh (worn as armour: heavier, longer claws, less damage taken). Ult: ABYSSAL DARK SHADOW - three times the size, off the leash: 1 grabs up to three, 2 slams twice, 4 RAMPAGE.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Calm. The shadow that lives in him is not.",
+		Color = Color3.fromRGB(122, 72, 214),
+		AccentColor = Color3.fromRGB(255, 214, 72),
+		ModeName = "DARK SHADOW",
+		CutInCorner = "BottomRight",
+		CutInImage = "",
+		DevOnly = true,
+		WalkSpeed = 18,
+		JumpPower = 50,
+		-- the M1 box reaches this much further (Dark Shadow's claws; the ult's
+		-- and BLACK ANKH's more on top - Config.Tokoyami.M1.UltReach, Extra.Reach)
+		BladeReach = 3.5,
+		Abilities = {
+			-- 1: DARK SHADOW - his arm out (Startup, the clip's Hit) and it's flung
+			-- out of his chest down the aim in a straight line (Speed studs/s, out
+			-- to Range), claws open: the first body within Radius of its path is
+			-- grabbed (GrabDamage - a hit: a guard stops it), dragged back to DropAt
+			-- studs in front of him over Drag seconds (Lift studs up as it goes),
+			-- and dropped - DropDamage, off their feet (Ragdoll). Nobody: it comes
+			-- back empty. Targets: how many it takes (the ult's takes three)
+			{ Id = "ShadowLunge", Name = "DARK SHADOW", Cooldown = 8, Startup = 0.22, Range = 46, Speed = 150, Radius = 3.2, Targets = 1, GrabDamage = 6, Drag = 0.42,
+				DropAt = 5, Lift = 3, DropDamage = 7, Ragdoll = 1.1, ActionTime = 0.65, CutIn = false },
+			-- 2: ABYSSAL CLAW - it rises huge over him (Windup, the clip's Hit) and
+			-- brings both claws down in a wide arc in front: everyone within Range
+			-- and Cone degrees either side of his aim - Damage, shoved (Push / Lift),
+			-- off their feet (Ragdoll); a dark shockwave and a crater (Crater) where
+			-- they land, Ahead studs out. Slams: how many (the ult's: twice, Gap
+			-- apart, the last FinalDamage)
+			{ Id = "AbyssalClaw", Name = "ABYSSAL CLAW", Cooldown = 10, Windup = 0.5, Range = 18, Cone = 70, Ahead = 9, Damage = 16, Push = 50, Lift = 22, Ragdoll = 1.3,
+				Crater = 7, Slams = 1, ActionTime = 1.0, CutIn = true },
+			-- 3: SHADOW GUARD - it wraps round him (Startup) for Time seconds: a hit
+			-- from the front (within Cone degrees of where he faces - not a burn or
+			-- an unblockable one) is stopped on it, and the first one to hit him
+			-- (within CounterRange) gets its claw - CounterDamage, CounterPush /
+			-- CounterLift, off their feet (CounterRagdoll); Counters: how many it
+			-- answers. A stance: he walks at WalkSpeed while it's up
+			{ Id = "ShadowGuard", Name = "SHADOW GUARD", Cooldown = 12, Startup = 0.08, Time = 1.8, Cone = 100, WalkSpeed = 8, Counters = 1, CounterRange = 30,
+				CounterDamage = 10, CounterPush = 70, CounterLift = 26, CounterRagdoll = 0.9, ActionTime = 0.3, CutIn = false },
+		},
+		-- R: BLACK FALLEN ANGEL - it becomes wings and carries him: up off the
+		-- street (Launch seconds at Up studs/s), then he flies where his camera
+		-- looks (pitched MinPitch..MaxPitch degrees) at Speed studs/s for Time
+		-- seconds, and glides down (falling at most FallSpeed, till he lands or
+		-- DropTime). His own machine flies him (VFX.TK.fly)
+		Special = { Id = "BlackFallenAngel", Name = "BLACK FALLEN ANGEL", Cooldown = 9, Launch = 0.18, Up = 46, Time = 1.5, Speed = 66, MinPitch = -22, MaxPitch = 26,
+			FallSpeed = 14, DropTime = 2.5, ActionTime = 0.3, CutIn = false },
+		-- 4: BLACK ANKH - it pours over him (Startup) and he wears it Time
+		-- seconds: his M1s are its claws on his own arms (Reach studs further,
+		-- x DamageMult), he takes DamageTaken of every hit, his silhouette a dark
+		-- armoured shape with claws (every screen: VFX.TK.ankh)
+		Extra = { Id = "BlackAnkh", Name = "BLACK ANKH", Cooldown = 18, Startup = 0.35, Time = 6, Reach = 3, DamageMult = 1.35, DamageTaken = 0.7, ActionTime = 0.5, CutIn = true },
+		Ult = {
+			Name = "ABYSSAL DARK SHADOW",
+			Shout = "AIYO!!",
+			Color = Color3.fromRGB(150, 70, 255),
+			AccentColor = Color3.fromRGB(255, 200, 60),
+			Duration = 25,
+			WalkSpeed = 19,
+			JumpPower = 50,
+			Abilities = {
+				-- ABYSSAL LUNGE: further, faster, wider - and it takes up to Targets
+				-- of them at once (one in each claw, one in its beak)
+				{ Id = "ShadowLunge", Name = "ABYSSAL LUNGE", Cooldown = 6, Startup = 0.22, Range = 70, Speed = 210, Radius = 6, Targets = 3, GrabDamage = 7, Drag = 0.5,
+					DropAt = 7, Lift = 5, DropDamage = 10, Ragdoll = 1.4, ActionTime = 0.65, CutIn = false },
+				-- ABYSSAL CLAW: TWIN - two slams, Gap apart (the clip's Hit2), wider
+				-- and further; the second harder (FinalDamage)
+				{ Id = "AbyssalClaw", Name = "ABYSSAL CLAW: TWIN", Cooldown = 8, Windup = 0.5, Gap = 0.45, Range = 26, Cone = 80, Ahead = 13, Damage = 12, FinalDamage = 17, Push = 60, Lift = 26,
+					Ragdoll = 1.4, Crater = 10, Slams = 2, ActionTime = 1.4, CutIn = true },
+				-- ABYSSAL GUARD: longer, and it answers every attacker (Counters)
+				{ Id = "ShadowGuard", Name = "ABYSSAL GUARD", Cooldown = 9, Startup = 0.08, Time = 2.4, Cone = 110, WalkSpeed = 10, Counters = 3, CounterRange = 40,
+					CounterDamage = 12, CounterPush = 90, CounterLift = 30, CounterRagdoll = 1.1, ActionTime = 0.3, CutIn = false },
+			},
+			Special = { Id = "BlackFallenAngel", Name = "BLACK FALLEN ANGEL", Cooldown = 6, Launch = 0.18, Up = 56, Time = 2.2, Speed = 92, MinPitch = -26, MaxPitch = 30,
+				FallSpeed = 14, DropTime = 2.5, ActionTime = 0.3, CutIn = false },
+			-- 4: RAMPAGE - Dark Shadow off the leash: it thrashes round him, three
+			-- swings at the Hits' times (the clip's Hit / Hit2 / Hit3): everyone
+			-- within Radius - each swing's Damage, shoved out (Push / Lift); the
+			-- last one off their feet (Ragdoll), a crater under it. He can't be
+			-- cut out of it (it isn't his to stop)
+			Extra = { Id = "ShadowRampage", Name = "RAMPAGE", Cooldown = 12, Radius = 20, Hits = { { At = 0.35, Damage = 7, Push = 55, Lift = 18 }, { At = 0.8, Damage = 7, Push = 55, Lift = 18 },
+				{ At = 1.25, Damage = 13, Push = 110, Lift = 60, Ragdoll = 1.5 } }, Crater = 9, WalkSpeed = 6, ActionTime = 1.6, CutIn = true, Uninterruptible = true },
+		},
+	},
+
+	-- (round 103) PUCCI / C-MOON (Enrico Pucci, JoJo Part 6 - a guest; DEV
+	-- ONLY: DevOnly is the one flag, the HERO ROSTER switch releases him
+	-- live). The owner: "add c-moon. you need to make it amazing ... super
+	-- overpowered even in base form ... give him a barrage though for one and
+	-- the other one flip/change the gravity around you". A calm priest; his
+	-- Stand C-MOON does the fighting - a keyed rig drawn on every screen
+	-- (VFX.CM, its body and poses: Config.Pucci), its hits the server's
+	-- (Kit.CM). He is the centre of gravity, and its touch turns things inside
+	-- out (INVERTED: Config.Pucci.Invert - a second touch flips it back). Every
+	-- change to someone's gravity is a short server lease of pushes, never a
+	-- rotated body, never workspace.Gravity (Kit.CM.G, Config.Pucci.Grav). A
+	-- final boss: big hits, big reach, short cooldowns - nothing one-shots
+	-- (Config.Balance.MaxHitShare).
+	CMoon = {
+		DisplayName = "PUCCI",
+		Description = "Dev: Enrico Pucci and C-MOON - he is the centre of gravity, and its touch turns things inside out. M1: C-MOON's strikes (the 4th inverts). 1 USHAAAA! (the barrage, then one punch at a vital spot). 2 Gravity Flip (everyone near falls up, then falls in at him). 3 Inside Out (the street torn up and thrown). R Self-Inversion (hits pass through him; it answers). 4 New Moon (they fall into the sky, then into the street where he points). Jump again in the air: he falls up. A second touch on an inverted body flips it back. Ult: MADE IN HEAVEN - time accelerates.",
+		-- (round 100) one line for the hero picker (70 characters at most, nothing cut off)
+		ShortDescription = "Gravity falls away from him. So will you.",
+		Color = Color3.fromRGB(96, 178, 74),
+		AccentColor = Color3.fromRGB(214, 174, 60),
+		ModeName = "C-MOON",
+		CutInCorner = "TopRight",
+		CutInImage = "",
+		DevOnly = true,
+		-- the M1 box reaches StandReach further (C-MOON's fists, from out in
+		-- front of him: handleM1 / VFX.M1Kit.reach), x1.25 (Kit.CM.m1)
+		Stand = true,
+		StandReach = 3.2,
+		WalkSpeed = 20,
+		JumpPower = 55,
+		-- THE PASSIVE, FALL UP: jump again in the air and he falls up toward the
+		-- sky (the game's SuperLeap; every screen draws it his way - VFX.CM.fallUp)
+		SuperLeap = { Up = 125, Forward = 55, Cooldown = 2.5, LandRadius = 12, LandDamage = 8, Always = true },
+		Abilities = {
+			-- 1: USHAAAA! (the owner's barrage) - C-MOON lunges in front of him
+			-- (Startup), then Hits punches Interval apart in a Range x Width box in
+			-- front of it (Damage each, held in front of the fists) while he keeps
+			-- WALKING at RushWalk in super armour (hits on him land for ArmorScale,
+			-- can't stun, ragdoll or move him); a Breath; then THE VITAL SPOT - one
+			-- punch at the first body in front (FinisherDamage, a C-MOON touch: it
+			-- inverts them) and they FALL AWAY from him (Away: a gravity lease Time s
+			-- long, "down" Out away from him and Up up, at Accel x gravity)
+			{ Id = "CMoonRush", Name = "USHAAAA!", Cooldown = 7, Startup = 0.18, Hits = 22, Interval = 0.065, Damage = 3, Breath = 0.08, FinisherDamage = 18,
+				Range = 8.5, Width = 8, RushWalk = 12, ArmorScale = 0.5, Away = { Time = 0.7, Out = 1, Up = 0.35, Accel = 0.55 }, Ragdoll = 1.0, Crater = 5,
+				ActionTime = 1.75, CutIn = false },
+			-- 2: GRAVITY FLIP (the owner's) - his palm on the street (Telegraph:
+			-- he's armoured through it, x TelegraphArmor): everyone within Radius
+			-- takes LiftDamage and FALLS UP and a little away (Rise: a lease Time s
+			-- at Accel x gravity, "down" UP + Out x away, at most Cap studs up or Roof
+			-- under a roof), hangs (Hang), then at FlipAt gravity FLIPS toward HIM:
+			-- they fall in at a ring Slam.Ring out round his feet at up to Slam.Speed,
+			-- and are slammed down there (Slam.Damage, off their feet, a crater) - on
+			-- the street, or after Slam.Timeout
+			{ Id = "GravityFlip", Name = "GRAVITY FLIP", Cooldown = 10, Radius = 36, Telegraph = 0.25, Rise = { Time = 0.8, Accel = 0.55, Out = 0.35, Cap = 30, Roof = 3 },
+				Hang = 0.35, FlipAt = 1.4, Slam = { Speed = 100, Ring = 6, Damage = 22, Ragdoll = 1.4, Crater = 6, Timeout = 1.0 }, LiftDamage = 6, TelegraphArmor = 0.25,
+				ActionTime = 1.6, CutIn = true },
+			-- 3: INSIDE OUT - the street in front torn up, turned over and thrown
+			-- (Slabs straight shots fanned Spread degrees; builder B)
+			{ Id = "InsideOut", Name = "INSIDE OUT", Cooldown = 8, Startup = 0.3, Throw = 0.55, Ahead = 7, Disc = 12, Slabs = 3, Spread = 16, Speed = 170, Range = 90,
+				Radius = 3, Damage = 11, Push = 70, Lift = 24, Pierce = 1, Crater = 4, ActionTime = 0.8, CutIn = false },
+		},
+		-- R: SELF-INVERSION - he turns himself inside out for Window: hits pass
+		-- through him, and C-MOON backhands up to Counters attackers (builder B)
+		Special = { Id = "SelfInversion", Name = "SELF-INVERSION", Cooldown = 9, Startup = 0.04, Window = 0.7, WalkSpeed = 6, Counters = 3, CounterRange = 30,
+			CounterDamage = 12, CounterPush = 90, CounterLift = 34, CounterRagdoll = 1.0, ActionTime = 0.3, CutIn = false },
+		-- 4: NEW MOON - C-MOON's uppercut and their gravity alone reversed: they
+		-- fall into the sky, then into the street where he points (builder B)
+		Extra = { Id = "NewMoon", Name = "NEW MOON", Cooldown = 11, Startup = 0.2, Range = 12, Width = 6, Lunge = 10, UpperDamage = 10,
+			Rise = { Time = 0.9, Accel = 0.75, Cap = 40, Roof = 3 }, Hang = 0.3, SlingAt = 1.4, SlingRange = 50, SlingSpeed = 100, CrashDamage = 20, CrashRadius = 9,
+			SplashDamage = 12, Ragdoll = 1.6, Crater = 7, Timeout = 1.2, ActionTime = 0.6, CutIn = true },
+		Ult = {
+			Name = "MADE IN HEAVEN",
+			Shout = "MADE IN HEAVEN!!",
+			Color = Color3.fromRGB(255, 244, 214),
+			AccentColor = Color3.fromRGB(78, 155, 58),
+			Duration = 25,
+			WalkSpeed = 32,
+			JumpPower = 70,
+			Abilities = {
+				-- HEAVEN'S RUSH: the barrage, faster and longer
+				{ Id = "CMoonRush", Name = "HEAVEN'S RUSH", Cooldown = 5, Startup = 0.18, Hits = 32, Interval = 0.045, Damage = 3, Breath = 0.08, FinisherDamage = 24,
+					Range = 10, Width = 10, RushWalk = 16, ArmorScale = 0.4, Away = { Time = 0.7, Out = 1, Up = 0.35, Accel = 0.55 }, Ragdoll = 1.0, Crater = 6,
+					ActionTime = 1.85, CutIn = true },
+				{ Id = "HeavenBlitz", Name = "TIME ACCELERATION", Cooldown = 8, Radius = 45, Targets = 6, Gap = 0.07, Damage = 14, Push = 80, Lift = 40, Ragdoll = 1.2,
+					Dodge = 0.7, ActionTime = 0.8, CutIn = true },
+				{ Id = "InsideOut", Name = "INSIDE OUT: ACCELERATED", Cooldown = 6, Startup = 0.3, Throw = 0.55, Ahead = 7, Disc = 12, Slabs = 6, Spread = 24, Speed = 420,
+					Range = 120, Radius = 3, Damage = 10, Push = 80, Lift = 26, Pierce = 2, Crater = 5, ActionTime = 0.8, CutIn = false },
+			},
+			Special = { Id = "HeavenStep", Name = "ACCELERATE", Cooldown = 3, Distance = 55, Time = 0.12, Dodge = 0.35, Afterimages = 6, PassDamage = 6, PassRadius = 4,
+				ActionTime = 0.2, CutIn = false },
+			Extra = { Id = "NewWorld", Name = "THE NEW WORLD", Cooldown = 60, Cinematic = true, CinematicArmor = 4.6, Windup = 3.2,
+				Beats = { Rise = 0.1, Strobe = 1.4, Call = 2.6 }, Radius = 180, Damage = 60, Push = 110, Lift = 70, Ragdoll = 2.4, Edge = 40, WhiteOut = 0.8,
+				EndsUlt = true, ActionTime = 4.2, CutIn = false },
+		},
+	},
+
+	-- (round 104) JOTARO KUJO and STAR PLATINUM (the owner's JJBA place's
+	-- Stand, ported: its model, its clips, its sounds, its moves - Star Finger,
+	-- the heavy punch, the barrage, the stopped time - and a 4th from the
+	-- manga). A Stand fights beside him (Config.JJBA.Stands.StarPlatinum);
+	-- the M1s are its. He moves in anyone's stopped time (TimeStopImmune).
+	StarPlatinum = {
+		DisplayName = "STAR PLATINUM",
+		Description = "Dev: Jotaro Kujo and STAR PLATINUM - the strongest Stand there is. M1: its fists. 1 ORA ORA ORA!: the rush. 2 STAR FINGER: two fingers shoot out like a spear. 3 ORA!: one wound-up punch. R STAR PLATINUM: THE WORLD - time stops for a moment (and he moves in anyone else's). 4 BEARING SHOT: a ball bearing flicked at bullet speed. Ult: STAR PLATINUM: THE WORLD.",
+		-- (one line for the hero picker: 70 characters at most)
+		ShortDescription = "The strongest Stand. Time stops for him too.",
+		Color = Color3.fromRGB(120, 86, 226),
+		AccentColor = Color3.fromRGB(92, 220, 240),
+		ModeName = "STAR PLATINUM",
+		CutInCorner = "TopLeft",
+		CutInImage = "",
+		DevOnly = true,
+		Stand = true, -- (a Stand fights beside him)
+		StandReach = 3, -- the M1s are the Stand's, from out in front of him
+		TimeStopImmune = true, -- (stopped time - DIO's, his own - never holds him)
+		WalkSpeed = 20,
+		JumpPower = 55,
+		Abilities = {
+			-- ORA ORA ORA!: the Stand's rush (Hits of Damage, Interval apart, out to
+			-- Range, breaking BreakDepth into whatever's in front), then ORA!
+			{ Id = "OraRush", Name = "ORA ORA ORA!", Cooldown = 6, Damage = 3, Hits = 18, Interval = 0.07, FinisherDamage = 16, Range = 7.5, BreakDepth = 16, ActionTime = 1.55, CutIn = false },
+			-- STAR FINGER: two of its fingers shoot out like a spear (Startup, then
+			-- out to Range, Width across): the first body in the line takes Damage,
+			-- is driven back (Push, Lift) and off its feet (Ragdoll)
+			{ Id = "StarFinger", Name = "STAR FINGER", Cooldown = 9, Startup = 0.28, Range = 24, Width = 3.2, Damage = 15, Push = 75, Lift = 18, Stun = 0.6, Ragdoll = 0.8, Aim = { Up = 30, Down = 30 }, ActionTime = 0.75, CutIn = false },
+			-- ORA!: one punch, wound up (Startup): everyone in the Range x Width box
+			-- in front takes Damage and flies (Push, Lift, Ragdoll); a crater
+			{ Id = "OraHeavy", Name = "ORA!", Cooldown = 7, Startup = 0.38, Range = 8, Width = 6, Damage = 18, Push = 115, Lift = 28, Ragdoll = 1.4, Crater = 4, BreakDepth = 10, ActionTime = 0.8, CutIn = false },
+		},
+		-- R: STAR PLATINUM: THE WORLD - after Windup, time stops for everyone
+		-- within Radius but him for Duration (DIO's stopped time: Kit.TS - every
+		-- hit he lands in it arrives when it starts again)
+		Special = { Id = "StarWorld", Name = "STAR PLATINUM: THE WORLD", Cooldown = 34, Windup = 0.55, Duration = 2.5, Radius = 200, CutIn = true },
+		-- 4: BEARING SHOT - a ball bearing, flicked by the Stand at Speed down the
+		-- aim (Range): through Pierce bodies, Damage and a Stun each
+		Extra = { Id = "BearingShot", Name = "BEARING SHOT", Cooldown = 8, Startup = 0.22, Damage = 10, Speed = 320, Range = 140, Radius = 1.4, Pierce = 1, Stun = 0.5, Aim = { Up = 40, Down = 40 }, ActionTime = 0.45, CutIn = false },
+		Ult = {
+			Name = "STAR PLATINUM: THE WORLD",
+			Shout = "STAR PLATINUM: THE WORLD!!",
+			Color = Color3.fromRGB(150, 110, 255),
+			AccentColor = Color3.fromRGB(120, 255, 240),
+			Duration = 25,
+			WalkSpeed = 24,
+			JumpPower = 62,
+			Abilities = {
+				{ Id = "OraRush", Name = "ORA ORA ORA ORA!!", Cooldown = 5, Damage = 4, Hits = 26, Interval = 0.055, FinisherDamage = 24, Range = 9, BreakDepth = 28, Rage = true, ActionTime = 1.7, CutIn = true },
+				{ Id = "StarFinger", Name = "STAR FINGER", Cooldown = 6, Startup = 0.22, Range = 36, Width = 3.6, Damage = 20, Push = 95, Lift = 22, Stun = 0.7, Ragdoll = 1.0, Aim = { Up = 30, Down = 30 }, ActionTime = 0.7, CutIn = false },
+				{ Id = "OraHeavy", Name = "ORAAA!", Cooldown = 6, Startup = 0.3, Range = 9, Width = 7, Damage = 26, Push = 150, Lift = 34, Ragdoll = 1.8, Crater = 6, BreakDepth = 16, ActionTime = 0.75, CutIn = true },
+			},
+			Special = { Id = "StarWorld", Name = "STAR PLATINUM: THE WORLD!!", Cooldown = 22, Windup = 0.5, Duration = 5, Radius = 240, CutIn = true },
+			-- 4: ORA ORA... ORA!! - time stops (TimeStop s, if it hasn't), the Stand
+			-- is on the nearest one in front (Range) and pummels them (Hits of
+			-- Damage, Interval apart - all of it held for when time moves), then the
+			-- last one (FinisherDamage, Push, Lift, Ragdoll)
+			Extra = { Id = "OraFinale", Name = "ORA ORA... ORA!!", Cooldown = 30, TimeStop = 3.2, Range = 14, Hits = 30, Interval = 0.05, Damage = 2, FinisherDamage = 30, Push = 190, Lift = 70, Ragdoll = 2.2, Cinematic = true, CinematicArmor = 3.4, ActionTime = 3.2, CutIn = false },
+		},
+	},
+
+	-- (round 104) POM (the owner's JJBA place's fighter, ported: no Stand -
+	-- his own body, two anti-physical void balls on his fists, a black-and-
+	-- cyan aura; Config.POM). His moves are the JJBA place's - the lunging
+	-- fist, the double attack, the charged blow - with the void ball it never
+	-- got to throw, and a slam. He jumps sky-high (his SuperLeap).
+	POM = {
+		DisplayName = "POM",
+		Description = "Dev: no Stand - two anti-physical void balls ride his fists. M1: his fists. 1 FIST ATTACK: a lunging punch. 2 DOUBLE ATTACK: two heavy blows, standing his ground. 3 HEAVY CHARGE: he winds up (hard to stagger), then one blow that blows them away. R VOID BALL: a ball of anti-physics thrown that tears through what it touches. 4 VOID SLAM: up, and down on them with both. Jump again in the air: a huge leap. Ult: LAST WORD.",
+		ShortDescription = "Two void balls ride his fists. They erase things.",
+		Color = Color3.fromRGB(22, 26, 36),
+		AccentColor = Color3.fromRGB(0, 236, 255),
+		ModeName = "VOID",
+		CutInCorner = "TopRight",
+		CutInImage = "",
+		DevOnly = true,
+		WalkSpeed = 20,
+		JumpPower = 55,
+		-- THE PASSIVE: jump again in the air and he leaps sky-high (the JJBA
+		-- place's random jump), landing on whoever's under him
+		SuperLeap = { Up = 140, Forward = 55, Cooldown = 3, LandRadius = 13, LandDamage = 10, Always = true },
+		Abilities = {
+			-- FIST ATTACK: he lunges (Lunge studs) and drives a fist through the
+			-- Range x Width box in front: Damage, thrown (Push, Lift), Stun
+			{ Id = "POMFist", Name = "FIST ATTACK", Cooldown = 4, Startup = 0.18, Lunge = 9, Range = 7, Width = 6, Damage = 12, Push = 60, Lift = 14, Stun = 0.6, ActionTime = 0.6, CutIn = false },
+			-- DOUBLE ATTACK: two blows, Gap apart, standing his ground: the first
+			-- Damage, the second SecondDamage and away (Push, Lift, Ragdoll)
+			{ Id = "POMDouble", Name = "DOUBLE ATTACK", Cooldown = 7, Startup = 0.3, Gap = 0.42, Range = 7.5, Width = 7, Damage = 9, SecondDamage = 14, Push = 95, Lift = 30, Ragdoll = 1.0, ActionTime = 1.25, CutIn = false },
+			-- HEAVY CHARGE: Charge s of wind-up (hits on him land for ChargeArmor),
+			-- then one blow: Damage in the box, flying (Push, Lift, Ragdoll), a
+			-- shockwave (ShockRadius: ShockDamage) and a crater
+			{ Id = "POMCharge", Name = "HEAVY CHARGE", Cooldown = 11, Charge = 0.9, ChargeArmor = 0.4, Range = 9, Width = 7, Damage = 24, Push = 160, Lift = 50, Ragdoll = 1.8, ShockRadius = 12, ShockDamage = 8, Crater = 6, ActionTime = 1.45, CutIn = true },
+		},
+		-- R: VOID BALL - an anti-physical ball thrown down the aim at Speed (out
+		-- to Range): everyone it passes within Radius takes Damage and is torn
+		-- off their feet (Ragdoll); it tears a channel through the street
+		Special = { Id = "POMVoid", Name = "VOID BALL", Cooldown = 10, Startup = 0.35, Speed = 75, Range = 90, Radius = 3.2, Damage = 14, Ragdoll = 1.0, Carve = 2.4, Aim = { Up = 25, Down = 35 }, ActionTime = 0.7, CutIn = false },
+		-- 4: VOID SLAM - up (Height) and down on the aim point (Range, TravelTime):
+		-- everyone in Radius takes Damage, flies (Push, Lift, Ragdoll); a crater
+		Extra = { Id = "POMSlam", Name = "VOID SLAM", Cooldown = 12, Range = 44, Height = 22, TravelTime = 0.55, Radius = 15, Damage = 20, Push = 70, Lift = 55, Ragdoll = 1.4, Crater = 9, ActionTime = 0.9, CutIn = true },
+		Ult = {
+			Name = "LAST WORD",
+			Shout = "THIS IS MY LAST WORD.",
+			Color = Color3.fromRGB(10, 12, 18),
+			AccentColor = Color3.fromRGB(0, 255, 255),
+			Duration = 25,
+			WalkSpeed = 24,
+			JumpPower = 62,
+			Abilities = {
+				{ Id = "POMFist", Name = "FIST ATTACK", Cooldown = 3, Startup = 0.14, Lunge = 14, Range = 8, Width = 7, Damage = 15, Push = 80, Lift = 18, Stun = 0.7, ActionTime = 0.55, CutIn = false },
+				{ Id = "POMDouble", Name = "DOUBLE ATTACK", Cooldown = 5, Startup = 0.24, Gap = 0.34, Range = 8.5, Width = 8, Damage = 12, SecondDamage = 18, Push = 120, Lift = 36, Ragdoll = 1.3, ActionTime = 1.1, CutIn = false },
+				{ Id = "POMCharge", Name = "HEAVY CHARGE", Cooldown = 8, Charge = 0.6, ChargeArmor = 0.3, Range = 10, Width = 8, Damage = 30, Push = 200, Lift = 60, Ragdoll = 2.0, ShockRadius = 16, ShockDamage = 12, Crater = 8, ActionTime = 1.2, CutIn = true },
+			},
+			-- three of them, fanned Spread degrees
+			Special = { Id = "POMVoid", Name = "VOID BALLS", Cooldown = 7, Startup = 0.3, Count = 3, Spread = 24, Speed = 90, Range = 110, Radius = 3.4, Damage = 14, Ragdoll = 1.1, Carve = 2.6, Aim = { Up = 25, Down = 35 }, ActionTime = 0.7, CutIn = false },
+			-- 4: LAST WORD - one great void ball (Radius), slow (Speed) down the aim
+			-- (Range): it erases a channel through everything and everyone in its
+			-- way (Damage, Push, Lift, Ragdoll), and ends the ult
+			Extra = { Id = "POMLastWord", Name = "LAST WORD", Cooldown = 40, Windup = 1.1, Speed = 55, Range = 140, Radius = 9, Damage = 40, Push = 140, Lift = 70, Ragdoll = 2.4, Carve = 7, Cinematic = true, CinematicArmor = 2.2, EndsUlt = true, ActionTime = 1.6, CutIn = true },
+		},
+	},
 }
 
-Config.QuirkOrder = { "Explosion", "OneForAll", "FullCowl", "HalfCold", "Engine", "Creation", "Lemillion", "Manifest", "Arbor", "Electrification", "Overhaul", "Decay", "Compress", "Double", "Limitless", "CrazyDiamond", "PlusUltra", "Hellflame", "Blueflame", "PrimeDeku", "PrimeMight", "TheWorld", "FierceWings", "Saitama", "Whirlwind" }
+Config.QuirkOrder = { "Explosion", "OneForAll", "FullCowl", "HalfCold", "Engine", "Creation", "Lemillion", "Manifest", "Arbor", "Electrification", "Overhaul", "Decay", "Compress", "Double", "Limitless", "CrazyDiamond", "PlusUltra", "Hellflame", "Blueflame", "PrimeDeku", "PrimeMight", "TheWorld", "FierceWings", "Saitama", "Whirlwind", "Mob", "DarkShadow", "CMoon", "StarPlatinum", "POM" }
 
 ---------------------------------------------------------------------------
 -- Helpers

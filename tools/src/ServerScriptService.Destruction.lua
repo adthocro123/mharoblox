@@ -177,6 +177,15 @@ local PROFILES = {
 	-- facade's worth, thrown on out)
 	FlightCrater = { MinSize = 12, Rim = 4, RimEffect = "scorch", Fling = "radial", Speed = { 110, 240 }, Up = { 120, 260 }, Tint = "burnt", FireChance = 0.25, Debris = 60, Budget = 1100 },
 	CraterRip = { MinSize = 6, Rim = 2.5, RimEffect = "scorch", Fling = "radial", Speed = { 120, 220 }, Up = { 60, 140 }, Tint = "burnt", FireChance = 0.2, Debris = 16, Budget = 120 },
+	-- (round 102) MOB: his power doesn't blast things apart, it lifts them -
+	-- the pieces float up off what they were part of (Psychic: Lift's slam,
+	-- the debris landing, SPIRIT WAVE's cone - pushed down it); ((round 102)
+	-- round 2) a whole building driven end-first into the street (BuildingSlam:
+	-- ???%: SKYSCRAPER's crater, coarse, the chunks thrown out round it -
+	-- TOWER DROP's TowerSlam and TWIN CRUSH's TwinCrush went with them)
+	Psychic = { MinSize = 3, Rim = 1.2, RimEffect = "crack", Fling = "up", Speed = { 8, 22 }, Up = { 30, 60 }, Debris = 12, Budget = 120 },
+	PsychicWave = { MinSize = 3.5, Rim = 1.2, RimEffect = "crack", Fling = "directional", Speed = { 70, 130 }, Up = { 15, 40 }, Debris = 24, Budget = 220 },
+	BuildingSlam = { MinSize = 5, Rim = 3, RimEffect = "crack", Fling = "radial", Speed = { 70, 140 }, Up = { 70, 150 }, Debris = 48, Budget = 480 },
 }
 Destruction.Profiles = PROFILES
 
@@ -343,6 +352,9 @@ local fragOrigin = {} -- [fragment] = original part
 -- (round 96) a piece of a Dismantle cut that's coming off: [part] = its
 -- group (Slice / Collapse / Crumble, below) - no carve touches it meanwhile
 local moving = {}
+-- (round 102) a building held up out of the world (Mob's thrown building:
+-- Destruction.Freeze): [part] = how many holds - no carve or cut touches it
+local frozen = {}
 
 -- Take a part out of the world. Originals are kept for regen; fragments are destroyed.
 local function retire(part)
@@ -708,7 +720,7 @@ local function carve(shape, profileName, dir, shared, minSize, touched, opts)
 		touched = touched, -- (optional: the originals this carve took, for a hold)
 	}
 	for _, part in parts do
-		if part.Parent and part:IsA("Part") and part:GetAttribute("Destroyable") == true and not moving[part]
+		if part.Parent and part:IsA("Part") and part:GetAttribute("Destroyable") == true and not moving[part] and not frozen[part]
 			and not (skip and skip[part]) and not (above and part.Position.Y + (math.abs(part.CFrame.RightVector.Y) * part.Size.X
 				+ math.abs(part.CFrame.UpVector.Y) * part.Size.Y + math.abs(part.CFrame.LookVector.Y) * part.Size.Z) / 2 <= above) then
 			local ok, err = pcall(processPart, part, ctx)
@@ -1114,6 +1126,97 @@ function Destruction.RestoreArea(center, radius, opts)
 end
 
 ---------------------------------------------------------------------------
+-- (round 102) MOB'S BUILDINGS (the server's Kit.MOB.B - round 2: whichever he
+-- throws; round 1's twin towers): a whole building held
+-- up out of the world for a while. Freeze(model, true): every broken part of
+-- it put back now (RestoreArea over its own parts: it goes up whole - a part
+-- in someone's marble stays in the marble), and from then on no carve or cut
+-- touches any part of it - nor one that comes back into it meanwhile (a
+-- marble thrown, the regrow). Freeze(model, false) lets it go: it's an
+-- ordinary part of the map again (the last hold to let go). Returns how many
+-- parts it holds. Frozen(part): is it held?
+---------------------------------------------------------------------------
+do
+	local holds = {} -- [model] = { n = holds, conn = its DescendantAdded }
+	function Destruction.Freeze(model, on)
+		if typeof(model) ~= "Instance" then
+			return 0
+		end
+		local rec = holds[model]
+		if on then
+			if rec then
+				rec.n += 1
+				return rec.count
+			end
+			-- (its own parts' box: the reach of the put-back)
+			local lo, hi
+			for _, d in model:GetDescendants() do
+				if d:IsA("BasePart") then
+					local a, b = aabbOf(d.CFrame, d.Size / 2)
+					lo = lo and vmin(lo, a) or a
+					hi = hi and vmax(hi, b) or b
+				end
+			end
+			if lo then
+				Destruction.RestoreArea((lo + hi) / 2, (hi - lo).Magnitude / 2 + 4, { Folders = { [model] = true } })
+			end
+			rec = { n = 1, count = 0 }
+			holds[model] = rec
+			for _, d in model:GetDescendants() do
+				if d:IsA("BasePart") then
+					frozen[d] = (frozen[d] or 0) + 1
+					rec.count += 1
+				end
+			end
+			rec.conn = model.DescendantAdded:Connect(function(d)
+				if holds[model] == rec and d:IsA("BasePart") then
+					rec.extra = rec.extra or {}
+					if not rec.extra[d] then
+						rec.extra[d] = true
+						frozen[d] = (frozen[d] or 0) + 1
+					end
+				end
+			end)
+			return rec.count
+		end
+		if not rec then
+			return 0
+		end
+		rec.n -= 1
+		if rec.n > 0 then
+			return rec.count
+		end
+		holds[model] = nil
+		if rec.conn then
+			rec.conn:Disconnect()
+		end
+		local function let(d)
+			local n = (frozen[d] or 1) - 1
+			frozen[d] = n > 0 and n or nil
+		end
+		for _, d in model:GetDescendants() do
+			if d:IsA("BasePart") and frozen[d] and not (rec.extra and rec.extra[d]) then
+				let(d)
+			end
+		end
+		for d in rec.extra or {} do
+			let(d)
+		end
+		-- (a part that left the building meanwhile - streamed or carved off
+		-- elsewhere - never keeps a hold of ours)
+		for d in frozen do
+			if not d.Parent then
+				frozen[d] = nil
+			end
+		end
+		return 0
+	end
+	function Destruction.Frozen(part)
+		return frozen[part] ~= nil
+	end
+end
+
+---------------------------------------------------------------------------
 -- (round 96) DISMANTLE (Config.Dismantle; the server's Kit.DM decides who,
 -- where and what): a flat cut through whole structures, and what's over it
 -- coming off
@@ -1242,7 +1345,7 @@ do
 	local function sliceUnit(unit, P, N, opts, budget)
 		local parts = {}
 		for _, d in unit:GetDescendants() do
-			if d:IsA("BasePart") and d:GetAttribute("Destroyable") == true and not moving[d] and d.Parent then
+			if d:IsA("BasePart") and d:GetAttribute("Destroyable") == true and not moving[d] and not frozen[d] and d.Parent then
 				table.insert(parts, d)
 			end
 		end

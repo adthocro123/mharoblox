@@ -14151,6 +14151,187 @@ end)
 	end
 end)
 
+---------------------------------------------------------------------------
+-- Round 104: THE JJBA PLACE, PORTED - JOTARO / STAR PLATINUM and POM (dev
+-- only, full kits); DIO and Jotaro move in each other's stopped time
+---------------------------------------------------------------------------
+;M.section(function()
+	print("== round 104: STAR PLATINUM and POM - their kits, the stopped time they share")
+	local X = 104000
+	local FWD = Vector3.new(0, 0, 1)
+	local function place(aQuirk, aPos, bPos, bQuirk)
+		fire(SelectQuirk, A, aQuirk)
+		fire(SelectQuirk, B, bQuirk or "Explosion")
+		if aChar then
+			aChar.Parent = nil
+		end
+		if bChar then
+			bChar.Parent = nil
+		end
+		aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(aPos, aPos + FWD))
+		bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(bPos, Vector3.new(aPos.X, bPos.Y, aPos.Z)))
+		task.wait(0.25)
+		fire(TestCommand, A, "ResetCooldowns")
+		fire(TestCommand, B, "ResetCooldowns")
+		A:SetAttribute("Ult", 0)
+		A:SetAttribute("UltActive", false)
+		aHum.MaxHealth, aHum.Health = 200, 200
+		bHum.MaxHealth, bHum.Health = 200, 200
+		clearSent()
+	end
+	local function hurt()
+		return bHum.MaxHealth - bHum.Health
+	end
+	for _, q in { "StarPlatinum", "POM" } do
+		local def = Config.Quirks[q]
+		check(def and def.DevOnly == true and table.find(Config.QuirkOrder, q) ~= nil and def.Ult and #def.Abilities == 3 and def.Special and def.Extra
+			and #def.Ult.Abilities == 3 and def.Ult.Special and def.Ult.Extra, q .. ": a full kit (3 + R + 4, the ult's too), dev only, on the phone")
+	end
+	check(Config.JJBA and Config.JJBA.Stands.StarPlatinum and Config.JJBA.Stands.CMoon and Config.JJBA.Users.TheWorld == "TheWorld", "Config.JJBA: the JJBA place's four Stands")
+	check(Config.Quirks.TheWorld.TimeStopImmune == true and Config.Quirks.StarPlatinum.TimeStopImmune == true, "DIO and Jotaro both move in stopped time")
+	check(type(Config.Sounds.OraVoice) == "table" and Config.Voice.StarWorld and Config.Voice.StarWorld.Fallback == "StarWorldTTS" and Config.Voice.StarWorldTTS.Text ~= nil
+		and Config.Voice.ZaWarudo.Fallback == "ZaWarudoTTS" and Config.Voice.ZaWarudoTTS.Bubble == "ZA WARUDO!!", "the JJBA voices: its clip, text-to-speech behind it")
+	local SPQ = Config.Quirks.StarPlatinum
+
+	-- 1: ORA ORA ORA!
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 5))
+	check(aChar:GetAttribute("Quirk") == "StarPlatinum", "a dev can be Jotaro")
+	fire(UseAbility, A, 1, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(0.15 + SPQ.Abilities[1].Hits * SPQ.Abilities[1].Interval + 0.4)
+	check(hurt() >= 30, "1: ORA ORA ORA! - the rush lands (" .. hurt() .. ")")
+	-- 2: STAR FINGER, at range
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 18))
+	fire(UseAbility, A, 2, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(SPQ.Abilities[2].Startup + 0.3)
+	local shot = sentTo(B, "StarFingerShot")[1]
+	check(shot ~= nil and shot.Hit == bChar and hurt() >= SPQ.Abilities[2].Damage * 0.8, "2: STAR FINGER - 18 studs out, it lands (" .. hurt() .. ")")
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 40))
+	fire(UseAbility, A, 2, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(SPQ.Abilities[2].Startup + 0.3)
+	check(hurt() == 0, "...but not 40 studs out (Range " .. SPQ.Abilities[2].Range .. ")")
+	-- 3: ORA!
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 6))
+	fire(UseAbility, A, 3, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(SPQ.Abilities[3].Startup + 0.3)
+	check(hurt() >= SPQ.Abilities[3].Damage * 0.8 and #sentTo(B, "OraHeavyHit") == 1, "3: ORA! - one wound-up punch (" .. hurt() .. ")")
+	-- 4: BEARING SHOT, far
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 60))
+	fire(UseAbility, A, Config.EXTRA_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(SPQ.Extra.Startup + 60 / SPQ.Extra.Speed + 0.3)
+	check(hurt() >= SPQ.Extra.Damage * 0.8 and #sentTo(B, "BearingTrail") == 1, "4: BEARING SHOT - 60 studs off, it lands (" .. hurt() .. ")")
+	-- R: STAR PLATINUM: THE WORLD
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 5))
+	fire(UseAbility, A, Config.SPECIAL_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(SPQ.Special.Windup + 0.2)
+	local ts = sentTo(B, "TimeStop")[1]
+	check(bChar:GetAttribute("TimeStopped") == true and ts ~= nil and ts.Kind == "StarPlatinum", "R: STAR PLATINUM: THE WORLD - time stops (" .. tostring(ts and ts.Kind) .. ")")
+	fire(UseAbility, A, 1, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(1)
+	check(hurt() == 0 and #sentTo(B, "TimeHit") >= 3, "...the rush hangs on them (" .. #sentTo(B, "TimeHit") .. " waiting)")
+	task.wait(SPQ.Special.Duration)
+	check(bChar:GetAttribute("TimeStopped") == nil and hurt() >= 20, "...and lands when time moves again (" .. hurt() .. ")")
+	-- DIO in Star Platinum's stopped time: he moves
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 5), "TheWorld")
+	fire(UseAbility, A, Config.SPECIAL_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(SPQ.Special.Windup + 0.2)
+	check(bChar:GetAttribute("TimeStopped") == nil and not bRoot.Anchored and #sentTo(B, "TimeStop") == 1, "DIO moves in Star Platinum's stopped time")
+	clearSent()
+	fire(UseAbility, B, 0, -FWD, aRoot.Position)
+	task.wait(0.3)
+	check(#sentTo(A, "Punch") >= 1, "...his M1s go")
+	task.wait(SPQ.Special.Duration + 0.3)
+	-- and Jotaro in The World's
+	place("TheWorld", Vector3.new(X, 3, 0), Vector3.new(X, 3, 5), "StarPlatinum")
+	fire(UseAbility, A, Config.SPECIAL_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(0.8)
+	check(bChar:GetAttribute("TimeStopped") == nil and not bRoot.Anchored, "...and Jotaro moves in ZA WARUDO's")
+	task.wait(Config.Quirks.TheWorld.Special.Duration + 0.3)
+	-- anyone else is still caught by both
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 5), "CMoon")
+	fire(UseAbility, A, Config.SPECIAL_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(SPQ.Special.Windup + 0.2)
+	check(bChar:GetAttribute("TimeStopped") == true, "...and Pucci doesn't")
+	task.wait(SPQ.Special.Duration + 0.3)
+	-- ULT 4: ORA ORA... ORA!!
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 6))
+	A:SetAttribute("Ult", 100)
+	fire(UseAbility, A, Config.ULT_INDEX)
+	task.wait(1.6)
+	fire(TestCommand, A, "ResetCooldowns")
+	aHum.Health, bHum.Health = aHum.MaxHealth, bHum.MaxHealth
+	clearSent()
+	local OF = SPQ.Ult.Extra
+	fire(UseAbility, A, Config.EXTRA_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(0.3)
+	local go = sentTo(B, "OraFinaleGo")[1]
+	check(bChar:GetAttribute("TimeStopped") == true and go ~= nil and go.Target == bChar, "ult 4: ORA ORA... ORA!! - time stops, the Stand's on them")
+	task.wait(OF.TimeStop + 0.8)
+	check(bChar:GetAttribute("TimeStopped") == nil and hurt() >= 50 and #sentTo(B, "OraFinaleBlow") == 1, "...and it all lands at once (" .. hurt() .. ")")
+	A:SetAttribute("UltActive", false)
+
+	-- POM
+	local PQ = Config.Quirks.POM
+	place("POM", Vector3.new(X, 3, 0), Vector3.new(X, 3, 6))
+	check(aChar:GetAttribute("Quirk") == "POM" and PQ.SuperLeap ~= nil, "a dev can be POM (his leap is the game's SuperLeap)")
+	fire(UseAbility, A, 1, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(PQ.Abilities[1].Startup + 0.12 + 0.3)
+	check(hurt() >= PQ.Abilities[1].Damage * 0.8 and #sentTo(B, "POMHit") == 1, "POM 1: FIST ATTACK lands (" .. hurt() .. ")")
+	place("POM", Vector3.new(X, 3, 0), Vector3.new(X, 3, 6))
+	fire(UseAbility, A, 2, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(PQ.Abilities[2].Startup + PQ.Abilities[2].Gap + 0.3)
+	check(#sentTo(B, "POMHit") == 2 and hurt() >= (PQ.Abilities[2].Damage + PQ.Abilities[2].SecondDamage) * 0.7, "2: DOUBLE ATTACK - both blows (" .. hurt() .. ")")
+	place("POM", Vector3.new(X, 3, 0), Vector3.new(X, 3, 7))
+	fire(UseAbility, A, 3, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(PQ.Abilities[3].Charge + 0.3)
+	check(hurt() >= PQ.Abilities[3].Damage * 0.8 and #sentTo(B, "POMChargeRelease") == 1, "3: HEAVY CHARGE - wound up, then the blow (" .. hurt() .. ")")
+	place("POM", Vector3.new(X, 3, 0), Vector3.new(X, 3, 30))
+	fire(UseAbility, A, Config.SPECIAL_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(PQ.Special.Startup + 30 / PQ.Special.Speed + 0.4)
+	check(hurt() >= PQ.Special.Damage * 0.8 and #sentTo(B, "POMVoidBall") == 1, "R: VOID BALL - it reaches them 30 studs off (" .. hurt() .. ")")
+	place("POM", Vector3.new(X, 3, 0), Vector3.new(X, 3, 25))
+	fire(UseAbility, A, Config.EXTRA_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(PQ.Extra.TravelTime + 0.4)
+	check(hurt() >= PQ.Extra.Damage * 0.8 and #sentTo(B, "POMSlamLand") == 1 and not aRoot.Anchored, "4: VOID SLAM - up and down on them (" .. hurt() .. ")")
+	-- ult 4: LAST WORD ends the ult
+	place("POM", Vector3.new(X, 3, 0), Vector3.new(X, 3, 30))
+	A:SetAttribute("Ult", 100)
+	fire(UseAbility, A, Config.ULT_INDEX)
+	task.wait(1.6)
+	fire(TestCommand, A, "ResetCooldowns")
+	bHum.Health = bHum.MaxHealth
+	local LW = PQ.Ult.Extra
+	fire(UseAbility, A, Config.EXTRA_INDEX, FWD, bRoot.Position, 1, aRoot.Position)
+	task.wait(LW.Windup + LW.Range / LW.Speed + 0.6)
+	check(hurt() >= 20 and A:GetAttribute("UltActive") ~= true, "ult 4: LAST WORD - the great void ball, and the ult's over (" .. hurt() .. ")")
+
+	-- their looks
+	place("StarPlatinum", Vector3.new(X, 3, 0), Vector3.new(X, 3, 30))
+	for _, n in { "Head", "Torso", "Right Arm", "Left Arm", "Right Leg", "Left Leg" } do
+		local limb = M.new("Part", n)
+		limb.Size = n == "Torso" and Vector3.new(2, 2, 1) or n == "Head" and Vector3.new(2, 1, 1) or Vector3.new(1, 2, 1)
+		limb.CFrame = aRoot.CFrame
+		limb.Parent = aChar
+	end
+	fire(SelectQuirk, A, "StarPlatinum")
+	task.wait(0.3)
+	local jot = 0
+	for _, d in (aChar:FindFirstChild("QuirkGear") or aChar):GetDescendants() do
+		if d.Name == "Jotaro" then
+			jot += 1
+		end
+	end
+	check(jot >= 10, "Jotaro's look: his cap, his coat (" .. jot .. " pieces)")
+	fire(SelectQuirk, A, "POM")
+	task.wait(0.3)
+	local balls = 0
+	for _, d in (aChar:FindFirstChild("QuirkGear") or aChar):GetDescendants() do
+		if d.Name == "VoidBall" then
+			balls += 1
+		end
+	end
+	check(balls == 2, "POM's void balls, one on each fist (" .. balls .. ")")
+end)
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}

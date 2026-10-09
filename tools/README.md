@@ -5,17 +5,151 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 103, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 104, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
+| `jjba/` | Round 104: the tools that grafted the owner's JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks) |
 
 You need Python 3 with `numpy pillow lz4 zstandard` (and `ffmpeg` for preview
 videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tools.
 
 ---
 
-## Where things stand (Round 103)
+## Where things stand (Round 104)
+
+Round 104 is built on the owner's uploaded `final.rbxl` (Round 103 plus
+the other session's Mob, Tokoyami and Pucci). The owner's JJBA place
+(`jjba.rbxl`) is ported into it: "take my version of JJBA stands and
+moves, and combine it with the current stand available in the final
+version of quirk battlegrounds". Three scripts changed (`QuirkConfig`,
+`VFX`, `QuirkServer`), and the JJBA place's assets were grafted in. Not
+playtested in Studio yet.
+
+**What came over from the JJBA place** (`tools/jjba/`; every old instance
+in the place is byte-for-byte as it was).
+- `ReplicatedStorage.JJBA.Stands`: its four Stand models (STAR PLATINUM,
+  THE WORLD, C-MOON, MADE IN HEAVEN), with no scripts, Humanoids, saved
+  animations or sounds.
+- `ReplicatedStorage.JJBA.Clips`: 26 Stand clips. These are its
+  KeyframeSequences, plus the 8 loops that only lived in its Moon
+  Animator saves (the four barrages, C-MOON's heavy punch and block, The
+  World's block, Star Platinum's Moon idle), converted into
+  KeyframeSequences. The conversion is `T = v:Inverse() * C1`; it matched
+  the exported twin to rounding error.
+- `ReplicatedStorage.JJBA.Effects` (hit models, auras, the knife, the
+  road roller, POM's void ball, and more) and `MetalPart`.
+- 20 character clips in `ReplicatedStorage.Animations` (Jotaro's time
+  stop and pose, DIO's ZA WARUDO / knives / vampire / road roller, Pucci's
+  knives / gravity / evolve, POM's fist / heavy / void ball). The game's
+  clip player picks them up by name: `PoseZaWarudo` and `PoseVampireHold`
+  now play on DIO's R and 3 instead of the procedural poses.
+
+**The Stands are drawn from the JJBA models** (`Config.JJBA`; VFX:
+`VFX.JS`).
+- On every screen the model is cloned, anchored, its joints read and
+  removed, then posed every frame through its own rig
+  (`Part1 = Part0 * C0 * T * C1^-1`), all in one BulkMoveTo.
+- Where T comes from:
+  - STAR PLATINUM and THE WORLD (CDV): the JJBA place's own clip for what
+    the Stand is doing (Idle / Walk at his shoulder, the barrage loop in
+    the rush, Heavy, Finger, Knives). With no clip for the action, the
+    old figure's angle pose is put on the JJBA rig's joints, so every M1
+    and move it already had still moves it. Every change is blended over
+    `Fade`.
+  - C-MOON and MADE IN HEAVEN ride Pucci's own rig (VFX.CM). Each mesh
+    limb takes its bone's turn: an arm or leg follows the line from
+    shoulder or hip to fist or foot, and the torso sits on the chest
+    with its shoulders on C-MOON's. All of Pucci's keyed poses, strikes
+    and the MADE IN HEAVEN swap hold.
+- Each Stand gets its JJBA aura on its torso, its summon and dismiss
+  bursts, arm trails and afterimage arms in the rush, and its colour on
+  the shouts and outline.
+- The old part-built figures come back if a model is missing, if
+  `Config.JJBA.Enabled = false`, or if a Stand has `Use = false`.
+- Checked offline (`tools/jjba/js_check.luau`) on the real models: all
+  four punch toward their front in their own barrage clips; rest poses
+  match the rigs; arms and legs follow the bones within 3°.
+
+**STAR PLATINUM (Jotaro, new, dev only)** (`Config.Quirks.StarPlatinum`;
+server `Kit.JJ`). Its M1s are the Stand's (StandReach 3).
+- **1 ORA ORA ORA!**: Crazy Diamond's rush, in purple.
+- **2 STAR FINGER**: two fingers out like a spear (24 studs). Damage,
+  thrown, off their feet.
+- **3 ORA!**: a wound-up punch with a crater.
+- **R STAR PLATINUM: THE WORLD**: 2.5 s of DIO's stopped time (Kit.TS).
+  Everything he does in it lands when time moves again.
+- **4 BEARING SHOT**: a ball bearing at 320 studs/s that goes through one
+  body.
+- **Ult STAR PLATINUM: THE WORLD**: bigger rush, finger and ORA!, 5 s of
+  stopped time, and **ORA ORA... ORA!!** (time stops, the Stand pummels
+  the nearest one 30 times, and it all lands at once).
+- Jotaro's look: cap and badge, long coat, collar and chain.
+- Sounds: the JJBA place's.
+
+**POM (new, dev only)**. No Stand. Two void balls on his fists and a
+black-and-cyan aura (the JJBA place's).
+- **1 FIST ATTACK**: a lunging punch.
+- **2 DOUBLE ATTACK**: two blows.
+- **3 HEAVY CHARGE**: an armoured wind-up, then one blow with a
+  shockwave and a crater.
+- **R VOID BALL**: thrown; it erases a channel through the street as it
+  goes.
+- **4 VOID SLAM**: up and down on the aim point.
+- **Super leap**: jump again in the air.
+- **Ult LAST WORD**: three void balls at once, and one great void ball
+  that ends the ult.
+
+**Stopped time is shared.** `TimeStopImmune` (DIO and Jotaro) means you
+move in anyone's stopped time. Everyone else is still frozen by both.
+
+**DIO and Pucci** keep their kits:
+- DIO's knives are the JJBA place's `DIOKNIFE`, and the road roller is
+  its `RoadRoller` mesh.
+- The JJBA sounds are layered into the cues of their moves, on top of the
+  game's own layers.
+- The voices (ZA WARUDO, time resumes, ROAD ROLLER DA, "Made in Heaven",
+  Star Platinum's) are the JJBA place's clips. If a clip won't load on
+  that client, it falls back to the text-to-speech line (`Fallback`). The
+  ult themes for Jotaro and POM are its MusicOST, with a licensed
+  fallback.
+
+**Known gaps.**
+- **Audio privacy.** Roblox only plays audio that is public or owned by
+  the game's owner. Many of the JJBA place's IDs are old uploads that may
+  be private. Those layers stay silent, and the voices and themes fall
+  back as described above.
+- **Pucci's MADE IN HEAVEN horse.** The JJBA model's horse half is shaped
+  its own way (in front of the torso). Only its turns follow the game's
+  galloping bones, not its offsets.
+- **What Lune can't do.** `Model:ScaleTo`, BulkMoveTo and the particle
+  look are untested here: Lune has none of them, and the code falls back
+  where they fail.
+
+**Tests (round 104).**
+- Server: both kits move by move (rush, finger at 18 vs 40 studs, ORA!,
+  bearing at 60, stopped time holding the rush, the finale through
+  stopped time; POM's five moves and LAST WORD ending the ult), DIO and
+  Jotaro moving in each other's stopped time while Pucci doesn't, and
+  both looks. 29 checks, all pass.
+- Client: loads `tests/JJBA.rbxm` (a trimmed copy of the JJBA folder).
+  Checks:
+  - Star Platinum's model out with its own barrage and finger clips,
+    shown, with its fist on the model's hand and its aura.
+  - The World's model and barrage clip.
+  - DIO's knife and road roller meshes.
+  - Every Star Platinum and POM effect plays without a warning.
+  - C-MOON drawn from its JJBA model on Pucci's rig.
+  - It fails on the uploaded final and passes on round 104.
+- Full suites on the round 104 sources:
+  - Server: 1981 passed, 57 failed. The uploaded final: 1952 passed, the
+    same 57 failed.
+  - Client: stops where the uploaded final's run stops (a HUD meter
+    error in the round 34 section, HUD line 5367). 89 problems before
+    that point, every one also on the uploaded final, and none in the
+    round 104 section.
+
+### Round 103
 
 Round 103 is built on Round 102. It changed three scripts (`QuirkConfig`,
 `VFX`, `QuirkServer`); nothing else in the place changed. Not playtested

@@ -12887,6 +12887,178 @@ print("== round 103: FINAL FORM changes the world - the column of light, the bla
 	end
 end)()
 
+print("== round 104: THE JJBA PLACE'S STANDS (VFX.JS: Star Platinum, The World, C-MOON on its own models) and STAR PLATINUM's / POM's moves")
+-- (in a function of its own: the main chunk is at its register limit here)
+;(function()
+	local JS, CDV, CM = VFX.JS, VFX.CDV, VFX.CM
+	if not (JS and CDV) then
+		problem("JJBA 104: VFX.JS / VFX.CDV")
+		return
+	end
+	-- the JJBA place's folder (the test fixture: its stands, clips and the effects the code uses)
+	local okF, jj = pcall(function()
+		return r.deserializeModel(fs.readFile(process.env.JJBA_RBXM or "JJBA.rbxm"))[1]
+	end)
+	if not okF or not jj then
+		problem("JJBA 104: the fixture (" .. tostring(jj) .. ")")
+		return
+	end
+	jj.Parent = ReplicatedStorage
+	local wasChar = localPlayer.Character
+	local mine = makeR6("Jotaro", Vector3.new(400, 3, 0))
+	localPlayer.Character = mine
+	-- (the quirk set straight on: the HUD's own quirk switch isn't what this tests)
+	localPlayer:SetAttribute("Quirk", "StarPlatinum")
+	mine:SetAttribute("Quirk", "StarPlatinum")
+	local root = mine.HumanoidRootPart
+	local fwd = { Dir = Vector3.new(0, 0, -1), Pos = Vector3.new(400, 3, -30), Seed = 3, Origin = Vector3.new(400, 3, 0) }
+	-- 1: ORA ORA ORA - Star Platinum out, the JJBA model in the rush
+	VFX.Play("OraRush", mine, fwd, true)
+	task.wait(0.4)
+	local st = CDV.stands[mine]
+	local SPJ = Config.JJBA.Stands.StarPlatinum
+	if not st then
+		problem("JJBA 104: Star Platinum comes out for ORA ORA ORA")
+	else
+		if st.kind ~= "StarPlatinum" then
+			problem("...as Star Platinum (" .. tostring(st.kind) .. ")")
+		end
+		local r1 = st.js
+		if not r1 then
+			problem("...drawn from the JJBA place's model (VFX.JS)")
+		else
+			if r1.src ~= SPJ.Barrage then
+				problem("...its own barrage clip in the rush (" .. tostring(r1.src) .. ")")
+			end
+			local shown, total = 0, 0
+			for p, b in r1.base do
+				if b < 0.99 then
+					total += 1
+					if p.Transparency < 0.5 then
+						shown += 1
+					end
+				end
+			end
+			if total < 20 or shown < total * 0.8 then
+				problem("...its parts showing (" .. shown .. " of " .. total .. ")")
+			end
+			for _, e in st.parts do
+				if e.part.Transparency < 1 then
+					problem("...and the part-built figure hidden (" .. e.part.Name .. ")")
+					break
+				end
+			end
+			local arm = r1.byName["Right Arm"]
+			local c = arm and r1.cf[arm]
+			if not c or (c.Position - root.Position).Magnitude > 12 then
+				problem("...out beside him (" .. tostring(c and (c.Position - root.Position).Magnitude) .. " studs)")
+			end
+			if st.fists.armR and c and (st.fists.armR.CFrame.Position - (c * r.CFrame.new(0, -arm.Size.Y / 2, 0)).Position).Magnitude > 0.05 then
+				problem("...its fist (where punches come from) on the model's hand")
+			end
+			if not (r1.aura and #r1.aura >= 3) then
+				problem("...its aura (the JJBA place's SP Auras on its torso: " .. tostring(r1.aura and #r1.aura) .. ")")
+			end
+		end
+	end
+	task.wait(2)
+	-- 2: STAR FINGER - its own clip, the fingers out
+	VFX.Play("StarFinger", mine, fwd, true)
+	task.wait(0.1)
+	if st and st.js and st.js.src ~= SPJ.Finger then
+		problem("STAR FINGER: its own clip (" .. tostring(st.js and st.js.src) .. ")")
+	end
+	VFX.Play("StarFingerShot", mine, { From = root.Position + Vector3.new(0, 1, -2), To = root.Position + Vector3.new(0, 1, -20), Dir = Vector3.new(0, 0, -1) }, false)
+	-- the rest of his moves, and their server halves
+	for _, id in { "OraHeavy", "StarWorld", "BearingShot", "OraFinale" } do
+		VFX.Play(id, mine, fwd, true)
+		task.wait(0.1)
+	end
+	VFX.Play("OraHeavyHit", mine, { Pos = root.Position + Vector3.new(0, 1, -5), Dir = Vector3.new(0, 0, -1), Hit = true }, false)
+	VFX.Play("BearingTrail", mine, { From = root.Position, To = root.Position + Vector3.new(0, 0, -40), Speed = 320, Hits = {} }, false)
+	VFX.Play("OraFinaleGo", mine, { Hits = 6, Interval = 0.05, Dir = Vector3.new(0, 0, -1) }, false)
+	VFX.Play("OraFinaleBlow", mine, { Dir = Vector3.new(0, 0, -1) }, false)
+	VFX.Play("TimeStop", mine, { Radius = 100, Duration = 0.5, Frozen = {}, Kind = "StarPlatinum" }, false)
+	task.wait(1)
+	VFX.Play("TimeResume", mine, { Frozen = {} }, false)
+	task.wait(0.5)
+	-- DIO: The World on its JJBA model too; his knives and the road roller are the JJBA place's
+	localPlayer:SetAttribute("Quirk", "TheWorld")
+	mine:SetAttribute("Quirk", "TheWorld")
+	VFX.Play("MudaRush", mine, fwd, true)
+	task.wait(0.3)
+	local tw = CDV.stands[mine]
+	if not (tw and tw.kind == "TheWorld" and tw.js and tw.js.src == Config.JJBA.Stands.TheWorld.Barrage) then
+		problem("THE WORLD: its JJBA model, its own barrage clip (" .. tostring(tw and tw.js and tw.js.src) .. ")")
+	end
+	task.wait(1.6)
+	local k = JS.knife(r.CFrame.new(400, 5, 0))
+	if not k then
+		problem("DIO's knives: the JJBA place's DIOKNIFE")
+	else
+		k.gone(0.05)
+	end
+	local roller = VFX.DV and VFX.DV.roller(r.CFrame.new(400, 0, 20))
+	if not (roller and roller.parts and #roller.parts == 1 and roller.parts[1].part:IsA("MeshPart")) then
+		problem("ROAD ROLLER DA!: the JJBA place's road roller (" .. tostring(roller and #roller.parts) .. ")")
+	end
+	if roller then
+		roller.model:Destroy()
+	end
+	-- POM: every move, and their server halves
+	localPlayer:SetAttribute("Quirk", "POM")
+	mine:SetAttribute("Quirk", "POM")
+	for _, id in { "POMFist", "POMDouble", "POMCharge", "POMVoid", "POMSlam", "POMLastWord" } do
+		VFX.Play(id, mine, fwd, true)
+		task.wait(0.1)
+	end
+	VFX.Play("POMHit", mine, { Pos = root.Position + Vector3.new(0, 1, -4), Dir = Vector3.new(0, 0, -1), Hit = true, Heavy = true, Shock = 12 }, false)
+	VFX.Play("POMChargeRelease", mine, { Dir = Vector3.new(0, 0, -1) }, false)
+	VFX.Play("POMVoidBall", mine, { From = root.Position, Dir = Vector3.new(0, 0, -1), Speed = 200, Range = 30, Radius = 3 }, false)
+	VFX.Play("POMSlamGo", mine, { From = root.Position, Pos = root.Position + Vector3.new(0, 0, -10), Time = 0.3, Height = 10 }, false)
+	VFX.Play("POMSlamLand", mine, { Pos = root.Position + Vector3.new(0, 0, -10), Radius = 15 }, false)
+	task.wait(1.5)
+	-- PUCCI: C-MOON on the JJBA place's model, on his own rig's bones
+	if CM then
+		localPlayer:SetAttribute("Quirk", "CMoon")
+		mine:SetAttribute("Quirk", "CMoon")
+		task.wait(0.7)
+		VFX.Play("CMoonRush", mine, fwd, true)
+		task.wait(0.6)
+		local rig = CM.rigs[mine]
+		if not rig then
+			problem("C-MOON 104: Pucci's rig")
+		else
+			local m = rig.js and rig.js.CMoon
+			if not (rig.jsUsed and m) then
+				problem("C-MOON 104: drawn from the JJBA place's C-MOON (" .. tostring(rig.jsUsed) .. ")")
+			else
+				local shown = 0
+				for p, b in m.base do
+					if b < 0.99 and p.Transparency < 0.5 then
+						shown += 1
+					end
+				end
+				if shown < 10 then
+					problem("...its parts showing (" .. shown .. ")")
+				end
+				for _, it in rig.items do
+					if it.part.Transparency < 1 then
+						problem("...and the part-built C-MOON hidden")
+						break
+					end
+				end
+			end
+		end
+	end
+	localPlayer:SetAttribute("Quirk", nil)
+	mine:SetAttribute("Quirk", nil)
+	task.wait(0.8)
+	localPlayer.Character = wasChar
+	mine:Destroy()
+	jj.Parent = nil
+end)()
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")

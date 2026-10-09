@@ -684,11 +684,20 @@ function VFX.CinematicToken()
 	return cineToken
 end
 
-local function shotCFrame(spec, basis, root)
+local function shotCFrame(spec, basis, root, world)
 	local pos = basis * spec[1]
 	local target = spec[2] == "root" and root.Position or basis * spec[2]
 	if (target - pos).Magnitude < 0.01 then
 		target = pos + basis.LookVector
+	end
+	if world then
+		-- ((round 102) a world-space shot: its frame built from the axes - the
+		-- same as lookAt's in Roblox, and in the test harness too; never a NaN
+		-- looking straight up or down)
+		local look = (target - pos).Unit
+		local right = look:Cross(Vector3.new(0, 1, 0))
+		right = right.Magnitude > 0.01 and right.Unit or look:Cross(Vector3.new(0, 0, 1)).Unit
+		return CFrame.fromMatrix(pos, right, right:Cross(look))
 	end
 	return CFrame.lookAt(pos, target)
 end
@@ -702,6 +711,11 @@ end
 -- Shake, ShakeTime }: on its cut the FOV jumps by Fov and eases back over Time
 -- (Quad Out) while the camera shakes Shake studs, dying away over ShakeTime
 -- (no roll) - an awakening's cut onto its pose
+-- (round 102) opts.World = true: the shots' points are world positions
+-- (EXPLOSIVE SPEED's cutscene, staged by the server); a shot's Roll = { from,
+-- to } degrees: a dutch tilt about the lens, eased with the shot.
+-- ((round 102 review) opts.Clock: the os.clock() the first shot began at -
+-- a cutscene on a clock of its own whose camera was set up a moment late)
 function VFX.Cinematic(subject, shots, opts)
 	opts = opts or {}
 	local cam = workspace.CurrentCamera
@@ -775,7 +789,8 @@ function VFX.Cinematic(subject, shots, opts)
 	if not opts.Quiet then
 		VFX.PlaySound("CineCut", nil, opts.CutGain or 1)
 	end
-	local index, shotStart = 1, os.clock()
+	local clock0 = tonumber(opts.Clock)
+	local index, shotStart = 1, (clock0 and clock0 == clock0 and clock0 <= os.clock()) and clock0 or os.clock()
 	RunService:BindToRenderStep("QuirkCinematic", Enum.RenderPriority.Camera.Value, function()
 		if cineToken ~= token then
 			return
@@ -800,8 +815,12 @@ function VFX.Cinematic(subject, shots, opts)
 			return
 		end
 		local a = TweenService:GetValue(math.clamp(elapsed / shot.T, 0, 1), shot.Style or Enum.EasingStyle.Sine, shot.Dir or Enum.EasingDirection.InOut)
-		local basis = shot.Follow and (facing.Rotation + root.Position) or facing
-		local cf = shotCFrame(shot.From, basis, root):Lerp(shotCFrame(shot.To or shot.From, basis, root), a)
+		local basis = opts.World and CFrame.new() or (shot.Follow and (facing.Rotation + root.Position) or facing)
+		local cf = shotCFrame(shot.From, basis, root, opts.World):Lerp(shotCFrame(shot.To or shot.From, basis, root, opts.World), a)
+		if type(shot.Roll) == "table" then
+			local r0 = tonumber(shot.Roll[1]) or 0
+			cf = cf * CFrame.Angles(0, 0, math.rad(r0 + ((tonumber(shot.Roll[2]) or r0) - r0) * a))
+		end
 		-- (round 101) the kick on the cut: the FOV snapping back, a shake dying away
 		local kick, kickFov = shot.Kick, 0
 		if type(kick) == "table" then
@@ -1831,7 +1850,8 @@ end
 -- faded in from wherever the joint was when the clip started
 local function clipAt(j, now)
 	local tr = j.clip
-	local t = now - j.t0
+	-- ((round 102) skip: started that far into the clip - VFX.Clip's opts.from)
+	local t = now - j.t0 + (j.skip or 0)
 	if j.holdAt and t > j.holdAt then
 		if j.holdEnd then
 			-- (round 79) a "HoldEnd" key after "Hold": the clip between them is
@@ -1871,7 +1891,7 @@ local function clipAt(j, now)
 	if j.scale and j.scale ~= 1 then
 		cf = cf.Rotation + cf.Position * j.scale -- (round 79: a bigger body moves further)
 	end
-	local k = j.fade > 0 and math.clamp(t / j.fade, 0, 1) or 1
+	local k = j.fade > 0 and math.clamp((j.skip and now - j.t0 or t) / j.fade, 0, 1) or 1
 	local e = 1 - (1 - k) * (1 - k)
 	return j.from:Lerp(cf, e), math.clamp(t / j.dur, 0, 1), j.wFrom + (j.wTo - j.wFrom) * e
 end
@@ -3827,12 +3847,15 @@ do
 	-- stays on the clip's last key when it ends (the caller lets go: an M1
 	-- holds its guard between hits). Returns the clip, or nil (none, or an
 	-- R15 body) so the caller falls back to its motion.
+	-- (round 102) opts.from: start that many seconds into the clip (a long clip
+	-- on a cutscene's own clock, joined late: EXPLOSIVE SPEED's)
 	function VFX.Clip(char, name, opts)
 		opts = opts or {}
 		local clip = VFX.GetClip(name)
 		if not clip or not char or not char.Parent or blocked(char) or char:FindFirstChild("UpperTorso") then
 			return nil
 		end
+		local skip = math.clamp(tonumber(opts.from) or 0, 0, clip.length)
 		local token = bump(char)
 		-- (round 63) opts.holdFor: seconds to stay on the clip's "Hold" key
 		local holdFor = (clip.holdAt and tonumber(opts.holdFor)) or 0
@@ -3878,6 +3901,7 @@ do
 						t0 = now, fade = opts.fade or Anim.ClipFade or 0.05, dur = math.max(clip.length, 1e-3),
 						holdAt = holdFor > 0 and clip.holdAt or nil, holdFor = holdFor,
 						holdEnd = holdFor > 0 and clip.holdEnd or nil, scale = scale,
+						skip = skip > 0 and skip or nil,
 					}
 				end
 			end
@@ -3886,7 +3910,7 @@ do
 			return clip -- (held until something else takes the body)
 		end
 		task.spawn(function()
-			motionWait(char, clip.length + holdFor)
+			motionWait(char, clip.length - skip + holdFor)
 			if poseTokens[char] == token and char.Parent then
 				setPose(char, nil, opts.recover or Anim.ClipRecover or 0.25, Enum.EasingStyle.Sine)
 			end
@@ -6023,6 +6047,12 @@ local LIMBS = {
 local function m1Set(char)
 	local styles = Config.M1.Styles or {}
 	local style = styles[char:GetAttribute("Quirk") or ""]
+	-- ((round 102) a body's own set for now - the server's M1Style on it:
+	-- Tokoyami in BLACK ANKH rakes with his own armoured arms, M1_SETS.Ankh)
+	local own = char:GetAttribute("M1Style")
+	if type(own) == "string" and M1_SETS[own] then
+		style = own
+	end
 	if type(style) == "table" then
 		if char:GetAttribute("UltActive") then
 			style = style.Ult or style.Alt or style.Base
@@ -6302,6 +6332,10 @@ function VFX.M1Kit.reach(char)
 	end
 	if q and q.BladeReach then
 		reach += q.BladeReach -- (round 86: Hawks' feather blades)
+	end
+	-- (round 102) Tokoyami: the ult's huge claws, BLACK ANKH's (VFX.TK.reach - the server's Kit.TK.m1)
+	if VFX.TK and VFX.TK.reach then
+		reach += VFX.TK.reach(char)
 	end
 	return reach
 end
@@ -6807,6 +6841,15 @@ function Effects.Punch(char, data, isLocal)
 	-- it's punching with (the trail, the smear and the wind come off that),
 	-- and he stands his ground and points the way
 	local standFist = VFX.StandPunch and VFX.StandPunch(char, count, finisher, data.Variant) or nil
+	-- ((round 102) a hero whose M1s are thrown by a creature of his own: it
+	-- starts with the swing - Tokoyami's Dark Shadow, VFX.TK.swing)
+	if VFX.TK and char:GetAttribute("Quirk") == "DarkShadow" then
+		pcall(VFX.TK.swing, char, count, finisher, data.Variant)
+	end
+	-- ((round 103) and Pucci's C-MOON: its fist on them at the contact, VFX.CM.swing)
+	if VFX.CM and char:GetAttribute("Quirk") == "CMoon" then
+		pcall(VFX.CM.swing, char, count, finisher, data.Variant)
+	end
 	local set, limbs = m1Set(char)
 	local hit = set[finisher and 4 or math.min(count, 3)]
 	-- the 4th hit's variants: the uppercut / the downslam
@@ -6947,7 +6990,8 @@ function Effects.Punch(char, data, isLocal)
 		return
 	end
 	look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
-	local swingCue = kit and (finisher and kit.Heavy or kit.Swing) or (finisher and "HeavySwing" or "Swing")
+	-- ((round 102) a set's own swing sound: Cue - Mob's flick, not a punch's whoosh)
+	local swingCue = kit and (finisher and kit.Heavy or kit.Swing) or hit.Cue or (finisher and "HeavySwing" or "Swing")
 	VFX.PlaySound(swingCue, root.Position + look * 2, finisher and 0.9 or 0.8)
 	motionWait(char, math.min(contact, 0.03))
 	if stopTrail then
@@ -7024,7 +7068,8 @@ function Effects.Punch(char, data, isLocal)
 	-- - Inasa's, hit.Inasa: the neon launch disc, streaks and ring below
 	-- would stack glowing pillars on his matte wind; the sound, the kick
 	-- and the shakes still play)
-	local ownWind = hit.Inasa == true
+	-- ((round 102) and a set that draws its own (OwnFx: Mob's flicks))
+	local ownWind = hit.Inasa == true or hit.OwnFx == true
 	if data.Variant == "Up" and finisher then
 		-- (round 63) you stay on your feet (RiseWith 0); a RiseWith carries
 		-- you up after them
@@ -7104,6 +7149,12 @@ function Effects.Punch(char, data, isLocal)
 		VFX.HawksPunch(char, count, finisher, fist, look, data.Variant) -- (round 86, Hawks: red flecks shed off the blades, the 4th an X-cut; round 90: the cut left in the air)
 	elseif q == "Whirlwind" and VFX.InasaPunch then
 		VFX.InasaPunch(char, count, finisher, fist, look, hit, data.Variant) -- (round 92, Inasa: a burst of air off every fist, the 4th a gust; round 99: his own set's wind - the swing and its variant)
+	elseif q == "Mob" and VFX.MOB then
+		VFX.MOB.punch(char, count, finisher, fist, look, hit, data.Variant) -- (round 102, Mob: no fist - a ripple of his power where his fingers point)
+	elseif q == "DarkShadow" and VFX.TK then
+		VFX.TK.punch(char, count, finisher, fist, look, hit, data.Variant) -- (round 102, Tokoyami: a dark arc off Dark Shadow's claw - his own in BLACK ANKH)
+	elseif q == "CMoon" and VFX.CM then
+		VFX.CM.punch(char, count, finisher, fist, look, hit, data.Variant) -- (round 103, Pucci: the air cracked off C-MOON's fist)
 	elseif q == "HalfCold" then
 		-- (round 81) Todoroki: frost puffs and ice chips fly off every ice-side
 		-- hit, embers off the fire side's
@@ -8618,6 +8669,10 @@ function Effects.SuperLeap(char, _data, isLocal)
 	if char and char:GetAttribute("Quirk") == "Whirlwind" and VFX.IN and VFX.IN.updraft then
 		return VFX.IN.updraft(char, _data, isLocal)
 	end
+	-- (round 103) Pucci doesn't jump: he falls up (VFX.CM.fallUp)
+	if char and char:GetAttribute("Quirk") == "CMoon" and VFX.CM and VFX.CM.fallUp then
+		return VFX.CM.fallUp(char, _data, isLocal)
+	end
 	local root = charParts(char)
 	if not root then
 		return
@@ -8643,6 +8698,10 @@ function Effects.SuperLand(char, data)
 	-- (round 99) ...and lands on his own wind (VFX.IN.updraftLand)
 	if char and char:GetAttribute("Quirk") == "Whirlwind" and VFX.IN and VFX.IN.updraftLand then
 		return VFX.IN.updraftLand(char, data)
+	end
+	-- ((round 103) ...and Pucci's lands with a ripple (VFX.CM.fallDown))
+	if char and char:GetAttribute("Quirk") == "CMoon" and VFX.CM and VFX.CM.fallDown then
+		return VFX.CM.fallDown(char, data)
 	end
 	local root = charParts(char)
 	local pos = typeof(data.Pos) == "Vector3" and data.Pos or (root and groundPoint(root.Position))
@@ -15727,6 +15786,7 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 	-- (Bakugo's newer moves share one table: this block is close to Luau's
 	-- local limit)
 	local BK = {}
+	VFX.BK = BK -- ((round 102) EXPLOSIVE SPEED's cutscene, VFX.ESX, uses its pieces)
 
 	-- a blast right off the palm: the flash, the fire, a puff of smoke, sparks
 	function BK.palm(pos, dir, scale)
@@ -16618,6 +16678,8 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 		end)
 	end
 
+	-- ((round 102) no longer sent: the catch is the cutscene, VFX.ESX. This,
+	-- ExplosiveSpeedCatch / Blast and BK.blitzShots are kept, unused)
 	-- (round 83) THE BLITZ, a leapfrog down the lane, drawn from the server's
 	-- plan (Kit.blitzPlan - the server runs the same clock, so the bodies it
 	-- moves land on these beats): the face-off, the opener on "GOT", then
@@ -16934,6 +16996,10 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 	-- way for the KO's kill cam, and his KO pose and the line are left be
 	function Effects.ExplosiveSpeedCancel(char, data)
 		local ko = type(data) == "table" and data.KO == true
+		-- ((round 102) the cutscene's over: VFX.ESX puts everything back)
+		if VFX.ESX then
+			VFX.ESX.cancel(char, data)
+		end
 		local st = BK.blitz[char]
 		if st then
 			st.dead = true
@@ -16965,7 +17031,11 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 			BK.blitz[char] = nil
 		end
 		-- (round 83) called off mid-blitz: his body back, his cutscene over
-		BK.shown(char, true)
+		-- ((round 102) only a blitz's own hide: the cutscene's (VFX.ESX) puts
+		-- his body back exactly as it was, itself)
+		if st then
+			BK.shown(char, true)
+		end
 		local me = Players.LocalPlayer
 		if me and me.Character == char and VFX.InOwnCinematic() then
 			VFX.CancelCinematic()
@@ -17409,6 +17479,2043 @@ do -- EXPLOSION: its helpers stay local to this block (Luau allows 200 locals pe
 	end
 
 end
+
+---------------------------------------------------------------------------
+-- (round 102) EXPLOSIVE SPEED, THE CUTSCENE - every screen's half (VFX.ESX;
+-- the server's is Kit.ESX). The owner's reference (a fan-made Bakugo
+-- cutscene) condensed to ~10 s on the scene's own clock (Config.ESpeed:
+-- seconds from the catch, the server's clock - every screen in step, a
+-- screen that hears of it late joins it where it is): THE REALIZATION (the
+-- push-in behind his head with them beyond, the crouch in the smoke, the
+-- bead of sweat on his palm, the gauntlet through the sparkles, the smoke
+-- wall and the lightning, a black-and-white frame and a star, the ring
+-- sweeping out of the dark, the white-hot disc and its pillar, the leap in
+-- silhouette), THE LAUNCH at them and his palm going off at their face,
+-- THE SPEED BLITZ (the strobe, the skim along the slab seen from above, the
+-- streak past it, popping up behind it, the flurry from every side) and
+-- THE WHITE-OUT (the last blast; him small in the white with his
+-- afterimages, fading to black; a star).
+-- Everyone sees it in the street: both bodies on their clips, a double of
+-- him for the launch, the skim and the flurry (his real body hidden then -
+-- the server moves it out of sight), every explosion, the ring, the disc,
+-- the pillar. The two of them (his screen and theirs) get the cinematic:
+-- the shots (VFX.Cinematic, world space), the 2.35:1 letterbox, the grade,
+-- the depth of field, the motes, the flares, the impact frames, the strobe,
+-- the white-out, the two lines. Everything it makes goes at the end, on a
+-- cancel, his death, theirs, or either leaving; every body it hides and
+-- every screen it greys is put back exactly.
+-- run = { char, target, root, troot, start (server time of the catch), H,
+-- T, F, R, A, B, P, K (the server's spots), mine, theirs, cine, props,
+-- beats (scene time each beat went - tests), shots (world space), dead }.
+-- (Its own function: the main chunk's locals stay as they are.)
+---------------------------------------------------------------------------
+;(function()
+	local ESX = { runs = {}, held = {}, lastRun = nil }
+	VFX.ESX = ESX
+	local V3 = Vector3.new
+	local Lighting = game:GetService("Lighting")
+	local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
+	local function cfg()
+		return Config.ESpeed or {}
+	end
+	-- (the Explosion block's helpers, exposed as VFX.BK)
+	local function BK()
+		return VFX.BK or {}
+	end
+	local function beat(name, default)
+		local v = (cfg().Beats or {})[name]
+		return type(v) == "number" and v or default
+	end
+	-- (a Vector3 that's really one: not a NaN)
+	local function vec(v)
+		return typeof(v) == "Vector3" and v == v and v.Magnitude < 1e7
+	end
+
+	---------------------------------------------------------------- the clock
+	-- seconds since the catch, on the server's clock
+	function ESX.now(run)
+		return workspace:GetServerTimeNow() - run.start
+	end
+	-- the scene's still on on this screen
+	function ESX.alive(run)
+		return not run.dead and run.char.Parent ~= nil and ESX.runs[run.char] == run
+	end
+	-- wait till t seconds into the scene; false once it's over
+	function ESX.at(run, t)
+		while ESX.alive(run) do
+			local left = t - ESX.now(run)
+			if left <= 0 then
+				return true
+			end
+			-- ((round 102 review) asleep till just short of it, then a frame at
+			-- a time: ~60 of these wait at once, they needn't all wake 30 times
+			-- a second for ten seconds)
+			task.wait(left > 0.12 and left - 0.08 or math.min(left, 0.03))
+		end
+		return false
+	end
+	-- (tests: when each beat really went, seconds into the scene)
+	function ESX.note(run, name)
+		run.beats[name] = run.beats[name] or ESX.now(run)
+	end
+	-- fn on the beat (late screens: a beat already past is skipped unless
+	-- it's still within `grace` of it)
+	function ESX.on(run, t, name, fn, grace)
+		task.spawn(function()
+			if ESX.now(run) > t + (grace or 0.25) then
+				return
+			end
+			if ESX.at(run, t) then
+				if name then
+					ESX.note(run, name)
+				end
+				local ok, err = pcall(fn)
+				if not ok then
+					warn("[VFX] ESX " .. tostring(name) .. ": " .. tostring(err))
+				end
+			end
+		end)
+	end
+	-- a part of the scene's, gone when it ends (and after `life` if given)
+	function ESX.keep(run, inst, life)
+		table.insert(run.props, inst)
+		if life then
+			cleanup(inst, life)
+		end
+		return inst
+	end
+	-- (the lens rule, the two screens) true when something of radius r at pos
+	-- would sit on the camera: within r (and a margin) of the eye of the shot
+	-- that's on, or about to cut in
+	function ESX.lens(run, pos, r)
+		if not run.cine or not vec(pos) then
+			return false
+		end
+		local t = ESX.now(run)
+		for _, s in run.shots or {} do
+			if s.At + s.T > t - 0.05 and s.At < t + 0.45 then
+				for _, e in { s.From[1], s.To and s.To[1] or s.From[1] } do
+					if (pos - e).Magnitude < (r or 0) + 1.5 then
+						return true
+					end
+				end
+			end
+		end
+		return false
+	end
+	-- a toon explosion kept off the lens: shrunk till it fits (its flash
+	-- reaches 7.5 x its scale), or none
+	function ESX.boom(run, pos, scale, opts)
+		local s = scale
+		while s > 0.12 and ESX.lens(run, pos, 7.5 * s) do
+			s *= 0.6
+		end
+		if s > 0.12 then
+			toonExplosion(pos, s, opts)
+			return true
+		end
+		return false
+	end
+
+	---------------------------------------------------------------- the geometry
+	-- the scene's frame: R right of the line from him to them, up, F along it
+	function ESX.pt(run, at, x, y, z, F)
+		F = F or run.F
+		local R = F:Cross(UP)
+		R = R.Magnitude > 0.1 and R.Unit or run.R
+		return at + R * (x or 0) + UP * (y or 0) + F * (z or 0)
+	end
+	-- a frame at p looking along `look` (never a NaN: straight up or down
+	-- falls back to `up`)
+	function ESX.frame(p, look, up)
+		up = up or UP
+		local right = look:Cross(up)
+		if right.Magnitude < 0.01 then
+			right = look:Cross(V3(0, 0, 1))
+		end
+		right = right.Unit
+		return CFrame.fromMatrix(p, right, right:Cross(look).Unit)
+	end
+	-- the slab torn up beside them: its frame (centre) and size
+	function ESX.slab(run)
+		local S = cfg().Slab or {}
+		local at = S.At or { 4.6, 1.5 }
+		local size = S.Size or V3(1.4, 3.6, 11)
+		local base = ESX.pt(run, run.T, at[1], 0, at[2])
+		local g = run.street(base)
+		local cf = ESX.frame(V3(base.X, g + size.Y / 2 - 0.3, base.Z), run.F) * CFrame.Angles(0, 0, math.rad(-(S.Tilt or 10)))
+		return cf, size
+	end
+	-- where the double is at t (a CFrame, nil while it isn't out): the launch
+	-- (his spot to their face, low and flat), the skim (along the slab and
+	-- behind it), the flurry (each blow's spot, facing them)
+	function ESX.double(run, t)
+		local E = cfg()
+		local launch, back = beat("Launch", 4), beat("Back", 4.4)
+		if t >= launch and t < back then
+			local L = E.Launch or {}
+			local a = math.clamp((t - launch) / math.max(back - launch, 0.05), 0, 1) -- (flat out: a rocket's even speed)
+			local p = run.H:Lerp(run.A, a)
+			local g = run.street(p)
+			p = V3(p.X, g + (L.Height or 1.4), p.Z)
+			return ESX.frame(p, run.F) * CFrame.Angles(math.rad(-(L.Tilt or 68)), 0, 0)
+		end
+		local SK = E.Skim or {}
+		local pts = SK.Points or {}
+		if #pts >= 2 and t >= pts[1][3] and t < pts[#pts][3] then
+			local i = 1
+			while pts[i + 1] and pts[i + 1][3] <= t do
+				i += 1
+			end
+			local p0, p1 = pts[i], pts[i + 1] or pts[i]
+			local a = math.clamp((t - p0[3]) / math.max(p1[3] - p0[3], 1e-3), 0, 1)
+			local w0, w1 = ESX.pt(run, run.T, p0[1], 0, p0[2]), ESX.pt(run, run.T, p1[1], 0, p1[2])
+			local p = w0:Lerp(w1, a)
+			local g = run.street(p)
+			p = V3(p.X, g + (SK.Height or 1.15), p.Z)
+			local way = V3(w1.X - w0.X, 0, w1.Z - w0.Z)
+			way = way.Magnitude > 0.05 and way.Unit or run.F
+			return ESX.frame(p, way) * CFrame.Angles(math.rad(-(SK.Tilt or 80)), 0, 0)
+		end
+		local FL = E.Flurry or {}
+		local flurry, gap = beat("Flurry", 7.63), FL.Gap or 0.196
+		local k = math.floor((t - flurry) / gap) + 1
+		if t >= flurry and k >= 1 and k <= #run.K and t < beat("Blast", 9) then
+			return ESX.hitFrame(run, k)
+		end
+		return nil
+	end
+	-- flurry blow k: him at his spot facing them (from above: head down at
+	-- them), and them lifted for it
+	function ESX.hitFrame(run, k)
+		local p = run.K[k]
+		local tk = ESX.lifted(run, k)
+		local v = tk - p
+		if V3(v.X, 0, v.Z).Magnitude < 0.2 then
+			return CFrame.fromMatrix(p, run.R, run.F) -- (looking straight down, his back to where he came from)
+		end
+		return ESX.frame(p, V3(v.X, 0, v.Z).Unit)
+	end
+	function ESX.lifted(run, k)
+		-- ((round 102 review) the server's lift: less under a ceiling)
+		return run.T + UP * (run.lift or (cfg().Flurry or {}).Lift or 0.22) * k
+	end
+	-- a shot's point: { anchor, x, y, z } - H, T, M, A, B, P, S (the slab),
+	-- D (the double: at the shot's start, or `whenD`), K / TK (flurry blow k
+	-- and them for it: in that blow's frame)
+	function ESX.spot(run, spec, k, whenD)
+		local a = spec[1]
+		local at, F = nil, run.F
+		if a == "H" then
+			at = run.H
+		elseif a == "T" then
+			at = run.T
+		elseif a == "M" then
+			at = (run.H + run.T) / 2
+		elseif a == "A" then
+			at = run.A
+		elseif a == "B" then
+			at = run.B
+		elseif a == "P" then
+			at = run.P
+		elseif a == "S" then
+			at = ESX.slab(run).Position
+		elseif a == "D" then
+			local cf = ESX.double(run, whenD or 0)
+			at = cf and cf.Position or run.A
+		elseif a == "K" or a == "TK" then
+			k = k or 1
+			local p, tk = run.K[k] or run.A, ESX.lifted(run, k)
+			local v = V3(tk.X - p.X, 0, tk.Z - p.Z)
+			F = v.Magnitude > 0.2 and v.Unit or run.F
+			at = a == "K" and p or tk
+		else
+			at = run.T
+		end
+		return ESX.pt(run, at, spec[2], spec[3], spec[4], F)
+	end
+	-- the shots for VFX.Cinematic (world space), from Config.ESpeed.Shots; the
+	-- flurry's cuts from Flurry.Cams. Grade / beat names ride along for the
+	-- screen; the first shot trimmed by however late this screen joined
+	function ESX.shots(run, late)
+		local E = cfg()
+		local FL = E.Flurry or {}
+		local list = {}
+		local function clear(pair)
+			return pair and { ESX.clear(pair[1], pair[2]), pair[2] } or nil
+		end
+		local function add(name, at, t, from, to, fov, roll, grade, style, extra)
+			from, to = clear(from), clear(to)
+			local shot = {
+				T = t, Cut = true, Quiet = true, From = from, To = to, Fov = fov, Roll = roll, Name = name, At = at, Grade = grade,
+				Style = style == "Linear" and Enum.EasingStyle.Linear or (style == "Quad" and Enum.EasingStyle.Quad or nil),
+			}
+			if extra then
+				for key, v in extra do
+					shot[key] = v
+				end
+			end
+			table.insert(list, shot)
+		end
+		for _, s in E.Shots or {} do
+			if s.Name == "Flurry" then
+				local flurry, gap = beat("Flurry", 7.63), FL.Gap or 0.196
+				local push = FL.Push or 0.6
+				for k, cam in FL.Cams or {} do
+					if k > #run.K then
+						break
+					end
+					local eye, look = ESX.spot(run, cam[1], k), ESX.spot(run, cam[2], k)
+					local toward = look - eye
+					local eye2 = toward.Magnitude > push + 0.5 and eye + toward.Unit * push or eye
+					add("Flurry" .. k, flurry + gap * (k - 1), gap, { eye, look }, { eye2, look }, { cam[3] or 50, (cam[3] or 50) - 2 }, cam[4], "Flurry", "Linear", { Hit = k, Rim = FL.Rim, RimThem = true, Back = FL.Back, BackAt = FL.BackAt })
+				end
+			else
+				local t0, t1 = s.At or 0, (s.At or 0) + (s.T or 0.3) - 1e-3
+				local from = { ESX.spot(run, s.From[1], nil, t0), ESX.spot(run, s.From[2], nil, t0) }
+				local to = s.To and { ESX.spot(run, s.To[1], nil, t1), ESX.spot(run, s.To[2], nil, t1) } or nil
+				add(s.Name, t0, s.T or 0.3, from, to, s.Fov, s.Roll, s.Grade, s.Style, { Into = s.Into, Subject = s.Subject, Back = s.Back, BackAt = s.BackAt, Rim = s.Rim, Fore = s.Fore, Floor = s.Floor })
+			end
+		end
+		table.sort(list, function(a, b)
+			return a.At < b.At
+		end)
+		-- (joined late: the shots already over dropped, the one on cut short)
+		late = math.max(late or 0, 0)
+		while list[1] and list[1].At + list[1].T <= late do
+			table.remove(list, 1)
+		end
+		if list[1] and late > list[1].At then
+			list[1].T -= late - list[1].At
+			list[1].At = late
+		end
+		return list
+	end
+	-- an eye pulled in toward what it looks at, short of anything of the map
+	-- between them (Config.ESpeed.Clear studs off it; never closer than 1.5)
+	function ESX.clear(eye, on)
+		local gap = eye - on
+		if gap.Magnitude < 0.5 then
+			return eye
+		end
+		rayParams.FilterDescendantsInstances = characterList()
+		local ok, hit = pcall(function()
+			return workspace:Raycast(on, gap, rayParams)
+		end)
+		if ok and hit then
+			local dist = tonumber(hit.Distance) or (hit.Position - on).Magnitude
+			return on + gap.Unit * math.min(math.max(dist - (cfg().Clear or 1), 1.5), gap.Magnitude)
+		end
+		return eye
+	end
+	-- the shot this screen's on at t (nil: none)
+	function ESX.shotAt(run, t)
+		for _, s in run.shots or {} do
+			if t >= s.At and t < s.At + s.T then
+				return s
+			end
+		end
+		return nil
+	end
+
+	---------------------------------------------------------------- the bodies
+	-- hide / show a body on this screen (counted holds: one record a body, put
+	-- back exactly as it was when the last hold lets go - pcall'd, in the
+	-- world or not)
+	function ESX.hide(char)
+		local rec = ESX.held[char]
+		if not rec then
+			rec = { n = 0, was = {} }
+			ESX.held[char] = rec
+			for _, d in char:GetDescendants() do
+				if (d:IsA("BasePart") or d:IsA("Decal")) and d.Name ~= "HumanoidRootPart" then
+					local ok, v = pcall(function()
+						return d.LocalTransparencyModifier
+					end)
+					rec.was[d] = ok and type(v) == "number" and v or 0
+				end
+			end
+		end
+		rec.n += 1
+		ESX.apply(char)
+	end
+	function ESX.show(char)
+		local rec = ESX.held[char]
+		if not rec then
+			return
+		end
+		rec.n -= 1
+		if rec.n <= 0 then
+			ESX.held[char] = nil
+			for d, v in rec.was do
+				pcall(function()
+					d.LocalTransparencyModifier = v
+				end)
+			end
+		end
+	end
+	-- (every frame while held: whatever else sets them - the camera's own
+	-- fade of your body up close - he stays hidden)
+	function ESX.apply(char)
+		local rec = ESX.held[char]
+		if rec then
+			for d in rec.was do
+				pcall(function()
+					if d.LocalTransparencyModifier ~= 1 then
+						d.LocalTransparencyModifier = 1
+					end
+				end)
+			end
+		end
+	end
+	-- his double: a copy of his body (his clothes, his hair) that the scene
+	-- flies and fights with, posed from his real body every frame (the real
+	-- one plays the same clip, hidden). Its parts collide with nothing
+	-- (SmashGhost: a Humanoid makes an R6 Torso solid). nil if he can't have
+	-- one (not R6, layered clothing, it won't clone)
+	local DROP = { "JointInstance", "Constraint", "WeldConstraint", "LuaSourceContainer", "Sound", "ParticleEmitter", "Trail", "Beam", "BillboardGui", "Highlight", "ForceField", "Animator", "BodyMover", "ProximityPrompt", "Light", "Fire", "Smoke", "Sparkles" }
+	function ESX.makeDouble(run)
+		local char = run.char
+		if not char:FindFirstChild("Torso") then
+			return nil
+		end
+		local parts = {}
+		for _, d in char:GetDescendants() do
+			if d:IsA("WrapLayer") then
+				return nil
+			elseif d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
+				table.insert(parts, d)
+			end
+		end
+		for i, p in parts do
+			pcall(p.SetAttribute, p, "ESpeedPair", i)
+		end
+		local copy
+		local was = char.Archivable
+		pcall(function()
+			char.Archivable = true
+			copy = char:Clone()
+		end)
+		pcall(function()
+			char.Archivable = was
+		end)
+		for _, p in parts do
+			pcall(p.SetAttribute, p, "ESpeedPair", nil)
+		end
+		if not copy then
+			return nil
+		end
+		local D = { model = copy, twins = {} }
+		local drop = {}
+		for _, d in copy:GetDescendants() do
+			local gone = d.Name == "HumanoidRootPart"
+			for _, class in DROP do
+				if d:IsA(class) then
+					gone = true
+					break
+				end
+			end
+			if gone then
+				table.insert(drop, d)
+			elseif d:IsA("BasePart") then
+				local real = parts[d:GetAttribute("ESpeedPair") or 0]
+				d:SetAttribute("ESpeedPair", nil)
+				d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch = true, false, false, false
+				d.LocalTransparencyModifier = 0
+				pcall(function()
+					d.CollisionGroup = "SmashGhost"
+				end)
+				if real then
+					table.insert(D.twins, { real = real, copy = d })
+				else
+					table.insert(drop, d)
+				end
+			elseif d:IsA("Decal") then
+				d.LocalTransparencyModifier = 0
+			elseif d:IsA("Humanoid") then
+				pcall(function()
+					d.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+					d.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+					d.BreakJointsOnDeath = false
+					d.RequiresNeck = false
+					d.PlatformStand = true
+				end)
+				pcall(function()
+					d.EvaluateStateMachine = false
+				end)
+			end
+		end
+		for _, d in drop do
+			pcall(d.Destroy, d)
+		end
+		copy.Name = "ESpeedDouble"
+		copy.Parent = folder
+		ESX.keep(run, copy)
+		return D
+	end
+	-- the double at `at` (nil: out of sight), in his pose now
+	function ESX.poseDouble(run, at)
+		local D = run.double
+		if not D then
+			return
+		end
+		local root = run.root
+		local shown = at ~= nil and root.Parent ~= nil
+		if shown then
+			local rel = root.CFrame:Inverse()
+			for _, tw in D.twins do
+				if tw.real.Parent then
+					tw.copy.CFrame = at * (rel * tw.real.CFrame)
+				end
+			end
+		end
+		if D.shown ~= shown then
+			D.shown = shown
+			for _, tw in D.twins do
+				tw.copy.LocalTransparencyModifier = shown and 0 or 1
+			end
+			for _, d in D.model:GetDescendants() do
+				if d:IsA("Decal") then
+					d.LocalTransparencyModifier = shown and 0 or 1
+				end
+			end
+		end
+	end
+	-- his body hidden on every screen while the double has it (Config.ESpeed.Hidden)
+	function ESX.hiddenAt(t)
+		for _, w in cfg().Hidden or {} do
+			if t >= w[1] and t < w[2] then
+				return true
+			end
+		end
+		return false
+	end
+	-- both clips on the scene's clock (again at every cut: anyone's hitstop
+	-- or a flinch can have taken a body off it)
+	function ESX.clips(run, fade)
+		local t = math.max(ESX.now(run), 0)
+		VFX.Clip(run.char, "MoveESpeedScene", { from = t, fade = fade or 0.05, keep = true })
+		if run.target and run.target.Parent and not run.free then
+			VFX.Clip(run.target, "MoveESpeedHeld", { from = t, fade = fade or 0.05, keep = true })
+		end
+	end
+
+	---------------------------------------------------------------- the screen (his and theirs)
+	-- the grade: ColorCorrection, Bloom, Blur, DepthOfField of the scene's own
+	-- (made at the start, gone at the end - nothing else in Lighting touched)
+	function ESX.makeGrade(run)
+		local g = {}
+		for key, class in { cc = "ColorCorrectionEffect", bloom = "BloomEffect", blur = "BlurEffect", dof = "DepthOfFieldEffect" } do
+			local ok, inst = pcall(function()
+				local e = Instance.new(class)
+				e.Name = "ESpeed" .. key
+				e.Enabled = false
+				e.Parent = Lighting
+				return e
+			end)
+			if ok and inst then
+				g[key] = inst
+				ESX.keep(run, inst)
+			end
+		end
+		run.grade = g
+	end
+	-- the grade of a shot (Config.ESpeed.Grades[name]; `into` blended in by k)
+	function ESX.setGrade(run, name, into, k)
+		local G = cfg().Grades or {}
+		local a = G[name or ""]
+		local g = run.grade
+		if not g then
+			return
+		end
+		if not a then
+			for _, e in g do
+				e.Enabled = false
+			end
+			return
+		end
+		local b = G[into or ""] or a
+		k = b == a and 0 or math.clamp(k or 0, 0, 1)
+		local function mix(key, default)
+			local x, y = a[key], b[key]
+			if typeof(x) == "Color3" then
+				return x:Lerp(typeof(y) == "Color3" and y or x, k)
+			end
+			x, y = tonumber(x) or default, tonumber(y) or tonumber(x) or default
+			return x + (y - x) * k
+		end
+		if g.cc then
+			g.cc.Enabled = true
+			g.cc.TintColor = mix("Tint", WHITE)
+			g.cc.Brightness = mix("Bright", 0)
+			g.cc.Contrast = mix("Contrast", 0)
+			g.cc.Saturation = mix("Sat", 0)
+		end
+		local bloom = a.Bloom
+		if g.bloom then
+			g.bloom.Enabled = type(bloom) == "table"
+			if type(bloom) == "table" then
+				g.bloom.Intensity, g.bloom.Size, g.bloom.Threshold = bloom[1] or 1, bloom[2] or 24, bloom[3] or 0.9
+			end
+		end
+		if g.blur then
+			local size = mix("Blur", 0)
+			g.blur.Enabled = size > 0.05
+			g.blur.Size = size
+		end
+		if g.dof then
+			local focus = a.Focus
+			g.dof.Enabled = type(focus) == "table" and not run.low
+			if type(focus) == "table" then
+				g.dof.FarIntensity, g.dof.NearIntensity, g.dof.InFocusRadius = focus[1] or 0.5, focus[2] or 0, focus[3] or 4
+			end
+		end
+	end
+	-- a frame of the screen layer (scale units over the whole screen)
+	local function frame(parent, name, color, alpha, z)
+		local f = Instance.new("Frame")
+		f.Name = name
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = color or BLACK
+		f.BackgroundTransparency = alpha or 0
+		f.ZIndex = z or 1
+		f.Parent = parent
+		return f
+	end
+	-- the layer: the picture (between the bars: everything over the shot is
+	-- in it), the 2.35:1 bars, the line under the picture
+	function ESX.makeScreen(run)
+		local me = Players.LocalPlayer
+		local pg = me and me:FindFirstChildOfClass("PlayerGui")
+		if not pg then
+			return
+		end
+		local E = cfg()
+		local sg = Instance.new("ScreenGui")
+		sg.Name = "ESpeedScreen"
+		sg.IgnoreGuiInset = true
+		sg.ResetOnSpawn = false
+		sg.DisplayOrder = (E.Screen or {}).Order or 60
+		local pic = frame(sg, "Picture", BLACK, 1, 1)
+		pic.ClipsDescendants = true
+		local over = frame(pic, "Over", BLACK, 1, 10) -- (the flashes, the strobe, the white-out: under the flares)
+		over.Size = UDim2.fromScale(1, 1)
+		local top = frame(sg, "BarTop", BLACK, 0, 30)
+		local bottom = frame(sg, "BarBottom", BLACK, 0, 30)
+		local line = Instance.new("TextLabel")
+		line.Name = "Line"
+		line.BackgroundTransparency = 1
+		line.AnchorPoint = Vector2.new(0.5, 0.5)
+		line.Position = UDim2.fromScale(0.5, 0.5)
+		line.Size = UDim2.fromScale(0.9, 0.55)
+		line.TextScaled = true
+		line.TextColor3 = WHITE
+		line.TextStrokeTransparency = 0.4
+		line.Text = ""
+		line.TextTransparency = 1
+		line.ZIndex = 31
+		pcall(function()
+			line.FontFace = Font.new("rbxasset://fonts/families/Oswald.json", Enum.FontWeight.Bold, Enum.FontStyle.Italic)
+		end)
+		line.Parent = bottom
+		sg.Parent = pg
+		ESX.keep(run, sg)
+		run.screen = { gui = sg, pic = pic, over = over, top = top, bottom = bottom, line = line, motes = {}, aspect = 0 }
+		ESX.bars(run)
+		-- the motes: soft gold dots drifting over the picture
+		local M = E.Motes or {}
+		local n = run.low and math.floor((M.Count or 26) * 0.5) or (M.Count or 26)
+		for i = 1, n do
+			local size = M.Size or { 2, 5 }
+			local d = frame(pic, "Mote", i % 3 == 0 and WHITE or Color3.fromRGB(255, 214, 120), rand(0.25, 0.6), 5)
+			d.AnchorPoint = Vector2.new(0.5, 0.5)
+			local s = math.floor(rand(size[1], size[2]))
+			d.Size = UDim2.fromOffset(s, s)
+			local round = Instance.new("UICorner")
+			round.CornerRadius = UDim.new(0.5, 0)
+			round.Parent = d
+			table.insert(run.screen.motes, { f = d, x = rand(0, 1), y = rand(0, 1), vx = rand(-1, 1), vy = rand(-1, -0.2), ph = rand(0, 6) })
+		end
+	end
+	-- the bars for this screen's shape (2.35:1)
+	function ESX.bars(run)
+		local s = run.screen
+		if not s then
+			return
+		end
+		local cam = workspace.CurrentCamera
+		local size = Vector2.new(1280, 720)
+		pcall(function()
+			if cam.ViewportSize.X > 10 then
+				size = cam.ViewportSize
+			end
+		end)
+		local aspect = size.X / math.max(size.Y, 1)
+		if math.abs(aspect - s.aspect) < 1e-3 then
+			return
+		end
+		s.aspect = aspect
+		local want = cfg().Aspect or 2.35
+		local bar = math.max((1 - aspect / want) / 2, 0)
+		s.top.Size = UDim2.fromScale(1, bar)
+		s.top.Position = UDim2.fromScale(0, 0)
+		s.bottom.Size = UDim2.fromScale(1, bar)
+		s.bottom.Position = UDim2.fromScale(0, 1 - bar)
+		s.pic.Position = UDim2.fromScale(0, bar)
+		s.pic.Size = UDim2.fromScale(1, 1 - 2 * bar)
+		s.bar = bar
+	end
+	-- where a world point lands in the picture (0..1 each way), nil off it
+	-- or behind the lens
+	function ESX.toPic(run, p)
+		local cam = workspace.CurrentCamera
+		local ok, v, on = pcall(function()
+			return cam:WorldToViewportPoint(p)
+		end)
+		if not ok or typeof(v) ~= "Vector3" or not on then
+			return nil
+		end
+		local size = cam.ViewportSize
+		local bar = run.screen and run.screen.bar or 0
+		return v.X / size.X, (v.Y / size.Y - bar) / math.max(1 - 2 * bar, 0.05)
+	end
+	-- a cross flare on the picture: x, y (0..1), its arms `size` (of the
+	-- picture's height), colour, fading over `life`; `thin` arms only
+	function ESX.flare(run, x, y, size, color, life, dark)
+		local s = run.screen
+		if not s then
+			return
+		end
+		local F = cfg().Flare or {}
+		-- (the picture's size, centred on the flare: its arms are scaled off its height)
+		local holder = frame(s.pic, "Flare", BLACK, 1, 15)
+		holder.AnchorPoint = Vector2.new(0.5, 0.5)
+		holder.Position = UDim2.fromScale(x, y)
+		holder.Size = UDim2.fromScale(1, 1)
+		local bars = {}
+		for k = 1, 2 do
+			local long = k == 1 and (F.Long or 0.9) or (F.Short or 0.55)
+			local b = frame(holder, "Arm", color, 0, 15)
+			b.AnchorPoint = Vector2.new(0.5, 0.5)
+			b.Position = UDim2.fromScale(0.5, 0.5)
+			b.Size = k == 1 and UDim2.new(0, 0, (F.Thick or 0.012) * size, 0) or UDim2.new((F.Thick or 0.012) * size, 0, 0, 0)
+			b.SizeConstraint = Enum.SizeConstraint.RelativeYY
+			local grad = Instance.new("UIGradient")
+			grad.Rotation = k == 1 and 0 or 90
+			grad.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) })
+			grad.Parent = b
+			table.insert(bars, { b, long })
+		end
+		local core = frame(holder, "Core", dark and color or WHITE, 0, 16)
+		core.AnchorPoint = Vector2.new(0.5, 0.5)
+		core.Position = UDim2.fromScale(0.5, 0.5)
+		core.SizeConstraint = Enum.SizeConstraint.RelativeYY
+		local cr = Instance.new("UICorner")
+		cr.CornerRadius = UDim.new(0.5, 0)
+		cr.Parent = core
+		local c = (F.Core or 0.05) * size
+		core.Size = UDim2.fromScale(c, c)
+		for i, rec in bars do
+			local b, long = rec[1], rec[2]
+			local w = long * size * 2
+			tween(b, life * 0.25, { Size = i == 1 and UDim2.new(w, 0, (F.Thick or 0.012) * size, 0) or UDim2.new((F.Thick or 0.012) * size, 0, w, 0) }, Enum.EasingStyle.Quad)
+			tween(b, life * 0.6, { BackgroundTransparency = 1 }, nil, nil, life * 0.4)
+		end
+		tween(core, life * 0.6, { BackgroundTransparency = 1, Size = UDim2.fromScale(c * 0.3, c * 0.3) }, nil, nil, life * 0.4)
+		cleanup(holder, life + 0.05)
+		return holder
+	end
+	-- a flare at a world point (on the picture, if it's in it)
+	function ESX.flareAt(run, p, size, color, life)
+		local x, y = ESX.toPic(run, p)
+		if x then
+			ESX.flare(run, x, y, size, color, life)
+		end
+	end
+	-- sparkles: little four-point stars twinkling round (x, y) within r
+	function ESX.sparkles(run, x, y, r, count, life, color)
+		local s = run.screen
+		if not s then
+			return
+		end
+		local SP = cfg().Sparkles or {}
+		local size = SP.Size or { 0.025, 0.06 }
+		for _ = 1, count do
+			local st = frame(s.pic, "Sparkle", BLACK, 1, 14)
+			st.AnchorPoint = Vector2.new(0.5, 0.5)
+			st.SizeConstraint = Enum.SizeConstraint.RelativeYY
+			local k = rand(size[1], size[2])
+			st.Size = UDim2.fromScale(k, k)
+			st.Position = UDim2.fromScale(x + rand(-r, r) * 0.6, y + rand(-r, r))
+			for j = 1, 2 do
+				local arm = frame(st, "Arm", color or Color3.fromRGB(255, 226, 120), 0, 14)
+				arm.AnchorPoint = Vector2.new(0.5, 0.5)
+				arm.Position = UDim2.fromScale(0.5, 0.5)
+				arm.Size = j == 1 and UDim2.fromScale(1, 0.14) or UDim2.fromScale(0.14, 1)
+				local grad = Instance.new("UIGradient")
+				grad.Rotation = j == 1 and 0 or 90
+				grad.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) })
+				grad.Parent = arm
+				local d = rand(0, life * 0.5)
+				arm.BackgroundTransparency = 1
+				tween(arm, life * 0.25, { BackgroundTransparency = 0 }, nil, nil, d)
+				tween(arm, life * 0.35, { BackgroundTransparency = 1 }, nil, nil, d + life * 0.4)
+			end
+			cleanup(st, life + 0.05)
+		end
+	end
+	-- the lightning at the frame's edge: Bolts jagged zigzags down the right
+	-- side of the picture, flickering (pixels: the segments keep their angles)
+	function ESX.bolts(run, life)
+		local s = run.screen
+		if not s then
+			return
+		end
+		local B = cfg().Bolts or {}
+		local cam = workspace.CurrentCamera
+		local W, H = 1280, 720
+		pcall(function()
+			if cam.ViewportSize.X > 10 then
+				W, H = cam.ViewportSize.X, cam.ViewportSize.Y
+			end
+		end)
+		H *= 1 - 2 * (s.bar or 0)
+		local holder = frame(s.pic, "Bolts", BLACK, 1, 13)
+		holder.Size = UDim2.fromScale(1, 1)
+		for i = 1, B.Count or 3 do
+			local x, y = W * (0.965 - (i - 1) * 0.03), -H * 0.05
+			local segs = B.Segs or 9
+			for j = 1, segs do
+				local nx, ny = x + (j % 2 == 0 and 1 or -1) * W * rand(0.012, 0.03), y + H * 1.1 / segs
+				local dx, dy = nx - x, ny - y
+				local seg = frame(holder, "Bolt", B.Color or Color3.fromRGB(255, 176, 48), 0, 13)
+				seg.AnchorPoint = Vector2.new(0.5, 0.5)
+				seg.Position = UDim2.fromOffset((x + nx) / 2, (y + ny) / 2)
+				seg.Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) + 2, B.Width or 3)
+				seg.Rotation = math.deg(math.atan2(dy, dx))
+				x, y = nx, ny
+			end
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			while holder.Parent and os.clock() - t0 < life do
+				holder.Visible = rng:NextNumber() < 0.75
+				task.wait(0.05)
+			end
+			holder:Destroy()
+		end)
+	end
+	-- THE RING sweeping across the lens (the two screens): a flat ellipse of
+	-- light - red rim, orange, a white-hot edge - tilted, growing as it crosses
+	-- from the lower left (Config.ESpeed.Sweep: { from x, y, w }, { to x, y,
+	-- w }, its tilt, its thickness)
+	function ESX.sweep(run, life)
+		local s = run.screen
+		if not s then
+			return
+		end
+		local SW = cfg().Sweep or {}
+		local a, b = SW.From or { 0.25, 0.9, 0.35 }, SW.To or { 0.62, 0.68, 0.75 }
+		local holder = frame(s.pic, "Sweep", BLACK, 1, 12)
+		holder.AnchorPoint = Vector2.new(0.5, 0.5)
+		holder.Rotation = SW.Tilt or -32
+		holder.Position = UDim2.fromScale(a[1], a[2])
+		holder.Size = UDim2.fromScale(a[3], a[3] * (SW.Flat or 0.16))
+		local bands = { { Color3.fromRGB(230, 40, 20), 0 }, { Color3.fromRGB(255, 160, 40), 0.06 }, { Color3.fromRGB(255, 252, 235), 0.14 } }
+		for i, band in bands do
+			local c = frame(holder, "Band" .. i, band[1], 1, 12 + i)
+			c.AnchorPoint = Vector2.new(0.5, 0.5)
+			c.Position = UDim2.fromScale(0.5, 0.5)
+			c.Size = UDim2.fromScale(1 - band[2], 1 - band[2] * 3)
+			local round = Instance.new("UICorner")
+			round.CornerRadius = UDim.new(0.5, 0)
+			round.Parent = c
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = band[1]
+			stroke.Thickness = (SW.Thick or 9) - (i - 1) * 2.5
+			stroke.Parent = c
+		end
+		tween(holder, life, { Position = UDim2.fromScale(b[1], b[2]), Size = UDim2.fromScale(b[3], b[3] * (SW.Flat or 0.16)) }, Enum.EasingStyle.Sine)
+		cleanup(holder, life + 0.02)
+		ESX.keep(run, holder)
+	end
+	-- the overlay over the picture: colour, then fades to clear over `fade`
+	function ESX.flash(run, color, hold, fade, alpha)
+		local s = run.screen
+		if not s then
+			return
+		end
+		local over = s.over
+		over.BackgroundColor3 = color
+		over.BackgroundTransparency = alpha or 0
+		s.overToken = (s.overToken or 0) + 1
+		local token = s.overToken
+		task.delay(hold or 0, function()
+			if s.overToken == token and over.Parent then
+				if (fade or 0) > 0 then
+					tween(over, fade, { BackgroundTransparency = 1 })
+				else
+					over.BackgroundTransparency = 1
+				end
+			end
+		end)
+	end
+	-- a black-and-white impact frame (the screen's grade, a beat)
+	function ESX.mono(run, time, contrast, bright)
+		local g = run.grade
+		if not (g and g.cc) then
+			return
+		end
+		run.monoUntil = os.clock() + time
+		g.cc.Enabled = true
+		g.cc.Saturation, g.cc.Contrast, g.cc.Brightness, g.cc.TintColor = -1, contrast or 3, bright or 0.2, WHITE
+	end
+	-- the line under the picture (the shout style)
+	function ESX.say(run, text, hold)
+		local s = run.screen
+		if not s then
+			return
+		end
+		local line = s.line
+		line.Text = text
+		line.TextTransparency = 0
+		line.TextStrokeTransparency = 0.4
+		s.lineToken = (s.lineToken or 0) + 1
+		local token = s.lineToken
+		task.delay(hold, function()
+			if s.lineToken == token and line.Parent then
+				tween(line, 0.15, { TextTransparency = 1, TextStrokeTransparency = 1 })
+			end
+		end)
+	end
+
+	---------------------------------------------------------------- the world (every screen)
+	-- an emitter on an anchored part that follows `where()` (or stays at it)
+	function ESX.emitter(run, at, spec, color, until_, follow)
+		local p = newPart(Vector3.one * 0.2, CFrame.new(at), color, nil, nil)
+		p.Transparency = 1
+		p.Name = "ESpeedEmitter"
+		local e = Instance.new("ParticleEmitter")
+		local size = spec.Size or { 1, 2 }
+		local life = spec.Life or { 0.5, 1 }
+		e.Color = ColorSequence.new(color)
+		e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, size[1]), NumberSequenceKeypoint.new(1, size[2]) })
+		e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(0.4, 0.75), NumberSequenceKeypoint.new(1, 1) })
+		e.Lifetime = NumberRange.new(life[1], life[2])
+		e.Rate = (spec.Rate or 10) * (run.low and ((cfg().Low or {}).Particles or 0.5) or 1)
+		e.Speed = NumberRange.new(spec.Speed and spec.Speed[1] or 1, spec.Speed and spec.Speed[2] or 3)
+		e.SpreadAngle = Vector2.new(spec.Spread or 180, spec.Spread or 180)
+		e.LightEmission = spec.Glow or 0
+		e.Drag = spec.Drag or 1
+		e.Acceleration = spec.Accel or V3(0, 1.5, 0)
+		e.Parent = p
+		ESX.keep(run, p)
+		task.spawn(function()
+			while ESX.alive(run) and ESX.now(run) < until_ and p.Parent do
+				if follow then
+					local w = follow()
+					if w then
+						p.CFrame = CFrame.new(w)
+					end
+				end
+				task.wait()
+			end
+			-- (the scene's end may have taken it already)
+			if p.Parent then
+				e.Enabled = false
+				cleanup(p, life[2] + 0.1)
+			end
+		end)
+		return e, p
+	end
+	-- THE BEAD: one bead of sweat on his right palm - a glowing orange drop in
+	-- a clear bubble, catching the light
+	function ESX.bead(run)
+		local BD = cfg().Bead or {}
+		local hp = handPos(run.char, true)
+		local bubble = newPart(Vector3.one * (BD.Bubble or 0.95), CFrame.new(hp), Color3.fromRGB(230, 240, 255), Enum.Material.Glass, Enum.PartType.Ball)
+		bubble.Name = "ESpeedBead"
+		bubble.Transparency = 0.55
+		local core = newPart(Vector3.one * (BD.Core or 0.36), CFrame.new(hp), BD.Color or Color3.fromRGB(255, 120, 34), Enum.Material.Neon, Enum.PartType.Ball)
+		core.Name = "ESpeedBeadCore"
+		local light = Instance.new("PointLight")
+		light.Color = BD.Color or Color3.fromRGB(255, 120, 34)
+		light.Brightness = BD.Light or 4
+		light.Range = BD.Range or 9
+		light.Parent = core
+		ESX.keep(run, bubble)
+		ESX.keep(run, core)
+		run.beadParts = { bubble, core }
+		task.spawn(function()
+			local burst = beat("BeadBurst", 1.6)
+			while ESX.alive(run) and ESX.now(run) < burst and bubble.Parent do
+				local arm = run.char:FindFirstChild("Right Arm")
+				local at = arm and (arm.CFrame * CFrame.new(0, -1.05, -0.62)).Position or handPos(run.char, true)
+				local wob = math.sin(os.clock() * 9) * 0.04
+				bubble.CFrame = CFrame.new(at + UP * wob)
+				core.CFrame = CFrame.new(at + UP * wob + V3(0.05, -0.05, 0))
+				task.wait()
+			end
+		end)
+	end
+	-- ...and it bursts: a pop of light and sparks, a ting
+	function ESX.beadBurst(run)
+		for _, p in run.beadParts or {} do
+			if p.Parent then
+				local at = p.Position
+				tween(p, 0.12, { Size = p.Size * 2.4, Transparency = 1 })
+				cleanup(p, 0.15)
+				if p.Name == "ESpeedBeadCore" then
+					sparks(at, 0.35, WHITE, FIRE[1], 8)
+					BK().pop(at, 0.9, 0)
+				end
+			end
+		end
+	end
+	-- the ring sweeping out of the dark, flat on the street round him: a white-
+	-- hot edge, orange, a red rim (a SurfaceGui circle - an ellipse to a low lens)
+	function ESX.ring(run, center, radius, filled, grow, life)
+		local D = cfg().Disc or {}
+		local size = radius * 2
+		local p = newPart(V3(size, 0.05, size), CFrame.new(center + UP * 0.08), WHITE, nil, nil)
+		p.Name = filled and "ESpeedDisc" or "ESpeedRing"
+		p.Transparency = 1
+		local sg = Instance.new("SurfaceGui")
+		sg.Face = Enum.NormalId.Top
+		sg.LightInfluence = 0
+		pcall(function()
+			sg.Brightness = 3
+		end)
+		sg.CanvasSize = Vector2.new(400, 400)
+		sg.AlwaysOnTop = false
+		sg.Adornee = p
+		sg.Parent = p
+		local rings = {
+			{ D.Rim or 13.5, Color3.fromRGB(230, 40, 20) },
+			{ D.Band or 11, Color3.fromRGB(255, 150, 30) },
+			{ D.Core or 9, Color3.fromRGB(255, 250, 230) },
+		}
+		local outer = rings[1][1]
+		local holder = frame(sg, "Ring", BLACK, 1, 1)
+		holder.AnchorPoint = Vector2.new(0.5, 0.5)
+		holder.Position = UDim2.fromScale(0.5, 0.5)
+		holder.Size = UDim2.fromScale(0.02, 0.02)
+		for i, r in rings do
+			local c = frame(holder, "Band" .. i, r[2], filled and 0 or 1, i)
+			c.AnchorPoint = Vector2.new(0.5, 0.5)
+			c.Position = UDim2.fromScale(0.5, 0.5)
+			c.Size = UDim2.fromScale(r[1] / outer, r[1] / outer)
+			local round = Instance.new("UICorner")
+			round.CornerRadius = UDim.new(0.5, 0)
+			round.Parent = c
+			if not filled then
+				local stroke = Instance.new("UIStroke")
+				stroke.Color = r[2]
+				stroke.Thickness = 14 - i * 3
+				stroke.Parent = c
+			end
+		end
+		tween(holder, grow, { Size = UDim2.fromScale(1, 1) }, Enum.EasingStyle.Quart)
+		ESX.keep(run, p, life)
+		return p, holder
+	end
+	-- the pillar of light up out of him
+	function ESX.pillar(run, at, life)
+		local D = cfg().Disc or {}
+		local pl = D.Pillar or { 1.2, 70 }
+		local p = newPart(V3(pl[2], pl[1], pl[1]), CFrame.new(at + UP * pl[2] / 2) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(255, 244, 214), Enum.Material.Neon, Enum.PartType.Cylinder)
+		p.Name = "ESpeedPillar"
+		p.Transparency = 0.1
+		local beam = newPart(V3(pl[2], pl[1] * 3, pl[1] * 3), p.CFrame, Color3.fromRGB(255, 170, 60), Enum.Material.Neon, Enum.PartType.Cylinder)
+		beam.Name = "ESpeedPillar"
+		beam.Transparency = 1 - (D.Beam or 0.5)
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(255, 190, 110)
+		light.Brightness = 6
+		light.Range = 30
+		light.Parent = p
+		ESX.keep(run, p, life)
+		ESX.keep(run, beam, life)
+		tween(beam, life, { Size = V3(pl[2], pl[1] * 5, pl[1] * 5), Transparency = 1 })
+	end
+	-- the white world behind him for his screen's silhouette (a sheet of unlit
+	-- white square to the lens, Back studs behind him) and him cut out black
+	-- him cut out black on his screen's white frame (the Leap shot's Back is the white)
+	function ESX.silhouette(run, life, model)
+		local cut = Instance.new("Highlight")
+		cut.Name = "ESpeedCutout"
+		cut.FillColor = BLACK
+		cut.FillTransparency = 0
+		cut.OutlineTransparency = 1
+		cut.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		cut.Adornee = model or run.char -- ((round 102 review) or his double: the skim's frame)
+		cut.Parent = folder
+		ESX.keep(run, cut, life)
+	end
+	-- a light rimming his body on this screen (the gold edge of the reference's
+	-- back light): a Highlight outline, gone after `life`
+	function ESX.rim(run, model, color, life, fill)
+		local h = Instance.new("Highlight")
+		h.Name = "ESpeedRim"
+		h.FillColor = fill or color
+		h.FillTransparency = fill and 0.75 or 1
+		h.OutlineColor = color
+		h.OutlineTransparency = 0
+		h.DepthMode = Enum.HighlightDepthMode.Occluded
+		h.Adornee = model
+		h.Parent = folder
+		ESX.keep(run, h, life)
+		return h
+	end
+	-- a blow of the flurry landing: a blast where his hand meets them, the
+	-- sparks, a little shake, a flare and sparkles on the two screens
+	function ESX.blow(run, k)
+		local FL = cfg().Flurry or {}
+		local tk = ESX.lifted(run, k) + UP * 0.9
+		local from = run.K[k] or run.A
+		local v = tk - from
+		local dir = v.Magnitude > 0.1 and v.Unit or run.F
+		local at = tk - dir * 0.9
+		if run.cine then
+			-- ((round 102 review) the two screens are in so close that a
+			-- fireball would fill the lens: the reference's flurry is glints,
+			-- sparks and gold light - a small pop, sparks, a flare, sparkles)
+			if not ESX.lens(run, at, 0.8) then
+				BK().pop(at, 0.55, 0)
+			end
+			sparks(at, 0.45, WHITE, FIRE[1], 9)
+			ESX.flareAt(run, at, 0.6, FIRE[2], 0.16)
+			local x, y = ESX.toPic(run, at)
+			if x then
+				ESX.sparkles(run, x, y, 0.1, 9, 0.3)
+			end
+			VFX.Shake(0.5, 0.12)
+		else
+			ESX.boom(run, at, FL.Explode or 0.42, { NoDebris = true, NoScorch = true, NoEmbers = true, SmokeLife = 0.4 })
+			BK().pop(at, 1.1, 0)
+			sparks(at, 0.45, WHITE, FIRE[1], 7)
+			VFX.HitStar(at, 5, FIRE[1])
+		end
+		-- ((round 102 review) where he was a blow ago, an afterimage fading -
+		-- he's everywhere at once (none on a lens))
+		local bk = BK()
+		if k > 1 and bk.ghost and run.K[k - 1] then
+			local prev = ESX.hitFrame(run, k - 1)
+			if not ESX.lens(run, prev.Position, 2) then
+				bk.ghost(run.char, prev, FIRE[1]:Lerp(WHITE, 0.4), 0.22, 0.5)
+			end
+		end
+		VFX.PlaySound("BlitzHit", run.cine and nil or at, 0.8)
+	end
+	-- THE LAST BLAST: both palms point blank; the fireball through them and on
+	-- down the street, the rings, the street torn up
+	function ESX.blast(run)
+		local at = run.T + UP * 0.6
+		local d = run.F
+		-- (the slab beside them goes with it: blown apart into rocks)
+		for _, part in run.props do
+			if part.Parent and (part.Name == "ESpeedSlab" or part.Name == "ESpeedSlabFace" or part.Name == "ESpeedSlabRim") then
+				if part.Name == "ESpeedSlab" and not run.cine then
+					rocks(V3(part.Position.X, run.street(part.Position) + 1, part.Position.Z), 1.2, run.low and 4 or 10)
+				end
+				pcall(function()
+					part:Destroy()
+				end)
+			end
+		end
+		local big = run.cine and 4 or 16
+		local flash = newPart(Vector3.one * 2, CFrame.new(at), WHITE, Enum.Material.Neon, Enum.PartType.Ball)
+		flash.Name = "ESpeedFlash"
+		tween(flash, 0.1, { Size = Vector3.one * big }, Enum.EasingStyle.Quad)
+		tween(flash, 0.2, { Transparency = 1, Size = Vector3.one * big * 1.2 }, nil, nil, 0.1)
+		cleanup(flash, 0.32)
+		-- (the two screens get the white-out for it: the fireballs are everyone else's)
+		if not run.cine then
+			toonExplosion(at + d * 1.5, 4.2, { SmokeLife = 2.6 })
+			for i, far in { 7, 12, 17 } do
+				task.delay(0.05 * i, function()
+					toonExplosion(at + d * far + UP * (i * 0.4), 3 - i * 0.5, { NoDebris = true, SmokeLife = 1.8 - i * 0.2 })
+				end)
+			end
+		end
+		shockDisc(at, d, 4, 46, 0.35, FIRE[2], 8)
+		-- (the ring along the street: a flat disc built from its axes - never a
+		-- lookAt straight up)
+		local disc = newPart(V3(0.5, 4, 4), CFrame.new(at.X, run.street(at) + 0.3, at.Z) * CFrame.Angles(0, 0, math.pi / 2), WHITE, Enum.Material.ForceField, Enum.PartType.Cylinder)
+		disc.Name = "ESpeedShock"
+		tween(disc, 0.45, { Size = V3(0.5, 40, 40), Transparency = 1 })
+		cleanup(disc, 0.5)
+		billboardRing(at, 4, 40, FIRE[1], 10, 0.35)
+		streaks(at, d, 16, 0.5, 11, 34, FIRE[1], 0.32)
+		local g = V3(at.X, run.street(at), at.Z)
+		if not run.cine then
+			rocks(g + d * 3, 1.4, run.low and 6 or 14) -- (the two screens: the white-out stands for it)
+		end
+		if not run.cine then
+			groundMark(g + d * 3, 7, Color3.fromRGB(40, 32, 30), 10)
+		end
+		VFX.ShakeAt(at, 4.5, 170, 0.55)
+		if vec(at) and run.troot and run.troot.Parent then
+			local stop = addTrail(run.troot, FIRE[2], 0.35, 2.2)
+			stop(0.9)
+		end
+	end
+	-- the white-out's afterimages: frozen ghosts of him where the flurry had him
+	function ESX.ghosts(run)
+		local W = cfg().WhiteOut or {}
+		local bk = BK()
+		if not bk.ghost then
+			return
+		end
+		for i = 1, math.min(W.Ghosts or 5, #run.K) do
+			bk.ghost(run.char, ESX.hitFrame(run, i), FIRE[1]:Lerp(WHITE, 0.4), W.GhostLife or 0.9, W.Alpha or 0.18)
+		end
+	end
+
+	---------------------------------------------------------------- the beats
+	-- every beat of the scene, set on its time (each on every screen unless it
+	-- says the screen's)
+	function ESX.beats(run)
+		local E = cfg()
+		local B = E.Beats or {}
+		local char, cine = run.char, run.cine
+		local W = E.WhiteOut or {}
+		local function at(name, fn, grace)
+			local t = B[name]
+			if type(t) == "number" then
+				ESX.on(run, t, name, fn, grace)
+			end
+		end
+		-- the smoke round him and the sparks off his gauntlets through the realization
+		at("Push", function()
+			local feet = V3(run.H.X, run.street(run.H) + 0.4, run.H.Z)
+			local SM = E.Smoke or {}
+			ESX.emitter(run, feet, { Rate = SM.Rate, Size = SM.Size, Life = SM.Life, Speed = { 0.5, 2 }, Spread = 80, Accel = V3(0, 0.8, 0) }, SM.Color or Color3.fromRGB(214, 196, 168), beat("SmokeWall", 2.1))
+			local SPK = E.Sparks or {}
+			for _, right in { true, false } do
+				ESX.emitter(run, handPos(char, right), { Rate = SPK.Rate, Size = { SPK.Size or 0.32, 0 }, Life = SPK.Life, Speed = { 4, 9 }, Spread = 60, Glow = 1, Drag = 3, Accel = V3(0, -6, 0) },
+					FIRE[1], beat("Ring", 2.75), function()
+						return handPos(char, right)
+					end)
+			end
+		end, 1)
+		at("Bead", function()
+			ESX.bead(run)
+			if cine then
+				local x, y = ESX.toPic(run, handPos(char, true))
+				if x then
+					ESX.sparkles(run, x, y, 0.15, 10, 0.5)
+				end
+			end
+		end)
+		at("BeadBurst", function()
+			ESX.beadBurst(run)
+		end)
+		at("Gauntlet", function()
+			for _ = 1, run.low and 5 or 10 do
+				local hp = handPos(char, true)
+				BK().star(hp + rng:NextUnitVector() * rand(0.4, 1.6), rand(0.4, 0.9), 0)
+			end
+			if cine then
+				local x, y = ESX.toPic(run, handPos(char, true))
+				ESX.sparkles(run, x or 0.6, y or 0.5, 0.22, 16, 0.4)
+			end
+		end)
+		at("SmokeWall", function()
+			local WL = E.Wall or {}
+			local width = WL.Width or 26
+			for i = -2, 2 do
+				local p = ESX.pt(run, run.H, i * width / 5, 0, -3)
+				p = V3(p.X, run.street(p) + 1, p.Z)
+				ESX.emitter(run, p, { Rate = (WL.Rate or 46) / 5, Size = WL.Size or { 7, 14 }, Life = WL.Life or { 1.2, 2 }, Speed = { 2, 5 }, Spread = 50, Accel = V3(0, 2, 0) },
+					Color3.fromRGB(250, 246, 236), beat("Impact", 2.6))
+			end
+			if cine then
+				ESX.bolts(run, beat("Impact", 2.6) - beat("SmokeWall", 2.1) - 0.06)
+			end
+		end)
+		at("Impact", function()
+			if cine then
+				ESX.mono(run, 0.08, 4, 0.35)
+				ESX.flare(run, 0.3, 0.62, 0.9, BLACK, 0.1, true)
+			end
+		end)
+		at("Star", function()
+			if cine then
+				ESX.flash(run, BLACK, beat("Ring", 2.75) - beat("Star", 2.68), 0)
+				ESX.flare(run, 0.5, 0.5, 0.7, FIRE[2], 0.2)
+			end
+		end)
+		at("Ring", function()
+			local feet = V3(run.H.X, run.street(run.H), run.H.Z)
+			local D = E.Disc or {}
+			local life = beat("Disc", 3.2) - beat("Ring", 2.75)
+			if cine then
+				ESX.sweep(run, life) -- (the two screens: the ring sweeping across the lens)
+			else
+				ESX.ring(run, feet, D.Rim or 13.5, false, life, life + 0.05)
+			end
+			-- the beam of light down out of his fist
+			local RB = E.RingBeam or {}
+			local beam = newPart(V3(1, RB.Width or 0.45, RB.Width or 0.45), CFrame.new(feet), RB.Color or Color3.fromRGB(255, 96, 30), Enum.Material.Neon, Enum.PartType.Cylinder)
+			beam.Name = "ESpeedBeam"
+			beam.Transparency = RB.Alpha or 0.15
+			local glow = Instance.new("PointLight")
+			glow.Color = RB.Color or Color3.fromRGB(255, 96, 30)
+			glow.Brightness = RB.Light or 6
+			glow.Range = 12
+			glow.Parent = beam
+			ESX.keep(run, beam, life + 0.05)
+			task.spawn(function()
+				while ESX.alive(run) and beam.Parent and ESX.now(run) < beat("Disc", 3.2) do
+					local hp = handPos(char, true)
+					local h = math.max(hp.Y - feet.Y, 0.5)
+					beam.Size = V3(h, beam.Size.Y, beam.Size.Z)
+					beam.CFrame = CFrame.new(V3(hp.X, feet.Y + h / 2, hp.Z)) * CFrame.Angles(0, 0, math.pi / 2)
+					task.wait()
+				end
+			end)
+			-- (the seam of sparks bursting along his face and arm)
+			for _ = 1, run.low and 3 or 6 do
+				local hp = handPos(char, rng:NextNumber() < 0.6)
+				BK().pop(hp + rng:NextUnitVector() * rand(0.2, 1), rand(0.4, 0.8), 0)
+			end
+		end)
+		at("Disc", function()
+			local feet = V3(run.H.X, run.street(run.H), run.H.Z)
+			local D = E.Disc or {}
+			local life = beat("Leap", 3.65) - beat("Disc", 3.2) + 0.05
+			ESX.ring(run, feet, D.Rim or 13.5, true, D.Grow or 0.3, life)
+			-- (the pillar of light up out of his fist)
+			local hp = handPos(char, true)
+			ESX.pillar(run, V3(hp.X, hp.Y - 0.3, hp.Z), life)
+		end)
+		at("Leap", function()
+			if cine then
+				ESX.silhouette(run, beat("Launch", 4) - beat("Leap", 3.65))
+			end
+		end)
+		at("Launch", function()
+			-- the double rockets at them: the palms going off behind it, the street kicked up
+			local t0 = beat("Launch", 4)
+			local t1 = beat("Back", 4.4)
+			task.spawn(function()
+				local flip = false
+				while ESX.alive(run) and ESX.now(run) < t1 do
+					flip = not flip
+					local D = run.double
+					if D and D.shown then
+						for _, tw in D.twins do
+							if tw.real.Name == (flip and "Right Arm" or "Left Arm") then
+								local hp = (tw.copy.CFrame * CFrame.new(0, -1.1, 0)).Position
+								-- ((round 102 review) and none left where a lens is about to be)
+								if not ESX.lens(run, hp - run.F * 0.6, 1.2) then
+									BK().pop(hp - run.F * 0.6, (cfg().Launch or {}).Pop or 0.7, 0)
+								end
+								if not run.cine then
+									ESX.boom(run, hp - run.F * 0.9, 0.35, { NoDebris = true, NoScorch = true, NoEmbers = true, SmokeLife = 0.4 })
+								end
+							end
+						end
+						local cf = ESX.double(run, ESX.now(run))
+						local dust = cf and V3(cf.Position.X, run.street(cf.Position), cf.Position.Z)
+						if dust and not ESX.lens(run, dust, 2) then
+							dustPuffs(dust, 0.5, 2, Color3.fromRGB(214, 196, 168), 0.6, false)
+						end
+					end
+					task.wait(0.04)
+				end
+			end)
+			if cine then
+				ESX.on(run, t0 + (t1 - t0) * 0.75, "LaunchStar", function()
+					ESX.flare(run, 0.42, 0.45, 0.8, FIRE[2], 0.12)
+				end)
+				ESX.on(run, t0 + (t1 - t0) * 0.9, "LaunchGrey", function()
+					ESX.mono(run, 0.05, 0.6, 0)
+				end)
+			end
+		end)
+		at("Back", function()
+			local EM = E.Embers or {}
+			for _ = 1, run.low and 6 or (EM.Count or 22) do
+				local p = run.A + V3(rand(-3, 3), rand(-1, 3), rand(-3, 3))
+				-- ((round 102 review) none right on the lens: a blob over the picture)
+				if not ESX.lens(run, p, 0.5) then
+					local m = newPart(Vector3.one * rand((EM.Size or { 0.08, 0.18 })[1], (EM.Size or { 0.08, 0.18 })[2]), CFrame.new(p), rng:NextNumber() < 0.5 and FIRE[2] or FIRE[4], Enum.Material.Neon)
+					m.Name = "ESpeedEmber"
+					tween(m, EM.Life or 0.9, { CFrame = CFrame.new(p + V3(rand(-0.5, 0.5), rand(0.5, 1.5), rand(-0.5, 0.5))), Transparency = 1 }, Enum.EasingStyle.Linear)
+					ESX.keep(run, m, (EM.Life or 0.9) + 0.05)
+				end
+			end
+		end)
+		at("Cross", function()
+			if cine then
+				ESX.flare(run, 0.5, 0.52, 0.85, FIRE[1], 0.1)
+			end
+		end)
+		at("Palm", function()
+			local hp = handPos(char, true)
+			local glow = newPart(Vector3.one * 0.4, CFrame.new(hp), Color3.fromRGB(255, 236, 190), Enum.Material.Neon, Enum.PartType.Ball)
+			glow.Name = "ESpeedPalm"
+			tween(glow, 0.03, { Size = Vector3.one * 1.2 })
+			ESX.keep(run, glow, 0.06)
+		end)
+		at("PalmHit", function()
+			local face = run.T + UP * 1.5
+			local hp = handPos(char, true)
+			local dir = (face - hp).Magnitude > 0.1 and (face - hp).Unit or run.F
+			if run.cine then
+				-- ((round 102 review) the two screens: the reference's frame-wide
+				-- cross flare and a cloud of sparkles round their face - no
+				-- fireball over it)
+				BK().pop(face - dir * 0.7, 1.2, 0)
+				sparks(face - dir * 0.7, 0.8, WHITE, FIRE[1], 14)
+			else
+				BK().palm(hp, dir, 1.4)
+				ESX.boom(run, face - dir * 0.6, 1.1, { NoDebris = true, NoScorch = true, SmokeLife = 0.8 })
+			end
+			local light = newPart(Vector3.one * 0.2, CFrame.new(face - dir * 1.2), FIRE[3])
+			light.Transparency = 1
+			light.Name = "ESpeedGlow"
+			local pl = Instance.new("PointLight")
+			pl.Color = Color3.fromRGB(255, 130, 40)
+			pl.Brightness = 8
+			pl.Range = 10
+			pl.Parent = light
+			ESX.keep(run, light, beat("Strobe", 5.5) - beat("PalmHit", 5.03))
+			if cine then
+				-- (where their face is in the picture - or the middle, if it isn't)
+				local fx, fy = ESX.toPic(run, face - dir * 0.6)
+				ESX.flare(run, fx or 0.45, fy or 0.45, 2.2, FIRE[3], 0.35)
+				local x, y = ESX.toPic(run, face)
+				ESX.sparkles(run, x or 0.4, y or 0.5, 0.2, run.low and 18 or 34, 0.7, FIRE[2])
+				VFX.Shake(1.2, 0.2)
+			end
+		end)
+		at("Glow", function()
+			if cine then
+				ESX.on(run, beat("Strobe", 5.5) - 0.06, "GlowWhite", function()
+					ESX.flash(run, WHITE, 0.06, 0)
+				end)
+			end
+		end)
+		-- THE SPEED BLITZ
+		at("Strobe", function()
+			-- the slab torn up beside them, its edges catching the light
+			local S = E.Slab or {}
+			local cf, size = ESX.slab(run)
+			local slab = newPart(size, cf - UP * size.Y, S.Color or Color3.fromRGB(42, 36, 34), Enum.Material.Slate)
+			slab.Name = "ESpeedSlab"
+			ESX.keep(run, slab)
+			tween(slab, S.Rise or 0.2, { CFrame = cf }, Enum.EasingStyle.Back)
+			-- (its face the skim runs along catching the light - FaceSide: -1 the
+			-- side toward them, 1 the far one - and (round 102 review) its top,
+			-- sunlit: the skim's overhead shot has the street on the left and
+			-- this gold on the right, as the reference has it)
+			for _, lit in { { CFrame.new((S.FaceSide or -1) * (size.X / 2 + 0.04), 0, 0), V3(0.06, size.Y, size.Z) }, { CFrame.new(0, size.Y / 2 + 0.04, 0), V3(size.X, 0.06, size.Z) } } do
+				local face = newPart(lit[2], (cf - UP * size.Y) * lit[1], S.Face or Color3.fromRGB(196, 160, 96), Enum.Material.SmoothPlastic)
+				face.Name = "ESpeedSlabFace"
+				ESX.keep(run, face)
+				tween(face, S.Rise or 0.2, { CFrame = cf * lit[1] }, Enum.EasingStyle.Back)
+			end
+			local rimW = S.Rim or 0.14
+			-- (its edges lit: the two long top edges, and round each end its top and its sides)
+			local hx, hy, hz = size.X / 2, size.Y / 2, size.Z / 2
+			local edges = { { V3(-hx, hy, 0), V3(rimW, rimW, size.Z) }, { V3(hx, hy, 0), V3(rimW, rimW, size.Z) } }
+			for _, z in { -hz, hz } do
+				table.insert(edges, { V3(0, hy, z), V3(size.X, rimW, rimW) })
+				table.insert(edges, { V3(-hx, 0, z), V3(rimW, size.Y, rimW) })
+				table.insert(edges, { V3(hx, 0, z), V3(rimW, size.Y, rimW) })
+			end
+			for _, e in edges do
+				local edge = newPart(e[2], (cf - UP * size.Y) * CFrame.new(e[1]), S.RimColor or Color3.fromRGB(255, 196, 92), Enum.Material.Neon)
+				edge.Name = "ESpeedSlabRim"
+				ESX.keep(run, edge)
+				tween(edge, S.Rise or 0.2, { CFrame = cf * CFrame.new(e[1]) }, Enum.EasingStyle.Back)
+			end
+			dustPuffs(V3(cf.Position.X, run.street(cf.Position), cf.Position.Z), 1, 5, Color3.fromRGB(200, 190, 175), 0.8, false)
+			if cine then
+				-- the strobe: frames of black between frames of the street
+				task.spawn(function()
+					local every = E.Strobe or 0.033
+					local on = true
+					while ESX.alive(run) and ESX.now(run) < beat("Skim", 5.8) - 0.1 do
+						on = not on
+						if run.screen then
+							run.screen.over.BackgroundColor3 = BLACK
+							run.screen.over.BackgroundTransparency = on and 0 or 1
+						end
+						task.wait(every)
+					end
+					if run.screen then
+						run.screen.over.BackgroundTransparency = 1
+					end
+				end)
+			end
+		end)
+		at("Skim", function()
+			-- the trail: explosions going off behind the double, debris flung
+			task.spawn(function()
+				local stop = beat("Flash", 6.95)
+				while ESX.alive(run) and ESX.now(run) < stop do
+					local cf = ESX.double(run, ESX.now(run))
+					if cf then
+						local back = -cf.UpVector -- (tipped flat: his feet trail behind)
+						BK().pop(cf.Position + back * rand(1.2, 2.4), rand(1.1, 1.6), 0)
+						if rng:NextNumber() < 0.3 then
+							ESX.boom(run, cf.Position + back * 2.6, rand(0.18, 0.26), { NoDebris = true, NoScorch = true, NoEmbers = true, SmokeLife = 0.35 })
+						end
+						if rng:NextNumber() < 0.35 then
+							rocks(V3(cf.Position.X, run.street(cf.Position) + 0.5, cf.Position.Z), 0.5, 2)
+						end
+					end
+					task.wait(0.05)
+				end
+			end)
+		end)
+		at("SkimFrame", function()
+			if cine then
+				-- ((round 102 review) the reference's frame: white, and him in it
+				-- a black cut-out - not the gold of him greyed)
+				ESX.mono(run, 0.07, 4, 0.3)
+				local D = run.double
+				if D and D.shown then
+					ESX.silhouette(run, 0.07, D.model)
+				end
+			end
+		end)
+		at("Flash", function()
+			if cine then
+				-- ((round 102 review) see-through, a dark cross on it: the
+				-- reference's flash keeps the slab's lit edges)
+				ESX.flash(run, WHITE, 0.05, 0, 0.3)
+				ESX.flare(run, 0.62, 0.42, 0.8, BLACK, 0.08, true)
+				ESX.on(run, beat("Flash", 6.95) + 0.05, "FlashMono", function()
+					ESX.mono(run, 0.06, 4, 0.12)
+				end)
+			end
+		end)
+		at("Pop", function()
+			if cine then
+				ESX.flareAt(run, run.P + UP * 1.5, 0.7, FIRE[3], 0.15)
+			end
+			for _ = 1, run.low and 6 or 14 do
+				local p = run.P + V3(rand(-2.5, 2.5), rand(0, 3), rand(-2.5, 2.5))
+				if not ESX.lens(run, p, 0.5) then
+					local m = newPart(Vector3.one * rand(0.08, 0.16), CFrame.new(p), FIRE[2], Enum.Material.Neon)
+					m.Name = "ESpeedEmber"
+					tween(m, 0.5, { CFrame = CFrame.new(p + UP * rand(0.4, 1.2)), Transparency = 1 }, Enum.EasingStyle.Linear)
+					ESX.keep(run, m, 0.55)
+				end
+			end
+		end)
+		at("Black", function()
+			if cine then
+				ESX.flash(run, BLACK, beat("Flurry", 7.63) - beat("Black", 7.55), 0)
+			end
+		end)
+		-- the flurry's blows, each on its contact
+		local FL = E.Flurry or {}
+		for k = 1, #run.K do
+			ESX.on(run, beat("Flurry", 7.63) + (FL.Gap or 0.196) * (k - 1) + (FL.Contact or 0.06), "Hit" .. k, function()
+				ESX.blow(run, k)
+			end, 0.1)
+		end
+		at("Blast", function()
+			ESX.blast(run)
+			run.free = true
+			if cine then
+				ESX.flash(run, WHITE, 0.05, 0.1)
+				ESX.say(run, "", 0)
+			end
+		end, 0.4)
+		at("White", function()
+			ESX.ghosts(run)
+		end)
+		if cine then
+			-- the white-out: the world white behind him (a sheet square to the
+			-- White shot's lens, Back studs past him), then the whole picture
+			-- greying and going black
+			ESX.on(run, beat("White", 9), "WhiteOut", function()
+				local s = run.screen
+				if not s then
+					return
+				end
+				local over = s.over
+				local white, grey, black = W.White or 0.4, W.Grey or 0.22, W.Black or 0.13
+				-- ((round 102 review) the overlay left to the last blast's flash on
+				-- the same beat - whichever woke second used to win, and the flash
+				-- could be wiped the instant it went up)
+				task.delay(white, function()
+					if over.Parent then
+						-- (the last blast's own flash may have had the overlay: it's black from here)
+						s.overToken = (s.overToken or 0) + 1
+						over.BackgroundColor3 = BLACK
+						over.BackgroundTransparency = 1
+						tween(over, grey, { BackgroundTransparency = 1 - (W.GreyDepth or 0.5) }, Enum.EasingStyle.Linear)
+					end
+				end)
+				task.delay(white + grey, function()
+					if over.Parent then
+						tween(over, black, { BackgroundTransparency = 0 }, Enum.EasingStyle.Linear)
+					end
+				end)
+			end)
+			ESX.on(run, beat("Star2", 9.75), "Star2", function()
+				ESX.flash(run, BLACK, 1, 0)
+				local fl = ESX.flare(run, 0.35, 0.5, 1.1, FIRE[2], 0.25)
+				if fl then
+					tween(fl, 0.25, { Position = UDim2.fromScale(0.7, 0.48) }, Enum.EasingStyle.Linear)
+				end
+			end)
+		end
+		-- the lines (the two screens: under the picture; anyone else: nothing said)
+		if cine then
+			for _, line in E.Lines or {} do
+				ESX.on(run, line.At or 0, nil, function()
+					ESX.say(run, line.Text or "", line.Hold or 1)
+				end)
+			end
+		end
+		-- the sounds on their beats (the two screens hear them close; anyone else from the street)
+		for _, s in E.Sounds or {} do
+			ESX.on(run, s[1], nil, function()
+				VFX.PlaySound(s[2], cine and nil or run.T, s[3] or 1)
+			end, 0.15)
+		end
+	end
+
+	-- a cut's dressing on the two screens (Config.ESpeed.Shots: Back - a sheet
+	-- of "Black" or "White" behind what it's on, BackAt studs past it: the
+	-- reference's black voids and white frames; Rim - a light rimming his body
+	-- (or his double, if that's out): { colour, fill colour?, fill })
+	local SHEETS = { Black = BLACK, White = WHITE }
+	function ESX.dress(run, shot, t)
+		for _, key in { "backdrop", "shotRim", "shotRim2" } do
+			if run[key] then
+				pcall(function()
+					run[key]:Destroy()
+				end)
+				run[key] = nil
+			end
+		end
+		for _, part in run.fore or {} do
+			pcall(function()
+				part:Destroy()
+			end)
+		end
+		run.fore = nil
+		if not (shot and run.cine) then
+			return
+		end
+		local back = SHEETS[shot.Back or ""]
+		if back then
+			local eye, look = shot.From[1], shot.From[2]
+			local v = look - eye
+			if v.Magnitude > 0.1 then
+				local sheet = newPart(V3(900, 900, 0.2), ESX.frame(eye + v.Unit * (v.Magnitude + (shot.BackAt or 4)), v.Unit), back, Enum.Material.Neon)
+				sheet.Name = "ESpeedBack"
+				run.backdrop = ESX.keep(run, sheet)
+				if shot.Floor then
+					-- (and the street in front of it the same: him standing in the white)
+					local g = run.street(look)
+					local floor = newPart(V3(400, 0.1, 400), CFrame.new(look.X, g + 0.06, look.Z), back, Enum.Material.Neon)
+					floor.Name = "ESpeedBack"
+					run.fore = run.fore or {}
+					table.insert(run.fore, ESX.keep(run, floor))
+				end
+			end
+		end
+		local fore = shot.Fore
+		if type(fore) == "table" and typeof(fore[4]) == "Vector3" then
+			local eye, look = shot.From[1], shot.From[2]
+			local v = look - eye
+			if v.Magnitude > 0.1 then
+				local lens = ESX.frame(eye, v.Unit)
+				local cf = lens * CFrame.new(fore[1] or 0, fore[2] or 0, -(fore[3] or 5)) * CFrame.Angles(0, 0, math.rad(fore[5] or 0))
+				local S = cfg().Slab or {}
+				local rock = newPart(fore[4], cf, S.Color or Color3.fromRGB(42, 36, 34), Enum.Material.Slate)
+				rock.Name = "ESpeedFore"
+				local edge = newPart(V3(fore[4].X + 0.1, 0.12, fore[4].Z + 0.1), cf * CFrame.new(0, fore[4].Y / 2, 0), WHITE, Enum.Material.Neon)
+				edge.Name = "ESpeedFore"
+				run.fore = { ESX.keep(run, rock), ESX.keep(run, edge) }
+			end
+		end
+		local rim = shot.Rim
+		if type(rim) == "table" and typeof(rim[1]) == "Color3" then
+			local D = run.double
+			local model = (D and ESX.double(run, t + 0.02)) and D.model or run.char
+			run.shotRim = ESX.rim(run, model, rim[1], nil, rim[2])
+			if rim[3] then
+				run.shotRim.FillTransparency = rim[3]
+			end
+			-- ((round 102 review) RimThem: them too - the flurry's two dark
+			-- shapes edged in gold)
+			if shot.RimThem and run.target and run.target.Parent then
+				run.shotRim2 = ESX.rim(run, run.target, rim[1], nil, rim[2])
+				if rim[3] then
+					run.shotRim2.FillTransparency = rim[3]
+				end
+			end
+		end
+	end
+	-- the double aglow while it's a blur (the launch, the skim: Config.ESpeed.Glow)
+	function ESX.glow(run, t)
+		local D = run.double
+		if not (D and D.model.Parent) then
+			return
+		end
+		local G = cfg().Glow or {}
+		local launch = t >= beat("Launch", 4) and t < beat("Back", 4.4)
+		local blur = D.shown and (launch or (t >= beat("Strobe", 5.5) and t < beat("Pop", 7.07)))
+		if D.glow and D.glowLaunch ~= launch then
+			pcall(function()
+				D.glow:Destroy()
+			end)
+			D.glow = nil
+		end
+		if blur and not D.glow then
+			D.glowLaunch = launch
+			local h = Instance.new("Highlight")
+			h.Name = "ESpeedGlow"
+			h.FillColor = G.Fill or Color3.fromRGB(255, 226, 140)
+			h.FillTransparency = launch and (G.FillT or 0.45) or (G.SkimFillT or 1)
+			h.OutlineColor = G.Outline or WHITE
+			h.OutlineTransparency = 0
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Adornee = D.model
+			h.Parent = folder
+			D.glow = ESX.keep(run, h)
+		elseif not blur and D.glow then
+			pcall(function()
+				D.glow:Destroy()
+			end)
+			D.glow = nil
+		end
+	end
+
+	---------------------------------------------------------------- the frame step
+	function ESX.step(run)
+		if not ESX.alive(run) then
+			-- ((round 102 review) his body gone from this screen (he left, or
+			-- streamed out - the server's word can't name a body that isn't
+			-- there): everything put back now, not at the safety net)
+			if not run.dead then
+				ESX.finish(run, "gone")
+			end
+			return
+		end
+		local t = ESX.now(run)
+		-- his body: hidden while the double has it (or the cut does) - and
+		-- ((round 102 review)) only then: with no double he stays in sight
+		local hide = run.double ~= nil and ESX.hiddenAt(t)
+		if hide ~= run.hiding then
+			run.hiding = hide
+			if hide then
+				ESX.hide(run.char)
+			else
+				ESX.show(run.char)
+			end
+		end
+		ESX.apply(run.char)
+		ESX.poseDouble(run, ESX.double(run, t))
+		-- the screen: the cut's grade, the bars, the motes, the focus
+		local shot = ESX.shotAt(run, t)
+		if shot ~= run.shotNow then
+			run.shotNow = shot
+			ESX.clips(run, 0)
+			if shot then
+				ESX.note(run, "shot" .. shot.Name)
+			end
+			ESX.dress(run, shot, t)
+		end
+		ESX.glow(run, t)
+		local s = run.screen
+		if s then
+			ESX.bars(run)
+			if (run.monoUntil or 0) <= os.clock() then
+				local k = shot and math.clamp((t - shot.At) / math.max(shot.T, 0.01), 0, 1) or 0
+				ESX.setGrade(run, shot and shot.Grade, shot and shot.Into, k)
+			end
+			local g = run.grade
+			if g and g.dof and g.dof.Enabled then
+				local cam = workspace.CurrentCamera
+				local on = shot and shot.Subject == "T" and run.T or (shot and shot.Hit and ESX.lifted(run, shot.Hit)) or run.root.Position
+				pcall(function()
+					g.dof.FocusDistance = (cam.CFrame.Position - on).Magnitude
+				end)
+			end
+			local M = cfg().Motes or {}
+			local drift = M.Drift or 0.05
+			local dt = os.clock() - (run.lastStep or os.clock())
+			for _, m in s.motes do
+				m.x = (m.x + m.vx * drift * dt + 1) % 1
+				m.y = (m.y + m.vy * drift * dt + 1) % 1
+				m.f.Position = UDim2.fromScale(m.x, m.y)
+				m.f.BackgroundTransparency = 0.35 + 0.3 * math.abs(math.sin(os.clock() * 1.3 + m.ph))
+			end
+		end
+		run.lastStep = os.clock()
+		if t >= beat("End", 10) then
+			ESX.finish(run, "end")
+		end
+	end
+
+	---------------------------------------------------------------- start / end
+	-- THE CATCH: the server's stage (data: Target, Start, H, T, Dir, A, B, P, K)
+	function ESX.play(char, data, isLocal)
+		local root = charParts(char)
+		if not root or type(data) ~= "table" then
+			return nil
+		end
+		for _, key in { "H", "T", "Dir", "A", "B", "P" } do
+			if not vec(data[key]) then
+				return nil
+			end
+		end
+		local K = {}
+		for k, p in type(data.K) == "table" and data.K or {} do
+			if vec(p) then
+				K[k] = p
+			end
+		end
+		local old = ESX.runs[char]
+		if old then
+			ESX.finish(old, "replaced")
+		end
+		-- ((round 102 review) someone else far off (Config.ESpeed.WitnessRange):
+		-- none of it on this screen - ten seconds of a double, emitters and
+		-- blasts nobody here can see)
+		local me0 = Players.LocalPlayer
+		local ours = isLocal == true or (me0 ~= nil and (me0.Character == char or (me0.Character ~= nil and me0.Character == data.Target)))
+		if not ours then
+			local cam = workspace.CurrentCamera
+			local range = cfg().WitnessRange or 900
+			local okNear, near = pcall(function()
+				return (cam.CFrame.Position - data.T).Magnitude < range or (cam.Focus.Position - data.T).Magnitude < range
+			end)
+			if okNear and not near then
+				return nil
+			end
+		end
+		-- (the crouch and the blink are over: their state let go - his line
+		-- talks on to its end; a cancel now is the scene's)
+		local bk = BK()
+		local st = bk.blitz and bk.blitz[char]
+		if st then
+			st.dead = true
+			if st.stopTrail then
+				st.stopTrail(0)
+				st.stopTrail = nil
+			end
+			bk.blitz[char] = nil
+		end
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local F = V3(data.Dir.X, 0, data.Dir.Z)
+		F = F.Magnitude > 0.05 and F.Unit or V3(0, 0, -1)
+		local R = F:Cross(UP).Unit
+		local me = Players.LocalPlayer
+		local run = {
+			char = char, root = root, target = target, troot = target and target:FindFirstChild("HumanoidRootPart"),
+			start = tonumber(data.Start) or workspace:GetServerTimeNow(),
+			H = data.H, T = data.T, F = F, R = R, A = data.A, B = data.B, P = data.P, K = K,
+			mine = isLocal == true or (me ~= nil and me.Character == char), theirs = me ~= nil and target ~= nil and me.Character == target,
+			props = {}, beats = {}, low = IceKit.lowEnd(), streets = {},
+			lift = (tonumber(data.Lift) or -1) >= 0 and math.min(tonumber(data.Lift), 1) or nil, -- (a NaN fails the >=)
+		}
+		if not (run.start == run.start) then
+			run.start = workspace:GetServerTimeNow()
+		end
+		-- the street under a point (cached on a coarse grid: raycasts every frame are dear)
+		function run.street(p)
+			local key = math.floor(p.X / 2) .. "," .. math.floor(p.Z / 2)
+			local y = run.streets[key]
+			if not y then
+				y = groundPoint(V3(p.X, math.max(p.Y, run.T.Y), p.Z)).Y
+				run.streets[key] = y
+			end
+			return y
+		end
+		ESX.runs[char] = run
+		ESX.lastRun = run
+		local finish = beat("End", 10)
+		local late = math.max(ESX.now(run), 0)
+		run.shots = ESX.shots(run, late)
+		VFX.MuteGait(char, finish - late + 0.5)
+		if target then
+			VFX.MuteGait(target, finish - late + 0.5)
+		end
+		ESX.clips(run, 0.06)
+		run.double = ESX.makeDouble(run)
+		ESX.poseDouble(run, nil)
+		-- the hits on them: drawn by the scene (its blasts), their flinch handed back to their clip
+		VFX.HitHooks = VFX.HitHooks or setmetatable({}, { __mode = "k" })
+		run.hook = function(victim)
+			if victim == run.target and ESX.alive(run) and not run.free then
+				task.defer(function()
+					if ESX.alive(run) and not run.free and victim.Parent then
+						VFX.Clip(victim, "MoveESpeedHeld", { from = math.max(ESX.now(run), 0), fade = 0.08, keep = true })
+					end
+				end)
+				return true
+			end
+			return false
+		end
+		VFX.HitHooks[char] = run.hook
+		-- the two of them: the cinematic (their camera taken; nobody else's)
+		if run.mine or run.theirs then
+			-- (their inputs held with cinematics off too: the awakening kit's lock)
+			local AK = VFX.AK
+			if AK and AK.locks then
+				for _, body in { char, target } do
+					if body and Players.LocalPlayer and Players.LocalPlayer.Character == body then
+						run.lockUntil = os.clock() + finish - late + 0.1
+						AK.locks[body] = math.max(AK.locks[body] or 0, run.lockUntil)
+						run.locked = body
+					end
+				end
+			end
+			local director = VFX.Director
+			local Cn = Config.Cinematics or {}
+			if Cn.Enabled ~= false and not (director and director.on) then
+				-- ((round 102 review) the camera on the scene's clock: the shots
+				-- were cut for `late`, a moment ago)
+				local clock0 = os.clock() - math.max(ESX.now(run) - late, 0)
+				if #run.shots > 0 and VFX.Cinematic(char, run.shots, { Own = true, Quiet = true, NoBars = true, World = true, Clock = clock0 }) then
+					run.cine = true
+					run.cineToken = VFX.CinematicToken()
+					-- ((round 102 review) no other black-and-white impact frame on
+					-- top of the scene's grade (VFX.ImpactFrame's hold): the last
+					-- blast's own heavy hit would grey the white-out)
+					run.impactHold = os.clock() + finish - late + 0.3
+					VFX.ImpactHeld = math.max(VFX.ImpactHeld or 0, run.impactHold)
+					ESX.makeGrade(run)
+					ESX.makeScreen(run)
+					if type(VFX.Hooks.Aside) == "function" then
+						pcall(VFX.Hooks.Aside, "espeed", true)
+						run.aside = true
+					end
+				end
+			end
+		end
+		ESX.beats(run)
+		run.conn = RunService.RenderStepped:Connect(function()
+			local ok, err = pcall(ESX.step, run)
+			if not ok then
+				warn("[VFX] ESX step: " .. tostring(err))
+				ESX.finish(run, "error")
+			end
+		end)
+		-- (safety: whatever happens, it's all gone a moment after the end)
+		task.delay(finish - late + 1.5, function()
+			if not run.dead then
+				ESX.finish(run, "timeout")
+			end
+		end)
+		return run
+	end
+	-- the end (how: "end", "cancel", "ko", "replaced", ...): the camera back,
+	-- every piece gone, both bodies shown and on their own again
+	function ESX.finish(run, how)
+		if run.dead then
+			return
+		end
+		run.dead = true
+		run.how = how
+		if ESX.runs[run.char] == run then
+			ESX.runs[run.char] = nil
+		end
+		if run.conn then
+			run.conn:Disconnect()
+		end
+		if run.cine and VFX.CinematicToken() == run.cineToken then
+			VFX.CancelCinematic()
+		end
+		if run.aside and type(VFX.Hooks.Aside) == "function" then
+			pcall(VFX.Hooks.Aside, "espeed", false)
+		end
+		if run.impactHold and VFX.ImpactHeld == run.impactHold then
+			VFX.ImpactHeld = 0
+		end
+		for i = #run.props, 1, -1 do
+			pcall(function()
+				run.props[i]:Destroy()
+			end)
+		end
+		run.props = {}
+		if run.hiding then
+			run.hiding = false
+			ESX.show(run.char)
+		end
+		if VFX.HitHooks and VFX.HitHooks[run.char] == run.hook then
+			VFX.HitHooks[run.char] = nil
+		end
+		local AK = VFX.AK
+		if run.locked and AK and AK.locks and AK.locks[run.locked] == run.lockUntil then
+			AK.locks[run.locked] = nil
+		end
+		-- (a knockout: their KO pose and his are the kill cam's; otherwise both
+		-- ease back to standing)
+		if how ~= "ko" then
+			VFX.ReleasePose(run.char, 0.25)
+			if run.target and run.target.Parent and not run.free then
+				VFX.ReleasePose(run.target, 0.2)
+			end
+		end
+	end
+	-- the server called it off (ExplosiveSpeedCancel): KO - the kill cam's coming
+	function ESX.cancel(char, data)
+		local run = ESX.runs[char]
+		if run then
+			ESX.finish(run, type(data) == "table" and data.KO == true and "ko" or "cancel")
+		end
+	end
+	-- the server's last blast (ExplosiveSpeedSceneBlast): the blast is drawn on
+	-- the scene's own clock; a knockout ends the cinematic for the kill cam
+	function ESX.blastWord(char, data)
+		local run = ESX.runs[char]
+		if not run then
+			return
+		end
+		ESX.note(run, "serverBlast")
+		run.free = true
+		if type(data) == "table" and data.KO == true then
+			ESX.unscreen(run)
+		end
+	end
+	-- ((round 102 review) the cinematic's layer off this screen, the world's
+	-- pieces left to play out: the camera (its own only), the bars and all
+	-- over the picture, the grade, the shot's dressing, the HUD back, the
+	-- impact frame's hold - the KO's kill cam comes next, and the white-out
+	-- going to black would have covered it)
+	function ESX.unscreen(run)
+		if run.cine and VFX.CinematicToken() == run.cineToken then
+			VFX.CancelCinematic()
+		end
+		run.cine = false
+		ESX.dress(run, nil)
+		for _, inst in { run.screen and run.screen.gui, run.grade and run.grade.cc, run.grade and run.grade.bloom, run.grade and run.grade.blur, run.grade and run.grade.dof } do
+			pcall(function()
+				inst:Destroy()
+			end)
+		end
+		run.screen, run.grade = nil, nil
+		if run.aside and type(VFX.Hooks.Aside) == "function" then
+			pcall(VFX.Hooks.Aside, "espeed", false)
+			run.aside = false
+		end
+		if run.impactHold and VFX.ImpactHeld == run.impactHold then
+			VFX.ImpactHeld = 0
+		end
+	end
+
+	Effects.ExplosiveSpeedScene = function(char, data, isLocal)
+		ESX.play(char, data, isLocal)
+	end
+	Effects.ExplosiveSpeedSceneBlast = function(char, data)
+		ESX.blastWord(char, data)
+	end
+end)()
 
 ---------------------------------------------------------------------------
 -- ONE FOR ALL
@@ -53738,6 +55845,24 @@ do
 			VFX.IN.finisher(char, target, troot, d, time)
 		end
 	end
+	-- (round 102) Mob: 100% (VFX.MOB.finisher - defined further down; looked up when it runs)
+	function FX.Mob(char, _, target, troot, d, time)
+		if VFX.MOB then
+			VFX.MOB.finisher(char, target, troot, d, time)
+		end
+	end
+	-- (round 102) Tokoyami: ABYSSAL SWALLOW (VFX.TK.finisher - defined further down; looked up when it runs)
+	function FX.DarkShadow(char, _, target, troot, d, time)
+		if VFX.TK then
+			VFX.TK.finisher(char, target, troot, d, time)
+		end
+	end
+	-- (round 103) Pucci: ONLY ONCE. AT A VITAL SPOT. (VFX.CM.finisher - defined further down; looked up when it runs)
+	function FX.CMoon(char, _, target, troot, d, time)
+		if VFX.CM and VFX.CM.finisher then
+			VFX.CM.finisher(char, target, troot, d, time)
+		end
+	end
 	function FX.Hellflame(char, _, target, troot, d, time)
 		VFX.HF.finisher(char, target, troot, d, time)
 	end
@@ -57451,7 +59576,7 @@ do
 	function CDV.isUser(char)
 		local plr = char and Players:GetPlayerFromCharacter(char)
 		local q = plr and plr:GetAttribute("Quirk")
-		return q == "CrazyDiamond" or q == "TheWorld" -- (round 74: DIO's)
+		return q == "CrazyDiamond" or q == "TheWorld" or q == "StarPlatinum" -- (round 104: Jotaro's too; round 74: DIO's)
 	end
 
 	function CDV.part(st, key, size, offset, color, material, shape)
@@ -57611,7 +59736,7 @@ do
 			CDV.stands[char] = nil
 			st = nil
 		end
-		return st or (kind == "TheWorld" and CDV.buildWorld(char)) or CDV.build(char)
+		return st or (kind == "TheWorld" and CDV.buildWorld(char)) or (kind == "StarPlatinum" and CDV.buildStar and CDV.buildStar(char)) or CDV.build(char)
 	end
 
 	-- bring it out and hold an action (it stays out a while after)
@@ -57725,7 +59850,10 @@ do
 			end
 			-- (round 66) quick while it fights, easy at rest; the rush still snaps
 			pose = CDV.blend(st, pose, action == "barrage" and 1 or 1 - math.exp(-dt * (acting and 36 or 10)))
-			if st.alpha > 0.01 then
+			-- (round 104) the JJBA place's own model of it (VFX.JS): it takes the
+			-- pose - or plays the Stand's own clip - and these parts stay hidden
+			local meshed = VFX.JS ~= nil and VFX.JS.cdvSafe(st, char, root, action, acting, pose, dt, now)
+			if st.alpha > 0.01 and not meshed then
 				local torso = st.cf * CFrame.Angles(math.rad(pose.lean or 0), math.rad(pose.twist or 0), 0)
 				local frames = {
 					torso = torso,
@@ -57758,7 +59886,7 @@ do
 			if math.abs(st.alpha - st.shown) > 0.02 then
 				st.shown = st.alpha
 				for _, e in st.parts do
-					e.part.Transparency = 1 - st.alpha
+					e.part.Transparency = meshed and 1 or 1 - st.alpha
 				end
 				st.highlight.OutlineTransparency = 1 - st.alpha * 0.9
 			end
@@ -57809,6 +59937,8 @@ do
 		if finisher then
 			if st.kind == "TheWorld" then
 				CDV.shout(st, variant == "Down" and "MUDA!!" or "MUDA MUDA!", 5, 0.8)
+			elseif st.kind == "StarPlatinum" then
+				CDV.shout(st, variant == "Down" and "ORA!!" or "ORA ORA!", 5, 0.8) -- (round 104)
 			else
 				CDV.shout(st, variant == "Down" and "DORA!!" or "DORARA!", 5, 0.8)
 			end
@@ -78090,14 +80220,7 @@ end)()
 -- ball in his fist, swelling on the hits (33-36) - drawn back (37-38) and
 -- hurled into the sky (39-40), where it goes off on the last hit while he
 -- laughs (41-42); and the power steaming out of him as he shrinks back to
--- himself with the song's fade (43-46). 28.75 s. (round 103) And the world
--- goes with him, as in the 2018 film's shot of it: on LEGENDARY he's inside
--- a column of green light going up into a black-red sky that closed over
--- the city through the surge; red-hot seams race out across the map from
--- him over scorched black ground; the street's rubble rises and hangs round
--- him, dropping when the sky goes off - on every screen near him, the world
--- tinted red on theirs too. The server's side is real: a crater blown out
--- of the city on each drop and a shockwave shoving everyone back (Kit.FF).
+-- himself with the song's fade (43-46). 28.75 s.
 -- His bulk is a copy of him on each screen (anchored, touching nothing,
 -- posed from his real limbs every frame and scaled about his feet, up to
 -- x3.2 - and thickened, his limbs turned on his own joints) while his real
@@ -79626,11 +81749,6 @@ end)()
 		end
 	end
 	function FF.unscreen(st)
-		local wg = st.world and st.world.grade
-		if wg then
-			st.world.grade = nil
-			pcall(wg.Destroy, wg)
-		end
 		for _, k in { "grade", "bloom" } do
 			local e = st[k]
 			st[k] = nil
@@ -80089,296 +82207,6 @@ end)()
 	end
 
 	---------------------------------------------------------------------------
-	-- (round 103) THE WORLD (Config.FinalForm.World), from the 2018 film's
-	-- shot: him inside a column of green light going up into a black-red
-	-- sky, the land round him scorched black and split by red-hot seams, the
-	-- rubble rising. On every screen near him, not only his: the column, the
-	-- sky and the red world for anyone in Range; the seams, the scorch and
-	-- the rubble for anyone not far off. (The craters and the shockwave are
-	-- the server's: Kit.FF.)
-	---------------------------------------------------------------------------
-	local function vcyl(bag, d, h, cf, color, material)
-		-- a cylinder standing up: d studs across, h tall, its base at cf
-		return EM.part(bag, Vector3.new(h, d, d), cf * CFrame.new(0, h / 2, 0) * CFrame.Angles(0, 0, math.pi / 2), color, material, Enum.PartType.Cylinder)
-	end
-	function FF.world(st)
-		local W = CFG.World
-		if not W then
-			return nil
-		end
-		local w = st.low and 2 or 1
-		local bag, g = st.bag, st.g
-		local wd = { layers = {}, streaks = {}, seams = {}, rocks = {}, sky = {} }
-		-- the column, hidden until LEGENDARY
-		local P = W.Pillar
-		for i, L in P.Layers do
-			local p = vcyl(bag, 1, P.Height, CFrame.new(g - UP * 2), i == #P.Layers and P.Core or P.Color, Enum.Material[L[1]])
-			p.Transparency = 1
-			table.insert(wd.layers, { part = p, k = L[2], tr = L[3] })
-		end
-		local Sk = P.Streaks
-		for i = 1, Sk.Count[w] do
-			local p = EM.part(bag, Sk.Size, CFrame.new(g), P.Core, Enum.Material.Neon)
-			p.Transparency = 1
-			table.insert(wd.streaks, { part = p, a = i / Sk.Count[w] * math.pi * 2 + rand(-0.2, 0.2), r = rand(0.18, 0.46), off = rand(0, 200) })
-		end
-		wd.base = EM.part(bag, Vector3.new(0.4, P.Base[1], P.Base[1]), CFrame.new(g + UP * 0.06) * CFrame.Angles(0, 0, math.pi / 2), P.Color, Enum.Material.Neon, Enum.PartType.Cylinder)
-		wd.base.Transparency = 1
-		if not st.low then
-			wd.light = Instance.new("PointLight")
-			wd.light.Color = P.Color
-			wd.light.Range = P.Light[1]
-			wd.light.Brightness = 0
-			wd.light.Parent = wd.base
-		end
-		-- the sky
-		local S = W.Sky
-		for i = 1, 2 do
-			local p = EM.part(bag, Vector3.new(S.Thick[i], S.Size[i], S.Size[i]), CFrame.new(g + UP * S.Height[i]) * CFrame.Angles(0, 0, math.pi / 2), S.Colors[i], nil, Enum.PartType.Cylinder)
-			p.Transparency = 1
-			wd.sky[i] = p
-		end
-		-- everyone else's screen within Range: the world dark and red
-		if not st.mine then
-			local cam = workspace.CurrentCamera
-			local away = cam and (cam.Focus.Position - st.root.Position).Magnitude or math.huge
-			if away < W.Grade.Range then
-				wd.grade = Instance.new("ColorCorrectionEffect")
-				wd.grade.Name = "FinalFormWorld"
-				wd.grade.Parent = cam
-			end
-		end
-		if st.skip then
-			return wd -- (far off: the column, the sky and the red only)
-		end
-		-- the land: red-hot seams out across the map, each over a black streak
-		local Lv = W.Lava
-		local function seam(a, from, reach, segs, start, parent)
-			local s = { segs = {}, total = 0, start = start or 0, parent = parent }
-			local pos, ang = g + Vector3.new(math.cos(a), 0, math.sin(a)) * from, a
-			local step = (reach - from) / segs
-			for j = 1, segs do
-				ang = math.clamp(ang + math.rad(rand(-Lv.Jag, Lv.Jag)), a - math.rad(40), a + math.rad(40))
-				local len = step * rand(0.8, 1.2)
-				local dir = Vector3.new(math.cos(ang), 0, math.sin(ang))
-				local k = j / segs
-				local width = Lv.Width[2] + (Lv.Width[1] - Lv.Width[2]) * k
-				local hot = Lv.Hot:Lerp(Lv.Color, math.min(k * 1.6, 1))
-				local glow = EM.part(bag, Vector3.new(width, 0.06, len), CFrame.new(pos), hot, Enum.Material.Neon)
-				glow.Transparency = 1
-				local char
-				if not st.low then
-					char = EM.part(bag, Vector3.new(width * Lv.Char, 0.04, len * 1.04), CFrame.new(pos), Lv.Char3)
-					char.Transparency = 1
-				end
-				table.insert(s.segs, { glow = glow, char = char, from = pos, dir = dir, len = len, at = s.total, w = width, color = hot })
-				s.total += len
-				pos += dir * len
-			end
-			table.insert(wd.seams, s)
-			return s
-		end
-		local n = Lv.Count[w]
-		local mains = {}
-		for i = 1, n do
-			table.insert(mains, seam(i / n * math.pi * 2 + rand(-0.15, 0.15), Lv.From, rand(Lv.Reach[1], Lv.Reach[2]), Lv.Segs))
-		end
-		for _ = 1, Lv.Branches[w] do
-			local m = mains[rng:NextInteger(1, #mains)]
-			local j = rng:NextInteger(2, math.max(2, #m.segs - 2))
-			local sg = m.segs[j]
-			local a = math.atan2(sg.dir.Z, sg.dir.X) + math.rad(rand(25, 45)) * (rng:NextNumber() < 0.5 and -1 or 1)
-			local origin = sg.from
-			local b = seam(a, 0, (m.total - sg.at) * rand(0.35, 0.55), math.max(3, math.floor(Lv.Segs / 2)), sg.at, m)
-			-- (re-rooted where it leaves its parent)
-			local shift = origin - g
-			for _, x in b.segs do
-				x.from += shift
-			end
-		end
-		-- the scorch under him, from LEGENDARY
-		wd.scorch = EM.part(bag, Vector3.new(0.06, W.Scorch[1], W.Scorch[1]), CFrame.new(g + UP * 0.016) * CFrame.Angles(0, 0, math.pi / 2), Lv.Char3, nil, Enum.PartType.Cylinder)
-		wd.scorch.Transparency = 1
-		-- the rubble lifting off the street all round him
-		local D = W.Debris
-		for i = 1, D.Count[w] do
-			local sz = rand(D.Size[1], D.Size[2])
-			local a = i / D.Count[w] * math.pi * 2 + rand(-0.3, 0.3)
-			local r = rand(D.Ring[1], D.Ring[2])
-			local p = EM.part(bag, Vector3.new(sz, sz * rand(0.5, 1), sz * rand(0.7, 1.3)), CFrame.new(g - UP * 4), C.Rock:Lerp(Lv.Char3, rand(0, 0.5)), Enum.Material.Slate)
-			p.Transparency = 1
-			table.insert(wd.rocks, {
-				part = p, at = rand(D.Rise[1], D.Rise[2]), top = rand(D.Top[1], D.Top[2]), spin = rng:NextUnitVector() * rand(0.3, 1.2),
-				pos = g + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r), phase = rand(0, math.pi * 2),
-			})
-		end
-		return wd
-	end
-	-- the seams' visible length at t: a share of each one, growing through the
-	-- surge, all of it at LEGENDARY
-	function FF.lavaReach(t)
-		local Lv = CFG.World.Lava
-		if t < Lv.Grow[1] then
-			return 0
-		elseif t < Lv.Burst then
-			return 0.55 * quadOut((t - Lv.Grow[1]) / (Lv.Grow[2] - Lv.Grow[1]))
-		end
-		return 0.55 + 0.45 * quadOut((t - Lv.Burst) / 0.3)
-	end
-	function FF.worldFrame(st, t)
-		local wd = st.world
-		if not wd then
-			return
-		end
-		local W = CFG.World
-		local g = st.g
-		-- the column
-		local P = W.Pillar
-		local on = t >= P.From and t < P.Out
-		if on or wd.pillarOn then
-			wd.pillarOn = on
-			local grow = quadOut((t - P.From) / P.Grow)
-			local out = math.clamp((t - P.Hold) / (P.Out - P.Hold), 0, 1)
-			local breathe = 0.5 + 0.5 * math.cos((t - P.From) / B * math.pi * 2)
-			local d = (P.Width[1] + (P.Width[2] - P.Width[1]) * breathe) * (0.06 + 0.94 * grow) * (1 - out * 0.96)
-			for _, L in wd.layers do
-				L.part.Size = Vector3.new(P.Height, d * L.k, d * L.k)
-				L.part.Transparency = on and (L.tr + (1 - L.tr) * out) or 1
-			end
-			for _, sk in wd.streaks do
-				local y = (t * P.Streaks.Speed + sk.off) % 220
-				local r = sk.r * d
-				FF.put(st, sk.part, CFrame.new(g + Vector3.new(math.cos(sk.a) * r, y, math.sin(sk.a) * r)))
-				sk.part.Transparency = on and (P.Streaks.Transparency + (1 - P.Streaks.Transparency) * out) or 1
-			end
-			wd.base.Transparency = on and (P.Base[2] + (1 - P.Base[2]) * math.max(out, 1 - grow)) or 1
-			if wd.light then
-				wd.light.Brightness = on and P.Light[2] * grow * (1 - out) or 0
-			end
-		end
-		-- the sky
-		local S = W.Sky
-		if t >= S.In[1] and t <= S.Out[2] + 0.1 then
-			local k = math.clamp((t - S.In[1]) / (S.In[2] - S.In[1]), 0, 1)
-			local out = math.clamp((t - S.Out[1]) / (S.Out[2] - S.Out[1]), 0, 1)
-			local turn = CFrame.Angles(0, math.rad(S.Spin * t), 0) * CFrame.Angles(0, 0, math.pi / 2)
-			for i, p in wd.sky do
-				local tr = 1 + (S.Show[i] - 1) * k
-				p.Transparency = tr + (1 - tr) * out
-				FF.put(st, p, CFrame.new(g + UP * S.Height[i]) * (i == 1 and turn or turn:Inverse()))
-			end
-		end
-		-- everyone else's screen: the world red
-		local gr = wd.grade
-		if gr then
-			local cam = workspace.CurrentCamera
-			local away = cam and (cam.Focus.Position - st.root.Position).Magnitude or math.huge
-			local R = W.Grade.Range
-			local f = 1 - math.clamp((away - R / 2) / (R / 2), 0, 1)
-			local a, b, k = FF.keyed(W.Grade.Keys, t)
-			gr.Brightness, gr.Contrast = mix(a[2], b[2], k) * f, mix(a[3], b[3], k) * f
-			gr.Saturation = mix(a[4], b[4], k) * f
-			gr.TintColor = Color3.new(1, 1, 1):Lerp(mix(a[5], b[5], k), f)
-			if cam and gr.Parent ~= cam then
-				pcall(function()
-					gr.Parent = cam
-				end)
-			end
-		end
-		if st.skip then
-			return
-		end
-		-- the seams
-		local Lv = W.Lava
-		local reach = FF.lavaReach(t)
-		local cool = math.clamp((t - Lv.Cool[1]) / (Lv.Cool[2] - Lv.Cool[1]), 0, 1)
-		if reach ~= wd.reach then
-			wd.reach = reach
-			for _, s in wd.seams do
-				local visible
-				if s.parent then
-					local P2 = s.parent.total
-					visible = math.max(reach * P2 - s.start, 0) / math.max(P2 - s.start, 1e-3) * s.total
-				else
-					visible = reach * s.total
-				end
-				for _, x in s.segs do
-					local len = math.clamp(visible - x.at, 0, x.len)
-					local was = x.shown or 0
-					if math.abs(len - was) > 0.01 then
-						x.shown = len
-						if len <= 0.01 then
-							x.glow.Transparency = 1
-							if x.char then
-								x.char.Transparency = 1
-							end
-						else
-							local mid = x.from + x.dir * (len / 2) + UP * 0.085 -- (over the craters' scorches)
-							x.glow.Size = Vector3.new(x.w, 0.06, len)
-							FF.put(st, x.glow, CFrame.lookAt(mid, mid + x.dir))
-							x.glow.Transparency = 0
-							if x.char then
-								x.char.Size = Vector3.new(x.w * Lv.Char, 0.04, len * 1.04)
-								FF.put(st, x.char, CFrame.lookAt(mid - UP * 0.02, mid - UP * 0.02 + x.dir))
-								x.char.Transparency = Lv.CharT
-							end
-						end
-					end
-				end
-			end
-		end
-		-- ...cooling as the power goes out of him (every other frame)
-		if cool > 0 and (cool >= 1 or math.floor(t * 30) % 2 == 0) and cool ~= wd.cool then
-			wd.cool = cool
-			for _, s in wd.seams do
-				for _, x in s.segs do
-					if (x.shown or 0) > 0.01 then
-						x.glow.Color = x.color:Lerp(Lv.Char3, cool * 0.8)
-						x.glow.Transparency = cool
-						if x.char then
-							x.char.Transparency = Lv.CharT + (1 - Lv.CharT) * cool
-						end
-					end
-				end
-			end
-		end
-		-- the scorch under him
-		if wd.scorch then
-			local tr = t < LEGEND and 1 or (W.Scorch[2] + (1 - W.Scorch[2]) * cool)
-			if tr ~= wd.scorchT then
-				wd.scorchT = tr
-				wd.scorch.Transparency = tr
-			end
-		end
-		-- the rubble: up off the street, hanging there, dropped when the sky goes off
-		local D = W.Debris
-		for _, r in wd.rocks do
-			if not r.gone and t >= r.at then
-				local spin = CFrame.Angles(r.spin.X * t, r.spin.Y * t, r.spin.Z * t)
-				if t < D.Drop then
-					local k = quadOut((t - r.at) / D.RiseTime)
-					local y = -1 + (r.top + 1) * k + math.sin(t * 1.6 + r.phase) * D.Bob * k
-					r.y = y
-					FF.put(st, r.part, CFrame.new(r.pos + UP * y) * spin)
-					if not r.up then
-						r.up = true
-						r.part.Transparency = 0
-					end
-				else
-					local dt = t - D.Drop
-					if dt >= D.Fall then
-						r.gone = true
-						pcall(r.part.Destroy, r.part)
-					else
-						FF.put(st, r.part, CFrame.new(r.pos + UP * ((r.y or 0) - 0.5 * 90 * dt * dt)) * spin)
-						r.part.Transparency = dt / D.Fall
-					end
-				end
-			end
-		end
-	end
-
-	---------------------------------------------------------------------------
 	-- the run start to finish
 	---------------------------------------------------------------------------
 	function FF.timeline(st)
@@ -80539,7 +82367,6 @@ end)()
 		st.hum = char:FindFirstChildOfClass("Humanoid")
 		FF.body(st)
 		FF.timeline(st)
-		st.world = FF.world(st) -- ((round 103) the column, the sky, the red - for far-off screens too)
 		if st.skip then
 			return
 		end
@@ -80581,7 +82408,6 @@ end)()
 	function FF.frame(st, t, frac)
 		st.t = t
 		FF.fire(st, t)
-		FF.worldFrame(st, t)
 		if not st.skip then
 			FF.hold(st)
 			local s = (st.dbl and FF.size(t)) or 1
@@ -85312,8 +87138,9 @@ do
 		end
 		local root = charParts(char)
 		if root then
-			VFX.SpeechBubble(char, (Config.Voice.TimeResume or {}).Bubble or "TOKI WA UGOKIDASU...", 1.6)
-			VFX.Voice("TimeResume", root)
+			local line = char:GetAttribute("Quirk") == "StarPlatinum" and "TimeResumeSP" or "TimeResume" -- (round 104: Jotaro's own)
+			VFX.SpeechBubble(char, (Config.Voice[line] or {}).Bubble or "TOKI WA UGOKIDASU...", 1.6)
+			VFX.Voice(line, root)
 			VFX.PlaySound("TimeResume", root.Position, 1)
 			shockDisc(root.Position, UP, 2, 60, 0.4, DV.NEG)
 		end
@@ -85457,7 +87284,7 @@ do
 		end
 		local d = v.Unit
 		local speed = tonumber(data.Speed) or 200
-		local k = TWV.knife(CFrame.lookAt(from, to))
+		local k = (VFX.JS and VFX.JS.knife(CFrame.lookAt(from, to))) or TWV.knife(CFrame.lookAt(from, to)) -- (round 104: the JJBA place's knife)
 		task.spawn(function()
 			local start = from
 			if data.Stopped and DV.stoppedBy(char) then
@@ -85511,7 +87338,7 @@ do
 			local y = ({ 0.4, 1.8, -0.5 })[i % 3 + 1]
 			local p = center + Vector3.new(math.cos(a) * ring, y, math.sin(a) * ring)
 			task.delay(i * 0.012, function()
-				local kn = TWV.knife(CFrame.lookAt(p, center + UP * y * 0.3))
+				local kn = (VFX.JS and VFX.JS.knife(CFrame.lookAt(p, center + UP * y * 0.3))) or TWV.knife(CFrame.lookAt(p, center + UP * y * 0.3))
 				knives[i] = { k = kn, p = p }
 				sparks(p, 0.2, Color3.new(1, 1, 1), DV.GOLD, 2)
 			end)
@@ -96649,6 +98476,11889 @@ end)()
 			MBX.err = err
 		end
 	end)
+end)()
+
+---------------------------------------------------------------------------
+-- (round 102) MOB on every screen (VFX.MOB; Config.Quirks.Mob, Config.Mob):
+-- his power's look - a faint white outline round him while he uses it,
+-- pebbles floating round him when he stands still - his M1s (flicks of two
+-- fingers: a ripple where they land; the 4th lifts them and drops them),
+-- LIFT (held up shaking, slammed down), PSYCHIC BARRIER (the dome, a ripple
+-- where it's hit), DEBRIS STORM (the street torn up, the chunks wheeling
+-- round him glowing, thrown one by one), SPIRIT WAVE (the cone of
+-- pressure), FLOAT (his own machine flies him); ???% (the awakening kit's
+-- VFX.AK.FX.Mob: the counter over his head climbing to 100% and breaking to
+-- ???%, the impact frames in iridescent colours, the iridescent aura, the
+-- world tinted round him on every screen and put back) and ((round 102)
+-- round 2) ???%: SKYSCRAPER (VFX.MOB.B: this screen's own copy of whichever
+-- building he tears out - floated over his shoulder, thrown end-first,
+-- flown home and set back down; the real one only hidden here, and given
+-- back exactly). Round 2 also rebuilt his M1s (MB.punch / MB.onHit) and
+-- every move's look (wind-up, action, hit, fade: MB.gather / distort /
+-- snap / motes).
+-- (In a function of its own: the main chunk is at its local limit.)
+---------------------------------------------------------------------------
+;(function()
+	local MB = { outlines = {}, idle = {}, holds = {}, domes = {}, storms = {}, floats = {}, lifting = {} }
+	VFX.MOB = MB
+	local Q = Config.Quirks.Mob or {}
+	local C = Config.Mob or {}
+	local LightingSvc = game:GetService("Lighting")
+	local PSY = Color3.fromRGB(236, 244, 255) -- (his power: white, a breath of blue)
+	local PSY_BLUE = Color3.fromRGB(150, 205, 255)
+	local DUST = Color3.fromRGB(198, 188, 174)
+	local DUST_DARK = Color3.fromRGB(140, 128, 116)
+	local STONE = Color3.fromRGB(128, 124, 120)
+	local GLASS = Color3.fromRGB(190, 220, 235)
+	local TAU = math.pi * 2
+
+	---------------------------------------------------------------------
+	-- helpers
+	---------------------------------------------------------------------
+	function MB.low()
+		return IceKit.lowEnd()
+	end
+	-- the move as he has it right now (the ult's own numbers while he's in it)
+	function MB.spec(char, id)
+		local ult = char and char:GetAttribute("UltActive") == true and Q.Ult or nil
+		for _, set in { ult and ult.Abilities, ult and { ult.Special, ult.Extra }, Q.Abilities, { Q.Special, Q.Extra }, Q.Ult and Q.Ult.Abilities } do
+			for _, a in set or {} do
+				if type(a) == "table" and a.Id == id then
+					return a
+				end
+			end
+		end
+		return {}
+	end
+	function MB.isMob(char)
+		return char ~= nil and char.Parent ~= nil and char:GetAttribute("Quirk") == "Mob"
+	end
+	function MB.me()
+		local p = Players.LocalPlayer
+		return p and p.Character
+	end
+	function MB.camPos()
+		local cam = workspace.CurrentCamera
+		return cam and cam.CFrame.Position or Vector3.zero
+	end
+	-- what a screen hears of something city-wide: flat, louder the nearer it is
+	function MB.far(name, at, gain)
+		local dist = typeof(at) == "Vector3" and (MB.camPos() - at).Magnitude or 0
+		VFX.PlaySound(name, nil, (gain or 1) * math.clamp(1.3 - dist / 1600, 0.3, 1.3))
+	end
+	function MB.flat(v, root)
+		return flatten(typeof(v) == "Vector3" and v or nil, root)
+	end
+	-- a finite Vector3 (never NaN, never a wild one)
+	function MB.ok(v)
+		return typeof(v) == "Vector3" and v == v and v.Magnitude < 1e6
+	end
+	function MB.lookAlong(at, d)
+		local f = Vector3.new(d.X, 0, d.Z)
+		f = f.Magnitude > 1e-3 and f.Unit or Vector3.new(0, 0, -1)
+		local right = f:Cross(UP)
+		return CFrame.fromMatrix(at, right, right:Cross(f))
+	end
+	-- the screen whose camera is his (his own body, or the one a dev's in)
+	function MB.mine(char)
+		local lp = Players.LocalPlayer
+		return lp ~= nil and typeof(char) == "Instance" and (lp.Character == char or char:GetAttribute("PossessedBy") == lp.UserId)
+	end
+	-- does this machine fly his body? His own, or the machine of a dev in it
+	function MB.drives(char, isLocal)
+		if isLocal then
+			return true
+		end
+		local lp = Players.LocalPlayer
+		return lp ~= nil and typeof(char) == "Instance" and char:GetAttribute("PossessedBy") == lp.UserId
+	end
+	-- knocked out of the air (stunned, thrown, grabbed, frozen, stopped in
+	-- time, a knockback on him, down)
+	function MB.knocked(char, root, hum)
+		for _, a in { "Stunned", "Ragdolled", "Grabbed", "Frozen", "TimeStopped" } do
+			if char:GetAttribute(a) == true then
+				return true
+			end
+		end
+		return root:FindFirstChild("Knockback") ~= nil or (hum ~= nil and hum.Health <= 0)
+	end
+	-- the server's clock (the building's beats are the server's)
+	function MB.now()
+		return workspace:GetServerTimeNow()
+	end
+	-- iridescence: a colour u of the way round Config.Mob.Ult.Colors
+	function MB.hue(u)
+		local cols = (C.Ult or {}).Colors or { PSY }
+		local n = #cols
+		local x = (u % 1) * n
+		local i = math.floor(x)
+		local a, b = cols[i % n + 1], cols[(i + 1) % n + 1]
+		return a:Lerp(b, x - i)
+	end
+	function MB.rainbow()
+		local cols = (C.Ult or {}).Colors or { PSY }
+		local keys = {}
+		for i, c in cols do
+			table.insert(keys, ColorSequenceKeypoint.new((i - 1) / math.max(#cols - 1, 1), c))
+		end
+		if #keys < 2 then
+			return ColorSequence.new(PSY)
+		end
+		return ColorSequence.new(keys)
+	end
+
+	---------------------------------------------------------------------
+	-- procedural fallbacks for every clip (anim/moves_mob.py): what an R15
+	-- body, or a place without the clips, plays
+	---------------------------------------------------------------------
+	POSES.MobBarrier = { RightArm = { 40, 0, 30 }, LeftArm = { 40, 0, 30 }, Neck = { 6, 0, 0 } }
+	POSES.MobFloat = { RightArm = { 8, 0, 18 }, LeftArm = { 8, 0, 18 }, RightLeg = 6, LeftLeg = -4, Neck = { 6, 0, 0 } }
+	POSES.MobHeld = { RightArm = { 30, 0, 40 }, LeftArm = { 30, 0, 40 }, RightLeg = 18, LeftLeg = -12, Waist = { -10, 0, 0 }, Neck = { -18, 0, 0 } }
+	POSES.MobHeld2 = { RightArm = { 38, 0, 34 }, LeftArm = { 24, 0, 44 }, RightLeg = 10, LeftLeg = -20, Waist = { -6, 0, 4 }, Neck = { -12, 0, -6 } }
+	MOTIONS.MobLift = { { pose = { RightArm = { 70, 0, 6 }, Neck = { 4, 0, 0 } }, t = 0.2, hold = 0.95 }, { pose = { RightArm = { 20, 0, 6 } }, t = 0.08, hold = 0.2 }, recover = 0.3 }
+	MOTIONS.MobDebris = { { pose = { RightArm = { 50, 0, 40 }, LeftArm = { 50, 0, 40 } }, t = 0.35, hold = 0.4 }, { pose = { RightArm = { 90, 0, 0 }, LeftArm = { 30, 0, 20 } }, t = 0.08, hold = 0.5 }, recover = 0.3 }
+	MOTIONS.MobWave = { { pose = { RightArm = { 30, 0, 10 }, Waist = { 0, -14, 0 } }, t = 0.2 }, { pose = { RightArm = 92, Waist = { -4, 12, 0 } }, t = 0.08, hold = 0.35 }, recover = 0.3 }
+	-- ((round 102) round 2: ???%: SKYSCRAPER - the hand up (the tear-out), held
+	-- up while he aims, then swept forward and down the line - the throw)
+	MOTIONS.MobSkyscraper = { { pose = { RightArm = { 40, 0, 20 }, Neck = { 8, 0, 0 } }, t = 0.18 }, { pose = { RightArm = { 165, 0, 10 }, Neck = { -14, 0, 0 } }, t = 0.1, hold = 0.35 }, recover = 0.3 }
+	POSES.MobSkyscraperHold = { RightArm = { 160, 0, 12 }, LeftArm = { 8, 0, 10 }, Neck = { -12, 0, 0 } }
+	MOTIONS.MobSkyscraperThrow = { { pose = { RightArm = { 175, 0, -10 }, Waist = { 0, -10, 0 }, Neck = { -14, 0, 0 } }, t = 0.2 }, { pose = { RightArm = { 70, 0, 0 }, Waist = { 0, 10, 0 }, Neck = { 8, 0, 0 } }, t = 0.08, hold = 0.45 }, recover = 0.35 }
+	MOTIONS.MobAwaken = { { pose = { RightArm = { 6, 0, 8 }, LeftArm = { 6, 0, 8 }, Neck = { 10, 0, 0 } }, t = 0.25 }, { pose = { RightArm = { 20, 0, 40 }, LeftArm = { 20, 0, 40 }, Neck = { -8, 0, 0 } }, t = 0.06, hold = 0.9 }, recover = 0.3 }
+	MOTIONS.MobFlick = { { pose = { RightArm = { 85, 0, 0 } }, t = 0.1, hold = 0.12 }, recover = 0.15 }
+	MOTIONS.MobFlickL = { { pose = { LeftArm = { 85, 0, 0 } }, t = 0.1, hold = 0.12 }, recover = 0.15 }
+
+	---------------------------------------------------------------------
+	-- THE OUTLINE: a faint white line round him while he uses his power (not
+	-- in the ult: the aura's rim is his outline then). One Highlight a body,
+	-- the awakening kit's rim stands aside while it's on (AK.lights)
+	---------------------------------------------------------------------
+	function MB.outline(char, hold, color)
+		local O = C.Outline or {}
+		if not (char and char.Parent) or char:GetAttribute("UltActive") == true then
+			return
+		end
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if root and (MB.camPos() - root.Position).Magnitude > (O.Cull or 220) then
+			return
+		end
+		local rec = MB.outlines[char]
+		if not (rec and rec.h.Parent) then
+			local h = Instance.new("Highlight")
+			h.Name = "MobOutline"
+			h.FillTransparency = 1
+			h.OutlineTransparency = 1
+			h.OutlineColor = color or O.Color or PSY
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Adornee = char
+			h.Parent = folder
+			rec = { h = h, token = 0 }
+			MB.outlines[char] = rec
+			if VFX.AK and VFX.AK.lights then
+				VFX.AK.lights[h] = true
+			end
+		end
+		rec.token += 1
+		local token = rec.token
+		rec.h.OutlineColor = color or O.Color or PSY
+		tween(rec.h, O.In or 0.08, { OutlineTransparency = O.Transparency or 0.35 })
+		if VFX.AK and VFX.AK.rimShow then
+			VFX.AK.rimShow(char)
+		end
+		task.delay((O.In or 0.08) + (hold or O.Hold or 0.6), function()
+			if rec.token ~= token or not rec.h.Parent then
+				return
+			end
+			tween(rec.h, O.Out or 0.35, { OutlineTransparency = 1 })
+			task.delay((O.Out or 0.35) + 0.05, function()
+				if rec.token == token and MB.outlines[char] == rec then
+					MB.outlines[char] = nil
+					rec.h:Destroy()
+					if VFX.AK and VFX.AK.rimShow and char.Parent then
+						VFX.AK.rimShow(char)
+					end
+				end
+			end)
+		end)
+	end
+	-- a target held by his power: the same line round them for `time`
+	function MB.grip(model, time)
+		if not (model and model.Parent) then
+			return nil
+		end
+		local h = Instance.new("Highlight")
+		h.Name = "MobGrip"
+		h.FillColor = PSY_BLUE
+		h.FillTransparency = 0.85
+		h.OutlineColor = PSY
+		h.OutlineTransparency = 0.25
+		h.DepthMode = Enum.HighlightDepthMode.Occluded
+		h.Adornee = model
+		h.Parent = folder
+		if VFX.AK and VFX.AK.lights then
+			VFX.AK.lights[h] = true
+		end
+		tween(h, 0.25, { OutlineTransparency = 1, FillTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, math.max(time - 0.25, 0))
+		cleanup(h, time + 0.05)
+		return h
+	end
+	-- a ripple of his power at pos facing d (a thin ring opening, a puff of white)
+	function MB.ripple(pos, d, from, to, life, color)
+		if not MB.ok(pos) then
+			return
+		end
+		local dir = (MB.ok(d) and d.Magnitude > 0.05) and d.Unit or UP
+		billboardRing(pos, from, to, color or PSY, 2, life)
+		shockDisc(pos, dir, from * 0.6, to * 0.9, life, color or PSY)
+	end
+	-- the air bending round something his power holds: a sphere of
+	-- distortion (ForceField) round part, size studs, for time, following it
+	function MB.warp(part, size, time, color)
+		if not (part and part.Parent) or MB.low() then
+			return nil
+		end
+		local w = newPart(Vector3.one * size * 0.6, part.CFrame, color or PSY_BLUE, Enum.Material.ForceField, Enum.PartType.Ball)
+		w.Name = "MobWarp"
+		w.Transparency = 0.15
+		tween(w, 0.18, { Size = Vector3.one * size }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		local t0 = os.clock()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			local t = os.clock() - t0
+			if t > time or not part.Parent then
+				conn:Disconnect()
+				tween(w, 0.2, { Size = Vector3.one * size * 1.3, Transparency = 1 })
+				cleanup(w, 0.25)
+				return
+			end
+			w.CFrame = part.CFrame
+		end)
+		return w
+	end
+	-- a pebble (or a stone) off the street
+	function MB.pebble(size, cf, color)
+		local p = newPart(Vector3.new(size, size * rand(0.6, 0.9), size * rand(0.7, 1)), cf, color or STONE, Enum.Material.Slate)
+		p.Name = "MobPebble"
+		return p
+	end
+
+	---------------------------------------------------------------------
+	-- ((round 102) round 2) HIS POWER'S LAYERS (THE SPEC's section 3: every
+	-- move a wind-up, the action, the hit and the fade): Config.Mob.Fx
+	---------------------------------------------------------------------
+	-- his colour right now: white with a breath of blue, his iridescence at ???%
+	function MB.color(char, u)
+		if char and char:GetAttribute("UltActive") == true then
+			return MB.hue((u or 0) + os.clock() / ((C.Ult or {}).Hue or 2.4))
+		end
+		return PSY
+	end
+	-- THE WIND-UP: his power gathering at a hand for `time` - motes drawn in
+	-- to it from round it, a core of light swelling there, a faint glow on
+	-- the street - following the hand; gone in a pop at the end
+	function MB.gather(char, right, time, color, size)
+		local G = (C.Fx or {}).Gather or {}
+		if not (char and char.Parent) then
+			return
+		end
+		color = color or MB.color(char)
+		size = size or 1
+		local hold = newPart(Vector3.one * 0.2, CFrame.new(handPos(char, right)), color, Enum.Material.Neon, Enum.PartType.Ball)
+		hold.Name = "MobGather"
+		hold.Transparency = 1
+		-- ((round 102 review) the emitter on the part itself, locked to it: an
+		-- emitter's Shape is its parent PART's - under an Attachment it's a
+		-- point, and the motes went up off his hand in a thin jet instead of
+		-- being drawn in to it from round it)
+		local pe = Instance.new("ParticleEmitter")
+		pe.LockedToPart = true
+		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		pe.Color = ColorSequence.new(Color3.new(1, 1, 1), color)
+		pe.LightEmission = 1
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1 * size), NumberSequenceKeypoint.new(0.6, 0.35 * size), NumberSequenceKeypoint.new(1, 0) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.1), NumberSequenceKeypoint.new(1, 0.4) })
+		pe.Lifetime = NumberRange.new(0.22, 0.3)
+		pe.Shape = Enum.ParticleEmitterShape.Sphere
+		pe.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+		pe.ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward
+		pe.Speed = NumberRange.new((G.Pull or 9) * size)
+		pe.Rate = MB.low() and (G.LowRate or 25) or (G.Rate or 70)
+		-- (a ball Reach studs round the hand: the motes start on it and come in)
+		hold.Size = Vector3.one * (G.Reach or 2.6) * 2 * size
+		pe.Parent = hold
+		local core = newPart(Vector3.one * 0.2, hold.CFrame, Color3.new(1, 1, 1), Enum.Material.Neon, Enum.PartType.Ball)
+		core.Name = "MobGather"
+		core.Transparency = 0.3
+		tween(core, time, { Size = Vector3.one * (G.Core or 0.9) * size })
+		local light = Instance.new("PointLight")
+		light.Color = color
+		light.Brightness = 0
+		light.Range = (G.Light or 9) * size
+		light.Shadows = false
+		light.Parent = core
+		tween(light, time, { Brightness = 2.5 })
+		local t0 = os.clock()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			if os.clock() - t0 > time or not char.Parent then
+				conn:Disconnect()
+				pe.Enabled = false
+				tween(core, 0.12, { Size = Vector3.one * (G.Core or 0.9) * size * 2.4, Transparency = 1 })
+				tween(light, 0.15, { Brightness = 0 })
+				cleanup(core, 0.16)
+				cleanup(hold, 0.4)
+				return
+			end
+			local h = CFrame.new(handPos(char, right))
+			hold.CFrame = h
+			core.CFrame = h
+		end)
+	end
+	-- THE AIR BENDING: a sphere of shimmer (ForceField) from `from` to `to`
+	-- studs across over `life`, at pos (a still burst of distortion)
+	function MB.distort(pos, from, to, life, color)
+		if not MB.ok(pos) or MB.low() then
+			return nil
+		end
+		local w = newPart(Vector3.one * from, CFrame.new(pos), color or PSY_BLUE, Enum.Material.ForceField, Enum.PartType.Ball)
+		w.Name = "MobWarp"
+		w.Transparency = 0.05
+		tween(w, life, { Size = Vector3.one * to, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		cleanup(w, life + 0.05)
+		return w
+	end
+	-- THE FADE: his motes lingering - specks of light drifting up and out
+	-- of where it happened, over `life` seconds
+	function MB.motes(pos, radius, count, color, life)
+		if not MB.ok(pos) then
+			return
+		end
+		local holder = newPart(Vector3.new(radius * 1.4, math.max(radius * 0.5, 1), radius * 1.4), CFrame.new(pos), Color3.new(), nil, nil)
+		holder.Name = "MobMotes"
+		holder.Transparency = 1
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		pe.Color = ColorSequence.new(Color3.new(1, 1, 1), color or PSY)
+		pe.LightEmission = 1
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(0.5, 0.45), NumberSequenceKeypoint.new(1, 0) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+		pe.Lifetime = NumberRange.new(life * 0.6, life)
+		pe.Speed = NumberRange.new(0.5, 2.5)
+		pe.SpreadAngle = Vector2.new(180, 180)
+		pe.Acceleration = Vector3.new(0, 2.5, 0)
+		pe.Drag = 1
+		pe.Shape = Enum.ParticleEmitterShape.Box
+		pe.Enabled = false
+		pe.Parent = holder
+		pe:Emit(MB.low() and math.ceil(count / 3) or count)
+		cleanup(holder, life + 0.2)
+	end
+	-- THE HIT's crack of light: a star of white and his colour where it
+	-- lands, a flash core and a ring snapping out round it (normal: its plane)
+	function MB.snap(pos, normal, size, color)
+		if not MB.ok(pos) then
+			return
+		end
+		color = color or PSY
+		local core = newPart(Vector3.one * 0.4, CFrame.new(pos), Color3.new(1, 1, 1), Enum.Material.Neon, Enum.PartType.Ball)
+		core.Name = "MobSnap"
+		core.Transparency = 0.05
+		tween(core, 0.06, { Size = Vector3.one * size })
+		tween(core, 0.14, { Size = Vector3.one * size * 1.3, Transparency = 1 }, nil, nil, 0.06)
+		cleanup(core, 0.22)
+		local n = MB.ok(normal) and normal.Magnitude > 0.05 and normal.Unit or UP
+		MB.ripple(pos, n, size * 0.3, size * 2.2, 0.22, color)
+		sparks(pos, 0.25 * size, Color3.new(1, 1, 1), color, MB.low() and 3 or 8)
+	end
+
+	---------------------------------------------------------------------
+	-- HIS IDLE: pebbles off the street floating round him while he stands
+	-- still (and always at ???%, more of them, bigger); every Mob on the
+	-- screen within Cull of the camera, one loop for all of them
+	---------------------------------------------------------------------
+	function MB.idleStep(dt, now)
+		local I = C.Idle or {}
+		local cam = MB.camPos()
+		-- (who's Mob: looked for every half a second)
+		if now - (MB.scanAt or -1) > 0.5 then
+			MB.scanAt = now
+			local list = {}
+			for _, plr in Players:GetPlayers() do
+				if MB.isMob(plr.Character) then
+					table.insert(list, plr.Character)
+				end
+			end
+			local dummies = workspace:FindFirstChild("Dummies")
+			for _, m in dummies and dummies:GetChildren() or {} do
+				if MB.isMob(m) then
+					table.insert(list, m)
+				end
+			end
+			MB.mobs = list
+			-- ((round 102) round 2: his landed M1s drawn his way - MB.onHit)
+			for _, c in list do
+				MB.hookOn(c)
+			end
+			-- ((round 102 review) a body that's not Mob any more - gone, or
+			-- another hero now (the same body) - lets go of his hook)
+			for c, fn in MB.hooks do
+				if not MB.isMob(c) then
+					MB.hooks[c] = nil
+					if VFX.HitHooks and VFX.HitHooks[c] == fn then
+						VFX.HitHooks[c] = nil
+					end
+				end
+			end
+		end
+		local seen = {}
+		for _, char in MB.mobs or {} do
+			local root = char.Parent and char:FindFirstChild("HumanoidRootPart")
+			if root and (root.Position - cam).Magnitude <= (I.Cull or 120) then
+				seen[char] = true
+				MB.idleOne(char, root, dt, now, I)
+			end
+		end
+		for char, st in MB.idle do
+			if not seen[char] then
+				MB.idleDrop(st, true)
+				MB.idle[char] = nil
+			end
+		end
+	end
+	function MB.idleDrop(st, gone)
+		for _, pb in st.pebbles do
+			if pb.part.Parent then
+				if gone then
+					pb.part:Destroy()
+				else
+					local p = pb.part
+					local g = groundPoint(p.Position)
+					tween(p, 0.35, { CFrame = CFrame.new(g + UP * p.Size.Y * 0.4) * p.CFrame.Rotation, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+					cleanup(p, 0.4)
+				end
+			end
+		end
+		table.clear(st.pebbles)
+	end
+	function MB.idleOne(char, root, dt, now, I)
+		local st = MB.idle[char]
+		if not st then
+			st = { pebbles = {}, still = 0, phase = rng:NextNumber(0, TAU) }
+			MB.idle[char] = st
+		end
+		local ult = char:GetAttribute("UltActive") == true
+		local v = root.AssemblyLinearVelocity
+		local moving = v == v and Vector3.new(v.X, 0, v.Z).Magnitude > 1.5
+		st.still = moving and 0 or st.still + dt
+		local want = 0
+		if ult then
+			want = (I.Pebbles or 5) + 3
+		elseif st.still >= (I.Still or 0.8) and not char:GetAttribute("Ragdolled") then
+			want = I.Pebbles or 5
+		end
+		if MB.low() then
+			want = math.min(want, I.LowPebbles or 2)
+		end
+		if want == 0 then
+			if #st.pebbles > 0 then
+				MB.idleDrop(st, false)
+			end
+			return
+		end
+		local feet = root.Position - UP * 3
+		while #st.pebbles < want do
+			local i = #st.pebbles + 1
+			local size = rand((I.Size or { 0.22, 0.5 })[1], (I.Size or { 0.22, 0.5 })[2]) * (ult and 2.2 or 1)
+			local cols = I.Colors or { STONE }
+			local g = groundPoint(feet + Vector3.new(rand(-2, 2), 2, rand(-2, 2)))
+			local p = MB.pebble(size, CFrame.new(g), cols[(i - 1) % #cols + 1])
+			table.insert(st.pebbles, {
+				part = p, born = now, a = (i - 1) / want * TAU + rand(-0.3, 0.3),
+				r = rand((I.Radius or { 1.6, 2.8 })[1], (I.Radius or { 1.6, 2.8 })[2]) * (ult and 1.6 or 1),
+				h = rand((I.Height or { 0.5, 3.2 })[1], (I.Height or { 0.5, 3.2 })[2]) * (ult and 1.5 or 1), ph = rng:NextNumber(0, TAU),
+				spin = Vector3.new(rand(-1, 1), rand(-1, 1), rand(-1, 1)),
+			})
+		end
+		while #st.pebbles > want do
+			local pb = table.remove(st.pebbles)
+			pb.part:Destroy()
+		end
+		local orbit = (I.Orbit or 0.25) * (ult and 2.4 or 1)
+		local parts, cfs = {}, {}
+		for _, pb in st.pebbles do
+			local up = math.clamp((now - pb.born) / (I.Rise or 1.2), 0, 1)
+			local a = pb.a + now * orbit
+			local at = feet + Vector3.new(math.cos(a) * pb.r, 0, math.sin(a) * pb.r)
+				+ UP * (pb.h * (1 - (1 - up) ^ 2) + math.sin(now * (I.Rate or 0.35) * TAU + pb.ph) * (I.Bob or 0.3))
+			table.insert(parts, pb.part)
+			table.insert(cfs, CFrame.new(at) * CFrame.Angles(pb.spin.X * now, pb.spin.Y * now, pb.spin.Z * now))
+		end
+		for i, p in parts do
+			p.CFrame = cfs[i]
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE M1s: flicks of two fingers - no fist, no punch: the hand snaps out
+	-- and the air where it points shoves them; the 4th lifts them and drops
+	-- them (the server's MobM1Lift).
+	-- ((round 102) round 2 - the owner: "making his m1's ... way better".
+	-- Every swing: the whoosh (the set's Cue), a flash on his fingertips and a
+	-- faint push of air off them - a whiff is only that. A LANDED hit
+	-- (VFX.HitHooks - his own, MB.onHit: on every screen, the moment it
+	-- lands): a white psychic ripple opening at the contact with the air
+	-- bending round it, a crack of light, its own shape for each hit (1 a
+	-- straight poke through them, 2 a sideways sweep, 3 the air thrown up
+	-- under them, the 4th the lift; the launcher a column, the downslam
+	-- driven down), the pebbles and dust kicked off the street by the shove,
+	-- a longer hitstop and the camera kicked by how hard (Config.Mob.M1.Kinds);
+	-- the dull thump and the snap are his HitSounds. The 4th: outlined white,
+	-- lifted in a column of his power, held trembling, dropped - a ring of
+	-- dust, the street cracked, a heavy landing)
+	---------------------------------------------------------------------
+	do
+		local function entry(motion, fallback, limbName, swing, contact)
+			return { Motion = motion, Fallback = fallback, Limb = limbName, Swing = swing, Contact = contact, Smear = false, OwnFx = true, Cue = "MobFlick" }
+		end
+		M1_SETS.Mob = {
+			entry("MobM1_1", "MobFlick", "RightHand", "Straight", 0.12),
+			entry("MobM1_2", "MobFlickL", "LeftHand", "Straight", 0.125),
+			entry("MobM1_3", "MobFlick", "RightHand", "Rise", 0.13),
+			entry("MobM1_4", "MobFlick", "RightHand", "Rise", 0.18),
+		}
+		VFX.M1Variants.Up.Mob = entry("MobM1Up", "MobFlick", "RightHand", "Rise", 0.16)
+		VFX.M1Variants.Down.Mob = entry("MobM1Down", "MobFlick", "RightHand", "Drop", 0.17)
+		M1_TRAIL.Mob = PSY_BLUE
+	end
+	-- a flash of his power on his fingertips (right / left hand)
+	function MB.tip(char, right, size, color)
+		local at = handPos(char, right)
+		if not MB.ok(at) then
+			return
+		end
+		local f = newPart(Vector3.one * 0.3, CFrame.new(at), color or PSY, Enum.Material.Neon, Enum.PartType.Ball)
+		f.Name = "MobTip"
+		f.Transparency = 0.1
+		tween(f, 0.1, { Size = Vector3.one * (size or 1.2), Transparency = 1 })
+		cleanup(f, 0.12)
+		return at
+	end
+	-- (Effects.Punch, at the contact - EVERY swing, a whiff too) his
+	-- fingertips flash, a faint push of air goes off them down his line
+	function MB.punch(char, count, finisher, fist, look, hit, variant)
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root or not MB.ok(fist) then
+			return
+		end
+		MB.hookOn(char)
+		local W = (C.M1 or {}).Whiff or {}
+		local right = not (hit and hit.Limb == "LeftHand")
+		local color = MB.color(char)
+		local tip = MB.tip(char, right, finisher and 1.8 or 1.2, color) or (root.Position + look * 2)
+		local d = look
+		if variant == "Up" or (count == 3 and not finisher) then
+			d = (look + UP * 1.4).Unit
+		elseif variant == "Down" then
+			d = (look * 0.4 - UP).Unit
+		end
+		local at = tip + d * (W.Ahead or 2.2)
+		billboardRing(at, 0.4, (W.Ring or 3) * (finisher and 1.4 or 1), color, 1.5, 0.16)
+		streaks(tip, d, finisher and 3 or 2, 0.25, 1.6, W.Reach or 6, color, 0.16)
+		local pop = newPart(Vector3.one * 0.5, CFrame.new(at), PSY, Enum.Material.Neon, Enum.PartType.Ball)
+		pop.Name = "MobFlickPop"
+		pop.Transparency = 0.6
+		tween(pop, 0.12, { Size = Vector3.one * (finisher and 2.2 or 1.4), Transparency = 1 })
+		cleanup(pop, 0.14)
+		if finisher then
+			MB.outline(char, 0.45)
+		end
+	end
+	-- the pebbles and dust a shove kicks off the street under them, along d
+	function MB.kick(at, d, n, scale)
+		local g = groundPoint(at)
+		if (at - g).Magnitude > 4.5 then
+			return
+		end
+		dustPuffs(g + d * 0.6, 0.45 * (scale or 1), MB.low() and 1 or 2, DUST, 0.5, false)
+		for _ = 1, MB.low() and math.ceil(n / 2) or n do
+			local pb = MB.pebble(rand(0.18, 0.4) * (scale or 1), CFrame.new(g + UP * 0.3 + Vector3.new(rand(-0.6, 0.6), 0, rand(-0.6, 0.6))), rng:NextNumber() < 0.5 and STONE or DUST_DARK)
+			local goal = g + d * rand(2.5, 6) * (scale or 1) + UP * rand(0.8, 2.2) + d:Cross(UP) * rand(-1.5, 1.5)
+			tween(pb, 0.32, { CFrame = CFrame.new(goal) * CFrame.Angles(rand(0, 6), rand(0, 6), 0) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			tween(pb, 0.25, { CFrame = CFrame.new(goal + d * 1.2 - UP * 2) , Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.32)
+			cleanup(pb, 0.6)
+		end
+	end
+	-- A LANDED M1 (VFX.HitHooks: every screen, the moment it lands; a hit of
+	-- his that isn't an M1 goes on to the generic strike). True: drawn here
+	function MB.onHit(char, target, data)
+		-- ((round 102 review) only while he's Mob: a hero switch keeps the
+		-- same body, and his hook used to draw the next hero's M1s as his)
+		if type(data) ~= "table" or data.M1 == nil or not MB.isMob(char) then
+			return false
+		end
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (troot and root and MB.ok(troot.Position)) then
+			return false
+		end
+		local kind = data.M1
+		local K = ((C.M1 or {}).Kinds or {})[tostring(kind)] or {}
+		local s = K.Size or 1
+		local v = troot.Position - root.Position
+		local along = Vector3.new(v.X, 0, v.Z)
+		along = along.Magnitude > 0.3 and along.Unit or MB.flat(root.CFrame.LookVector, root)
+		local at = troot.Position - along * 0.8 + UP * 0.4
+		local color = MB.color(char)
+		local low = MB.low()
+		-- the ripple: a white flash where it lands (a filled disc snapping
+		-- shut), his power opening round it in a crisp ring and a second
+		-- after it, the air bending round it
+		billboardRing(at, 4.5 * s, 1, Color3.new(1, 1, 1), 1, 0.09, true)
+		MB.distort(at, 1.2 * s, 7 * s, 0.26, PSY_BLUE)
+		billboardRing(at, 1 * s, 8 * s, Color3.new(1, 1, 1), 7, 0.2)
+		task.delay(0.04, function()
+			billboardRing(at, 1 * s, 10 * s, color, 4, 0.26)
+		end)
+		MB.snap(at, along, 2.2 * s, color)
+		MB.tip(char, kind ~= 2, 1.6 * s, color)
+		-- its own shape
+		if kind == 2 then
+			-- the sweep: a crescent of air across the contact, right to left
+			local side = along:Cross(UP)
+			local cf = CFrame.lookAt(at, at + side)
+			moonArc(cf, 4 * s, color, 160)
+			streaks(at, -side, low and 2 or 4, 0.5, 2.5, 7, PSY, 0.2)
+		elseif kind == 3 or kind == "Up" then
+			-- thrown up: rings stacked up under them, the air streaking up
+			for i = 0, (kind == "Up" and 3 or 2) do
+				task.delay(i * 0.035, function()
+					shockDisc(at - UP * 1.5 + UP * i * 1.6, UP, 1.5 * s, (5 + i * 1.5) * s, 0.24, color)
+				end)
+			end
+			streaks(at - UP, UP, low and 3 or 6, 0.8, 3, kind == "Up" and 16 or 9, PSY, 0.25)
+		elseif kind == "Down" then
+			shockDisc(at, -UP, 1.5 * s, 9 * s, 0.24, color)
+			streaks(at + UP, -UP, low and 3 or 6, 0.8, 3, 8, PSY, 0.2)
+		else
+			-- the poke (and the 4th's push): straight through them
+			shockDisc(at, along, 1 * s, 6 * s, 0.2, color, 1.5)
+			streaks(at - along * 0.5, along, low and 2 or 4, 0.35, 3, 9 * s, PSY, 0.18)
+		end
+		-- the shove kicks the street
+		MB.kick(troot.Position - UP * 2.6, along, K.Pebbles or 3, s)
+		-- the weight of it: a longer freeze, the camera kicked by how hard
+		local stop = K.Stop or 0.06
+		VFX.Hitstop(target, stop)
+		VFX.Hitstop(char, stop)
+		local me = MB.me()
+		if me and (me == char or me == target) then
+			VFX.Shake(K.Shake or 0.5, stop + 0.12)
+			if K.Frame then
+				VFX.ImpactFrame(K.Frame)
+			end
+		end
+		return true
+	end
+	-- (the hook on every Mob this screen sees - MB.idleStep looks them up)
+	MB.hooks = {}
+	function MB.hookOn(char)
+		local H = VFX.HitHooks
+		if not H or H[char] ~= nil then
+			return -- (ours already - or someone else's on this body for now: not taken over)
+		end
+		local fn = MB.hooks[char] or function(target, data)
+			return MB.onHit(char, target, data)
+		end
+		MB.hooks[char] = fn
+		VFX.HitHooks[char] = fn
+	end
+	-- (server) THE 4TH: outlined white, lifted in a column of his power, held
+	-- trembling, dropped - and the landing (when they reach the street)
+	function Effects.MobM1Lift(char, data)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		if not troot then
+			return
+		end
+		local M = C.M1 or {}
+		local rise, hang = tonumber(data.Rise) or M.Rise or 0.28, tonumber(data.Hang) or M.Hang or 0.22
+		local color = MB.color(char)
+		local low = MB.low()
+		MB.grip(target, rise + hang + 0.2)
+		MB.warp(troot, 6, rise + hang)
+		VFX.PlaySound("MobLiftUp", troot.Position, 0.6)
+		local g = groundPoint(troot.Position)
+		-- the column: rings rising off the street with them, the dust and the
+		-- pebbles torn up after them
+		for i = 0, low and 1 or 3 do
+			task.delay(i * 0.06, function()
+				shockDisc(g + UP * (0.3 + i * 1.8), UP, 2, 7 - i * 0.8, 0.3, color)
+			end)
+		end
+		dustPuffs(g, 0.6, low and 2 or 4, DUST, 0.6, false)
+		local stones = {}
+		for i = 1, low and 2 or 5 do
+			local a = i / 5 * TAU
+			local pb = MB.pebble(rand(0.2, 0.45), CFrame.new(g + Vector3.new(math.cos(a), 0.2, math.sin(a)) * 1.6), STONE)
+			tween(pb, rise + 0.1, { CFrame = CFrame.new(g + Vector3.new(math.cos(a) * 1.8, rand(2.5, 5), math.sin(a) * 1.8)) * CFrame.Angles(rand(0, 6), rand(0, 6), 0) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			table.insert(stones, pb)
+		end
+		-- held trembling
+		task.spawn(function()
+			local t0 = os.clock()
+			local flip = false
+			while os.clock() - t0 < rise + hang and target.Parent do
+				flip = not flip
+				VFX.Pose(target, flip and "MobHeld" or "MobHeld2", 0.1)
+				task.wait(0.06)
+			end
+		end)
+		if char then
+			MB.outline(char, rise + hang)
+		end
+		-- dropped: the stones fall with them, and THE LANDING when they reach
+		-- the street (not a fixed beat: wherever they come down)
+		task.delay(rise + hang, function()
+			for _, pb in stones do
+				if pb.Parent then
+					tween(pb, 0.25, { CFrame = pb.CFrame - UP * 5, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+					cleanup(pb, 0.3)
+				end
+			end
+			local t0 = os.clock()
+			while os.clock() - t0 < (M.LandWait or 0.8) and troot.Parent do
+				local hit = groundRay(troot.Position, 12)
+				if hit and troot.Position.Y - hit.Position.Y <= (M.LandAt or 3.6) and os.clock() - t0 > 0.04 then
+					break
+				end
+				task.wait()
+			end
+			if not troot.Parent then
+				return
+			end
+			local at = groundPoint(troot.Position)
+			VFX.PlaySound("MobM1Slam", at, 1)
+			VFX.PlaySound("MobLiftSlam", at, 0.45)
+			shockDisc(at + UP * 0.3, UP, 2, 13, 0.3, color)
+			billboardRing(at + UP, 2, 11, DUST, 6, 0.3)
+			local n = low and 4 or 9
+			for i = 1, n do
+				local a = i / n * TAU
+				dustPuffs(at + Vector3.new(math.cos(a), 0, math.sin(a)) * 2.4, 0.7, 1, DUST, 0.7, false)
+			end
+			groundMark(at, 2.6, Color3.fromRGB(46, 42, 40), 4)
+			local AK = VFX.AK
+			if AK and AK.crack then
+				for i = 1, low and 2 or 5 do
+					local a = i / 5 * TAU + rand(-0.3, 0.3)
+					pcall(AK.crack, at + Vector3.new(math.cos(a), 0, math.sin(a)) * 1.2, Vector3.new(math.cos(a), 0, math.sin(a)), rand(4, 8), 0)
+				end
+			end
+			rocks(at + UP, 0.6, low and 2 or 5)
+			VFX.ShakeAt(at, 1.6, 60, 0.28)
+			local me = MB.me()
+			if me and (me == char or me == target) then
+				VFX.ImpactFrame(0.04)
+			end
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- 1: LIFT ((round 102) round 2, every move's look reworked - THE SPEC's
+	-- section 3: the wind-up (his power gathering at his fingertips), the
+	-- action (a thread of his power from his hand to them, outlined white
+	-- and trembling in a bending of the air, a column of rings lifting them,
+	-- the street's grit torn up and hanging round them), the hit (the slam:
+	-- a flash, the ring of air, the street cracked, dust, rubble), the fade
+	-- (his motes drifting off it). ???% LIFT: his iridescence, bigger)
+	---------------------------------------------------------------------
+	function Effects.PsychicLift(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = MB.spec(char, "PsychicLift")
+		local d = MB.flat(data.Dir, root)
+		if isLocal then
+			face(root, d)
+		end
+		local startup = spec.Startup or 0.2
+		local total = startup + (spec.Rise or 0.35) + (spec.HoldTime or 0.65)
+		local big = char:GetAttribute("UltActive") == true and 1.4 or 1
+		VFX.Motion(char, "MobLift")
+		VFX.PlaySound("MobGather", root.Position, 0.9)
+		VFX.PlaySound("MobPsychic", root.Position, 0.8)
+		MB.outline(char, total)
+		MB.gather(char, true, startup, MB.color(char), big)
+		MB.handPulse(char, root, startup, d, 5 * big)
+		MB.handPulse(char, root, total, -UP, 6 * big, true)
+	end
+	-- a thread of his power from his hand to them (a Beam, flickering) for time
+	function MB.tether(char, target, time, color)
+		local hand = limb(char, "RightHand", "Right Arm")
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		if not (hand and troot) or MB.low() then
+			return
+		end
+		local a0 = Instance.new("Attachment")
+		a0.Name = "MobTether"
+		a0.Position = Vector3.new(0, -hand.Size.Y / 2, 0)
+		a0.Parent = hand
+		local a1 = Instance.new("Attachment")
+		a1.Name = "MobTether"
+		a1.Parent = troot
+		local beam = Instance.new("Beam")
+		beam.Name = "MobTether"
+		beam.Attachment0 = a0
+		beam.Attachment1 = a1
+		beam.Color = ColorSequence.new(Color3.new(1, 1, 1), color or PSY)
+		beam.LightEmission = 1
+		beam.LightInfluence = 0
+		beam.FaceCamera = true
+		beam.Segments = 12
+		beam.Width0 = 0.35
+		beam.Width1 = 0.9
+		beam.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(0.5, 0.6), NumberSequenceKeypoint.new(1, 0.3) })
+		beam.Parent = hand
+		local t0 = os.clock()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			local t = os.clock() - t0
+			if t > time or not (hand.Parent and troot.Parent) then
+				conn:Disconnect()
+				for _, x in { beam, a0, a1 } do
+					pcall(x.Destroy, x)
+				end
+				return
+			end
+			-- (it wavers: the weight on the end of it)
+			beam.CurveSize0 = math.sin(t * 31) * 0.8
+			beam.CurveSize1 = math.cos(t * 23) * 0.8
+			beam.Width1 = 0.7 + math.abs(math.sin(t * 17)) * 0.5
+		end)
+	end
+	-- the column of his power lifting someone: rings rising off the street
+	function MB.column(g, n, size, color, life)
+		for i = 0, (MB.low() and math.min(n, 2) or n) - 1 do
+			task.delay(i * 0.06, function()
+				shockDisc(g + UP * (0.3 + i * 1.8), UP, 2 * size, (8 - i * 0.9) * size, life or 0.32, color)
+			end)
+		end
+	end
+	-- (server) whoever it caught: lifted, held shaking, then the slam (PsychicLiftSlam)
+	function Effects.PsychicLiftHold(char, data)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not troot then
+			-- nobody there: a ripple in the empty air where he pointed
+			if root then
+				local d = MB.flat(data.Dir, root)
+				MB.ripple(root.Position + d * 8 + UP, d, 1, 6, 0.3, MB.color(char))
+				MB.motes(root.Position + d * 8 + UP, 2, 6, PSY, 0.8)
+			end
+			return
+		end
+		local rise, hold = tonumber(data.Rise) or 0.35, tonumber(data.Hold) or 0.65
+		local total = rise + hold
+		local ult = char and char:GetAttribute("UltActive") == true
+		local big = ult and 1.35 or 1
+		local color = MB.color(char)
+		MB.grip(target, total + 0.2)
+		MB.warp(troot, 8 * big, total)
+		if char then
+			MB.tether(char, target, total, color)
+		end
+		VFX.PlaySound("MobLiftUp", troot.Position, 1)
+		task.delay(rise, function()
+			if troot.Parent then
+				VFX.PlaySound("MobLiftHold", troot.Position, 1)
+			end
+		end)
+		-- the street under them: the column of rings, dust lifting with them
+		local g = groundPoint(troot.Position)
+		MB.column(g, 4, big, color, 0.4)
+		MB.ripple(g + UP * 0.3, UP, 2, 10 * big, 0.4, color)
+		dustPuffs(g, 0.7 * big, MB.low() and 2 or 4, DUST, 0.8, false)
+		-- the grit torn up with them, hanging round them while they're held,
+		-- and the tremble (two held poses traded quickly), grit falling off them
+		local stones = {}
+		for i = 1, MB.low() and 3 or 7 do
+			local a = i / 7 * TAU
+			local pb = MB.pebble(rand(0.25, 0.6) * big, CFrame.new(g + Vector3.new(math.cos(a), 0.2, math.sin(a)) * 2), STONE)
+			table.insert(stones, { p = pb, a = a, r = rand(1.8, 3) * big, h = rand(-2.5, 1.5), spin = rand(1, 3) })
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			local flip = false
+			local last = 0
+			while os.clock() - t0 < total and target.Parent and troot.Parent do
+				local t = os.clock() - t0
+				if t - last >= 0.05 then
+					last = t
+					flip = not flip
+					VFX.Pose(target, flip and "MobHeld" or "MobHeld2", 0.12)
+					if t > rise and rng:NextNumber() < 0.5 then
+						local p = MB.pebble(rand(0.2, 0.4), CFrame.new(troot.Position + Vector3.new(rand(-1, 1), -2, rand(-1, 1))), DUST_DARK)
+						tween(p, 0.5, { CFrame = p.CFrame - UP * 6, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+						cleanup(p, 0.55)
+					end
+				end
+				local up = math.clamp(t / math.max(rise, 0.05), 0, 1)
+				for _, st in stones do
+					if st.p.Parent then
+						local a = st.a + t * st.spin
+						local at = troot.Position + Vector3.new(math.cos(a) * st.r, st.h, math.sin(a) * st.r)
+						st.p.CFrame = CFrame.new(g:Lerp(at, up) + Vector3.new(rand(-0.05, 0.05), rand(-0.05, 0.05), 0)) * CFrame.Angles(t * st.spin, t, 0)
+					end
+				end
+				task.wait()
+			end
+			for _, st in stones do
+				if st.p.Parent then
+					tween(st.p, 0.3, { CFrame = st.p.CFrame - UP * 6, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+					cleanup(st.p, 0.35)
+				end
+			end
+		end)
+	end
+	function Effects.PsychicLiftSlam(char, data)
+		local pos = MB.ok(data.Pos) and data.Pos or nil
+		if not pos then
+			return
+		end
+		local ult = char and char:GetAttribute("UltActive") == true
+		local big = ult and 1.4 or 1
+		local color = MB.color(char)
+		local low = MB.low()
+		VFX.PlaySound("MobLiftSlam", pos, ult and 1.2 or 1)
+		local flash = newPart(Vector3.one * 2, CFrame.new(pos + UP * 1.5), Color3.new(1, 1, 1), Enum.Material.Neon, Enum.PartType.Ball)
+		flash.Name = "MobFlash"
+		flash.Transparency = 0.1
+		tween(flash, 0.18, { Size = Vector3.one * 10 * big, Transparency = 1 })
+		cleanup(flash, 0.2)
+		shockDisc(pos + UP * 0.3, UP, 2, 20 * big, 0.35, color)
+		shockDisc(pos + UP * 0.2, UP, 2, 14 * big, 0.6, DUST)
+		billboardRing(pos + UP, 2, 17 * big, color, 6, 0.25)
+		-- (???%: the ring of his power off the slam - as far as its RingRadius)
+		local ring = tonumber(data.Ring)
+		if ring then
+			task.delay(0.05, function()
+				shockDisc(pos + UP * 0.6, UP, 4, ring * 2.2, 0.45, color)
+				billboardRing(pos + UP * 2, 4, ring * 2, MB.hue(os.clock() * 0.3 + 0.4), 5, 0.4)
+			end)
+		end
+		local n = low and 4 or 9
+		for i = 1, n do
+			local a = i / n * TAU
+			dustPuffs(pos + Vector3.new(math.cos(a), 0, math.sin(a)) * 2.5 * big, 0.8 * big, 1, DUST, 0.9, false)
+		end
+		groundMark(pos, 3.5 * big, Color3.fromRGB(46, 42, 40), 5)
+		local AK = VFX.AK
+		if AK and AK.crack then
+			for i = 1, low and 3 or 6 do
+				local a = i / 6 * TAU + rand(-0.3, 0.3)
+				pcall(AK.crack, pos + Vector3.new(math.cos(a), 0, math.sin(a)) * 1.5, Vector3.new(math.cos(a), 0, math.sin(a)), rand(5, 10) * big, 0)
+			end
+		end
+		rocks(pos + UP * 2, big, low and 3 or 7)
+		MB.motes(pos + UP * 2, 4 * big, 10, color, 1.4)
+		VFX.ShakeAt(pos, 2.4 * big, 80, 0.35)
+		local me = MB.me()
+		if me == char or (typeof(data.Target) == "Instance" and me == data.Target) then
+			VFX.ImpactFrame(0.06)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- 2: PSYCHIC BARRIER - the dome round him; a ripple where it's hit.
+	-- ((round 102) round 2: his hands out, his power gathering in both; the
+	-- dome comes up with a snap of air (the shimmer, its glass shell, a ring
+	-- of light on the street at its edge, his motes drifting inside it, a
+	-- slow pulse over it); a hit on it ripples the shell where it lands - a
+	-- crack of light, spokes of it across the dome, sparks thrown off; down,
+	-- it pops outward and his motes are left. ???%: iridescent)
+	---------------------------------------------------------------------
+	function Effects.PsychicBarrier(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = MB.spec(char, "PsychicBarrier")
+		local time, r = spec.Time or 2.4, spec.Radius or 8.5
+		local old = MB.domes[char]
+		if old then
+			old.stop(true)
+		end
+		local startup = spec.Startup or 0.12
+		VFX.Pose(char, "MobBarrier", startup + time)
+		VFX.PlaySound("MobBarrierUp", root.Position, 1)
+		MB.outline(char, time)
+		local ult = char:GetAttribute("UltActive") == true
+		MB.gather(char, true, startup, MB.color(char), 0.8)
+		MB.gather(char, false, startup, MB.color(char), 0.8)
+		local dome = newPart(Vector3.one * 2, CFrame.new(root.Position), ult and MB.hue(0) or PSY_BLUE, Enum.Material.ForceField, Enum.PartType.Ball)
+		dome.Name = "MobBarrier"
+		dome.Transparency = 0.2
+		local shell = newPart(Vector3.one * 2, CFrame.new(root.Position), PSY, Enum.Material.Glass, Enum.PartType.Ball)
+		shell.Name = "MobBarrier"
+		shell.Transparency = 1
+		tween(dome, 0.18, { Size = Vector3.one * r * 2 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		tween(shell, 0.18, { Size = Vector3.one * (r * 2 - 0.2), Transparency = 0.9 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		-- the ring of light on the street at its edge (dashes of it, turning),
+		-- the shimmer of the floor inside it
+		local nseg = MB.low() and 12 or 24
+		local ring = {}
+		for i = 1, nseg do
+			local seg = newPart(Vector3.new(0.25, 0.25, 1), CFrame.new(root.Position), MB.color(char), Enum.Material.Neon)
+			seg.Name = "MobBarrierEdge"
+			seg.Transparency = 0.3
+			ring[i] = seg
+		end
+		local edge = ring[1]
+		local function placeRing(center, rr, spin)
+			for i, seg in ring do
+				local a0 = (i - 1) / nseg * TAU + spin
+				local a1 = a0 + TAU / nseg * 0.7
+				local p0 = center + Vector3.new(math.cos(a0), 0, math.sin(a0)) * rr
+				local p1 = center + Vector3.new(math.cos(a1), 0, math.sin(a1)) * rr
+				seg.Size = Vector3.new(0.25, 0.25, math.max((p1 - p0).Magnitude, 0.05))
+				seg.CFrame = CFrame.lookAt((p0 + p1) / 2, p1)
+			end
+		end
+		placeRing(root.Position - UP * 2.9, 1, 0)
+		local floor = newPart(Vector3.new(0.1, 2, 2), CFrame.new(root.Position - UP * 2.9) * CFrame.Angles(0, 0, math.rad(90)), PSY_BLUE, Enum.Material.ForceField, Enum.PartType.Cylinder)
+		floor.Name = "MobBarrierFloor"
+		floor.Transparency = 0.5
+		tween(floor, 0.2, { Size = Vector3.new(0.1, r * 2 - 0.4, r * 2 - 0.4) })
+		-- his motes drifting inside it
+		local pe
+		if not MB.low() then
+			pe = Instance.new("ParticleEmitter")
+			pe.Name = "MobBarrierMotes"
+			pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			pe.Color = ult and MB.rainbow() or ColorSequence.new(Color3.new(1, 1, 1), PSY_BLUE)
+			pe.LightEmission = 1
+			pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.5, 0.35), NumberSequenceKeypoint.new(1, 0) })
+			pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1) })
+			pe.Lifetime = NumberRange.new(0.8, 1.4)
+			pe.Speed = NumberRange.new(0.5, 1.5)
+			pe.SpreadAngle = Vector2.new(180, 180)
+			pe.Acceleration = Vector3.new(0, 1.5, 0)
+			pe.Rate = 18
+			pe.Shape = Enum.ParticleEmitterShape.Sphere
+			pe.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+			pe.Parent = dome
+		end
+		MB.ripple(root.Position - UP * 2.5, UP, 2, r * 2.4, 0.35, MB.color(char))
+		shockDisc(root.Position, UP, r, r * 2.6, 0.25, PSY)
+		local rec = { dome = dome, shell = shell, edge = edge, ring = ring, floor = floor, r = r, t0 = os.clock() }
+		MB.domes[char] = rec
+		local conn
+		function rec.stop(now)
+			if rec.done then
+				return
+			end
+			rec.done = true
+			if conn then
+				conn:Disconnect()
+			end
+			if MB.domes[char] == rec then
+				MB.domes[char] = nil
+			end
+			if now then
+				for _, p in { dome, shell, floor } do
+					p:Destroy()
+				end
+				for _, p in ring do
+					p:Destroy()
+				end
+				return
+			end
+			-- popped outward, his motes left drifting where it was
+			VFX.PlaySound("MobBarrierEnd", root.Position, 0.8)
+			if pe then
+				pe.Enabled = false
+			end
+			for _, p in { dome, shell } do
+				tween(p, 0.25, { Size = Vector3.one * r * 2.4, Transparency = 1 })
+				cleanup(p, 0.3)
+			end
+			tween(floor, 0.25, { Size = Vector3.new(0.1, r * 2.6, r * 2.6), Transparency = 1 })
+			cleanup(floor, 0.3)
+			for _, p in ring do
+				tween(p, 0.25, { Transparency = 1 })
+				cleanup(p, 0.3)
+			end
+			billboardRing(dome.Position, r * 1.6, r * 2.6, MB.color(char), 4, 0.3)
+			MB.motes(dome.Position, r * 0.8, 14, MB.color(char), 1.2)
+		end
+		local pulseAt = os.clock()
+		conn = RunService.RenderStepped:Connect(function()
+			if not (root.Parent and char.Parent) or os.clock() - rec.t0 > time + 0.5 then
+				rec.stop(not root.Parent)
+				return
+			end
+			local cf = CFrame.new(root.Position - UP * 0.5)
+			dome.CFrame, shell.CFrame = cf, cf
+			local t = os.clock() - rec.t0
+			floor.CFrame = CFrame.new(root.Position - UP * 2.9) * CFrame.Angles(0, 0, math.rad(90))
+			placeRing(root.Position - UP * 2.85, r * math.clamp(t / 0.2, 0.1, 1), t * 0.8)
+			if ult then
+				local c = MB.hue(os.clock() / ((C.Ult or {}).Hue or 2.4))
+				dome.Color = c
+				for _, p in ring do
+					p.Color = c
+				end
+			end
+			-- (a slow pulse over it: a ring of light going out across it)
+			if os.clock() - pulseAt > 0.6 then
+				pulseAt = os.clock()
+				billboardRing(root.Position - UP * 0.5, r * 0.6, r * 2, ult and MB.hue(os.clock() * 0.4) or PSY, 2, 0.5)
+			end
+		end)
+		task.delay(startup + time, function()
+			rec.stop(false)
+		end)
+	end
+	-- (server) a hit stopped on it (or someone shoved off it): the ripple there
+	function Effects.PsychicBarrierHit(char, data)
+		local pos = MB.ok(data.Pos) and data.Pos or nil
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (pos and root) then
+			return
+		end
+		local out = pos - root.Position
+		out = out.Magnitude > 0.1 and out.Unit or UP
+		local color = MB.color(char)
+		VFX.PlaySound("MobBarrierHit", pos, data.Push and 0.5 or 1)
+		MB.ripple(pos, out, 0.6, data.Push and 4 or 7, 0.3, color)
+		if not data.Push then
+			-- a crack of light where it landed, spokes of it across the dome,
+			-- sparks thrown back off it
+			MB.snap(pos, out, 1.4, color)
+			local right = out:Cross(UP)
+			right = right.Magnitude > 0.05 and right.Unit or Vector3.new(1, 0, 0)
+			local up = right:Cross(out)
+			for i = 1, MB.low() and 3 or 5 do
+				local a = i / 5 * TAU + rand(-0.3, 0.3)
+				local dir = right * math.cos(a) + up * math.sin(a)
+				local len = rand(1.5, 3.2)
+				local seg = newPart(Vector3.new(0.12, 0.12, len), CFrame.lookAt(pos + dir * len / 2, pos + dir * len), Color3.new(1, 1, 1), Enum.Material.Neon)
+				seg.Name = "MobBarrierCrack"
+				seg.Transparency = 0.1
+				tween(seg, 0.3, { Transparency = 1, Size = Vector3.new(0.04, 0.04, len) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.05)
+				cleanup(seg, 0.4)
+			end
+			sparks(pos, 0.4, Color3.new(1, 1, 1), color, MB.low() and 4 or 10)
+		end
+		local rec = MB.domes[char]
+		if rec and rec.shell.Parent then
+			rec.shell.Transparency = 0.55
+			tween(rec.shell, 0.25, { Transparency = 0.9 })
+			rec.dome.Transparency = 0
+			tween(rec.dome, 0.25, { Transparency = 0.2 })
+		end
+	end
+	function Effects.PsychicBarrierEnd(char)
+		local rec = MB.domes[char]
+		if rec then
+			rec.stop(false)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- 3: DEBRIS STORM - the street torn up round him, the chunks wheeling
+	-- round him glowing at the edges, thrown one by one (the server's
+	-- DebrisStormThrow says where each goes).
+	-- ((round 102) round 2: both hands up, his power gathering in them; the
+	-- rip - a ring of air off his feet, the street cracking out from each
+	-- pit, dust; the chunks shaking as they come up and wheeling round him on
+	-- white trails, outlined (ONE outline for the whole storm - the 31
+	-- Highlights a screen has); each throw a snap of air off it and a streak,
+	-- each landing a crack of light, a ring, dust and rubble, the street
+	-- cracked - the last one the biggest; his motes left in the dust.
+	-- ???% DEBRIS STORM: more, bigger, faster, iridescent)
+	---------------------------------------------------------------------
+	function MB.chunk(size, cf, storm)
+		local m = storm and storm.model
+		if not m then
+			m = Instance.new("Model")
+			m.Name = "MobDebris"
+			local h = Instance.new("Highlight")
+			h.Name = "MobDebrisOutline"
+			h.FillTransparency = 1
+			h.OutlineColor = PSY
+			h.OutlineTransparency = 0.2
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Parent = m
+			m.Parent = folder
+			if storm then
+				storm.model = m
+				storm.outline = h
+			end
+		end
+		local body = newPart(size, cf, STONE, Enum.Material.Concrete, nil, m)
+		body.Name = "Chunk"
+		local top = newPart(Vector3.new(size.X * 0.98, 0.25, size.Z * 0.98), cf * CFrame.new(0, size.Y / 2 - 0.1, 0), Color3.fromRGB(64, 64, 70), Enum.Material.Asphalt, nil, m)
+		top.Name = "Chunk"
+		if not storm then
+			m.PrimaryPart = body
+		end
+		return m, body, top
+	end
+	function Effects.DebrisStorm(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = MB.spec(char, "DebrisStorm")
+		local d = MB.flat(data.Dir, root)
+		if isLocal then
+			face(root, d)
+		end
+		local startup, orbit = spec.Startup or 0.35, spec.Orbit or 0.45
+		local n = spec.Chunks or 6
+		local ult = char:GetAttribute("UltActive") == true
+		VFX.Motion(char, "MobDebris")
+		VFX.PlaySound("MobPsychic", root.Position, 0.8)
+		VFX.PlaySound("MobGather", root.Position, 0.8)
+		MB.outline(char, startup + orbit + n * (spec.Gap or 0.09) + 0.3)
+		MB.gather(char, true, startup, MB.color(char), ult and 1.3 or 1)
+		MB.gather(char, false, startup, MB.color(char), ult and 1.3 or 1)
+		local storm = { chunks = {}, char = char, t0 = os.clock() }
+		local old = MB.storms[char]
+		if old then
+			old.stop()
+		end
+		MB.storms[char] = storm
+		local conn
+		function storm.stop()
+			if storm.done then
+				return
+			end
+			storm.done = true
+			if conn then
+				conn:Disconnect()
+			end
+			if MB.storms[char] == storm then
+				MB.storms[char] = nil
+			end
+			-- (any never thrown drop where they are)
+			for _, c in storm.chunks do
+				if not c.thrown and c.body.Parent then
+					local cf = c.body.CFrame
+					local g = groundPoint(cf.Position)
+					local down = CFrame.new(g + UP) * cf.Rotation
+					tween(c.body, 0.4, { CFrame = down, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+					if c.top and c.top.Parent then
+						tween(c.top, 0.4, { CFrame = down * c.trel, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+					end
+					cleanup(c.body, 0.45)
+					cleanup(c.top, 0.45)
+				end
+			end
+			if storm.model then
+				cleanup(storm.model, 1.4)
+			end
+		end
+		task.delay(startup, function()
+			if storm.done or not root.Parent then
+				return
+			end
+			-- torn up out of the street round him: a ring of air, the pits, the
+			-- street cracking out from them, the chunks shaking free
+			VFX.PlaySound("MobDebrisRip", root.Position, 1)
+			VFX.PlaySound("MobDebrisOrbit", root.Position, 0.8)
+			local feet = groundPoint(root.Position)
+			local color = MB.color(char)
+			MB.ripple(feet + UP * 0.3, UP, 3, ult and 22 or 16, 0.4, color)
+			shockDisc(feet + UP * 0.3, UP, 4, ult and 26 or 18, 0.5, DUST)
+			VFX.ShakeAt(feet, 1.2, 50, 0.25)
+			local AK = VFX.AK
+			for i = 1, n do
+				local a = (i - 1) / n * TAU + rand(-0.2, 0.2)
+				local r = rand(3.5, 5) * (ult and 1.6 or 1)
+				local at = groundPoint(feet + Vector3.new(math.cos(a) * r, 3, math.sin(a) * r))
+				local cs = spec.ChunkSize or { 2, 3.6 }
+				local size = Vector3.new(rand(cs[1], cs[2]), rand(cs[1], cs[2]) * 0.7, rand(cs[1], cs[2]))
+				local _, body, top = MB.chunk(size, CFrame.new(at - UP * size.Y * 0.4) * CFrame.Angles(rand(-0.3, 0.3), rand(0, TAU), rand(-0.3, 0.3)), storm)
+				groundMark(at, size.X * 0.6, Color3.fromRGB(46, 42, 40), 3)
+				dustPuffs(at, 0.4, MB.low() and 1 or 2, DUST, 0.6, false)
+				if AK and AK.crack and (not MB.low() or i % 2 == 0) then
+					pcall(AK.crack, at, Vector3.new(math.cos(a), 0, math.sin(a)), rand(3, 6), rand(0, 0.08))
+				end
+				local stopTrail = not MB.low() and addTrail(body, color, 0.22, math.min(size.X, size.Z) * 0.5) or nil
+				table.insert(storm.chunks, { model = storm.model, body = body, top = top, trel = body.CFrame:ToObjectSpace(top.CFrame), a = a, r = r, h = rand(2.5, 5),
+					spin = Vector3.new(rand(-2, 2), rand(-2, 2), rand(-2, 2)), born = os.clock(), stopTrail = stopTrail })
+			end
+			conn = RunService.RenderStepped:Connect(function()
+				if storm.done then
+					return
+				end
+				if not root.Parent or os.clock() - storm.t0 > startup + orbit + n * (spec.Gap or 0.09) + 2 then
+					storm.stop()
+					return
+				end
+				local now = os.clock()
+				local center = root.Position
+				if ult and storm.outline then
+					storm.outline.OutlineColor = MB.hue(now / ((C.Ult or {}).Hue or 2.4))
+				end
+				for _, c in storm.chunks do
+					if not c.thrown and c.body.Parent then
+						local age = now - c.born
+						local up = math.clamp(age / 0.3, 0, 1)
+						local a = c.a + age * 3.2
+						-- (shaking free as it comes up, then wheeling smooth)
+						local jit = (1 - up) * 0.25
+						local at = center + Vector3.new(math.cos(a) * c.r + rand(-jit, jit), -3 + (c.h + 1) * (1 - (1 - up) ^ 2), math.sin(a) * c.r + rand(-jit, jit))
+						local cf = CFrame.new(at) * CFrame.Angles(c.spin.X * now, c.spin.Y * now, c.spin.Z * now)
+						c.body.CFrame = cf
+						if c.top and c.top.Parent then
+							c.top.CFrame = cf * c.trel
+						end
+					end
+				end
+			end)
+		end)
+	end
+	-- (server) chunk Index thrown From -> To at Speed
+	function Effects.DebrisStormThrow(char, data)
+		local from, to = MB.ok(data.From) and data.From or nil, MB.ok(data.To) and data.To or nil
+		if not (from and to) then
+			return
+		end
+		local storm = char and MB.storms[char]
+		local c = storm and storm.chunks[tonumber(data.Index) or 0]
+		local parts, body, model
+		if c and not c.thrown and c.body.Parent then
+			c.thrown = true
+			body = c.body
+			parts = { c.body, c.top }
+		else
+			local top
+			model, body, top = MB.chunk(Vector3.new(2.6, 1.8, 2.6), CFrame.new(from))
+			parts = { body, top }
+		end
+		local color = char and MB.color(char) or PSY
+		local start = body.Position
+		local speed = math.max(tonumber(data.Speed) or 190, 20)
+		local travel = math.clamp((to - start).Magnitude / speed, 0.04, 0.7)
+		VFX.PlaySound("MobDebrisThrow", start, 0.9)
+		local dir = (to - start).Magnitude > 0.1 and (to - start).Unit or UP
+		-- the snap of air off it as it goes
+		billboardRing(start, 1, data.Last and 6 or 4, color, 3, 0.15)
+		local rels = {}
+		for _, p in parts do
+			if p and p.Parent then
+				rels[p] = body.CFrame:ToObjectSpace(p.CFrame)
+			end
+		end
+		if c and c.stopTrail then
+			c.stopTrail(travel + 0.05)
+		end
+		local stopTrail = addTrail(body, PSY, 0.25, data.Last and 2 or 1.4)
+		local t0 = os.clock()
+		local spin = Vector3.new(rand(-6, 6), rand(-6, 6), rand(-6, 6))
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			local u = math.clamp((os.clock() - t0) / travel, 0, 1)
+			local pos = start:Lerp(to, u) + UP * math.sin(u * math.pi) * 2
+			local cf = CFrame.new(pos) * CFrame.Angles(spin.X * u, spin.Y * u, spin.Z * u)
+			for p, rel in rels do
+				if p.Parent then
+					p.CFrame = cf * rel
+				end
+			end
+			if u >= 1 then
+				conn:Disconnect()
+				if stopTrail then
+					stopTrail(0.1)
+				end
+				-- the landing: a crack of light, a ring, dust and rubble, the
+				-- street cracked (the last one the biggest)
+				local big = data.Last and 1.6 or 1
+				VFX.PlaySound("MobDebrisHit", to, data.Last and 1.2 or 0.9)
+				MB.snap(to, -dir, 1.4 * big, color)
+				dustPuffs(to - UP * 1.2, 0.7 * big, data.Last and 6 or 3, DUST, 0.8, false)
+				rocks(to + UP, 0.6 * big, data.Last and 6 or 3)
+				MB.ripple(to, UP, 1, 9 * big, 0.3, color)
+				shockDisc(to - UP, UP, 2, 10 * big, 0.4, DUST)
+				local AK = VFX.AK
+				if AK and AK.crack and not MB.low() then
+					for i = 1, data.Last and 4 or 2 do
+						local a = rand(0, TAU)
+						pcall(AK.crack, to - UP * 1.4, Vector3.new(math.cos(a), 0, math.sin(a)), rand(3, 6) * big, 0)
+						local _ = i
+					end
+				end
+				if data.Last then
+					MB.motes(to, 3, 10, color, 1.2)
+				end
+				VFX.ShakeAt(to, data.Last and 2 or 1, 50, 0.25)
+				for p in rels do
+					tween(p, 0.3, { Transparency = 1 })
+					cleanup(p, 0.35)
+				end
+				if model then
+					cleanup(model, 0.4)
+				end
+			end
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- 4: SPIRIT WAVE - a palm out and the air in front of him goes: rings of
+	-- pressure down the cone, the street's dust and grit thrown with it.
+	-- ((round 102) round 2: the palm drawn in with his power gathering in
+	-- it; the push - a flash at the palm, the air bending out of it, rings
+	-- running down the cone and a sheet of wind streaking with them, the
+	-- street scoured (dust rolling down the cone, cracks racing along it),
+	-- the grit thrown; his motes drifting down it after. ???%: iridescent,
+	-- wider and longer)
+	---------------------------------------------------------------------
+	function Effects.SpiritWave(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = MB.spec(char, "SpiritWave")
+		local d = MB.flat(data.Dir, root)
+		if isLocal then
+			face(root, d)
+		end
+		local windup = spec.Windup or 0.28
+		local ult = char:GetAttribute("UltActive") == true
+		VFX.Motion(char, "MobWave")
+		VFX.PlaySound("MobPsychic", root.Position, 0.9)
+		VFX.PlaySound("MobGather", root.Position, 0.9)
+		MB.outline(char, windup + 0.5)
+		MB.gather(char, true, windup, MB.color(char), ult and 1.4 or 1.1)
+		task.delay(windup, function()
+			if not root.Parent then
+				return
+			end
+			local range, cone = spec.Range or 42, math.rad(spec.Cone or 34)
+			local at = root.Position + d * 2.5
+			local low = MB.low()
+			VFX.PlaySound("MobWave", at, 1)
+			-- THE PUSH at his palm: a white flash, the air snapping out of it
+			local palm = handPos(char, true)
+			local flash = newPart(Vector3.one * 0.8, CFrame.new(palm + d * 0.8), ult and MB.hue(0.1) or PSY, Enum.Material.Neon, Enum.PartType.Ball)
+			flash.Name = "MobFlash"
+			flash.Transparency = 0.15
+			tween(flash, 0.16, { Size = Vector3.one * 6.5, Transparency = 1 })
+			cleanup(flash, 0.2)
+			MB.ripple(palm + d * 1.5, d, 1, 10, 0.22, ult and MB.hue(0.2) or PSY)
+			MB.distort(palm + d * 2, 2, 9, 0.25, PSY_BLUE)
+			for i = 0, 5 do
+				task.delay(i * 0.035, function()
+					local p = at + d * (range * i / 6)
+					local w = 4 + math.tan(cone) * range * i / 6 * 2
+					MB.ripple(p, d, w * 0.4, w, 0.32 + i * 0.03, ult and MB.hue(i / 6) or PSY)
+					if not low and i % 2 == 0 then
+						shockDisc(p, d, w * 0.5, w * 1.1, 0.3, PSY_BLUE, range / 6)
+					end
+				end)
+			end
+			streaks(at, d, low and 8 or 20, math.tan(cone) * 6, 10, range, PSY, 0.35)
+			local steps = low and 3 or 6
+			local AK = VFX.AK
+			for i = 1, steps do
+				task.delay(i * 0.04, function()
+					local p = groundPoint(at + d * (range * i / steps) + d:Cross(UP) * rand(-1, 1) * math.tan(cone) * range * i / steps * 0.6)
+					dustPuffs(p, 0.7 + i * 0.1, 2, DUST, 0.8, false)
+					-- (the loose grit thrown on down it)
+					for _ = 1, 2 do
+						local pb = MB.pebble(rand(0.4, 0.9), CFrame.new(p + UP), DUST_DARK)
+						local goal = p + d * rand(10, 22) + UP * rand(2, 6)
+						tween(pb, 0.45, { CFrame = CFrame.new(goal) * CFrame.Angles(rand(0, 6), rand(0, 6), 0), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+						cleanup(pb, 0.5)
+					end
+				end)
+			end
+			-- the street scoured: cracks racing down the cone
+			if AK and AK.crack then
+				for i = -1, 1 do
+					local dir = (d + d:Cross(UP) * i * math.tan(cone) * 0.6).Unit
+					pcall(AK.crack, groundPoint(at) + UP * 0.2, dir, range * rand(0.5, 0.8), 0.02)
+				end
+			end
+			task.delay(0.25, function()
+				MB.motes(at + d * range * 0.5 + UP * 2, math.tan(cone) * range * 0.5, low and 8 or 20, MB.color(char), 1.4)
+			end)
+			VFX.ShakeAt(at, 1.8, 60, 0.3)
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- R: FLOAT - off the street on nothing; he glides where his camera looks
+	-- and comes down softly. His own machine flies him (MB.float).
+	-- ((round 102) round 2: the take-off a burst of air off his feet and an
+	-- updraft streaking off them; up there his motes rising off him and a
+	-- faint shimmer under his feet; the landing as before - a breath of air,
+	-- a ring, the dust - and his motes)
+	---------------------------------------------------------------------
+	function MB.float(char, root, hum, spec)
+		local old = MB.floats[char]
+		if old then
+			old.stop("Again")
+		end
+		local launch, time = spec.Launch or 0.15, spec.Time or 1.6
+		local fl = { t0 = os.clock(), v = Vector3.zero }
+		MB.floats[char] = fl
+		local att = Instance.new("Attachment")
+		att.Name = "MobFloatAttachment"
+		att.Parent = root
+		local lv = Instance.new("LinearVelocity")
+		lv.Name = "MobFloat"
+		lv.Attachment0 = att
+		lv.MaxForce = moverForce(root, 6000)
+		lv.RelativeTo = Enum.ActuatorRelativeTo.World
+		lv.VectorVelocity = UP * (spec.Up or 30)
+		lv.Parent = root
+		local auto = hum.AutoRotate
+		hum.AutoRotate = false
+		local last = MB.flat(root.CFrame.LookVector, root)
+		local conn
+		function fl.stop(reason)
+			if fl.done then
+				return
+			end
+			fl.done = true
+			fl.reason = reason
+			if conn then
+				conn:Disconnect()
+			end
+			if lv.Parent then
+				lv:Destroy()
+			end
+			if att.Parent then
+				att:Destroy()
+			end
+			if hum.Parent then
+				hum.AutoRotate = auto
+			end
+			if MB.floats[char] == fl then
+				MB.floats[char] = nil
+			end
+		end
+		conn = RunService.Stepped:Connect(function()
+			local t = os.clock() - fl.t0
+			if not (root.Parent and hum.Parent) or MB.knocked(char, root, hum) then
+				fl.stop("Hit")
+				return
+			end
+			if t < launch then
+				return -- (up off the street)
+			end
+			if t < launch + time then
+				local cam = workspace.CurrentCamera
+				local look = cam and cam.CFrame.LookVector or root.CFrame.LookVector
+				local f = Vector3.new(look.X, 0, look.Z)
+				if f.Magnitude > 0.05 and f.Magnitude == f.Magnitude then
+					last = f.Unit
+				end
+				local pitch = math.clamp(math.deg(math.asin(math.clamp(look.Y, -1, 1))), spec.MinPitch or -15, spec.MaxPitch or 20)
+				fl.v = (last * math.cos(math.rad(pitch)) + UP * math.sin(math.rad(pitch))) * (spec.Speed or 44)
+				lv.VectorVelocity = fl.v
+				root.CFrame = CFrame.lookAt(root.Position, root.Position + last)
+				return
+			end
+			-- coming down softly: his glide carried on a little, the fall held to FallSpeed
+			local on = isGrounded(root)
+			if on or t > launch + time + (spec.DropTime or 2.5) then
+				fl.stop("Done")
+				return
+			end
+			local carry = Vector3.new(fl.v.X, 0, fl.v.Z) * 0.35
+			lv.VectorVelocity = carry - UP * (spec.FallSpeed or 12)
+			if carry.Magnitude > 1 then
+				root.CFrame = CFrame.lookAt(root.Position, root.Position + carry)
+			end
+		end)
+		return fl
+	end
+	function Effects.PsychicFloat(char, data, isLocal)
+		local root, hum = charParts(char)
+		if not root then
+			return
+		end
+		local spec = MB.spec(char, "PsychicFloat")
+		local launch, time = spec.Launch or 0.15, spec.Time or 1.6
+		local color = MB.color(char)
+		VFX.Pose(char, "MobFloat", launch + time + 0.6)
+		VFX.PlaySound("MobFloat", root.Position, 1)
+		MB.outline(char, launch + time)
+		local g = groundPoint(root.Position)
+		MB.ripple(g + UP * 0.3, UP, 2, 12, 0.4, color)
+		shockDisc(g + UP * 0.2, UP, 3, 14, 0.45, DUST)
+		dustPuffs(g, 0.7, 4, DUST, 0.7, false)
+		streaks(g + UP * 0.5, UP, MB.low() and 3 or 7, 1.2, 4, 12, PSY, 0.35)
+		-- a faint ring under his feet while he's up, a shimmer in it
+		local ring = newPart(Vector3.new(0.2, 3.4, 3.4), CFrame.new(root.Position - UP * 3) * CFrame.Angles(0, 0, math.rad(90)), color, Enum.Material.Neon, Enum.PartType.Cylinder)
+		ring.Name = "MobFloatRing"
+		ring.Transparency = 0.6
+		local haze = newPart(Vector3.new(0.15, 4.4, 4.4), ring.CFrame, PSY_BLUE, Enum.Material.ForceField, Enum.PartType.Cylinder)
+		haze.Name = "MobFloatRing"
+		haze.Transparency = 0.2
+		-- his motes rising off him while he's up
+		local torso = limb(char, "UpperTorso", "Torso") or root
+		local att = Instance.new("Attachment")
+		att.Name = "MobFloatMotes"
+		att.Parent = torso
+		local pe = Instance.new("ParticleEmitter")
+		pe.Name = "MobFloatMotes"
+		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		pe.Color = char:GetAttribute("UltActive") == true and MB.rainbow() or ColorSequence.new(Color3.new(1, 1, 1), PSY_BLUE)
+		pe.LightEmission = 1
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 0) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1) })
+		pe.Lifetime = NumberRange.new(0.5, 0.9)
+		pe.Speed = NumberRange.new(1, 3)
+		pe.SpreadAngle = Vector2.new(60, 60)
+		pe.EmissionDirection = Enum.NormalId.Bottom
+		pe.Acceleration = Vector3.new(0, 4, 0)
+		pe.Rate = MB.low() and 6 or 16
+		pe.Parent = att
+		local t0 = os.clock()
+		local conn
+		local ringGone = false
+		local function dropRing()
+			if not ringGone then
+				ringGone = true
+				pe.Enabled = false
+				cleanup(att, 1)
+				for _, p in { ring, haze } do
+					tween(p, 0.25, { Transparency = 1, Size = Vector3.new(0.2, 5, 5) })
+					cleanup(p, 0.3)
+				end
+			end
+		end
+		conn = RunService.RenderStepped:Connect(function()
+			local t = os.clock() - t0
+			if not root.Parent or t > launch + time + (spec.DropTime or 2.5) + 0.5 then
+				conn:Disconnect()
+				dropRing()
+				return
+			end
+			if t > launch + time + 0.4 then
+				dropRing()
+			elseif not ringGone then
+				local cf = CFrame.new(root.Position - UP * 3.1) * CFrame.Angles(t * 2, 0, math.rad(90))
+				ring.CFrame = cf
+				haze.CFrame = cf
+				if char:GetAttribute("UltActive") == true then
+					ring.Color = MB.hue(os.clock() / ((C.Ult or {}).Hue or 2.4))
+				end
+			end
+			-- ((round 102 review) THE LANDING - it was silent: down softly, a
+			-- breath of air (MobFloatLand), a ring of his power and the dust off
+			-- the street round his feet)
+			if t > launch + 0.35 then
+				rayParams.FilterDescendantsInstances = characterList()
+				local hit = workspace:Raycast(root.Position, Vector3.new(0, -3.8, 0), rayParams)
+				if hit then
+					conn:Disconnect()
+					dropRing()
+					VFX.PlaySound("MobFloatLand", hit.Position, 1)
+					MB.ripple(hit.Position + UP * 0.3, UP, 1.5, 9, 0.35, MB.color(char))
+					dustPuffs(hit.Position, 0.6, 3, DUST, 0.6, false)
+					MB.motes(hit.Position + UP * 1.5, 2, 8, MB.color(char), 0.9)
+				end
+			end
+		end)
+		if hum and MB.drives(char, isLocal) then
+			MB.float(char, root, hum, spec)
+			VFX.Hooks.SpeedLines(launch + time)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- ???% - the awakening (G) on the awakening kit (VFX.AK.FX.Mob; his clip
+	-- MoveAwakenMob, anim/moves_mob.py): from the press his counter climbs
+	-- over his head (96%... 99%... 100%) and stones lift off the street round
+	-- him, his hands at his sides, his head down; ON THE HIT the counter
+	-- breaks to ???%, his own impact frames in iridescent colours, the air
+	-- round him bends (a warp, a ring of pressure out along the street) and
+	-- the stones are flung away; his aura - the rim cycling iridescent, motes
+	-- off him - and the world round him tinted on every screen till it's over
+	---------------------------------------------------------------------
+	local function akc()
+		return (Config.Awaken or {}).Mob or {}
+	end
+	-- the counter over his head (every screen): its label, set by from / to
+	function MB.counter(ctx)
+		local A = akc().Counter or {}
+		local head = ctx.char:FindFirstChild("Head") or ctx.root
+		local size = A.Size or { 5, 1.6 }
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "MobCounter"
+		bb.Size = UDim2.new(size[1] * ctx.scale, 0, size[2] * ctx.scale, 0)
+		bb.StudsOffsetWorldSpace = Vector3.new(0, (A.Offset or 4.2) * ctx.scale - 1.5, 0)
+		bb.AlwaysOnTop = false
+		bb.LightInfluence = 0
+		bb.MaxDistance = 260
+		bb.Adornee = head
+		local label = Instance.new("TextLabel")
+		label.Name = "Percent"
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.Oswald
+		label.TextScaled = true
+		label.TextColor3 = Color3.new(1, 1, 1)
+		label.TextStrokeColor3 = Color3.new(0, 0, 0)
+		label.TextStrokeTransparency = 0
+		label.Text = tostring(A.From or 96) .. "%"
+		label.Parent = bb
+		bb.Parent = folder
+		table.insert(ctx.props, bb)
+		return bb, label
+	end
+	VFX.AK.MARKS.MoveAwakenMob = { Gather = 0.18, Hit = 0.3, Hold = 0.42, HoldEnd = 1.38 }
+	VFX.AK.FX.Mob = {
+		press = function(ctx)
+			local A = akc()
+			local AK = VFX.AK
+			local bb, label = MB.counter(ctx)
+			ctx.mobCounter = { bb = bb, label = label }
+			VFX.PlaySound("MobPsychic", ctx.root.Position, 1)
+			-- ((round 102) round 2) his power gathering in both hands by the hit
+			pcall(MB.gather, ctx.char, true, math.max(ctx.hit, 0.1), PSY, (A.Gather or 1.2) * ctx.scale)
+			pcall(MB.gather, ctx.char, false, math.max(ctx.hit, 0.1), PSY, (A.Gather or 1.2) * ctx.scale)
+			-- the counter climbing to 100% by the hit
+			task.spawn(function()
+				local from = (A.Counter or {}).From or 96
+				local steps = 100 - from
+				for i = 1, steps do
+					if not AK.at(ctx, ctx.hit * i / (steps + 0.6)) then
+						return
+					end
+					label.Text = tostring(from + i) .. "%"
+					label.TextColor3 = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(255, 90, 90), i / steps)
+					VFX.PlaySound("MobCounterTick", ctx.root.Position, 0.6 + 0.4 * i / steps)
+				end
+			end)
+			-- stones lifting off the street round him (none on his own lens)
+			local S = A.Stones or {}
+			local g = ctx.g or (ctx.root.Position - UP * 3 * ctx.scale)
+			ctx.mobStones = {}
+			local n = math.max(math.floor((S.Count or 10) * (ctx.low and 0.5 or 1)), 3)
+			for i = 1, n do
+				local a = (i - 0.5) / n * TAU + rand(-0.25, 0.25)
+				local r = rand((S.Radius or { 3, 7 })[1], (S.Radius or { 3, 7 })[2]) * ctx.scale
+				local at = g + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+				local up = at + UP * rand((S.Height or { 1.5, 4.5 })[1], (S.Height or { 1.5, 4.5 })[2]) * ctx.scale
+				if not AK.lens(ctx, up, 1.5) and not AK.lens(ctx, at, 1.5) then
+					local size = rand((S.Size or { 0.6, 1.6 })[1], (S.Size or { 0.6, 1.6 })[2]) * ctx.scale
+					local p = MB.pebble(size, CFrame.new(at) * CFrame.Angles(rand(0, 6), rand(0, 6), 0), STONE)
+					p.Name = "AwakenStone"
+					tween(p, math.max(ctx.hit, 0.1), { CFrame = CFrame.new(up) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)) }, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+					table.insert(ctx.mobStones, p)
+					table.insert(ctx.props, p)
+				end
+			end
+		end,
+		gather = function(ctx)
+			local rim = VFX.AK.rim(ctx)
+			rim.OutlineColor = PSY
+			tween(rim, 0.1, { OutlineTransparency = 0.2 })
+		end,
+		hit = function(ctx)
+			local A = akc()
+			local AK = VFX.AK
+			local s = ctx.scale
+			local g = ctx.g or (ctx.root.Position - UP * 3 * s)
+			AK.note(ctx, "counterBreaks")
+			VFX.PlaySound("MobCounterBreak", ctx.root.Position, 1)
+			-- the counter breaks: ???%, flickering, held, then gone
+			local cnt = ctx.mobCounter
+			if cnt then
+				local glyphs = { "???%", "1??%", "?0?%", "???%", "100%", "???%" }
+				task.spawn(function()
+					local hold = (A.Counter or {}).Hold or 1
+					local t0 = os.clock()
+					local i = 0
+					while os.clock() - t0 < hold and cnt.bb.Parent do
+						i += 1
+						cnt.label.Text = os.clock() - t0 > 0.3 and "???%" or glyphs[(i - 1) % #glyphs + 1]
+						cnt.label.TextColor3 = MB.hue(os.clock() * 1.5)
+						task.wait((A.Counter or {}).Glitch or 0.05)
+					end
+					if cnt.bb.Parent then
+						cnt.bb:Destroy()
+					end
+				end)
+			end
+			-- the stones flung out
+			for _, p in ctx.mobStones or {} do
+				if p.Parent then
+					local out = Vector3.new(p.Position.X - ctx.root.Position.X, 0, p.Position.Z - ctx.root.Position.Z)
+					out = out.Magnitude > 0.1 and out.Unit or ctx.d
+					local fling = ((A.Stones or {}).Fling or 60) * 0.35
+					tween(p, 0.35, { CFrame = CFrame.new(p.Position + out * fling * s + UP * rand(2, 6)) * CFrame.Angles(rand(0, 6), rand(0, 6), 0), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				end
+			end
+			-- the air bending round him: the warp, the ring of pressure, the white
+			local W = A.Warp or {}
+			if not AK.lens(ctx, ctx.root.Position, (W.Size or 26) * 0.5 * s) or not ctx.mine then
+				local warp = newPart(Vector3.one * 2 * s, CFrame.new(ctx.root.Position), MB.hue(0.3), Enum.Material.ForceField, Enum.PartType.Ball)
+				warp.Name = "MobWarp"
+				warp.Transparency = 0.1
+				tween(warp, W.Life or 0.6, { Size = Vector3.one * (W.Size or 26) * s, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				cleanup(warp, (W.Life or 0.6) + 0.05)
+				table.insert(ctx.props, warp)
+			end
+			shockDisc(g + UP * 0.3, UP, 4, (A.Ring or 46) * s, 0.5, MB.hue(0.55))
+			billboardRing(ctx.root.Position, 3, 30 * s, MB.hue(0.15), 8, 0.4)
+			dustPuffs(g, 1.2 * s, ctx.low and 4 or 8, DUST, 0.9, false)
+			VFX.ShakeAt(ctx.root.Position, 2.5, 90, 0.5)
+			-- ((round 102) round 2) ???%, layered: a pillar of his iridescence
+			-- up through him (not on his own lens), prismatic motes thrown off
+			-- him, the wind tearing out along the street, the street cracking
+			-- round him, a white flash on his own screen
+			local Pl = A.Pillar or {}
+			local ph, pw = (Pl.Height or 70) * s, (Pl.Width or 9) * s
+			if not ctx.mine or not AK.lens(ctx, ctx.root.Position + UP * 4 * s, pw * 0.5) then
+				local pillar = newPart(Vector3.new(ph, pw * 0.4, pw * 0.4), CFrame.new(g + UP * ph / 2) * CFrame.Angles(0, 0, math.rad(90)), MB.hue(0.4), Enum.Material.ForceField, Enum.PartType.Cylinder)
+				pillar.Name = "MobPillar"
+				pillar.Transparency = 0.05
+				tween(pillar, Pl.Life or 0.8, { Size = Vector3.new(ph, pw, pw), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				cleanup(pillar, (Pl.Life or 0.8) + 0.05)
+				table.insert(ctx.props, pillar)
+			end
+			local holder = newPart(Vector3.one * 2 * s, CFrame.new(ctx.root.Position), PSY, Enum.Material.SmoothPlastic, nil)
+			holder.Name = "MobSparkles"
+			holder.Transparency = 1
+			local pe = Instance.new("ParticleEmitter")
+			pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			pe.Color = MB.rainbow()
+			pe.LightEmission = 1
+			pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6 * s), NumberSequenceKeypoint.new(1, 0) })
+			pe.Lifetime = NumberRange.new(0.5, 1.1)
+			pe.Speed = NumberRange.new(25 * s, 55 * s)
+			pe.Drag = 3
+			pe.SpreadAngle = Vector2.new(180, 180)
+			pe.Enabled = false
+			pe.Parent = holder
+			pe:Emit(math.floor((A.Sparkles or 40) * (ctx.low and 0.4 or 1)))
+			cleanup(holder, 1.4)
+			table.insert(ctx.props, holder)
+			local nw = ctx.low and math.ceil((A.Wind or 10) / 2) or (A.Wind or 10)
+			for i = 1, nw do
+				local a = i / nw * TAU
+				streaks(g + UP * 0.8 * s, Vector3.new(math.cos(a), 0, math.sin(a)), 2, 0.6 * s, 6 * s, (A.Reach or 36) * s, PSY, 0.45)
+			end
+			local CR = A.Crack or { 10, 22 }
+			local nc = ctx.low and math.ceil((A.Cracks or 8) / 2) or (A.Cracks or 8)
+			for i = 1, nc do
+				local a = (i - 0.5) / nc * TAU + rand(-0.2, 0.2)
+				pcall(AK.crack, g + Vector3.new(math.cos(a), 0, math.sin(a)) * 2 * s, Vector3.new(math.cos(a), 0, math.sin(a)), rand(CR[1], CR[2]) * s, rand(0, 0.1))
+			end
+			if ctx.mine then
+				VFX.Hooks.Flash(Color3.new(1, 1, 1), A.Flash or 0.18)
+			end
+		end,
+		impact = function(ctx)
+			return VFX.AK.P.pair(ctx, akc().Negative, nil)
+		end,
+		aura = function(ctx)
+			local AK = VFX.AK
+			local stop = AK.aura(ctx, ctx.spec.Aura or "motes")
+			local rec = AK.auras[ctx.char]
+			if not rec then
+				return stop
+			end
+			local U = C.Ult or {}
+			if rec.pe then
+				rec.pe.Color = MB.rainbow()
+				rec.pe.Rate = (U.Motes or {}).Rate or 9
+			end
+			MB.tint(ctx.char, true)
+			task.spawn(function()
+				local hue = U.Hue or 2.4
+				local rainbow = MB.rainbow()
+				while AK.auras[ctx.char] == rec do
+					local c = MB.hue(os.clock() / hue)
+					if rec.rim and rec.rim.Parent then
+						rec.rim.OutlineColor = c
+						rec.rim.FillColor = c
+					end
+					-- (the server's ult outline on him - the one his rim stands
+					-- aside for - cycled here too, on this screen only: it's
+					-- rebuilt with his gear, so nothing to put back)
+					local gear = ctx.char:FindFirstChild("QuirkGear")
+					for _, d in gear and gear:GetChildren() or {} do
+						if d:IsA("Highlight") then
+							d.OutlineColor = c
+							d.FillColor = c
+						elseif d:IsA("BasePart") then
+							for _, e in d:GetChildren() do
+								if e:IsA("ParticleEmitter") and e:GetAttribute("MobRainbow") == nil then
+									e:SetAttribute("MobRainbow", true)
+									e.Color = rainbow
+								elseif e:IsA("PointLight") then
+									e.Color = c
+								end
+							end
+						end
+					end
+					task.wait(0.05)
+				end
+				MB.tint(ctx.char, false)
+			end)
+			return stop
+		end,
+	}
+
+	-- THE WORLD TINTED round him (???%), on every screen: one grade of this
+	-- screen's own (a ColorCorrectionEffect it made: nothing of Lighting's is
+	-- touched), as strong as the nearest Mob in his ult is near - eased in,
+	-- eased out, and gone when no one's left in it
+	MB.tinting = {}
+	function MB.tint(char, on)
+		MB.tinting[char] = on and { t0 = os.clock() } or nil
+		if on and not MB.tintConn then
+			local T = (C.Ult or {}).Tint or {}
+			local cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "MobTint"
+			cc.Enabled = true
+			-- ((integration) on the camera, not in Lighting - as TOKOYAMI's dim and
+			-- the cut-ins' grades: the realm's lighting swap takes the first
+			-- ColorCorrectionEffect in Lighting for the place's own grade, saves
+			-- it and "puts it back" - with this one in there it could have written
+			-- the tint onto the place's grade)
+			cc.Parent = workspace.CurrentCamera
+			MB.tintCC = cc
+			local level = 0
+			MB.tintConn = RunService.RenderStepped:Connect(function(dt)
+				local want = 0
+				local cam = MB.camPos()
+				-- (a new camera: the grade goes with it)
+				local camera = workspace.CurrentCamera
+				if camera and cc.Parent ~= camera then
+					local moved = pcall(function()
+						cc.Parent = camera
+					end)
+					if not moved then
+						cc = Instance.new("ColorCorrectionEffect")
+						cc.Name = "MobTint"
+						cc.Parent = camera
+						MB.tintCC = cc
+					end
+				end
+				for c in MB.tinting do
+					local r = c.Parent and c:FindFirstChild("HumanoidRootPart")
+					if not r then
+						MB.tinting[c] = nil
+					else
+						local range = T.Range or 280
+						local d = (r.Position - cam).Magnitude
+						want = math.max(want, math.clamp((range - d) / (range * 0.3), 0, 1))
+					end
+				end
+				local rate = want > level and 1 / (T.In or 0.6) or 1 / (T.Out or 1)
+				level = level + math.clamp(want - level, -rate * dt, rate * dt)
+				local tints = T.Tints or { Color3.new(1, 1, 1) }
+				local u = (os.clock() / 3) % 1 * #tints
+				local i = math.floor(u)
+				local tint = tints[i % #tints + 1]:Lerp(tints[(i + 1) % #tints + 1], u - i)
+				cc.TintColor = Color3.new(1, 1, 1):Lerp(tint, level * (T.Strength or 1))
+				cc.Saturation = (T.Saturation or -0.18) * level
+				cc.Contrast = (T.Contrast or 0.14) * level
+				cc.Brightness = (T.Brightness or 0.02) * level
+				if next(MB.tinting) == nil and level <= 0.001 then
+					MB.tintConn:Disconnect()
+					MB.tintConn = nil
+					cc:Destroy()
+					MB.tintCC = nil
+				end
+			end)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE FINISHER (Config.Finishers.Styles.Mob, FX.Mob): "100%" - two
+	-- fingers up, they're lifted off the street and held shaking, his
+	-- counter over his head; then thrown into the sky (the server's launch)
+	---------------------------------------------------------------------
+	function MB.finisher(char, target, troot, d, time)
+		VFX.Pose(char, "MobFloat", time)
+		MB.outline(char, time)
+		MB.grip(target, time + 0.1)
+		VFX.Pose(target, "MobHeld", time)
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if root then
+			VFX.PlaySound("MobLiftUp", troot.Position, 1)
+			MB.ripple(groundPoint(troot.Position) + UP * 0.3, UP, 2, 10, 0.4)
+		end
+		task.delay(math.max(time - 0.05, 0), function()
+			if troot.Parent then
+				MB.ripple(troot.Position, UP, 2, 18, 0.4)
+				streaks(troot.Position, UP, 10, 1.5, 8, 30, PSY, 0.4)
+				VFX.PlaySound("MobWave", troot.Position, 1)
+				VFX.ShakeAt(troot.Position, 2, 60, 0.3)
+			end
+		end)
+	end
+
+	-- a dash: a ripple off his feet where he was, a flick of his outline
+	QUIRK_FX.Dash.Mob = function(char, root)
+		if root and root.Parent then
+			MB.ripple(root.Position - UP * 2.6, UP, 1, 7, 0.25)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- ((round 102) round 2) ???%: SKYSCRAPER - THE BUILDING HE THROWS, this
+	-- screen's own (VFX.MOB.B). The server says which building it is (the
+	-- real one: Model, else found by its Name and Pivot), its home (the
+	-- middle of its bottom) and size, when it tears out (At), the throw
+	-- (ThrowAt, HitAt, the spot, the way, the pitch, how deep it's driven in)
+	-- and when it goes home (DownAt). Here: every part of the real building is
+	-- hidden (VFX.ST.World's shared record: one per part, counted holds, put
+	-- back exactly - in the world or streamed out) and a copy of it made
+	-- (Batch a frame) and moved as one - every copy in one BulkMoveTo a frame.
+	-- It tears out of the street with its foundation (dirt pouring, glass and
+	-- grit raining off it) and floats over his shoulder; on the throw it turns
+	-- end-first and flies; it's jammed in the street at the impact (the
+	-- biggest hit in his kit); then it's pulled out, flown home, lowered in,
+	-- and the real building's shown the moment it's down (the server's own
+	-- moment). A part that streams in meanwhile is hidden and copied as it
+	-- comes; a screen that comes in late builds it all from
+	-- ReplicatedStorage.MobBuildings. Round 1's twin-tower engine, for any
+	-- building - and more than one at once (two Mobs).
+	---------------------------------------------------------------------
+	local Bd = { states = {}, done = {} }
+	MB.B = Bd
+	function Bd.cfg()
+		return C.Building or {}
+	end
+	-- the move's own numbers (the throw's beats are the ult R's)
+	function Bd.ab()
+		return (Q.Ult or {}).Special or {}
+	end
+	local function ease(u, kind)
+		u = math.clamp(u, 0, 1)
+		if kind == "in" then
+			return u * u
+		elseif kind == "in3" then
+			return u * u * u
+		elseif kind == "out" then
+			return 1 - (1 - u) * (1 - u)
+		elseif kind == "lin" then
+			return u
+		end
+		return u * u * (3 - 2 * u)
+	end
+	Bd.ease = ease
+	-- the yaw of a frame (its flat look)
+	function Bd.yawOf(cf)
+		local l = cf.LookVector
+		return math.atan2(-l.X, -l.Z)
+	end
+	-- a little shaking (amp studs, a degree or so), the same on every screen for the same time
+	function Bd.shake(now, k, amp)
+		if amp <= 0 then
+			return CFrame.new()
+		end
+		local n = now * 14
+		return CFrame.new(math.noise(n, k, 0.3) * amp, math.noise(n, k, 4.1) * amp * 0.5, math.noise(n, k, 8.7) * amp)
+			* CFrame.Angles(math.noise(n, k, 12.2) * amp * 0.02, 0, math.noise(n, k, 15.9) * amp * 0.02)
+	end
+
+	-- THE REAL BUILDING on this screen (nil: not here - streamed out, or
+	-- another place): the server's own reference, else the one of that name
+	-- whose pivot is where the server's was
+	function Bd.find(st)
+		local m = st.real
+		if typeof(m) == "Instance" and m.Parent then
+			return m
+		end
+		local map = workspace:FindFirstChild("Map")
+		local f = map and map:FindFirstChild(st.folder or "Buildings")
+		if not f or typeof(st.pivot) ~= "CFrame" then
+			return nil
+		end
+		for _, c in f:GetChildren() do
+			if c.Name == st.name and c:IsA("Model") then
+				local ok, piv = pcall(function()
+					return c:GetPivot()
+				end)
+				if ok and (piv.Position - st.pivot.Position).Magnitude < 2 then
+					return c
+				end
+			end
+		end
+		return nil
+	end
+	-- a copy of a real part: everything it looks like (its lights too, shadows
+	-- off - none on a low-end machine), and nothing it does (no scripts,
+	-- joints, prompts, attributes; anchored, not collided with, not queried)
+	function Bd.copy(part)
+		local ok, c = pcall(function()
+			return part:Clone()
+		end)
+		if not ok or not c then
+			c = Instance.new("Part")
+			c.Size = part.Size
+			c.Color = part.Color
+			c.Material = part.Material
+			c.Transparency = part.Transparency
+			pcall(function()
+				c.Shape = part.Shape
+			end)
+		end
+		for _, d in c:GetDescendants() do
+			if d:IsA("BaseScript") or d:IsA("ModuleScript") or d:IsA("ProximityPrompt") or d:IsA("ClickDetector") or d:IsA("JointInstance")
+				or d:IsA("Constraint") or d:IsA("Sound") or d:IsA("WeldConstraint") then
+				d:Destroy()
+			elseif d:IsA("Light") then
+				if MB.low() then
+					d:Destroy()
+				else
+					d.Shadows = false
+				end
+			end
+		end
+		for name in c:GetAttributes() do
+			c:SetAttribute(name, nil)
+		end
+		c.Name = "MobBuildingCopy"
+		c.Anchored = true
+		c.CanCollide = false
+		c.CanQuery = false
+		c.CanTouch = false
+		pcall(function()
+			c.CollisionGroup = "Default"
+		end)
+		c.LocalTransparencyModifier = 0
+		c.CFrame = part.CFrame
+		return c
+	end
+	-- hide a real part here (the wipe's shared record: VFX.ST.World)
+	function Bd.hide(st, part)
+		local e = { p = part }
+		local WSh = VFX.ST and VFX.ST.World
+		if WSh and WSh.hide then
+			WSh.hide(st.wst, e)
+		else
+			e.hidden = true
+			e.ltm = part.LocalTransparencyModifier
+			part.LocalTransparencyModifier = 1
+		end
+		table.insert(st.hidden, e)
+		return e
+	end
+	function Bd.unhide(e)
+		local WSh = VFX.ST and VFX.ST.World
+		if WSh and WSh.unhide then
+			WSh.unhide(e)
+		elseif e.hidden then
+			e.hidden = false
+			pcall(function()
+				e.p.LocalTransparencyModifier = e.ltm or 0
+			end)
+		end
+	end
+	-- a part of the building: hidden here, copied (one streamed out right
+	-- now is left: it's queued again as it streams back in)
+	function Bd.take(st, part)
+		if st.seen[part] or not part:IsA("BasePart") or not part.Parent then
+			return
+		end
+		st.seen[part] = true
+		local skip = false
+		if MB.low() then
+			for _, name in Bd.cfg().LowSkip or {} do
+				local f = st.real and st.real:FindFirstChild(name)
+				if f and part:IsDescendantOf(f) then
+					skip = true
+				end
+			end
+		end
+		if not skip then
+			local c = Bd.copy(part)
+			c.Parent = st.model
+			table.insert(st.entries, { c = c, rel = st.home:ToObjectSpace(part.CFrame) })
+		end
+		Bd.hide(st, part)
+	end
+	-- the building's parts into the queue (now, and as they stream in)
+	function Bd.attach(st)
+		if st.standIn then
+			return
+		end
+		local model = Bd.find(st)
+		if model and st.real ~= model then
+			st.real = model
+		end
+		if model and not st.attached then
+			st.attached = true
+			for _, d in model:GetDescendants() do
+				if d:IsA("BasePart") then
+					table.insert(st.queue, d)
+				end
+			end
+			table.insert(st.conns, model.DescendantAdded:Connect(function(d)
+				if Bd.states[st.id] == st and d:IsA("BasePart") then
+					table.insert(st.queue, d)
+				end
+			end))
+		end
+	end
+
+	-- THE FOUNDATION: a slab of earth and broken concrete under it (part of
+	-- its copy, underground till it tears out), rocks hanging off it, dirt
+	-- pouring off it; and the grit and glass raining off it as it comes up
+	function Bd.foundation(st)
+		local F = Bd.cfg().Foundation or {}
+		local size = st.size
+		local depth = F.Depth or 9
+		local function piece(s, rel, color, material)
+			local p = newPart(s, st.home * rel, color, material, nil, st.model)
+			p.Name = "MobFoundation"
+			table.insert(st.entries, { c = p, rel = rel })
+			return p
+		end
+		local slab = piece(Vector3.new(size.X * 0.96, depth, size.Z * 0.96), CFrame.new(0, -depth / 2, 0), F.Color or Color3.fromRGB(92, 74, 58), Enum.Material.Ground)
+		piece(Vector3.new(size.X * 0.98, 1.2, size.Z * 0.98), CFrame.new(0, -0.6, 0), F.Concrete or Color3.fromRGB(150, 146, 140), Enum.Material.Concrete)
+		local r = Random.new(st.id * 977 + 13)
+		for _ = 1, MB.low() and math.floor((F.Rocks or 12) / 2) or (F.Rocks or 12) do
+			local s = Vector3.new(r:NextNumber(3, 9), r:NextNumber(2, 6), r:NextNumber(3, 9)) * math.clamp(math.min(size.X, size.Z) / 84, 0.5, 1.6)
+			local rel = CFrame.new(r:NextNumber(-0.42, 0.42) * size.X, -depth - s.Y * 0.3, r:NextNumber(-0.42, 0.42) * size.Z) * CFrame.Angles(r:NextNumber(-0.5, 0.5), r:NextNumber(0, 6), r:NextNumber(-0.5, 0.5))
+			piece(s, rel, r:NextNumber() < 0.5 and (F.Color or Color3.fromRGB(92, 74, 58)) or STONE, r:NextNumber() < 0.5 and Enum.Material.Ground or Enum.Material.Slate)
+		end
+		local D = Bd.cfg().Dirt or {}
+		local pe = Instance.new("ParticleEmitter")
+		pe.Name = "MobDirt"
+		pe.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		pe.Color = ColorSequence.new(F.Color or Color3.fromRGB(92, 74, 58), DUST_DARK)
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, (D.Size or { 1.5, 4.5 })[1]), NumberSequenceKeypoint.new(1, (D.Size or { 1.5, 4.5 })[2]) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.7, 0.5), NumberSequenceKeypoint.new(1, 1) })
+		pe.Lifetime = NumberRange.new((D.Life or { 1.6, 2.4 })[1], (D.Life or { 1.6, 2.4 })[2])
+		pe.Speed = NumberRange.new(2, 6)
+		pe.Acceleration = Vector3.new(0, -40, 0)
+		pe.EmissionDirection = Enum.NormalId.Bottom
+		pe.SpreadAngle = Vector2.new(40, 40)
+		pe.LightInfluence = 0.8
+		pe.Rate = 0
+		pe.Parent = slab
+		st.dirt = pe
+		-- (the grit and glass raining off it: little squares, tumbling)
+		local rain = Instance.new("ParticleEmitter")
+		rain.Name = "MobRain"
+		rain.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		rain.Color = ColorSequence.new(GLASS, DUST)
+		rain.LightEmission = 0.3
+		rain.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(1, 0.4) })
+		rain.Lifetime = NumberRange.new(1.2, 2)
+		rain.Speed = NumberRange.new(1, 4)
+		rain.Acceleration = Vector3.new(0, -70, 0)
+		rain.EmissionDirection = Enum.NormalId.Bottom
+		rain.SpreadAngle = Vector2.new(70, 70)
+		rain.Rotation = NumberRange.new(0, 360)
+		rain.RotSpeed = NumberRange.new(-300, 300)
+		rain.Rate = 0
+		rain.Parent = slab
+		st.rain = rain
+	end
+	-- A STAND-IN (nothing in reach): a slab of the street torn up beside him -
+	-- the asphalt on top, concrete, the dirt and rocks under it - thrown the
+	-- same way, crumbled after
+	function Bd.slab(st)
+		local s = st.size
+		local function piece(size, rel, color, material)
+			local p = newPart(size, st.home * rel, color, material, nil, st.model)
+			p.Name = "MobSlab"
+			table.insert(st.entries, { c = p, rel = rel })
+			return p
+		end
+		piece(Vector3.new(s.X, s.Y - 0.8, s.Z), CFrame.new(0, (s.Y - 0.8) / 2, 0), Color3.fromRGB(150, 146, 140), Enum.Material.Concrete)
+		piece(Vector3.new(s.X, 0.8, s.Z), CFrame.new(0, s.Y - 0.4, 0), Color3.fromRGB(64, 64, 70), Enum.Material.Asphalt)
+		-- (the lane markings: a stripe down it)
+		piece(Vector3.new(0.9, 0.82, s.Z * 0.7), CFrame.new(0, s.Y - 0.39, 0), Color3.fromRGB(230, 220, 160), Enum.Material.SmoothPlastic)
+	end
+
+	-- THE PIT left on its lot while it's out (gone with the set-down)
+	function Bd.pit(st)
+		local P = Bd.cfg().Pit or {}
+		local home, size = st.home, st.size
+		local pit = newPart(Vector3.new(size.X * 0.97, 0.2, size.Z * 0.97), home * CFrame.new(0, 0.18, 0), P.Color or Color3.fromRGB(58, 48, 40), Enum.Material.Ground, nil, st.root)
+		pit.Name = "MobPit"
+		local r = Random.new(st.id * 131 + 7)
+		local rim = MB.low() and math.floor((P.Rim or 16) / 2) or (P.Rim or 16)
+		for i = 1, rim do
+			local a = (i - 0.5) / rim * TAU
+			local at = home * CFrame.new(math.cos(a) * size.X * 0.5, 0.4, math.sin(a) * size.Z * 0.5)
+			local s = Vector3.new(r:NextNumber(3, 7), r:NextNumber(1, 2.5), r:NextNumber(3, 6))
+			local chunk = newPart(s, at * CFrame.Angles(r:NextNumber(-0.6, 0.6), r:NextNumber(0, 6), r:NextNumber(-0.6, 0.6)), Color3.fromRGB(150, 146, 140), Enum.Material.Concrete, nil, st.root)
+			chunk.Name = "MobPit"
+		end
+	end
+	-- the street cracking round a footprint (home: its bottom's middle; size:
+	-- its extent): n cracks racing out from its edges (the awakening kit's)
+	function Bd.cracks(home, size, n, delayTime, len)
+		local AK = VFX.AK
+		if not (AK and AK.crack) then
+			return
+		end
+		if MB.low() then
+			n = math.max(math.floor(n / 2), 2)
+		end
+		for i = 1, n do
+			local a = (i - 0.5) / n * TAU + rand(-0.2, 0.2)
+			local dir = Vector3.new(math.cos(a), 0, math.sin(a))
+			local from = home.Position + Vector3.new(dir.X * size.X * 0.5, 0.3, dir.Z * size.Z * 0.5)
+			pcall(AK.crack, from, dir, rand((len or { 14, 30 })[1], (len or { 14, 30 })[2]), (delayTime or 0) + rand(0, 0.15))
+		end
+	end
+	-- THE SHADOW on the street under it while it's out (darker the lower it
+	-- is): you see it coming before it lands
+	function Bd.shadow(st, pose)
+		if not st.shadowPart then
+			local sh = newPart(Vector3.new(0.2, 1, 1), CFrame.new(), Color3.new(0, 0, 0), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder, st.root)
+			sh.Name = "MobShadow"
+			sh.Transparency = 1
+			st.shadowPart = sh
+		end
+		local sh = st.shadowPart
+		local c = (pose * CFrame.new(0, st.size.Y / 2, 0)).Position
+		rayParams.FilterDescendantsInstances = characterList()
+		local hit = workspace:Raycast(c + UP * 2, UP * -700, rayParams)
+		local h = hit and (c.Y - hit.Position.Y) or 1e3
+		if not hit or h < 3 or h > 600 then
+			sh.Transparency = 1
+			return
+		end
+		local d = math.max(st.size.X, st.size.Z) * (1 + h / 500)
+		sh.Size = Vector3.new(0.2, d, d)
+		sh.CFrame = CFrame.new(hit.Position + UP * 0.12) * CFrame.Angles(0, 0, math.rad(90))
+		sh.Transparency = math.clamp(0.4 + h / 400, 0.4, 0.88)
+	end
+
+	-- THE FLOAT (where it wants to be): over his right shoulder, turned with
+	-- him, its bottom Height up, turning, tilting, bobbing
+	function Bd.floatTarget(st, now)
+		local F = Bd.cfg().Float or {}
+		local char = st.char
+		local root = char and char.Parent and char:FindFirstChild("HumanoidRootPart")
+		if root and MB.ok(root.Position) then
+			st.lastRoot = root.CFrame
+		end
+		local rcf = st.lastRoot or (st.home + UP * 3)
+		local yaw = Bd.yawOf(rcf)
+		local s = st.size
+		local feet = rcf.Position - UP * 3
+		local off = Vector3.new(s.X / 2 + (F.Side or 14), F.Height or 16, -s.Z * (F.Ahead or 0.25))
+		local pos = (CFrame.new(feet) * CFrame.Angles(0, yaw, 0)) * off
+		local turn = math.sin(now * (F.TurnRate or 0.07) * TAU + st.id) * math.rad(F.Turn or 5)
+		local bob = math.sin(now * (F.BobRate or 0.2) * TAU + st.id) * (F.Bob or 1.8)
+		local tilt = math.rad(F.Tilt or 2) * math.sin(now * 0.11 * TAU + st.id * 2.3)
+		-- (leaning out from him: its top away from his head - about its bottom)
+		return CFrame.new(pos + UP * bob) * CFrame.Angles(0, yaw + turn, 0) * CFrame.Angles(tilt * 0.6, 0, -math.rad(F.Lean or 5) + tilt)
+	end
+	-- trailing him (Follow a second)
+	function Bd.follow(cur, target, dt)
+		local a = 1 - math.exp(-((Bd.cfg().Float or {}).Follow or 2.2) * math.max(dt, 0))
+		return cur:Lerp(target, a)
+	end
+	-- THE JAMMED POSE: its top Sink studs into the street at the spot, come in
+	-- along the way at Pitch degrees under the horizon (its bottom up behind);
+	-- its long side across his line (the twins come in as a wall, not one
+	-- tower behind the other over his head)
+	function Bd.impactCF(st, th)
+		local p = math.rad(th.Pitch or 62)
+		local flat = th.Dir
+		local v = flat * math.cos(p) - UP * math.sin(p)
+		local side = flat:Cross(UP)
+		if side.Magnitude < 0.5 then
+			side = Vector3.new(1, 0, 0)
+		end
+		side = side.Unit
+		local pos = th.Spot + v * ((th.Sink or 14) - st.size.Y)
+		if st.size.Z > st.size.X then
+			return CFrame.fromMatrix(pos, v:Cross(side), v, side), v
+		end
+		return CFrame.fromMatrix(pos, side, v), v
+	end
+	-- ((round 102 review) the nearest this one lands (the server's own
+	-- Kit.MOB.B.minDist): its near face, jammed in, ThrowClear studs off him
+	function Bd.minDist(size)
+		local A = Bd.ab()
+		local p = math.rad(math.clamp(A.Pitch or 62, 20, 89))
+		local depth = math.min(size.X, size.Z)
+		local need = (depth / 2 + (Bd.cfg().ThrowClear or 8) + 6 * math.cos(p)) / math.sin(p)
+		return math.min(math.max(A.MinRange or 50, need), A.Range or 220)
+	end
+	-- a keyed path: each leg eased its own way, an arc, a shake; held on its last
+	function Bd.keyed(keys, now, k)
+		if now <= keys[1].t then
+			return keys[1].cf
+		end
+		for i = 2, #keys do
+			local a, b = keys[i - 1], keys[i]
+			if now < b.t then
+				local u = (now - a.t) / math.max(b.t - a.t, 1e-3)
+				local cf = a.cf:Lerp(b.cf, ease(u, b.ease))
+				if b.arc then
+					cf = cf + UP * math.sin(u * math.pi) * b.arc
+				end
+				if b.shake then
+					cf = cf * Bd.shake(now, k, b.shake * (b.decay and (1 - u) or 1))
+				end
+				return cf
+			end
+		end
+		return keys[#keys].cf
+	end
+	-- THE THROW'S PATH from where it is (from: its pose now): turned end-first
+	-- and pulled back over the Windup, flown in to the jammed pose by HitAt,
+	-- shaking there as it settles
+	function Bd.throwKeys(st, from, now)
+		local th = st.throw
+		local A = Bd.ab()
+		local Cf = Bd.cfg()
+		local I, v = Bd.impactCF(st, th)
+		local half = CFrame.new(0, st.size.Y / 2, 0)
+		local c0 = (from * half).Position
+		local flat = th.Dir
+		local cW = c0 - flat * (Cf.Pull or 12) + UP * (Cf.Pull or 12) * 0.6
+		local W = CFrame.new(cW) * I.Rotation * half:Inverse()
+		local wEnd = th.ThrowAt + (A.Windup or 0.35)
+		st.jammed = I
+		st.inward = v
+		return {
+			{ t = math.min(now, th.ThrowAt), cf = from },
+			{ t = math.max(wEnd, now + 0.05), cf = W, ease = "inout", shake = 0.4 },
+			{ t = math.max(th.HitAt, wEnd + 0.05), cf = I, ease = "in", arc = A.Arc or 30, shake = Cf.FlyShake or 0.5 },
+			{ t = th.HitAt + (A.Stay or 1.4), cf = I, ease = "lin", shake = Cf.StayShake or 0.6, decay = true },
+		}
+	end
+	-- where it is now
+	function Bd.pose(st, now, dt)
+		local Cf = Bd.cfg()
+		local home = st.home
+		local target = Bd.floatTarget(st, now)
+		st.hover = st.hover and Bd.follow(st.hover, target, dt) or target
+		local tear = st.at + (Cf.Tear or 0.8)
+		local risen = tear + (Cf.Rise or 1.3)
+		local base
+		if now < st.at then
+			base = home
+		elseif now < tear then
+			local u = (now - st.at) / (Cf.Tear or 0.8)
+			base = home * Bd.shake(now, st.id, (Cf.Shake or 0.7) * (1 - u * 0.5)) + UP * (Cf.TearUp or 5) * ease(u, "in")
+		elseif now < risen then
+			local u = (now - tear) / (Cf.Rise or 1.3)
+			local from = home + UP * (Cf.TearUp or 5)
+			base = from:Lerp(st.hover, ease(u, "inout")) * Bd.shake(now, st.id, 0.35 * (1 - u) + (Cf.Tremble or 0.35) * u)
+		else
+			-- ((round 102 review) held by his power: trembling the whole time)
+			base = st.hover * Bd.shake(now, st.id, Cf.Tremble or 0.35)
+		end
+		if st.keys then
+			base = Bd.keyed(st.keys, now, st.id)
+		end
+		if st.downAt and now >= st.downAt then
+			local SD = Cf.SetDown or 3.2
+			if not st.downFrom then
+				st.downFrom = st.last or base
+			end
+			local from = st.downFrom
+			local t0 = st.downAt
+			-- (driven into the street: pulled out first, back the way it came)
+			if st.jammed and st.inward then
+				local pullT = SD * (Cf.PullShare or 0.22)
+				local out = from - st.inward * (Cf.Out or 24)
+				if now < t0 + pullT then
+					return from:Lerp(out, ease((now - t0) / pullT, "out")) * Bd.shake(now, st.id, 0.5)
+				end
+				from, t0 = out, t0 + pullT
+			end
+			local over = CFrame.new(home.Position + UP * (Cf.Over or 16)) * home.Rotation
+			local split = st.downAt + SD * (1 - (Cf.Lower or 0.32))
+			if now < split then
+				local u = (now - t0) / math.max(split - t0, 1e-3)
+				return from:Lerp(over, ease(u, "inout")) + UP * math.sin(u * math.pi) * (Cf.Arc or 26)
+			end
+			local u = (now - split) / math.max(st.downAt + SD - split, 1e-3)
+			return over:Lerp(home, ease(u, "inout"))
+		end
+		return base
+	end
+
+	-- a beat of its own (its FX): fn at the server's time t
+	function Bd.at(st, t, fn)
+		table.insert(st.events, { t = t, fn = fn })
+	end
+	-- the middle of it right now (or of its home)
+	function Bd.mid(st)
+		return ((st.last or st.home) * CFrame.new(0, st.size.Y / 2, 0)).Position
+	end
+
+	-- BEGIN: the server's word (MobBuildingUp) or its record (a screen come in late)
+	function Bd.begin(char, info)
+		local id = tonumber(info.Id)
+		if not id or Bd.done[id] then
+			return nil
+		end
+		local old = Bd.states[id]
+		if old then
+			return old
+		end
+		if typeof(info.Home) ~= "CFrame" or typeof(info.Size) ~= "Vector3" or not MB.ok(info.Home.Position) or not MB.ok(info.Size) then
+			return nil
+		end
+		local root = Instance.new("Folder")
+		root.Name = "MobBuilding"
+		root.Parent = folder
+		local model = Instance.new("Model")
+		model.Name = "MobBuildingCopy"
+		model.Parent = root
+		local st = {
+			id = id, char = char, owner = info.Owner, folder = info.Folder, name = info.Name, pivot = info.Pivot, real = info.Model,
+			standIn = info.StandIn == true, home = info.Home, size = info.Size, at = tonumber(info.At) or MB.now(), root = root, model = model,
+			entries = {}, hidden = {}, seen = {}, queue = {}, events = {}, conns = {},
+			wst = { pieceCount = 0, maxPieces = 0, hidden = {}, late = {} },
+		}
+		Bd.states[id] = st
+		if st.standIn then
+			Bd.slab(st)
+		else
+			Bd.foundation(st)
+		end
+		Bd.attach(st)
+		-- ((round 102 review) HELD BY HIS POWER: the whole of it outlined in his
+		-- colour (iridescent in the ult) from the tear-out till it's set down -
+		-- one Highlight a building (a screen has 31); none on a low-end machine
+		if not MB.low() then
+			local h = Instance.new("Highlight")
+			h.Name = "MobBuildingOutline"
+			h.FillTransparency = 1
+			h.OutlineTransparency = 1
+			h.OutlineColor = PSY
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Parent = model
+			st.outline = h
+		end
+		-- THE TEAR-OUT
+		Bd.at(st, st.at, function()
+			local Cf = Bd.cfg()
+			local mid = st.home.Position
+			-- (a screen come in late gets only what's left: the pit, the dirt)
+			local stale = MB.now() - st.at > 1
+			if not stale then
+				MB.far("MobBuildingTear", mid, st.standIn and 0.8 or 1.3)
+				MB.far("MobBuildingGroan", mid + UP * st.size.Y / 2, 1)
+				Bd.cracks(st.home, st.size, st.standIn and 6 or 10, 0)
+				local n = MB.low() and 5 or 12
+				for i = 1, n do
+					local a = i / n * TAU
+					dustPuffs(st.home.Position + Vector3.new(math.cos(a) * st.size.X * 0.52, 1, math.sin(a) * st.size.Z * 0.52), st.standIn and 1.4 or 2.4, 2, DUST, 1.5, false)
+				end
+				rocks(st.home.Position + UP * 3, st.standIn and 1.5 or 2.5, MB.low() and 5 or 12)
+				VFX.ShakeAt(mid, st.standIn and 2 or 3.2, 700, 1.2)
+				if st.rain then
+					local R = Cf.Rain or {}
+					st.rain.Rate = MB.low() and (R.LowRate or 15) or (R.Rate or 60)
+					task.delay(R.Time or 2.2, function()
+						if st.rain and st.rain.Parent then
+							st.rain.Rate = 0
+						end
+					end)
+				end
+			end
+			if not st.standIn then
+				Bd.pit(st)
+			end
+			if st.dirt then
+				st.dirt.Rate = MB.low() and ((Cf.Dirt or {}).LowRate or 6) or ((Cf.Dirt or {}).Rate or 22)
+			end
+		end)
+		Bd.at(st, st.at + (Bd.cfg().Tear or 0.8), function()
+			if MB.now() - (st.at + (Bd.cfg().Tear or 0.8)) < 1 then
+				MB.far("MobBuildingRise", st.home.Position, st.standIn and 0.6 or 1)
+			end
+		end)
+		if typeof(info.ThrowAt) == "number" then
+			Bd.thrown(st, info)
+		end
+		if typeof(info.DownAt) == "number" then
+			Bd.downed(st, info.DownAt)
+		end
+		return st
+	end
+	-- the server's throw (its word, or the record's)
+	function Bd.thrown(st, info)
+		local spot, dir = info.Spot, info.Dir
+		if st.throw or not (MB.ok(spot) and MB.ok(dir)) or typeof(info.HitAt) ~= "number" or typeof(info.ThrowAt) ~= "number" then
+			return
+		end
+		local flat = Vector3.new(dir.X, 0, dir.Z)
+		flat = flat.Magnitude > 0.05 and flat.Unit or Vector3.new(0, 0, -1)
+		st.throw = { ThrowAt = info.ThrowAt, HitAt = info.HitAt, Spot = spot, Dir = flat, Pitch = tonumber(info.Pitch) or 62, Sink = tonumber(info.Sink) or 14 }
+		local now = MB.now()
+		local from = st.last or Bd.floatTarget(st, now)
+		st.keys = Bd.throwKeys(st, from, now)
+		local th = st.throw
+		-- the turn end-first: stone and girders straining, his power round it
+		Bd.at(st, th.ThrowAt, function()
+			if MB.now() - th.ThrowAt < 0.5 then
+				MB.far("MobBuildingWindup", Bd.mid(st), st.standIn and 0.8 or 1.2)
+				MB.B.windupFx(st)
+			end
+		end)
+		-- the throw: the whoosh, a ring off it, a trail of rubble
+		Bd.at(st, th.ThrowAt + (Bd.ab().Windup or 0.35), function()
+			if MB.now() < th.HitAt then
+				MB.far("MobBuildingThrow", Bd.mid(st), st.standIn and 1 or 1.4)
+				MB.B.launchFx(st)
+			end
+		end)
+		-- THE IMPACT
+		Bd.at(st, th.HitAt, function()
+			if MB.now() - th.HitAt < 1.5 then
+				MB.B.impactFx(st, MB.now() - th.HitAt > 0.4)
+			end
+		end)
+	end
+	-- the server's word it's going home (DownAt)
+	function Bd.downed(st, at)
+		if st.downAt then
+			return
+		end
+		st.downAt = tonumber(at) or MB.now()
+		local SD = Bd.cfg().SetDown or 3.2
+		-- (never thrown - the ult's over: his hand comes down)
+		if not st.throw and st.char and MB.lifting[st.char] then
+			MB.lifting[st.char] = nil
+			VFX.ReleasePose(st.char, 0.3)
+		end
+		if st.standIn then
+			-- (a slab of the street: it crumbles where it is)
+			Bd.at(st, st.downAt, function()
+				MB.B.crumble(st)
+			end)
+			return
+		end
+		Bd.at(st, st.downAt, function()
+			if MB.now() - st.downAt < 1 then
+				if st.jammed then
+					MB.far("MobBuildingPull", st.throw and st.throw.Spot or Bd.mid(st), 1.2)
+					if st.throw then
+						dustPuffs(st.throw.Spot, 3, MB.low() and 3 or 8, DUST, 1.6, false)
+						rocks(st.throw.Spot + UP * 3, 2, MB.low() and 4 or 10)
+					end
+				end
+				MB.far("MobBuildingRise", Bd.mid(st), 0.8)
+			end
+		end)
+		Bd.at(st, st.downAt + SD - 0.05, function()
+			if MB.now() - (st.downAt + SD) > 0.5 then
+				return
+			end
+			MB.far("MobBuildingSetDown", st.home.Position, 1.3)
+			VFX.ShakeAt(st.home.Position, 3, 600, 0.9)
+			Bd.cracks(st.home, st.size, 12, 0.05)
+			local n = MB.low() and 4 or 10
+			for i = 1, n do
+				local a = i / n * TAU
+				dustPuffs(st.home.Position + Vector3.new(math.cos(a) * st.size.X * 0.53, 1, math.sin(a) * st.size.Z * 0.53), 2.2, 2, DUST, 1.3, false)
+			end
+			if st.dirt then
+				st.dirt.Rate = 0
+			end
+		end)
+	end
+	-- from ReplicatedStorage.MobBuildings: one record's state as the server
+	-- has it (nil: none)
+	function Bd.fromRecord(rec)
+		local phase = rec:GetAttribute("Phase")
+		if phase ~= "float" and phase ~= "thrown" and phase ~= "down" then
+			return nil
+		end
+		local home, size = rec:GetAttribute("Home"), rec:GetAttribute("Size")
+		if typeof(home) ~= "CFrame" or typeof(size) ~= "Vector3" then
+			return nil
+		end
+		local owner
+		pcall(function()
+			owner = Players:GetPlayerByUserId(rec:GetAttribute("Owner") or 0)
+		end)
+		local ov = rec:FindFirstChild("Building")
+		return {
+			Id = rec:GetAttribute("Id"), Model = ov and ov:IsA("ObjectValue") and ov.Value or nil, Folder = rec:GetAttribute("Folder"), Name = rec:GetAttribute("Name"),
+			Pivot = rec:GetAttribute("Pivot"), Home = home, Size = size, At = rec:GetAttribute("At") or MB.now(), Owner = owner, StandIn = rec:GetAttribute("StandIn") == true,
+			ThrowAt = rec:GetAttribute("ThrowAt"), HitAt = rec:GetAttribute("HitAt"), Spot = rec:GetAttribute("Spot"), Dir = rec:GetAttribute("Dir"),
+			Pitch = rec:GetAttribute("Pitch"), Sink = rec:GetAttribute("Sink"), DownAt = phase == "down" and rec:GetAttribute("DownAt") or nil,
+		}
+	end
+	-- the records checked (every half a second, and on the server's words):
+	-- one this screen missed is built (or caught up: thrown, going home); one
+	-- the server's given back goes now
+	function Bd.sync()
+		local recs = game:GetService("ReplicatedStorage"):FindFirstChild("MobBuildings")
+		local live = {}
+		for _, rec in recs and recs:GetChildren() or {} do
+			local id = tonumber(rec:GetAttribute("Id"))
+			if id and not Bd.done[id] then
+				local info = Bd.fromRecord(rec)
+				if info then
+					live[id] = true
+					local st = Bd.states[id]
+					if not st then
+						local char = info.Owner and info.Owner.Character
+						st = Bd.begin(char, info)
+						if st then
+							st.late = true
+						end
+					else
+						if info.ThrowAt and not st.throw then
+							Bd.thrown(st, info)
+						end
+						if info.DownAt and not st.downAt then
+							Bd.downed(st, info.DownAt)
+						end
+					end
+				end
+			end
+		end
+		-- (the server's given it back - the record this screen saw is gone:
+		-- everything here goes too, the set-down's own end is the same moment)
+		for id, st in Bd.states do
+			if live[id] then
+				st.recSeen = true
+			elseif st.recSeen then
+				Bd.finish(st)
+			end
+		end
+	end
+
+	-- one frame of one of them
+	function Bd.step(st, dt)
+		local Cf = Bd.cfg()
+		local now = MB.now()
+		if (st.downAt and now >= st.downAt + (Cf.SetDown or 3.2)) or now > st.at + (Cf.MaxTime or 24) + (Cf.SetDown or 3.2) + 1 then
+			Bd.finish(st)
+			return
+		end
+		if st.owner and typeof(st.owner) == "Instance" then
+			local c = st.owner.Character
+			if c then
+				st.char = c
+			end
+		end
+		if not st.attached then
+			Bd.attach(st)
+		end
+		-- (a slice of the building a frame)
+		local batch = Cf.Batch or 160
+		while batch > 0 and #st.queue > 0 do
+			Bd.take(st, table.remove(st.queue))
+			batch -= 1
+		end
+		-- the beats due
+		local i = 1
+		while i <= #st.events do
+			local ev = st.events[i]
+			if now >= ev.t then
+				table.remove(st.events, i)
+				local ok, err = pcall(ev.fn)
+				if not ok then
+					warn("[VFX.MOB] a building beat: " .. tostring(err))
+				end
+			else
+				i += 1
+			end
+		end
+		-- (now and then it groans as it hangs over him)
+		if not st.throw and not st.downAt and now > st.at + (Cf.Tear or 0.8) + (Cf.Rise or 1.3) and now >= (st.groanAt or 0) then
+			st.groanAt = now + rand(3, 5)
+			if st.last and (st.last.Position - MB.camPos()).Magnitude < 700 then
+				VFX.PlaySound("MobBuildingGroan", st.last.Position + UP * st.size.Y * 0.5, 0.7)
+			end
+		end
+		-- THE FRAME'S COST: the copies' list built once (again only when
+		-- copies are added), each frame only their places worked out into the
+		-- same table: one BulkMoveTo. A camera far from it, or a low-end
+		-- machine, moves the float every other frame (the tear-out, the
+		-- throw and the set-down every frame)
+		local bulk = st.bulk
+		local n = #st.entries
+		if not bulk or bulk.n ~= n then
+			bulk = { n = n, parts = {}, rels = {}, cfs = {} }
+			for _, e in st.entries do
+				table.insert(bulk.parts, e.c)
+				table.insert(bulk.rels, e.rel)
+			end
+			st.bulk = bulk
+		end
+		local cam = MB.camPos()
+		st.acc = (st.acc or 0) + dt
+		st.frame = (st.frame or 0) + 1
+		local settled = now > st.at + (Cf.Tear or 0.8) + (Cf.Rise or 1.3) + 0.5 and not st.keys and not st.downAt
+		local far = ((st.last or st.home).Position - cam).Magnitude > (Cf.FarStep or 600)
+		if settled and (far or MB.low()) and st.frame % 2 == 1 then
+			return
+		end
+		local stepDt = st.acc
+		st.acc = 0
+		local pose = Bd.pose(st, now, stepDt)
+		if not (pose and MB.ok(pose.Position)) then
+			pose = st.last or st.home
+		end
+		st.last = pose
+		if now >= st.at and not MB.low() then
+			Bd.shadow(st, pose)
+		end
+		-- ((round 102 review) his power's outline round it: up with the
+		-- tear-out, his colour (cycling at ???%), gone as it's lowered in
+		local h = st.outline
+		if h then
+			local o = Cf.Outline or 0.3
+			local a = now < st.at and 1 or o + (1 - o) * (1 - math.clamp((now - st.at) / math.max(Cf.Tear or 0.8, 0.05), 0, 1))
+			if st.downAt then
+				local SD = Cf.SetDown or 3.2
+				local fade0 = st.downAt + SD * (1 - (Cf.Lower or 0.32))
+				if now > fade0 then
+					a = math.max(a, o + (1 - o) * math.clamp((now - fade0) / math.max(st.downAt + SD - fade0, 0.05), 0, 1))
+				end
+			end
+			h.OutlineTransparency = a
+			h.OutlineColor = MB.color(st.char)
+		end
+		-- (the camera inside it: thinned out of the way)
+		local rel = pose:PointToObjectSpace(cam)
+		local s = st.size
+		local clear = Cf.CameraClear or 10
+		local inside = math.abs(rel.X) < s.X / 2 + clear and math.abs(rel.Z) < s.Z / 2 + clear and rel.Y > -12 - clear and rel.Y < s.Y + clear
+		if inside ~= (st.faded == true) then
+			st.faded = inside
+			for _, e in st.entries do
+				e.c.LocalTransparencyModifier = inside and 0.85 or 0
+			end
+		end
+		local cfs, rels = bulk.cfs, bulk.rels
+		for j = 1, #bulk.parts do
+			cfs[j] = pose * rels[j]
+		end
+		local WSh = VFX.ST and VFX.ST.World
+		if #bulk.parts > 0 then
+			if WSh and WSh.move then
+				WSh.move(bulk.parts, cfs)
+			else
+				for j, p in bulk.parts do
+					p.CFrame = cfs[j]
+				end
+			end
+		end
+		-- (lowered into its lot: this screen's own body is never left in it)
+		if st.downAt and not st.standIn and now >= st.downAt + (Cf.SetDown or 3.2) * (1 - (Cf.Lower or 0.32)) then
+			Bd.clear(st, false)
+		end
+		-- what's hidden, a slice a frame looked at (the wipe's own recheck:
+		-- see-through, CanCollide and CanQuery - anything else on this screen
+		-- that changed one of them meanwhile is undone, and what it set is
+		-- what it goes back to)
+		if WSh and WSh.recheck then
+			WSh.recheck(st.wst)
+		end
+		-- (his own screen: where it'll land)
+		pcall(Bd.marker, st)
+	end
+	-- NOBODY LEFT INSIDE IT. This screen's own body (it owns its physics)
+	-- standing in the lot as it's lowered in is shoved out past the nearest
+	-- edge; at the end (hard) one still inside is put just outside it
+	function Bd.clear(st, hard)
+		local me = MB.me()
+		local root = me and me:FindFirstChild("HumanoidRootPart")
+		if not (root and root.Parent and MB.ok(root.Position)) or root.Anchored or st.standIn then
+			return false
+		end
+		local Cf = Bd.cfg()
+		local margin = Cf.ClearMargin or 3
+		local home, s = st.home, st.size
+		local rel = home:PointToObjectSpace(root.Position)
+		local hx, hz = s.X / 2 + margin, s.Z / 2 + margin
+		if math.abs(rel.X) < hx and math.abs(rel.Z) < hz and rel.Y > -6 and rel.Y < s.Y + 6 then
+			local dx, dz = hx - math.abs(rel.X), hz - math.abs(rel.Z)
+			local out = dx < dz and Vector3.new(rel.X >= 0 and 1 or -1, 0, 0) or Vector3.new(0, 0, rel.Z >= 0 and 1 or -1)
+			local way = home:VectorToWorldSpace(out)
+			local dist = math.min(dx, dz) + 1
+			if hard then
+				root.CFrame = CFrame.new(root.Position + way * dist) * root.CFrame.Rotation
+				return true
+			elseif not st.shoved then
+				st.shoved = true
+				local speed = Cf.ClearSpeed or 90
+				dash(root, way * speed + UP * 18, math.clamp(dist / speed, 0.1, 0.8))
+				dustPuffs(groundPoint(root.Position), 0.8, 3, DUST, 0.7, false)
+				return true
+			end
+		end
+		return false
+	end
+	-- THE END (home, the server's given it back, or MaxTime): every real part
+	-- shown again exactly as it was; every copy gone; this id never built again
+	function Bd.finish(st)
+		if st.done then
+			return
+		end
+		st.done = true
+		if Bd.states[st.id] == st then
+			Bd.states[st.id] = nil
+		end
+		Bd.done[st.id] = true
+		for _, c in st.conns do
+			c:Disconnect()
+		end
+		-- (anyone of this screen's still in the lot is put outside it first:
+		-- the building's solid again a moment from now)
+		pcall(Bd.clear, st, true)
+		for _, e in st.hidden do
+			Bd.unhide(e)
+		end
+		table.clear(st.hidden)
+		if st.marker then
+			pcall(function()
+				st.marker:Destroy()
+			end)
+		end
+		pcall(function()
+			st.root:Destroy()
+		end)
+	end
+
+	-- the server: it's his (R's tap)
+	function Effects.MobBuildingUp(char, data)
+		if type(data) ~= "table" then
+			return
+		end
+		Bd.begin(char, data)
+	end
+	-- the server: thrown
+	function Effects.MobBuildingThrow(char, data)
+		if type(data) ~= "table" then
+			return
+		end
+		local st = Bd.states[tonumber(data.Id) or -1]
+		if not st then
+			Bd.sync()
+			st = Bd.states[tonumber(data.Id) or -1]
+		end
+		if st then
+			Bd.thrown(st, data)
+		end
+		-- (his throw on every screen: the arm swept down the line)
+		if char and char.Parent and not MB.mine(char) then
+			MB.B.throwPose(char, data, tonumber(data.ThrowAt))
+		end
+	end
+	-- the server: going home (DownAt)
+	function Effects.MobBuildingDown(_, data)
+		if type(data) ~= "table" then
+			return
+		end
+		local st = Bd.states[tonumber(data.Id) or -1]
+		if not st then
+			Bd.sync()
+			st = Bd.states[tonumber(data.Id) or -1]
+		end
+		if st then
+			Bd.downed(st, data.At)
+		end
+	end
+	-- the server: given back (its own moment) - nothing of it left here
+	function Effects.MobBuildingGone(_, data)
+		if type(data) ~= "table" then
+			return
+		end
+		local st = Bd.states[tonumber(data.Id) or -1]
+		if st then
+			Bd.finish(st)
+		elseif tonumber(data.Id) then
+			Bd.done[tonumber(data.Id)] = true
+		end
+	end
+
+	-- glass breaking: shards bursting off a point, bouncing, fading
+	function Bd.shards(at, n, speed)
+		if MB.low() then
+			n = math.min(n, 3)
+		end
+		for _ = 1, n do
+			local s = newPart(Vector3.new(rand(0.4, 1.4), 0.06, rand(0.3, 1.1)), CFrame.new(at + UP * 0.5) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), GLASS, Enum.Material.Glass)
+			s.Name = "MobGlass"
+			s.Transparency = 0.35
+			local out = Vector3.new(rand(-1, 1), rand(0.2, 1), rand(-1, 1)).Unit * rand(6, speed or 16)
+			tween(s, 0.8, { CFrame = CFrame.new(at + out - UP * 2) * CFrame.Angles(rand(0, 9), rand(0, 9), rand(0, 9)), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			cleanup(s, 0.85)
+		end
+	end
+	-- THE TURN END-FIRST (ThrowAt): his power wraps it - a bending of the air
+	-- round its middle, an iridescent ring off it, dust shaken off its base;
+	-- a pulse off his hand
+	function Bd.windupFx(st)
+		local mid = Bd.mid(st)
+		local big = math.max(st.size.X, st.size.Y, st.size.Z)
+		local col = MB.hue(os.clock() / ((C.Ult or {}).Hue or 2.4))
+		if not MB.low() then
+			MB.distort(mid, big * 0.5, big * 1.25, 0.45, col)
+		end
+		billboardRing(mid, big * 0.4, big * 1.4, col, 10, 0.4)
+		local base = ((st.last or st.home) * CFrame.new(0, -2, 0)).Position
+		dustPuffs(base, 2.4, MB.low() and 2 or 5, DUST, 1.2, false)
+		local root = st.char and st.char:FindFirstChild("HumanoidRootPart")
+		if root then
+			MB.handPulse(st.char, root, 0, UP, 7, true)
+		end
+	end
+	-- THE THROW (ThrowAt + Windup): a ring of air blown off it down its line,
+	-- the wind streaking past it, the dirt pouring harder, rubble shed behind
+	-- it all the way in; his screen's speed lines
+	function Bd.launchFx(st)
+		local th = st.throw
+		local mid = Bd.mid(st)
+		local big = math.max(st.size.X, st.size.Z)
+		shockDisc(mid, th.Dir, big * 0.6, big * 1.8, 0.45, PSY, 14)
+		streaks(mid, th.Dir, MB.low() and 6 or 16, big * 0.4, 18, 60, PSY, 0.45)
+		if st.dirt then
+			st.dirt.Rate = MB.low() and 10 or 50
+		end
+		local hitAt = th.HitAt
+		task.spawn(function()
+			while MB.now() < hitAt and st.root.Parent do
+				local base = ((st.last or st.home) * CFrame.new(rand(-0.4, 0.4) * st.size.X, -3, rand(-0.4, 0.4) * st.size.Z)).Position
+				local p = MB.pebble(rand(1.2, 3.2), CFrame.new(base) * CFrame.Angles(rand(0, 6), rand(0, 6), 0), rng:NextNumber() < 0.5 and STONE or DUST_DARK)
+				tween(p, 0.9, { CFrame = CFrame.new(base - UP * 40 + th.Dir * 10) * CFrame.Angles(rand(0, 9), rand(0, 9), 0), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				cleanup(p, 0.95)
+				task.wait(MB.low() and 0.12 or 0.05)
+			end
+		end)
+		if MB.mine(st.char) then
+			VFX.Hooks.SpeedLines(0.6)
+			VFX.Shake(1.2, 0.3)
+		end
+	end
+	-- THE IMPACT (HitAt) - the biggest hit in his kit: the flash, the street
+	-- blown out in a ring of air and a wall of dust rolling out, rubble and
+	-- glass everywhere, the crater cracking open round it, the screen shaking
+	-- by how near it is; the impact frame and a white flash on the screens of
+	-- the one who threw it and anyone near. (late: a screen come in after it -
+	-- what's left, not the bang)
+	function Bd.impactFx(st, late)
+		local th = st.throw
+		local A = Bd.ab()
+		local spot = th.Spot
+		local k = math.clamp(math.min(st.size.X, st.size.Z) / 84, 0.55, 1.6)
+		local radius = math.clamp(math.min(st.size.X, st.size.Z) * 0.5, A.Radius or 30, math.max(A.MaxRadius or 56, A.Radius or 30))
+		local ring = radius + (A.RingRadius or 70)
+		-- (its own bulk stands over the spot: the street goes round its edge)
+		local edge = math.max(st.size.X, st.size.Z) * 0.55
+		local low = MB.low()
+		local function round(r, a)
+			return spot + Vector3.new(math.cos(a), 0, math.sin(a)) * r
+		end
+		if st.dirt then
+			st.dirt.Rate = low and 6 or 22
+		end
+		if not late then
+			MB.far("MobBuildingImpact", spot, st.standIn and 1.1 or 1.6)
+			-- the flash: white bursting out round its foot, then his colours
+			for i = 1, low and 2 or 4 do
+				local at = round(edge * 0.9, i / 4 * TAU + 0.4) + UP * 4
+				local flash = newPart(Vector3.one * 8, CFrame.new(at), Color3.new(1, 1, 1), Enum.Material.Neon, Enum.PartType.Ball)
+				flash.Name = "MobFlash"
+				flash.Transparency = 0.05
+				tween(flash, 0.3, { Size = Vector3.one * edge * 0.9, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				cleanup(flash, 0.34)
+			end
+			local glow = newPart(Vector3.one * 0.5, CFrame.new(round(edge, 0) + UP * 8), PSY, Enum.Material.Neon, Enum.PartType.Ball)
+			glow.Name = "MobFlash"
+			glow.Transparency = 1
+			local light = Instance.new("PointLight")
+			light.Color = PSY
+			light.Brightness = 8
+			light.Range = 60
+			light.Shadows = false
+			light.Parent = glow
+			tween(light, 0.6, { Brightness = 0 })
+			cleanup(glow, 0.65)
+			-- the ring of air blown out along the street from its foot, a second
+			-- rolling after it, and his rainbow ringing off it
+			shockDisc(spot + UP * 1.5, UP, edge * 1.6, ring * 2.4, 0.55, PSY)
+			shockDisc(spot + UP * 0.6, UP, edge * 1.4, ring * 1.8, 1, DUST)
+			for i = 0, 2 do
+				task.delay(i * 0.07, function()
+					billboardRing(spot + UP * (6 + i * 4), edge, ring * (1.3 + i * 0.35), MB.hue(i / 3 + os.clock() * 0.2), 12 - i * 3, 0.45 + i * 0.1)
+				end)
+			end
+			VFX.ShakeAt(spot, 9, 900, 1.4)
+			local me = MB.me()
+			local mr = me and me:FindFirstChild("HumanoidRootPart")
+			if (me ~= nil and me == st.char) or (mr and (mr.Position - spot).Magnitude < ring * 1.3) then
+				VFX.ImpactFrame(0.1)
+				VFX.Hooks.Flash(Color3.new(1, 1, 1), 0.25)
+			end
+			-- the street thrown up off its foot: slabs flung out and over
+			for i = 1, low and 4 or 10 do
+				local a = i / (low and 4 or 10) * TAU + rand(-0.2, 0.2)
+				local from = round(edge * rand(0.85, 1), a) + UP * 2
+				local to = round(edge * rand(1.5, 2.1), a)
+				local s = Vector3.new(rand(3, 7), rand(1, 2.2), rand(3, 6)) * k
+				local slab = newPart(s, CFrame.new(from) * CFrame.Angles(rand(0, 6), rand(0, 6), 0), Color3.fromRGB(118, 114, 110), Enum.Material.Concrete)
+				slab.Name = "MobDebris"
+				local apex = (from + to) / 2 + UP * rand(14, 26) * k
+				tween(slab, 0.35, { CFrame = CFrame.new(apex) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				tween(slab, 0.45, { CFrame = CFrame.new(to + UP * s.Y * 0.4) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.35)
+				tween(slab, 1, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, 3.5)
+				cleanup(slab, 4.6)
+			end
+		end
+		-- the wall of dust rolling out round its foot, a second band after it,
+		-- and the cloud standing up over it all
+		local n = low and 8 or 22
+		for i = 1, n do
+			local a = i / n * TAU + rand(-0.1, 0.1)
+			dustPuffs(round(edge * rand(0.95, 1.3), a) + UP, 3.6 * k, 2, DUST, 2.4, false)
+		end
+		task.delay(0.25, function()
+			for i = 1, low and 6 or 14 do
+				local a = i / (low and 6 or 14) * TAU + rand(-0.2, 0.2)
+				dustPuffs(round(edge * rand(1.5, 1.9), a) + UP, 2.6 * k, 1, DUST, 2, false)
+			end
+		end)
+		smokeBurst(spot + UP * 12 * k, DUST, 18 * k, edge * 1.6, 2.8, low and 14 or 36)
+		-- rubble and glass thrown everywhere off its foot
+		for i = 1, low and 3 or 6 do
+			local at = round(edge * 1.05, i / 6 * TAU)
+			rocks(at + UP * 4, 3, low and 3 or 5)
+			if i % 2 == 0 then
+				Bd.shards(at + UP * 8, low and 2 or 6, 30)
+			end
+		end
+		-- the crater round its foot: the street scorched, cracks racing out, its
+		-- rim of broken slabs tipped up
+		groundMark(spot, math.max(A.Crater or 26, edge), Color3.fromRGB(46, 40, 36), 7)
+		Bd.cracks(CFrame.new(spot), Vector3.new(edge * 2.2, 0, edge * 2.2), low and 8 or 16, 0, { 30, 70 })
+		local rim = low and 10 or 22
+		for i = 1, rim do
+			local a = (i - 0.5) / rim * TAU + rand(-0.12, 0.12)
+			local at = round(edge * rand(0.98, 1.25), a)
+			local s = Vector3.new(rand(5, 11), rand(1.5, 3.5), rand(5, 9)) * k
+			local slab = newPart(s, CFrame.new(at + UP * 0.8) * CFrame.Angles(0, -a, 0) * CFrame.Angles(0, 0, rand(0.35, 0.9)), Color3.fromRGB(110, 106, 104), Enum.Material.Concrete)
+			slab.Name = "MobCraterRim"
+			tween(slab, 1.5, { Transparency = 1 }, Enum.EasingStyle.Linear, nil, 6)
+			cleanup(slab, 7.6)
+		end
+		-- (the dust hanging there after, his motes drifting in it)
+		MB.motes(spot + UP * 12, edge, low and 10 or 30, PSY, 2.5)
+	end
+	-- A SLAB OF THE STREET crumbling (its set-down): broken up where it lies
+	function Bd.crumble(st)
+		MB.far("MobSlabCrumble", Bd.mid(st), 1)
+		for _, e in st.entries do
+			local p = e.c
+			if p.Parent then
+				local cf = p.CFrame
+				tween(p, 0.7, { Transparency = 1, Size = p.Size * 0.4, CFrame = cf - UP * 3 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			end
+		end
+		dustPuffs(Bd.mid(st), 2.6, MB.low() and 3 or 8, DUST, 1.4, false)
+		rocks(Bd.mid(st), 2, MB.low() and 4 or 10)
+		-- (they're not moved any more: the crumble's tween is theirs - and his
+		-- power's let go of it)
+		st.entries = {}
+		if st.outline then
+			st.outline.Enabled = false
+		end
+	end
+
+	-- HIS AIM, on his own screen (Config.Mob.Building.Marker): where it'll
+	-- land - the server's way: MinRange..Range off him, on the street - a
+	-- ring the size of the crush (iridescent, turning), a cross in it, a
+	-- line of dots out to it; gone with the throw
+	function Bd.marker(st)
+		local char = st.char
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (root and MB.mine(char)) or st.throw or st.downAt then
+			if st.marker then
+				st.marker:Destroy()
+				st.marker = nil
+			end
+			return
+		end
+		local A = Bd.ab()
+		local M = Bd.cfg().Marker or {}
+		local pos
+		pcall(function()
+			if VFX.Hooks.Aim then
+				local _, p = VFX.Hooks.Aim()
+				pos = p
+			end
+		end)
+		local feet = root.Position
+		local look = MB.flat(root.CFrame.LookVector, root)
+		local want = MB.ok(pos) and pos or (feet + look * 80)
+		local flat = Vector3.new(want.X - feet.X, 0, want.Z - feet.Z)
+		local way = flat.Magnitude > 0.5 and flat.Unit or look
+		local dist = math.clamp(flat.Magnitude, Bd.minDist(st.size), A.Range or 220)
+		local spot = groundPoint(feet + way * dist + UP * 6)
+		local radius = math.clamp(math.min(st.size.X, st.size.Z) * 0.5, A.Radius or 30, math.max(A.MaxRadius or 56, A.Radius or 30))
+		local m = st.marker
+		if not (m and m.Parent) then
+			m = Instance.new("Model")
+			m.Name = "MobAim"
+			m.Parent = folder
+			st.marker = m
+			st.markerParts = {}
+			local n = M.Dashes or 28
+			for i = 1, n do
+				local seg = newPart(Vector3.new(M.Thick or 0.5, 0.2, 1), CFrame.new(), PSY, Enum.Material.Neon, nil, m)
+				seg.Name = "MobAimRing"
+				seg.Transparency = M.Transparency or 0.35
+				table.insert(st.markerParts, { p = seg, kind = "ring", i = i, n = n })
+			end
+			for i = 1, 2 do
+				local bar = newPart(Vector3.new(M.Thick or 0.5, 0.2, 1), CFrame.new(), PSY, Enum.Material.Neon, nil, m)
+				bar.Name = "MobAimCross"
+				bar.Transparency = M.Transparency or 0.35
+				table.insert(st.markerParts, { p = bar, kind = "cross", i = i })
+			end
+			for i = 1, M.Dots or 10 do
+				local dot = newPart(Vector3.one * 0.7, CFrame.new(), PSY, Enum.Material.Neon, Enum.PartType.Ball, m)
+				dot.Name = "MobAimDot"
+				dot.Transparency = 0.5
+				table.insert(st.markerParts, { p = dot, kind = "dot", i = i, n = M.Dots or 10 })
+			end
+		end
+		local t = os.clock()
+		local col = MB.hue(t / ((C.Ult or {}).Hue or 2.4))
+		local spin = t * (M.Spin or 0.5)
+		for _, e in st.markerParts do
+			local cf
+			if e.kind == "ring" then
+				local a0 = (e.i - 1) / e.n * TAU + spin
+				local a1 = a0 + TAU / e.n * 0.55
+				local p0 = spot + Vector3.new(math.cos(a0), 0, math.sin(a0)) * radius + UP * 0.35
+				local p1 = spot + Vector3.new(math.cos(a1), 0, math.sin(a1)) * radius + UP * 0.35
+				e.p.Size = Vector3.new(M.Thick or 0.5, 0.2, (p1 - p0).Magnitude)
+				cf = CFrame.lookAt((p0 + p1) / 2, p1)
+			elseif e.kind == "cross" then
+				local d = e.i == 1 and way or way:Cross(UP)
+				e.p.Size = Vector3.new(M.Thick or 0.5, 0.2, radius * 0.5)
+				cf = CFrame.lookAt(spot + UP * 0.35, spot + UP * 0.35 + d)
+			else
+				local u = (e.i - 0.5) / e.n
+				cf = CFrame.new(groundPoint(feet:Lerp(spot, u) + UP * 6) + UP * 0.5)
+			end
+			e.p.Color = col
+			e.p.CFrame = cf
+		end
+		st.aimSpot = spot
+	end
+
+	-- R in the ult - the press (every screen): his hand up, two fingers, his
+	-- power gathering in it; the building's tear-out is the server's word
+	-- (MobBuildingUp). Held up while he aims (PoseMobSkyscraperHold)
+	function Effects.MobSkyscraper(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local d = MB.flat(data.Dir, root)
+		if isLocal then
+			face(root, d)
+		end
+		-- ((round 102 review) one at a time, as the server has it: a press
+		-- while his building's still out (no cooldowns) does nothing - no hand
+		-- held up over nothing)
+		for _, st in Bd.states do
+			if st.char == char and not st.done then
+				return
+			end
+		end
+		local A = MB.spec(char, "MobSkyscraper")
+		VFX.Motion(char, "MobSkyscraper")
+		VFX.PlaySound("MobGather", root.Position, 1)
+		local BC = Bd.cfg()
+		MB.gather(char, true, BC.PressHit or 0.3, MB.color(char), 1.4)
+		MB.handPulse(char, root, BC.PressHit or 0.3, UP, 8, true)
+		local token = {}
+		MB.lifting[char] = token
+		task.delay(BC.PressHold or 0.62, function()
+			-- (held up while it floats - till the throw, or it goes home)
+			if MB.lifting[char] == token and char.Parent then
+				VFX.Pose(char, "MobSkyscraperHold", ((A.Hold or {}).Max or 4) + 0.3)
+			end
+		end)
+	end
+	-- the throw on HIS screen (the key let go, the move's own Release)
+	-- ((round 102 review) on the throw's own beat: R again while it's still
+	-- tearing out waits for it - the server throws it at the tear-out's end
+	-- (Kit.MOB.B.throw's ThrowAt) - the arm used to go a second early)
+	function Effects.MobSkyscraperRelease(char, data)
+		local at
+		for _, st in Bd.states do
+			if st.char == char and not st.throw and not st.downAt then
+				at = st.at + (Bd.cfg().Tear or 0.8) + 0.3
+			end
+		end
+		Bd.throwPose(char, data, at)
+	end
+	-- the throw's arm: swept forward and down the line (every screen; at: the
+	-- server's time it's thrown)
+	function Bd.throwPose(char, data, at)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local wait = type(at) == "number" and at - MB.now() or 0
+		if wait > 0.03 then
+			local token = MB.lifting[char]
+			task.delay(math.min(wait, 2), function()
+				-- (gone home meanwhile, never thrown: his hand's already down)
+				if MB.lifting[char] == token and char.Parent then
+					Bd.throwPose(char, data)
+				end
+			end)
+			return
+		end
+		MB.lifting[char] = nil
+		local d = MB.flat(type(data) == "table" and data.Dir or nil, root)
+		if MB.mine(char) and type(data) == "table" and MB.ok(data.Pos) then
+			local v = Vector3.new(data.Pos.X - root.Position.X, 0, data.Pos.Z - root.Position.Z)
+			if v.Magnitude > 1 then
+				d = v.Unit
+				face(root, d)
+			end
+		end
+		VFX.Motion(char, "MobSkyscraperThrow")
+		MB.handPulse(char, root, (Bd.ab().Windup or 0.35), d, 10, true)
+	end
+
+	-- a pulse of his power off a hand at `at` seconds (iridescent in the
+	-- ult); both: off both hands; snap: the air snapping (a flash, a shake)
+	function MB.handPulse(char, root, at, d, size, snap, both)
+		task.delay(at, function()
+			if not (root.Parent and char.Parent) then
+				return
+			end
+			local color = char:GetAttribute("UltActive") == true and MB.hue(os.clock() / ((C.Ult or {}).Hue or 2.4)) or PSY
+			for _, right in both and { true, false } or { true } do
+				local h = handPos(char, right)
+				local dir = d == "out" and (h - root.Position) * Vector3.new(1, 0, 1) or d
+				MB.ripple(h, dir, 0.6, size, 0.3, color)
+				if snap then
+					local flash = newPart(Vector3.one * 0.6, CFrame.new(h), color, Enum.Material.Neon, Enum.PartType.Ball)
+					flash.Name = "MobFlash"
+					flash.Transparency = 0.2
+					tween(flash, 0.15, { Size = Vector3.one * size * 0.6, Transparency = 1 })
+					cleanup(flash, 0.2)
+				end
+			end
+			if snap then
+				VFX.ShakeAt(root.Position, 1, 40, 0.15)
+			end
+		end)
+	end
+
+	-- ((round 102 review) THE % TICKING UP: his own screen hears his counter
+	-- climb as his meter fills - a soft tick at every Meter.TickEvery %,
+	-- firmer the nearer 100% (it was heard only in the awakening's last few)
+	function MB.meterTick()
+		local lp = Players.LocalPlayer
+		if not lp or lp:GetAttribute("Quirk") ~= "Mob" or lp:GetAttribute("UltActive") == true then
+			MB.meterAt = nil
+			return
+		end
+		local v = math.clamp(tonumber(lp:GetAttribute("Ult")) or 0, 0, 100)
+		local step = math.floor(v / math.max((Q.Meter or {}).TickEvery or 10, 1))
+		if MB.meterAt and step > MB.meterAt then
+			VFX.PlaySound("MobCounterTick", nil, 0.45 + 0.55 * v / 100)
+		end
+		MB.meterAt = step
+	end
+
+	-- the screens' loop: the idle pebbles, the building (each of them), the
+	-- records looked at, his counter
+	RunService.RenderStepped:Connect(function(dt)
+		local now = os.clock()
+		local ok, err = pcall(MB.idleStep, dt, now)
+		if not ok then
+			MB.idleErr = err
+		end
+		pcall(MB.meterTick)
+		if now - (MB.B.syncAt or -1) > 0.5 then
+			MB.B.syncAt = now
+			pcall(MB.B.sync)
+		end
+		for _, st in MB.B.states do
+			local ok2, err2 = pcall(MB.B.step, st, dt)
+			if not ok2 then
+				warn("[VFX.MOB] the building: " .. tostring(err2))
+				-- (a frame that broke never leaves it out: given back now)
+				st.errors = (st.errors or 0) + 1
+				if st.errors >= 5 then
+					MB.B.finish(st)
+				end
+			end
+		end
+	end)
+end)()
+
+---------------------------------------------------------------------------
+-- (round 102) TOKOYAMI on every screen (VFX.TK; Config.Quirks.DarkShadow,
+-- Config.Tokoyami). DARK SHADOW is a creature of its own here: a body of
+-- anchored parts (a bird's head - its beak, two yellow eyes, a crest raked
+-- back -, a broad chest tapering into the smoky trail that ties it to his
+-- chest, two long arms with three claws each) posed every frame from keyed
+-- poses (TK.rig: Config.Tokoyami.Poses / Clips - every move a clip of its
+-- own, its strikes placed at whoever it's striking), all of it moved in one
+-- BulkMoveTo. It lives in him: out of his chest for every move, back in
+-- after; between moves a wisp (its smoke off his collar, and the little
+-- shadow peeking out by his shoulder when he stands still). His cloak is
+-- swung on every screen (TK.cloak). His M1s (it starts with the swing -
+-- TK.swing; the claw lands - TK.onHit, his own through VFX.HitHooks), 1 DARK
+-- SHADOW (flung out, the grab, the drag, the drop), 2 ABYSSAL CLAW (risen
+-- huge, both claws down, the dark shockwave), 3 SHADOW GUARD (wrapped round
+-- him, the hits on it, its counter), R BLACK FALLEN ANGEL (it carries him -
+-- TK.fly, his own machine), 4 BLACK ANKH (worn as armour: TK.armour), the
+-- ult (VFX.AK.FX.DarkShadow: it bursts out of him; ABYSSAL DARK SHADOW -
+-- three times the size, wild, its eyes purple fire - the world dimmed round
+-- him on every screen, put back exactly: TK.dim), RAMPAGE, the finisher.
+-- No light meter, no lighting mechanic (the owner: "simple shadow").
+-- (In a function of its own: the main chunk is at its local limit.)
+---------------------------------------------------------------------------
+;(function()
+	local TK = { rigs = {}, cloaks = {}, wind = {}, armour = {}, flies = {}, dims = {}, hooks = {}, bodies = {} }
+	VFX.TK = TK
+	local Q = Config.Quirks.DarkShadow or {}
+	local C = Config.Tokoyami or {}
+	local CM = C.Model or {}
+	local SHADOW = CM.Body3 or Color3.fromRGB(24, 14, 36)
+	local RIM = CM.Rim or Color3.fromRGB(150, 80, 255)
+	local EYE = CM.Eye3 or Color3.fromRGB(255, 226, 92)
+	local INK = Color3.fromRGB(8, 4, 12) -- (the burst that eats the light)
+	local VIOLET = Color3.fromRGB(122, 72, 214)
+	local DUST = Color3.fromRGB(150, 140, 132)
+	local TAU = math.pi * 2
+	local SMOKE_TEX = "rbxasset://textures/particles/smoke_main.dds"
+	local FIRE_TEX = "rbxasset://textures/particles/fire_main.dds"
+
+	---------------------------------------------------------------------
+	-- helpers
+	---------------------------------------------------------------------
+	function TK.low()
+		return IceKit.lowEnd()
+	end
+	function TK.isToko(char)
+		return typeof(char) == "Instance" and char.Parent ~= nil and char:GetAttribute("Quirk") == "DarkShadow"
+	end
+	-- the move as he has it right now (the ult's own while he's in it)
+	function TK.spec(char, id)
+		local ult = char and char:GetAttribute("UltActive") == true and Q.Ult or nil
+		for _, set in { ult and ult.Abilities, ult and { ult.Special, ult.Extra }, Q.Abilities, { Q.Special, Q.Extra }, Q.Ult and Q.Ult.Abilities } do
+			for _, a in set or {} do
+				if type(a) == "table" and a.Id == id then
+					return a
+				end
+			end
+		end
+		return {}
+	end
+	function TK.me()
+		local p = Players.LocalPlayer
+		return p and p.Character
+	end
+	function TK.camPos()
+		local cam = workspace.CurrentCamera
+		return cam and cam.CFrame.Position or Vector3.zero
+	end
+	-- a finite Vector3 (never NaN, never a wild one)
+	function TK.ok(v)
+		return typeof(v) == "Vector3" and v == v and v.Magnitude < 1e6
+	end
+	function TK.flat(v, root)
+		return flatten(typeof(v) == "Vector3" and v or nil, root)
+	end
+	-- the screen whose camera is his (his own body, or the one a dev's in)
+	function TK.mine(char)
+		local lp = Players.LocalPlayer
+		return lp ~= nil and typeof(char) == "Instance" and (lp.Character == char or char:GetAttribute("PossessedBy") == lp.UserId)
+	end
+	-- does this machine fly his body? His own, or the machine of a dev in it
+	function TK.drives(char, isLocal)
+		if isLocal then
+			return true
+		end
+		local lp = Players.LocalPlayer
+		return lp ~= nil and typeof(char) == "Instance" and char:GetAttribute("PossessedBy") == lp.UserId
+	end
+	function TK.knocked(char, root, hum)
+		for _, a in { "Stunned", "Ragdolled", "Grabbed", "Frozen", "TimeStopped" } do
+			if char:GetAttribute(a) == true then
+				return true
+			end
+		end
+		return root:FindFirstChild("Knockback") ~= nil or (hum ~= nil and hum.Health <= 0)
+	end
+	function TK.ult(char)
+		return char ~= nil and char:GetAttribute("UltActive") == true
+	end
+	function TK.dead(char)
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		return hum ~= nil and hum.Health <= 0
+	end
+	-- one move of many parts: BulkMoveTo, else one by one (VFX.ST.World's way)
+	function TK.move(parts, cfs)
+		if #parts == 0 then
+			return
+		end
+		if not TK.noBulk then
+			local ok = pcall(function()
+				workspace:BulkMoveTo(parts, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+			end)
+			if ok then
+				return
+			end
+			TK.bulkFails = (TK.bulkFails or 0) + 1
+			TK.noBulk = TK.bulkFails >= 3
+		end
+		for i, p in parts do
+			p.CFrame = cfs[i]
+		end
+	end
+	-- a dark smoke emitter (on a part: its shape is the part's)
+	function TK.smoke(part, rate, size, life, color, speed)
+		local SM = CM.Smoke or {}
+		local pe = Instance.new("ParticleEmitter")
+		pe.Name = "TokoSmoke"
+		pe.Texture = SMOKE_TEX
+		pe.Color = ColorSequence.new(color or SM.Color or SHADOW, SHADOW)
+		pe.LightInfluence = 0
+		pe.LightEmission = 0
+		local sz = size or SM.Size or { 1.4, 2.8 }
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, sz[1]), NumberSequenceKeypoint.new(1, sz[2]) })
+		pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(0.4, 0.62), NumberSequenceKeypoint.new(1, 1) })
+		local lf = life or SM.Life or { 0.5, 0.9 }
+		pe.Lifetime = NumberRange.new(lf[1], lf[2])
+		pe.Speed = NumberRange.new(speed or 0.6, (speed or 0.6) * 2)
+		pe.SpreadAngle = Vector2.new(180, 180)
+		pe.Drag = 2
+		pe.RotSpeed = NumberRange.new(-40, 40)
+		pe.Rotation = NumberRange.new(0, 360)
+		pe.Acceleration = Vector3.new(0, 1.2, 0)
+		pe.Rate = rate or 0
+		pe.Parent = part
+		return pe
+	end
+	-- THE BURST THAT EATS THE LIGHT: a black ball swelling where it lands, a
+	-- violet rim ring round it, the shadow splashed off it
+	function TK.darkBurst(pos, size, life, ring)
+		if not TK.ok(pos) then
+			return
+		end
+		local b = newPart(Vector3.one * size * 0.3, CFrame.new(pos), INK, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		b.Name = "TokoBurst"
+		b.Transparency = 0.05
+		tween(b, life * 0.45, { Size = Vector3.one * size }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+		tween(b, life * 0.55, { Size = Vector3.one * size * 0.15, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, life * 0.45)
+		cleanup(b, life + 0.05)
+		if ring ~= false then
+			billboardRing(pos, size * 0.4, size * 1.5, RIM, 3, life * 0.8)
+		end
+		if not TK.low() then
+			local holder = newPart(Vector3.one * size * 0.5, CFrame.new(pos), INK, Enum.Material.SmoothPlastic)
+			holder.Name = "TokoSplash"
+			holder.Transparency = 1
+			local pe = TK.smoke(holder, 0, { size * 0.25, size * 0.6 }, { 0.3, 0.6 }, SHADOW, size * 3)
+			pe.Acceleration = Vector3.new(0, -6, 0)
+			pe:Emit(10)
+			cleanup(holder, 0.8)
+		end
+		return b
+	end
+	-- CLAW MARKS: n dark slashes torn across `at` along `along`, tilted by
+	-- `tilt` degrees (0: level, 90: straight down), a violet edge on each
+	function TK.slashes(at, look, tilt, size, n, life, color)
+		if not TK.ok(at) then
+			return
+		end
+		local f = Vector3.new(look.X, 0, look.Z)
+		f = f.Magnitude > 0.05 and f.Unit or Vector3.new(0, 0, -1)
+		local base = CFrame.lookAt(at, at + f) * CFrame.Angles(0, 0, math.rad(tilt or 0))
+		n = n or 3
+		for i = 1, n do
+			local off = (i - (n + 1) / 2) * 0.55 * size
+			local len = (2.6 + rng:NextNumber() * 0.8) * size
+			local cf = base * CFrame.new(0, off, -0.6) * CFrame.Angles(0, math.rad(90), 0)
+			local s = newPart(Vector3.new(len * 0.2, 0.08 * size, 0.08), cf, color or INK, Enum.Material.Neon)
+			s.Name = "TokoSlash"
+			local edge = newPart(Vector3.new(len * 0.2, 0.18 * size, 0.04), cf * CFrame.new(0, 0, 0.03), RIM, Enum.Material.Neon)
+			edge.Name = "TokoSlash"
+			edge.Transparency = 0.35
+			local d = (i - 1) * 0.015
+			for _, p in { s, edge } do
+				tween(p, 0.06, { Size = Vector3.new(len, p.Size.Y, p.Size.Z) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out, d)
+				tween(p, life, { Transparency = 1, Size = Vector3.new(len * 1.1, 0.01, p.Size.Z) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, d + 0.08)
+				cleanup(p, d + life + 0.12)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- procedural fallbacks for every clip (anim/moves_toko.py): what an R15
+	-- body, or a place without the clips, plays
+	---------------------------------------------------------------------
+	MOTIONS.TokoPoint = { { pose = { RightArm = { 80, 0, 10 }, Neck = { 4, 0, 0 } }, t = 0.08, hold = 0.14 }, recover = 0.2 }
+	MOTIONS.TokoPointL = { { pose = { LeftArm = { 80, 0, 10 }, Neck = { 4, 0, 0 } }, t = 0.08, hold = 0.14 }, recover = 0.2 }
+	MOTIONS.TokoRake = { { pose = { RightArm = { 70, 30, 30 }, Waist = { 0, -14, 0 } }, t = 0.08 }, { pose = { RightArm = { 90, -20, 0 }, Waist = { -4, 16, 0 } }, t = 0.06, hold = 0.14 }, recover = 0.2 }
+	MOTIONS.TokoLunge = { { pose = { RightArm = { 30, 0, 20 }, Waist = { 0, -10, 0 } }, t = 0.18 }, { pose = { RightArm = 92, Waist = { -4, 10, 0 }, Neck = { -4, 0, 0 } }, t = 0.06, hold = 0.4 }, recover = 0.3 }
+	MOTIONS.TokoClaw = { { pose = { RightArm = { 150, 0, 20 }, LeftArm = { 150, 0, 20 }, Neck = { -14, 0, 0 } }, t = 0.4, hold = 0.1 }, { pose = { RightArm = 70, LeftArm = 70, Waist = { -10, 0, 0 } }, t = 0.06, hold = 0.45 }, recover = 0.35 }
+	MOTIONS.TokoClawTwin = { { pose = { RightArm = { 150, 0, 20 }, LeftArm = { 150, 0, 20 }, Neck = { -14, 0, 0 } }, t = 0.4, hold = 0.1 }, { pose = { RightArm = 70, LeftArm = 70, Waist = { -10, 0, 0 } }, t = 0.06, hold = 0.3 },
+		{ pose = { RightArm = 130, LeftArm = 60, Waist = { 0, -12, 0 } }, t = 0.1 }, { pose = { RightArm = 70, LeftArm = 80, Waist = { -10, 12, 0 } }, t = 0.06, hold = 0.4 }, recover = 0.35 }
+	MOTIONS.TokoAnkh = { { pose = { RightArm = { 40, 60, 0 }, LeftArm = { 40, 60, 0 }, Neck = { 14, 0, 0 } }, t = 0.3 }, { pose = { RightArm = { 40, 0, 40 }, LeftArm = { 40, 0, 40 }, Neck = { -6, 0, 0 } }, t = 0.08, hold = 0.3 }, recover = 0.3 }
+	MOTIONS.AwakenDarkShadow = { { pose = { RightArm = { 40, 60, 0 }, LeftArm = { 40, 60, 0 }, Neck = { 18, 0, 0 } }, t = 0.28 }, { pose = { RightArm = { 30, 0, 70 }, LeftArm = { 30, 0, 70 }, Neck = { -20, 0, 0 } }, t = 0.06, hold = 1 }, recover = 0.3 }
+	POSES.TokoGuard = { RightArm = { 60, 50, 0 }, LeftArm = { 60, 50, 0 }, Neck = { 10, 0, 0 } }
+	POSES.TokoFly = { RightArm = { -20, 0, 30 }, LeftArm = { -20, 0, 30 }, Waist = { -20, 0, 0 }, RightLeg = 8, LeftLeg = -6, Neck = { -10, 0, 0 } }
+	POSES.TokoRampage = { RightArm = { 40, 40, 20 }, LeftArm = { 40, 40, 20 }, Waist = { 10, 0, 0 }, Neck = { 16, 0, 0 } }
+	POSES.TokoCommand = { RightArm = { 90, -10, 10 }, LeftArm = { 8, 0, 10 }, Neck = { -4, 0, 0 } }
+	POSES.TokoHeld = { RightArm = { 30, 0, 40 }, LeftArm = { 30, 0, 40 }, RightLeg = 18, LeftLeg = -12, Waist = { -10, 0, 0 }, Neck = { -18, 0, 0 } }
+
+	---------------------------------------------------------------------
+	-- DARK SHADOW'S BODY (TK.rig): built once per Tokoyami this screen sees
+	-- (within Model.Cull of the camera), every part anchored, no collisions,
+	-- no queries, no shadows, in one Model with one Highlight (its faint
+	-- violet rim). Posed every frame from its pose (TK.place) and moved in one
+	-- BulkMoveTo; while it's in him only its wisp moves.
+	---------------------------------------------------------------------
+	local function rad(d)
+		return math.rad(d or 0)
+	end
+	function TK.newRig(char)
+		local M = CM
+		local A = M.Arm or {}
+		local model = Instance.new("Model")
+		model.Name = "DarkShadow"
+		model:SetAttribute("Owner", char.Name)
+		model.Parent = folder
+		local rig = { char = char, model = model, parts = {}, base = {}, list = {}, lastS = -1, shown = false, alpha = -1, born = os.clock() }
+		local function add(key, size, color, shape, material, ellipse)
+			local p = newPart(size, CFrame.new(0, -5000, 0), color, material or Enum.Material.SmoothPlastic, shape, model)
+			p.Name = "DS" .. key
+			p.Transparency = 1
+			if ellipse then
+				local mesh = Instance.new("SpecialMesh")
+				mesh.MeshType = Enum.MeshType.Sphere
+				mesh.Parent = p
+			end
+			rig.parts[key] = p
+			rig.base[key] = size
+			table.insert(rig.list, key)
+			return p
+		end
+		local T = M.Trail or {}
+		for i = 1, T.Segments or 7 do
+			add("Trail" .. i, Vector3.one, SHADOW, nil, nil, true)
+		end
+		add("Belly", M.Belly or Vector3.new(1.8, 1.9, 1.5), SHADOW, nil, nil, true)
+		add("Body", M.Body or Vector3.new(2.4, 2.5, 1.9), SHADOW, nil, nil, true)
+		add("ShoulderR", M.Shoulder or Vector3.one, SHADOW, nil, nil, true)
+		add("ShoulderL", M.Shoulder or Vector3.one, SHADOW, nil, nil, true)
+		add("Skull", M.Skull or Vector3.new(1.5, 1.3, 1.7), SHADOW, nil, nil, true)
+		add("EyeR", M.Eye or Vector3.new(0.36, 0.44, 0.16), EYE, nil, Enum.Material.Neon, true)
+		add("EyeL", M.Eye or Vector3.new(0.36, 0.44, 0.16), EYE, nil, Enum.Material.Neon, true)
+		local B = M.Beak or {}
+		add("BeakU", B.Upper or Vector3.new(0.62, 0.44, 1.4), M.Beak3 or SHADOW, Enum.PartType.Wedge)
+		add("BeakL", B.Lower or Vector3.new(0.5, 0.26, 1.05), M.Beak3 or SHADOW, Enum.PartType.Wedge)
+		for i = 1, #(M.Crest or {}) do
+			add("Crest" .. i, M.CrestSize or Vector3.new(0.2, 0.5, 1.15), SHADOW, Enum.PartType.Wedge)
+		end
+		for _, side in { "R", "L" } do
+			add("Upper" .. side, Vector3.new(A.Thick or 0.82, A.Upper or 2, A.Thick or 0.82), SHADOW, nil, nil, true)
+			add("Fore" .. side, Vector3.new(A.ForeThick or 0.66, A.Fore or 2.2, A.ForeThick or 0.66), SHADOW, nil, nil, true)
+			add("Hand" .. side, A.Hand or Vector3.new(0.86, 0.74, 0.86), SHADOW, nil, nil, true)
+			for i = 1, A.Claws or 3 do
+				add("Claw" .. side .. i, A.Claw or Vector3.new(0.16, 0.32, 1.35), M.Claw3 or SHADOW, Enum.PartType.Wedge)
+			end
+			-- ((round 102 review) its wings' membranes (BLACK FALLEN ANGEL - its
+			-- arms alone read as arms held out, not wings): a sail a side from
+			-- its shoulder to its claws and down to its flank, two triangles of
+			-- two wedges each, drawn only while a pose spreads them (Wing)
+			rig.wing = rig.wing or {}
+			for i = 1, 4 do
+				add("Wing" .. side .. i, Vector3.new(0.1, 1, 1), M.Wing3 or SHADOW, Enum.PartType.Wedge)
+				rig.wing["Wing" .. side .. i] = true
+			end
+		end
+		-- its rim (one Highlight - none on a low-end machine). ((round 102
+		-- review) Enabled only while it's drawn: a screen renders 31 Highlights
+		-- at most, and every Tokoyami in view kept one on while it was in him)
+		if not TK.low() then
+			local h = Instance.new("Highlight")
+			h.Name = "DarkShadowRim"
+			h.FillColor = RIM
+			h.FillTransparency = M.RimFill or 0.9
+			h.OutlineColor = RIM
+			h.OutlineTransparency = 1
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Enabled = false
+			h.Adornee = model
+			h.Parent = model
+			rig.rim = h
+		end
+		-- its eyes give a little light; its smoke off the chest and the trail;
+		-- the wisp off his collar while it's in him
+		local light = Instance.new("PointLight")
+		light.Name = "DarkShadowEyes"
+		light.Color = EYE
+		light.Brightness = 0
+		light.Range = (M.EyeLight or {}).Range or 7
+		light.Shadows = false
+		light.Parent = rig.parts.Skull
+		rig.light = light
+		local SM = M.Smoke or {}
+		rig.smoke = TK.smoke(rig.parts.Body, 0, SM.Size, SM.Life)
+		rig.trailSmoke = TK.smoke(rig.parts["Trail" .. math.ceil((T.Segments or 7) / 2)], 0, { 0.8, 1.8 }, SM.Life)
+		rig.wisp = TK.smoke(rig.parts.Trail1, 0, { 0.25, 0.9 }, { 0.6, 1.1 }, nil, 0.4)
+		-- the claw trails (on while it strikes)
+		rig.trails = {}
+		for _, side in { "R", "L" } do
+			local hand = rig.parts["Hand" .. side]
+			local a0 = Instance.new("Attachment")
+			a0.Position = Vector3.new(0, 0.6, 0)
+			a0.Parent = hand
+			local a1 = Instance.new("Attachment")
+			a1.Position = Vector3.new(0, -1.6, 0)
+			a1.Parent = hand
+			local tr = Instance.new("Trail")
+			tr.Name = "DarkShadowClaw"
+			tr.Attachment0 = a0
+			tr.Attachment1 = a1
+			tr.Color = ColorSequence.new(RIM, SHADOW)
+			tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 1) })
+			tr.LightEmission = 0.4
+			tr.Lifetime = 0.14
+			tr.Enabled = false
+			tr.Parent = hand
+			rig.trails[side] = { trail = tr, a0 = a0, a1 = a1 }
+		end
+		rig.pose = TK.resolve("In", false, false)
+		return rig
+	end
+	function TK.dropRig(char)
+		local rig = TK.rigs[char]
+		if rig then
+			TK.rigs[char] = nil
+			pcall(function()
+				rig.model:Destroy()
+			end)
+			for _, b in rig.beams or {} do
+				pcall(b.Destroy, b)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- ITS POSES: a named pose (Config.Tokoyami.Poses, anything it leaves out
+	-- Base's), mirrored (the other way round), blended; the ult's form
+	---------------------------------------------------------------------
+	local FIELDS = { "Out", "Up", "Side", "Yaw", "Pitch", "Roll", "Scale", "Jaw", "Wing" } -- ((round 102 review) Wing: its wings' membranes spread, 0..1)
+	TK.cache = {}
+	function TK.copy(p)
+		local o = {}
+		for _, k in FIELDS do
+			o[k] = p[k]
+		end
+		o.Head = { p.Head[1], p.Head[2], p.Head[3] }
+		o.RA = { table.unpack(p.RA) }
+		o.LA = { table.unpack(p.LA) }
+		return o
+	end
+	function TK.mirror(p)
+		local o = TK.copy(p)
+		o.Side, o.Yaw, o.Roll = -p.Side, -p.Yaw, -p.Roll
+		o.Head = { p.Head[1], -p.Head[2], -p.Head[3] }
+		o.RA, o.LA = { table.unpack(p.LA) }, { table.unpack(p.RA) }
+		return o
+	end
+	-- the pose by name (In becomes its Loom in the ult), mirrored or not, in
+	-- the ult's form or not (the ult moves and scales every pose)
+	function TK.resolve(name, mirror, ult)
+		if ult and name == "In" then
+			name = "Loom"
+		end
+		local key = name .. (mirror and "~m" or "") .. (ult and "~u" or "")
+		local hit = TK.cache[key]
+		if hit then
+			return hit
+		end
+		local PS = C.Poses or {}
+		local base = PS.Base or {}
+		local p = PS[name] or base
+		local o = {}
+		for _, k in FIELDS do
+			o[k] = p[k] or base[k] or 0
+		end
+		o.Scale = p.Scale or base.Scale or 1
+		o.Head = p.Head or base.Head or { 0, 0, 0 }
+		o.RA = p.RA or base.RA or { 40, 20, 0, 45, 18, 20 }
+		o.LA = p.LA or base.LA or { 40, 20, 0, 45, 18, 20 }
+		o = TK.copy(o)
+		if mirror then
+			o = TK.mirror(o)
+		end
+		-- (a pose that's in him stays in him: only one that's out takes the ult's form)
+		if ult and o.Scale >= (CM.Hidden or 0.08) * 2 then
+			local U = C.Ult or {}
+			o.Scale = (U.Scale or 2.6) * math.max(o.Scale, 0.01) ^ (o.Scale > 1 and (U.ScalePow or 0.4) or 1)
+			o.Out = o.Out * (U.OutMul or 0.8) + (U.OutAdd or -0.6)
+			o.Up = o.Up * (U.UpMul or 1) + (U.UpAdd or 3)
+			o.Side += U.Side or 0.6
+		end
+		TK.cache[key] = o
+		return o
+	end
+	function TK.blend(a, b, t)
+		local o = {}
+		for _, k in FIELDS do
+			o[k] = a[k] + (b[k] - a[k]) * t
+		end
+		o.Head = { a.Head[1] + (b.Head[1] - a.Head[1]) * t, a.Head[2] + (b.Head[2] - a.Head[2]) * t, a.Head[3] + (b.Head[3] - a.Head[3]) * t }
+		o.RA, o.LA = {}, {}
+		for i = 1, 6 do
+			o.RA[i] = a.RA[i] + (b.RA[i] - a.RA[i]) * t
+			o.LA[i] = a.LA[i] + (b.LA[i] - a.LA[i]) * t
+		end
+		return o
+	end
+	-- AT SOMEONE: its body placed so its claws reach them (ReachArm x its
+	-- scale short of them), turned to them - w of the way
+	function TK.aim(p, w, rootCF, target, arm)
+		if w <= 0 or not target then
+			return p
+		end
+		local at = typeof(target) == "Instance" and target.Parent and target.Position or (typeof(target) == "Vector3" and target) or nil
+		if not TK.ok(at) then
+			return p
+		end
+		local tl = rootCF:PointToObjectSpace(at)
+		local flat = Vector3.new(tl.X, 0, tl.Z)
+		local dist = flat.Magnitude
+		if dist < 0.3 then
+			return p
+		end
+		local fd = flat / dist
+		local CL = CM.Clamp or {}
+		local out = math.clamp(dist - (CM.ReachArm or 5) * p.Scale, CL.MinOut or -3, CL.MaxOut or 80)
+		local o = TK.copy(p)
+		o.Side = p.Side + (fd.X * out - p.Side) * w
+		o.Out = p.Out + (-fd.Z * out - p.Out) * w
+		o.Up = p.Up + math.clamp(tl.Y, -4, 10) * 0.5 * w
+		o.Yaw = p.Yaw + math.deg(math.atan2(-fd.X, -fd.Z)) * w
+		-- (its striking arm raised or lowered so its claws meet them: an arm
+		-- raised r on a body leaning on P points (r - P - 90) degrees over
+		-- level - half its elbow's bend on top)
+		if arm then
+			local sy = o.Up + (CM.ShoulderY or 0.95) * o.Scale
+			local e = math.deg(math.atan2(tl.Y - sy, math.max((CM.ReachArm or 5) * o.Scale, 1)))
+			for _, side in arm == "B" and { "RA", "LA" } or { arm == "R" and "RA" or "LA" } do
+				local a = { table.unpack(o[side]) }
+				local want = 90 + o.Pitch + e - a[4] * 0.5
+				a[1] = a[1] + (want - a[1]) * w
+				o[side] = a
+			end
+		end
+		return o
+	end
+	-- ease a key's way in
+	function TK.ease(u, kind)
+		if kind == "in" then
+			return u * u * u
+		elseif kind == "out" then
+			return 1 - (1 - u) ^ 3
+		elseif kind == "inout" then
+			return u < 0.5 and 4 * u * u * u or 1 - (-2 * u + 2) ^ 3 / 2
+		end
+		return u
+	end
+
+	---------------------------------------------------------------------
+	-- ITS CLIPS: TK.play starts one on him (from wherever it is now - the
+	-- first key is that); TK.sample reads it at a time (its keys' poses in
+	-- the ult's form while he's in it, each at its target by its Aim)
+	---------------------------------------------------------------------
+	function TK.clip(name)
+		return (C.Clips or {})[name]
+	end
+	function TK.play(char, name, opts)
+		local clip = TK.clip(name)
+		if typeof(char) ~= "Instance" or not clip then
+			return nil
+		end
+		local rig = TK.rigs[char]
+		opts = opts or {}
+		local tr = {
+			name = name, clip = clip, t0 = opts.t0 or poseTime(char, os.clock()), target = opts.target, mirror = opts.mirror == true,
+			aimAll = opts.aimAll, drive = opts.drive, speed = opts.speed or 1, ult = TK.ult(char), from = rig and rig.pose or nil,
+			life = opts.life, expire = opts.expire, -- ((round 102 review) a holding clip's most, and what then)
+		}
+		TK.tracks = TK.tracks or {}
+		TK.tracks[char] = tr
+		if rig then
+			rig.track = tr
+			rig.idleFrom = nil
+			rig.flip = nil -- (a new clip eases from where it is itself)
+		end
+		return tr
+	end
+	function TK.stop(char, blend)
+		if typeof(char) ~= "Instance" then
+			return
+		end
+		local rig = TK.rigs[char]
+		if TK.tracks then
+			TK.tracks[char] = nil
+		end
+		if rig then
+			rig.track = nil
+			rig.idleFrom = { pose = rig.pose, t0 = os.clock(), dur = blend or ((C.Peek or {}).Blend or 0.35) }
+		end
+	end
+	-- the clip's length (its last key)
+	function TK.length(clip)
+		local keys = clip.Keys or {}
+		return keys[#keys] and keys[#keys][1] or 0
+	end
+	function TK.keyPose(tr, key, rootCF, ult)
+		local mirrored = (key.Mirror == true) ~= tr.mirror
+		local p = TK.resolve(key[2], mirrored, ult)
+		local w = math.max(key.Aim or 0, tr.aimAll or 0)
+		local arm = key.Arm
+		if arm and mirrored and arm ~= "B" then
+			arm = arm == "R" and "L" or "R"
+		end
+		return TK.aim(p, w, rootCF, tr.target, arm)
+	end
+	function TK.sample(tr, t, rootCF, ult)
+		local keys = tr.clip.Keys
+		local n = #keys
+		if n == 0 then
+			return nil
+		end
+		local loop = tr.clip.Loop
+		if loop and t > loop[2] then
+			t = loop[1] + (t - loop[1]) % math.max(loop[2] - loop[1], 1e-3)
+		end
+		if t >= keys[n][1] then
+			return TK.keyPose(tr, keys[n], rootCF, ult), true
+		end
+		for i = 1, n - 1 do
+			local k0, k1 = keys[i], keys[i + 1]
+			if t >= k0[1] and t < k1[1] then
+				local a = (i == 1 and tr.from) or TK.keyPose(tr, k0, rootCF, ult)
+				local b = TK.keyPose(tr, k1, rootCF, ult)
+				local u = (t - k0[1]) / math.max(k1[1] - k0[1], 1e-3)
+				return TK.blend(a, b, TK.ease(u, k1[3])), false
+			end
+		end
+		return TK.keyPose(tr, keys[1], rootCF, ult), false
+	end
+
+	---------------------------------------------------------------------
+	-- THE FRAME: every part of it from its pose (its body from his chest;
+	-- the head on its neck - pitch, yaw, roll -, the beak open Jaw degrees,
+	-- each arm raised / out / swung across, bent at the elbow, its claws
+	-- fanned and hooked; the trail a curve out of his chest and up into its
+	-- waist), then one move for all of it. Sizes are only set when its scale
+	-- (or a trail segment's length) has changed.
+	---------------------------------------------------------------------
+	-- a frame at `at` looking along d (d not zero; never up along its own up)
+	function TK.along(at, d)
+		local u = d.Unit
+		return CFrame.lookAt(at, at + u, math.abs(u.Y) > 0.95 and Vector3.new(1, 0, 0) or UP)
+	end
+	-- ((round 102 review) a triangle a, b, c as two wedges (the usual way: cut
+	-- at the foot of its height on the longest side): their CFrames and sizes
+	-- (th thick) - nil for a sliver too thin to draw (never a .Unit of zero)
+	function TK.tri(a, b, c, th)
+		local ab, ac, bc = b - a, c - a, c - b
+		local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+		if abd > acd and abd > bcd then
+			c, a = a, c
+		elseif acd > bcd and acd > abd then
+			a, b = b, a
+		end
+		ab, ac, bc = b - a, c - a, c - b
+		local n = ac:Cross(ab)
+		if n.Magnitude < 1e-3 or bc.Magnitude < 1e-3 then
+			return nil
+		end
+		local right = n.Unit
+		local up = bc:Cross(right)
+		if up.Magnitude < 1e-4 then
+			return nil
+		end
+		up = up.Unit
+		local back = bc.Unit
+		local height = math.abs(ab:Dot(up))
+		if height < 1e-3 then
+			return nil
+		end
+		return CFrame.fromMatrix((a + b) / 2, right, up, back), Vector3.new(th, height, math.max(math.abs(ab:Dot(back)), 1e-3)),
+			CFrame.fromMatrix((a + c) / 2, -right, up, -back), Vector3.new(th, height, math.max(math.abs(ac:Dot(back)), 1e-3))
+	end
+	function TK.place(rig, P, rootCF)
+		local M = CM
+		local A = M.Arm or {}
+		local s = math.max(P.Scale, 0.01)
+		local cfs, sizes = {}, {}
+		local bodyCF = rootCF * CFrame.new(P.Side, P.Up, -P.Out) * CFrame.Angles(0, rad(P.Yaw), 0) * CFrame.Angles(-rad(P.Pitch), 0, 0) * CFrame.Angles(0, 0, -rad(P.Roll))
+		cfs.Body = bodyCF * CFrame.new(0, (M.BodyY or 0.3) * s, 0)
+		cfs.Belly = bodyCF * CFrame.new(0, (M.BellyY or -1) * s, (M.BellyZ or 0.15) * s)
+		cfs.ShoulderR = bodyCF * CFrame.new((M.ShoulderX or 1.2) * s, (M.ShoulderY or 0.95) * s, 0)
+		cfs.ShoulderL = bodyCF * CFrame.new(-(M.ShoulderX or 1.2) * s, (M.ShoulderY or 0.95) * s, 0)
+		-- the head
+		local H = P.Head
+		local skull = bodyCF * CFrame.new((M.Neck or Vector3.new(0, 1.55, -0.32)) * s) * CFrame.Angles(0, rad(H[2]), 0) * CFrame.Angles(-rad(H[1]), 0, 0) * CFrame.Angles(0, 0, -rad(H[3]))
+		cfs.Skull = skull
+		local ex, ey, ez = (M.EyeX or 0.44) * s, (M.EyeY or 0.2) * s, (M.EyeZ or -0.7) * s
+		cfs.EyeR = skull * CFrame.new(ex, ey, ez) * CFrame.Angles(0, -rad(M.EyeYaw or 28), 0)
+		cfs.EyeL = skull * CFrame.new(-ex, ey, ez) * CFrame.Angles(0, rad(M.EyeYaw or 28), 0)
+		local B = M.Beak or {}
+		local up, lo = B.Upper or Vector3.new(0.62, 0.44, 1.4), B.Lower or Vector3.new(0.5, 0.26, 1.05)
+		local hinge = skull * CFrame.new((B.Hinge or Vector3.new(0, -0.18, -0.62)) * s) * CFrame.Angles(-rad(B.Droop or 14), 0, 0)
+		local jaw = math.max(P.Jaw, 0)
+		cfs.BeakU = hinge * CFrame.Angles(rad(jaw * 0.3), 0, 0) * CFrame.new(0, up.Y * s / 2, -up.Z * s / 2)
+		cfs.BeakL = hinge * CFrame.Angles(-rad(jaw * 0.7), 0, 0) * CFrame.new(0, -lo.Y * s / 2, -lo.Z * s / 2) * CFrame.Angles(0, 0, math.pi)
+		local cz = M.CrestSize or Vector3.new(0.2, 0.5, 1.15)
+		local rake = rad(M.CrestRake or 38)
+		for i, c in M.Crest or {} do
+			local at = Vector3.new(c[1], c[2], c[3]) * s
+			local d = Vector3.new(c[1] * (c[4] or 0), math.sin(rake), math.cos(rake)).Unit
+			local len = cz.Z * s * (i == 1 and 1.15 or 1)
+			cfs["Crest" .. i] = skull * CFrame.lookAt(at, at + d) * CFrame.new(0, 0, -len / 2)
+			sizes["Crest" .. i] = Vector3.new(cz.X * s, cz.Y * s, len)
+		end
+		-- the arms
+		local Lu, Lf = (A.Upper or 2) * s, (A.Fore or 2.2) * s
+		local hand = A.Hand or Vector3.new(0.86, 0.74, 0.86)
+		local claw = A.Claw or Vector3.new(0.16, 0.32, 1.35)
+		local tips, joints = {}, {}
+		for _, side in { 1, -1 } do
+			local key = side == 1 and "R" or "L"
+			local a = side == 1 and P.RA or P.LA
+			local sh = bodyCF * CFrame.new(side * (M.ShoulderX or 1.2) * s, (M.ShoulderY or 0.95) * s, 0)
+			local U = sh * CFrame.Angles(0, side * rad(a[3]), 0) * CFrame.Angles(0, 0, side * rad(a[2])) * CFrame.Angles(rad(a[1]), 0, 0)
+			cfs["Upper" .. key] = U * CFrame.new(0, -Lu / 2, 0)
+			local elbow = U * CFrame.new(0, -Lu, 0) * CFrame.Angles(rad(a[4]), 0, 0)
+			cfs["Fore" .. key] = elbow * CFrame.new(0, -Lf / 2, 0)
+			local wrist = elbow * CFrame.new(0, -Lf, 0)
+			cfs["Hand" .. key] = wrist * CFrame.new(0, -hand.Y * s * 0.4, 0)
+			local n = A.Claws or 3
+			for i = 1, n do
+				local off = i - (n + 1) / 2
+				local base = Vector3.new(off * (A.ClawGap or 0.24) * s, -hand.Y * s * 0.7, -0.1 * s)
+				-- (turned so the claw runs down the hand, fanned and hooked: its
+				-- wedge's point - its -Z - along it, never a degenerate lookAt)
+				local turn = CFrame.Angles(rad(a[6]), 0, 0) * CFrame.Angles(0, 0, rad(off * a[5]))
+				local d = turn:VectorToWorldSpace(Vector3.new(0, -1, 0))
+				local len = claw.Z * s * (off == 0 and 1.1 or 1)
+				cfs["Claw" .. key .. i] = wrist * CFrame.new(base) * turn * CFrame.Angles(-math.pi / 2, 0, 0) * CFrame.new(0, 0, -len / 2)
+				sizes["Claw" .. key .. i] = Vector3.new(claw.X * s, claw.Y * s, len)
+				if off == 0 then
+					-- ((round 102 review) a CFrame times a point IS the point: the
+					-- .Position this had on the end is an error in Roblox (Lune
+					-- just gives nil) - every frame it was out, its frame stopped
+					-- here, and Dark Shadow was never put where its pose says)
+					tips[key] = wrist * (base + d * len)
+				end
+			end
+			joints[key] = { sh.Position, elbow.Position, side }
+		end
+		rig.tips = tips
+		-- ((round 102 review) its wings' membranes, while a pose spreads them: a
+		-- sail from its shoulder out to its claws, down to its flank, its
+		-- trailing edge sagging between them (Sag) - two triangles a side,
+		-- each two wedges (a degenerate one - an arm folded flat - isn't drawn)
+		if (P.Wing or 0) > 0.05 and rig.wing then
+			local WG = M.Wing or {}
+			local th = (WG.Thick or 0.08) * s
+			for key, j in joints do
+				local flank = (bodyCF * CFrame.new(j[3] * (WG.FlankX or 0.9) * s, (WG.FlankY or -1.6) * s, (WG.FlankZ or 0.2) * s)).Position
+				local tip = tips[key] or j[2]
+				local sag = (flank + tip) * 0.5 - bodyCF.UpVector * (WG.Sag or 1.1) * s
+				for t, tri in { { j[1], tip, sag }, { j[1], sag, flank } } do
+					local c1, s1, c2, s2 = TK.tri(tri[1], tri[2], tri[3], th)
+					if c1 then
+						cfs["Wing" .. key .. (t * 2 - 1)], sizes["Wing" .. key .. (t * 2 - 1)] = c1, s1
+						cfs["Wing" .. key .. (t * 2)], sizes["Wing" .. key .. (t * 2)] = c2, s2
+					end
+				end
+			end
+		end
+		-- the trail: out of his chest, curving up into its waist
+		local T = M.Trail or {}
+		local nseg = T.Segments or 7
+		local p0 = (rootCF * CFrame.new(M.Anchor or Vector3.new(0, 0.35, -0.55))).Position
+		local p3 = (bodyCF * CFrame.new(0, ((M.BellyY or -1) - (M.Belly or Vector3.new(1.8, 1.9, 1.5)).Y * 0.35) * s, (M.BellyZ or 0.15) * s)).Position
+		local reach = (p3 - p0).Magnitude
+		local p1 = p0 + rootCF.LookVector * math.min((T.Out or 1.4) * (0.4 + 0.6 * math.min(s, 1.5)), reach * 0.5)
+		local p2 = p3 - bodyCF.UpVector * math.min((T.Drop or 1.3) * s, reach * 0.6)
+		local function bez(u)
+			local v = 1 - u
+			return p0 * (v * v * v) + p1 * (3 * v * v * u) + p2 * (3 * v * u * u) + p3 * (u * u * u)
+		end
+		local from, to = T.From or 0.55, (T.To or 1.5) * math.max(s, 0.4)
+		local prev = bez(0)
+		for i = 1, nseg do
+			local nxt = bez(i / nseg)
+			local mid = (prev + nxt) / 2
+			local len = (nxt - prev).Magnitude
+			local th = from + (to - from) * ((i - 0.5) / nseg) ^ 0.8
+			local key = "Trail" .. i
+			if len > 1e-3 then
+				cfs[key] = TK.along(mid, nxt - prev)
+			else
+				cfs[key] = CFrame.new(mid)
+			end
+			sizes[key] = Vector3.new(th, th, math.max(len * 1.45, th))
+			prev = nxt
+		end
+		return cfs, sizes, s
+	end
+
+	-- show / hide it (its rim, its eyes' light, its smoke with it), and
+	-- thinned when the camera's in it (never a wall of black over a lens)
+	function TK.show(rig, on, alpha)
+		local M = CM
+		local base = M.Transparency or 0.03
+		local want = on and math.clamp(base + (alpha or 0), 0, 1) or 1
+		if math.abs(want - rig.alpha) < 0.02 then
+			return
+		end
+		rig.alpha = want
+		for key, p in rig.parts do
+			if rig.wing and rig.wing[key] then
+				continue -- (its wings: TK.wings, by how far a pose spreads them)
+			elseif key ~= "EyeR" and key ~= "EyeL" then
+				p.Transparency = want
+			else
+				p.Transparency = on and math.clamp((alpha or 0) * 0.5, 0, 1) or 1
+			end
+		end
+		if rig.rim then
+			rig.rim.OutlineTransparency = on and math.clamp((M.RimOutline or 0.3) + (alpha or 0), 0, 1) or 1
+			rig.rim.FillTransparency = on and math.clamp((M.RimFill or 0.9) + (alpha or 0), 0, 1) or 1
+		end
+		rig.light.Brightness = on and ((M.EyeLight or {}).Brightness or 1.2) * (1 - (alpha or 0)) or 0
+		rig.shown = on
+	end
+	-- ((round 102 review) its wings' membranes: as solid as a pose spreads
+	-- them (Wing 0..1), thinned like the rest of it by the camera
+	function TK.wings(rig, on, wing, alpha)
+		if not rig.wing then
+			return
+		end
+		local WG = CM.Wing or {}
+		local want = 1
+		if on and wing > 0.05 then
+			want = math.clamp(1 - (1 - (WG.Transparency or 0.18)) * math.clamp(wing, 0, 1) + (alpha or 0), 0, 1)
+		end
+		if rig.wingAlpha and math.abs(want - rig.wingAlpha) < 0.02 then
+			return
+		end
+		rig.wingAlpha = want
+		for key in rig.wing do
+			rig.parts[key].Transparency = want
+		end
+	end
+	function TK.apply(rig, P, rootCF)
+		local cfs, sizes, s = TK.place(rig, P, rootCF)
+		local scaleMoved = math.abs(s - rig.lastS) > 0.004
+		if scaleMoved then
+			rig.lastS = s
+		end
+		local parts, list = {}, {}
+		for _, key in rig.list do
+			local p = rig.parts[key]
+			local cf = cfs[key]
+			if cf then
+				local want = sizes[key] or (scaleMoved and rig.base[key] * s) or nil
+				if want then
+					local had = rig.sized and rig.sized[key]
+					if not had or (had - want).Magnitude > 0.01 * math.max(want.Magnitude, 0.5) then
+						p.Size = want
+						rig.sized = rig.sized or {}
+						rig.sized[key] = want
+					end
+				end
+				table.insert(parts, p)
+				table.insert(list, cf)
+			end
+		end
+		TK.move(parts, list)
+		rig.bodyAt = cfs.Body.Position
+		rig.radius = 1.6 * s
+	end
+
+	---------------------------------------------------------------------
+	-- BETWEEN MOVES (TK.idlePose): in him (its wisp off his collar); stood
+	-- still a while out of a fight, the little shadow peeking out by his
+	-- shoulder, looking about, blinking; in the ult its Loom - and never
+	-- still (TK.wild)
+	---------------------------------------------------------------------
+	function TK.idlePose(rig, char, root, now, ult, dt)
+		if ult then
+			return TK.resolve("Loom", false, true)
+		end
+		local PK = C.Peek or {}
+		local v = root.AssemblyLinearVelocity
+		local moving = v ~= v or Vector3.new(v.X, 0, v.Z).Magnitude > 1.5 or math.abs(v.Y) > 4
+		if moving or not rig.stillSince then
+			rig.stillSince = now
+		end
+		rig.still = now - rig.stillSince
+		local ankh = (tonumber(char:GetAttribute("BlackAnkh")) or 0) > workspace:GetServerTimeNow()
+		local busy = ankh or TK.dead(char) or char:GetAttribute("Stunned") == true or char:GetAttribute("Ragdolled") == true or now - (rig.lastAct or -1e9) < (PK.After or 2.5)
+		local peek = not busy and rig.still >= (PK.After or 2.5)
+		if peek ~= rig.peeking then
+			rig.peeking = peek
+			rig.idleFrom = { pose = rig.pose, t0 = now, dur = PK.Blend or 0.35 }
+		end
+		if not peek then
+			return TK.resolve("In", false, false)
+		end
+		-- (looking about: a new place every Look s, eased toward)
+		local p = TK.copy(TK.resolve("Peek", false, false))
+		if now >= (rig.lookNext or 0) then
+			rig.lookNext = now + (PK.Look or 1.8) * (0.6 + rng:NextNumber() * 0.8)
+			rig.lookYaw = rand(-35, 45)
+			rig.lookPitch = rand(-10, 18)
+		end
+		rig.headYaw = (rig.headYaw or 0) + ((rig.lookYaw or 0) - (rig.headYaw or 0)) * math.min((dt or 1 / 60) * 6, 1)
+		rig.headPitch = (rig.headPitch or 0) + ((rig.lookPitch or 0) - (rig.headPitch or 0)) * math.min((dt or 1 / 60) * 6, 1)
+		p.Head = { p.Head[1] + rig.headPitch, p.Head[2] + rig.headYaw, p.Head[3] }
+		p.Up += math.sin(now * 2.2) * 0.05
+		return p
+	end
+	-- THE ULT: never still - its head jerked round every Look s, its beak
+	-- snapping, breathing; a roar now and then, growls between
+	function TK.wild(rig, char, P, now, dt, weight)
+		local W = (C.Ult or {}).Wild or {}
+		if now >= (rig.wildNext or 0) then
+			rig.wildNext = now + (W.Look or 0.7) * (0.5 + rng:NextNumber())
+			rig.wildYaw = rand(-(W.Yaw or 35), W.Yaw or 35)
+			rig.wildPitch = rand(-(W.Pitch or 16), W.Pitch or 16)
+		end
+		local k = math.min((dt or 1 / 60) * 9, 1)
+		rig.wy = (rig.wy or 0) + ((rig.wildYaw or 0) - (rig.wy or 0)) * k
+		rig.wp = (rig.wp or 0) + ((rig.wildPitch or 0) - (rig.wp or 0)) * k
+		local snap = math.max(math.sin(now * TAU / (W.Snap or 1.4)), 0) ^ 6 * (W.Jaw or 42)
+		local o = TK.copy(P)
+		o.Head = { P.Head[1] + rig.wp * weight, P.Head[2] + rig.wy * weight, P.Head[3] + math.sin(now * 3.1) * 6 * weight }
+		o.Jaw = P.Jaw + snap * weight
+		o.Up = P.Up + math.sin(now * 2.4) * (W.Breath or 0.05) * P.Scale * 4 * weight
+		o.Pitch = P.Pitch + math.sin(now * 1.7) * 3 * weight
+		for i, side in { "RA", "LA" } do
+			local a = { table.unpack(o[side]) }
+			a[5] = a[5] + math.sin(now * 4 + i) * 10 * weight
+			a[4] = a[4] + math.sin(now * 2.3 + i * 2) * 8 * weight
+			o[side] = a
+		end
+		-- (a roar every Roar s, growls between: on the screens close enough to hear)
+		if now >= (rig.roarNext or 0) then
+			local first = rig.roarNext == nil
+			rig.roarNext = now + (W.Roar or 6) * (0.7 + rng:NextNumber() * 0.6)
+			local root = char:FindFirstChild("HumanoidRootPart")
+			if not first and root then
+				VFX.PlaySound(rng:NextNumber() < 0.5 and "TokoUltRoar" or "TokoUltGrowl", root.Position, 0.8)
+				rig.roarAt = now
+			end
+		end
+		if rig.roarAt and now - rig.roarAt < 1.2 then
+			local u = (now - rig.roarAt) / 1.2
+			o.Jaw = math.max(o.Jaw, 75 * math.sin(math.pi * u))
+			o.Head = { o.Head[1] - 25 * math.sin(math.pi * u), o.Head[2], o.Head[3] }
+		end
+		return o
+	end
+	-- its look in the ult: darker, its eyes purple fire, its rim the ult's
+	function TK.ultLook(rig, ult)
+		if rig.ultLook == ult then
+			return
+		end
+		rig.ultLook = ult
+		local U = C.Ult or {}
+		local body = ult and (U.Body3 or INK) or SHADOW
+		for key, p in rig.parts do
+			if key == "EyeR" or key == "EyeL" then
+				p.Color = ult and (U.Eye3 or Color3.fromRGB(196, 92, 255)) or EYE
+			elseif not key:find("^Claw") and not key:find("^Beak") then
+				p.Color = body
+			end
+		end
+		rig.light.Color = ult and (U.Eye3 or Color3.fromRGB(196, 92, 255)) or EYE
+		if rig.rim then
+			rig.rim.OutlineColor = ult and (U.Rim or RIM) or RIM
+			rig.rim.FillColor = ult and (U.Rim or RIM) or RIM
+		end
+		for _, pe in rig.fire or {} do
+			pe.Enabled = ult
+		end
+		if ult and not rig.fire and not TK.low() then
+			-- (purple fire in its eyes)
+			rig.fire = {}
+			local F = U.Fire or {}
+			for _, key in { "EyeR", "EyeL" } do
+				local pe = Instance.new("ParticleEmitter")
+				pe.Name = "DarkShadowFire"
+				pe.Texture = FIRE_TEX
+				pe.Color = ColorSequence.new(Color3.new(1, 1, 1), F.Color or Color3.fromRGB(186, 80, 255))
+				pe.LightEmission = 1
+				pe.LightInfluence = 0
+				local fs = F.Size or { 0.6, 1.6 }
+				pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, fs[2]), NumberSequenceKeypoint.new(1, fs[1] * 0.3) })
+				pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+				pe.Lifetime = NumberRange.new(0.25, 0.45)
+				pe.Speed = NumberRange.new(2, 5)
+				pe.Acceleration = Vector3.new(0, 8, 0)
+				pe.Rate = F.Rate or 18
+				pe.Parent = rig.parts[key]
+				table.insert(rig.fire, pe)
+			end
+		end
+	end
+
+	-- one frame of his Dark Shadow
+	TK.STRIKES = { M1_1 = true, M1_2 = true, M1_3 = true, M1_4 = true, M1Up = true, M1Down = true, Claw = true, ClawTwin = true, Counter = true, Rampage = true, LungeCatch = true, Lunge = true }
+	function TK.stepRig(rig, char, root, now, dt)
+		local rootCF = root.CFrame
+		if rootCF.Position ~= rootCF.Position then
+			return -- (a body flung NaN for a frame: it keeps its last pose)
+		end
+		-- ((round 102 review) dead, it goes back into him - the ult's monster
+		-- too - while the body lies there till he's back)
+		local dead = TK.dead(char)
+		local ult = TK.ult(char) and not dead
+		local tr = TK.tracks and TK.tracks[char] or nil
+		if tr and rig.track ~= tr then
+			rig.track = tr
+			tr.from = tr.from or rig.pose
+		end
+		local P, done
+		if tr then
+			local t = (poseTime(char, now) - tr.t0) * tr.speed
+			P, done = TK.sample(tr, t, rootCF, ult)
+			if P and tr.drive then
+				P = tr.drive(rig, P, t, rootCF) or P
+			end
+			rig.lastAct = now
+			if done and not tr.clip.Hold and not tr.clip.Loop then
+				TK.stop(char)
+			elseif (tr.clip.Hold or tr.clip.Loop) and (t > (tr.life or (C.HoldLife or 6)) or TK.dead(char)) then
+				-- ((round 102 review) a clip that holds is let go by the server's
+				-- word - and if that word never comes (the move cut short, his
+				-- death, a packet lost), it lets go by itself: the lunge held
+				-- Dark Shadow flung out at full length till his next move)
+				if tr.expire and not TK.dead(char) then
+					tr.expire()
+				else
+					TK.stop(char, 0.3)
+				end
+			end
+			-- (its claw trails while it strikes)
+			local hit = tr.clip.Hit or 0
+			local striking = TK.STRIKES[tr.name] and t > 0.02 and t < (tr.clip.Hit3 or tr.clip.Hit2 or hit) + 0.16
+			if striking ~= rig.striking then
+				rig.striking = striking
+				for _, c in rig.trails do
+					c.trail.Enabled = striking == true
+				end
+			end
+		elseif rig.striking then
+			rig.striking = false
+			for _, c in rig.trails do
+				c.trail.Enabled = false
+			end
+		end
+		if not P then
+			local idle = TK.idlePose(rig, char, root, now, ult, dt)
+			local f = rig.idleFrom
+			if f and f.pose then
+				local u = math.clamp((now - f.t0) / math.max(f.dur, 1e-3), 0, 1)
+				P = TK.blend(f.pose, idle, TK.ease(u, "inout"))
+				if u >= 1 then
+					rig.idleFrom = nil
+				end
+			else
+				P = idle
+			end
+		end
+		-- ((round 102 review) into the ult's form or out of it: eased over
+		-- UltBlend s from where it was - it snapped from 2.6x to its own size
+		-- in one frame when the ult ran out mid-move. Into it, a clip that's
+		-- playing - the awakening's - eases itself)
+		if rig.wasUlt ~= nil and rig.wasUlt ~= ult and rig.pose and (not ult or not tr) then
+			rig.flip = { pose = rig.pose, t0 = now }
+		end
+		rig.wasUlt = ult
+		if rig.flip then
+			local u = math.clamp((now - rig.flip.t0) / math.max((C.Ult or {}).Blend or 0.4, 1e-3), 0, 1)
+			P = TK.blend(rig.flip.pose, P, TK.ease(u, "inout"))
+			if u >= 1 then
+				rig.flip = nil
+			end
+		end
+		if ult then
+			P = TK.wild(rig, char, P, now, dt, tr and 0.3 or 1)
+			rig.lastAct = now -- (out of the ult it doesn't peek out at once)
+		end
+		rig.pose = P
+		TK.ultLook(rig, ult)
+		local on = P.Scale >= (CM.Hidden or 0.08)
+		local alpha = 0
+		if on and rig.bodyAt then
+			local dc = (TK.camPos() - rig.bodyAt).Magnitude
+			local r = (rig.radius or 1.6) + (CM.CameraFade or 3)
+			if dc < r then
+				alpha = math.clamp(1 - dc / r, 0, 1) * 0.85
+			end
+		end
+		TK.show(rig, on, alpha)
+		TK.wings(rig, on, P.Wing or 0, alpha)
+		-- (its rim only while it's out for a move - not the little one peeking,
+		-- not with the camera inside it)
+		local rimOn = on and P.Scale >= 0.4 and alpha < 0.7
+		if rig.rim and rig.rim.Enabled ~= rimOn then
+			rig.rim.Enabled = rimOn
+		end
+		local SM = CM.Smoke or {}
+		local rate = (TK.low() and (SM.LowRate or 4) or (SM.Rate or 12)) * (ult and 2 or 1)
+		rig.smoke.Rate = on and P.Scale > 0.4 and rate or 0
+		rig.trailSmoke.Rate = on and P.Scale > 0.4 and rate * 0.6 or 0
+		rig.wisp.Rate = not dead and (not on or P.Scale < 0.4) and (TK.low() and 1.5 or 3.5) or 0
+		if on then
+			TK.apply(rig, P, rootCF)
+		else
+			-- (in him: only its wisp, off his collar)
+			rig.parts.Trail1.CFrame = rootCF * CFrame.new(CM.Anchor or Vector3.new(0, 0.35, -0.55))
+			rig.bodyAt = nil
+		end
+		-- (blinking - when it's peeking: its eyes shut for a moment)
+		local PK = C.Peek or {}
+		if rig.peeking and now >= (rig.blinkAt or 0) then
+			rig.blinkAt = now + (PK.Blink or 3.2) * (0.6 + rng:NextNumber() * 0.8)
+			rig.blinkTo = now + 0.12
+		end
+		local shut = rig.blinkTo ~= nil and now < rig.blinkTo
+		if shut ~= rig.shut and on then
+			rig.shut = shut
+			local e = CM.Eye or Vector3.new(0.36, 0.44, 0.16)
+			for _, key in { "EyeR", "EyeL" } do
+				local p = rig.parts[key]
+				local s = math.max(P.Scale, 0.01)
+				p.Size = Vector3.new(e.X * s, e.Y * s * (shut and 0.12 or 1), e.Z * s)
+				if rig.sized then
+					rig.sized[key] = p.Size
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE CLOAK (the server's TokoCloak: hinged segments) - every screen
+	-- swings it from how he moves (Saitama's cape driver, his numbers: a
+	-- heavier cloak), thrown by his moves (TK.gust)
+	---------------------------------------------------------------------
+	function TK.gust(char, level, time)
+		local w = TK.wind[char]
+		local now = os.clock()
+		if not w or w.untilAt < now or level >= w.level then
+			TK.wind[char] = { level = level, untilAt = now + (time or 0.6) }
+		end
+	end
+	function TK.windOf(char, now)
+		local w = TK.wind[char]
+		if not w then
+			return 0
+		end
+		if w.untilAt < now then
+			TK.wind[char] = nil
+			return 0
+		end
+		return w.level * math.clamp((w.untilAt - now) / 0.35, 0, 1)
+	end
+	function TK.bindCloak(char)
+		local gear = char:FindFirstChild("QuirkGear")
+		local cos = gear and gear:FindFirstChild("Cosmetics")
+		local cape = cos and cos:FindFirstChild("TokoCloak")
+		local rig = TK.cloaks[char]
+		if not cape then
+			TK.cloaks[char] = nil
+			return nil
+		end
+		if rig and rig.model == cape then
+			return rig
+		end
+		rig = { model = cape, segs = {}, phase = rng:NextNumber(0, 10) }
+		for i = 1, 12 do
+			local seg = cape:FindFirstChild("TokoCloakSeg" .. i)
+			local joint = seg and seg:FindFirstChild("TokoCloakJoint")
+			if not (joint and joint:IsA("Weld")) then
+				break
+			end
+			rig.segs[i] = { joint = joint, at = joint.C0.Position, swing = 0, roll = 0 }
+		end
+		TK.cloaks[char] = rig
+		return rig
+	end
+	function TK.cloakStep(char, rig, dt, now)
+		local CP = C.Cloak or {}
+		local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local n = #rig.segs
+		if not torso or not root or n == 0 then
+			return
+		end
+		local v = root.AssemblyLinearVelocity
+		if v.Magnitude ~= v.Magnitude or v.Magnitude > 1e4 then
+			return -- (a body flung NaN: the cloak keeps its last swing)
+		end
+		local lv = torso.CFrame:VectorToObjectSpace(v)
+		local fwd, side, fall = -lv.Z, lv.X, -v.Y
+		local g = torso.CFrame:VectorToObjectSpace(Vector3.new(0, -1, 0))
+		local hang = math.deg(math.atan2(g.Z, math.max(-g.Y, 0.05)))
+		local wind = TK.windOf(char, now)
+		local speed = math.sqrt(fwd * fwd + side * side)
+		local lift = math.clamp(math.max(fwd, 0) * (CP.Lift or 2.4) + math.max(fall, 0) * (CP.Fall or 1.5) + wind * 55, 0, CP.Max or 80)
+		local amp = (CP.Flutter or 2.5) + speed * (CP.FlutterSpeed or 0.22) + wind * (CP.Wind or 24)
+		local rate = (CP.Rate or 1.3) * (1 + speed / 30 + wind * 2) * TAU
+		local k = 1 - math.exp(-(CP.Blend or 9) * dt)
+		local rest = CP.Rest or 5
+		local prevAbs = 0
+		local legs = VFX.Gait and VFX.Gait.capeLegs and VFX.Gait.capeLegs(char, torso)
+		local cy, cz, held = 0, 0, 0
+		for i, s in rig.segs do
+			local share = i / n
+			local flutter = math.sin(rig.phase + now * rate - i * 0.9) * amp * share
+			local floor = i == 1 and rest or 0
+			local abs = math.max(hang + floor + lift * share ^ 0.8 + flutter, floor)
+			local rel = abs - prevAbs
+			prevAbs = abs
+			local roll = math.clamp(-side * (CP.Side or 1.1), -35, 35) * share + math.sin(rig.phase * 1.7 + now * rate * 0.7 + i) * amp * 0.25 * share
+			s.swing += (rel - s.swing) * k
+			s.roll += (roll - s.roll) * k
+			if legs then
+				if i == 1 then
+					cy, cz = s.at.Y, s.at.Z
+				end
+				local h = 2 * s.joint.C1.Y
+				local out = VFX.Gait.capeFloor(legs, cy, cz, h, held + s.swing)
+				s.swing, held = out - held, out
+				cy, cz = cy - h * math.cos(math.rad(out)), cz + h * math.sin(math.rad(out))
+			end
+			if s.joint.Parent then
+				s.joint.C0 = CFrame.new(s.at) * CFrame.Angles(math.rad(-s.swing), 0, math.rad(s.roll))
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- BLACK ANKH's ARMOUR (every screen, from the body's BlackAnkh - when it
+	-- ends, server time; his own screen at once): Dark Shadow worn over him -
+	-- a helm with its beak, yellow eyes and crest, pauldrons and their
+	-- spikes, the chest, gauntlets with three long claws each, greaves, smoke
+	-- off it, its rim. Welded to his limbs; grown in, and gone in smoke.
+	---------------------------------------------------------------------
+	function TK.armourOn(char)
+		if TK.armour[char] then
+			return TK.armour[char]
+		end
+		local K = C.Ankh or {}
+		local model = Instance.new("Model")
+		model.Name = "BlackAnkh"
+		model.Parent = folder
+		local rec = { model = model, parts = {}, claws = {}, born = os.clock() }
+		TK.armour[char] = rec
+		local function piece(limbPart, size, cf, color, shape, material, ellipse, name)
+			if not limbPart then
+				return nil
+			end
+			local p = newPart(size * 0.3, limbPart.CFrame * cf, color or SHADOW, material or Enum.Material.SmoothPlastic, shape, model)
+			p.Name = name or "AnkhPlate"
+			p.Anchored = false
+			p.Massless = true
+			p.Transparency = 1
+			if ellipse then
+				local mesh = Instance.new("SpecialMesh")
+				mesh.MeshType = Enum.MeshType.Sphere
+				mesh.Parent = p
+			end
+			local w = Instance.new("Weld")
+			w.Part0 = limbPart
+			w.Part1 = p
+			w.C0 = cf
+			w.Parent = p
+			table.insert(rec.parts, { p = p, size = size, t = (material == Enum.Material.Neon) and 0 or (CM.Transparency or 0.03) })
+			return p
+		end
+		local head = char:FindFirstChild("Head")
+		local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+		if head then
+			local v = head:FindFirstChildOfClass("SpecialMesh") and 1.2 or head.Size.X
+			local hs = (K.Helm or Vector3.new(1.22, 1.16, 1.26)) * v
+			piece(head, hs * 1.05, CFrame.new(0, 0.04 * v, 0), SHADOW, nil, nil, true, "AnkhHelm")
+			local bk = (K.Beak or Vector3.new(0.36, 0.26, 0.8)) * v
+			piece(head, bk, CFrame.new(0, -0.1 * v, -hs.Z * 0.5) * CFrame.Angles(-math.rad(14), 0, 0) * CFrame.new(0, bk.Y / 2, -bk.Z / 2), CM.Beak3, Enum.PartType.Wedge, nil, nil, "AnkhBeak")
+			local es = (K.Eye or Vector3.new(0.2, 0.12, 0.05)) * v
+			for _, side in { 1, -1 } do
+				piece(head, es, CFrame.new(side * 0.3 * v, 0.1 * v, -hs.Z * 0.47) * CFrame.Angles(0, -side * math.rad(24), side * math.rad(-12)), EYE, nil, Enum.Material.Neon, true, "AnkhEye")
+			end
+			for i, c in { { 0, 0.5, 0.35 }, { 0.3, 0.42, 0.42 }, { -0.3, 0.42, 0.42 } } do
+				local at = Vector3.new(c[1], c[2], c[3]) * v
+				local d = Vector3.new(c[1] * 0.8, 0.55, 1).Unit
+				local len = 1.1 * v * (i == 1 and 1.2 or 1)
+				piece(head, Vector3.new(0.16 * v, 0.4 * v, len), CFrame.lookAt(at, at + d) * CFrame.new(0, 0, -len / 2), SHADOW, Enum.PartType.Wedge, nil, nil, "AnkhCrest")
+			end
+		end
+		if torso then
+			local ts = torso.Size
+			piece(torso, Vector3.new(ts.X + 0.3, ts.Y * 0.9, ts.Z + 0.3), CFrame.new(0, ts.Y * 0.05, 0), SHADOW, nil, nil, nil, "AnkhChest")
+			local pd = K.Pauldron or Vector3.new(1.4, 0.95, 1.5)
+			local sp = K.Spike or Vector3.new(0.16, 0.3, 0.9)
+			for _, side in { 1, -1 } do
+				piece(torso, pd, CFrame.new(side * (ts.X / 2 + 0.25), ts.Y / 2 - 0.05, 0), SHADOW, nil, nil, true, "AnkhPauldron")
+				for j, a in { { 20, 0.1 }, { 45, -0.25 } } do
+					local at = Vector3.new(side * (ts.X / 2 + 0.35), ts.Y / 2 + 0.3, a[2])
+					local d = Vector3.new(side * math.sin(math.rad(a[1])), math.cos(math.rad(a[1])), 0.35).Unit
+					local len = sp.Z * (j == 1 and 1.2 or 1)
+					piece(torso, Vector3.new(sp.X, sp.Y, len), CFrame.lookAt(at, at + d) * CFrame.new(0, 0, -len / 2), SHADOW, Enum.PartType.Wedge, nil, nil, "AnkhSpike")
+				end
+			end
+			rec.smokeRate = TK.low() and 2 or (K.Smoke or 6)
+			rec.smoke = TK.smoke(rec.parts[#rec.parts].p, rec.smokeRate, { 0.8, 2 }, { 0.4, 0.8 })
+		end
+		local claw = K.Claw or Vector3.new(0.12, 0.24, 1.5)
+		for _, name in { "Right Arm", "Left Arm" } do
+			local arm = char:FindFirstChild(name)
+			if arm then
+				local s = arm.Size
+				local g = K.Gauntlet or 0.62
+				piece(arm, Vector3.new(s.X * 1.22, s.Y * g, s.Z * 1.22), CFrame.new(0, -s.Y / 2 + s.Y * g / 2, 0), SHADOW, nil, nil, nil, "AnkhGauntlet")
+				for i = 1, K.Claws or 3 do
+					local off = i - 2
+					local base = Vector3.new(off * 0.28, -s.Y / 2 - 0.05, -0.2)
+					local turn = CFrame.Angles(math.rad(28), 0, 0) * CFrame.Angles(0, 0, math.rad(off * 14))
+					local len = claw.Z * (off == 0 and 1.15 or 1)
+					local p = piece(arm, Vector3.new(claw.X, claw.Y, len), CFrame.new(base) * turn * CFrame.Angles(-math.pi / 2, 0, 0) * CFrame.new(0, 0, -len / 2), CM.Claw3, Enum.PartType.Wedge, nil, nil, "AnkhClaw")
+					if p and off == 0 then
+						local a0 = Instance.new("Attachment")
+						a0.Position = Vector3.new(0, 0, len / 2)
+						a0.Parent = p
+						local a1 = Instance.new("Attachment")
+						a1.Position = Vector3.new(0, 0, -len / 2)
+						a1.Parent = p
+						local tr = Instance.new("Trail")
+						tr.Name = "AnkhClawTrail"
+						tr.Attachment0, tr.Attachment1 = a0, a1
+						tr.Color = ColorSequence.new(RIM, SHADOW)
+						tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+						tr.LightEmission = 0.5
+						tr.Lifetime = 0.16
+						tr.Enabled = false
+						tr.Parent = p
+						table.insert(rec.claws, tr)
+					end
+				end
+			end
+		end
+		for _, name in { "Right Leg", "Left Leg" } do
+			local leg = char:FindFirstChild(name)
+			if leg then
+				local s = leg.Size
+				piece(leg, Vector3.new(s.X * 1.18, s.Y * 0.55, s.Z * 1.2), CFrame.new(0, -s.Y * 0.2, 0), SHADOW, nil, nil, nil, "AnkhGreave")
+			end
+		end
+		if not TK.low() then
+			local h = Instance.new("Highlight")
+			h.Name = "BlackAnkhRim"
+			h.FillTransparency = 1
+			h.OutlineColor = RIM
+			h.OutlineTransparency = 0.3
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Adornee = model
+			h.Parent = model
+			rec.rim = h
+		end
+		local grow = K.Grow or 0.25
+		for _, e in rec.parts do
+			tween(e.p, grow, { Size = e.size, Transparency = e.t }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		end
+		return rec
+	end
+	function TK.armourOff(char, now)
+		local rec = TK.armour[char]
+		if not rec then
+			return
+		end
+		TK.armour[char] = nil
+		local fade = (C.Ankh or {}).Fade or 0.3
+		if now == true or TK.low() then
+			pcall(function()
+				rec.model:Destroy()
+			end)
+			return
+		end
+		if rec.smoke then
+			rec.smoke.Rate = 0
+			rec.smoke:Emit(12)
+		end
+		for _, e in rec.parts do
+			if e.p.Parent then
+				tween(e.p, fade, { Transparency = 1, Size = e.size * 1.15 })
+			end
+		end
+		cleanup(rec.model, fade + 0.6)
+	end
+	-- (from the body's word: on while BlackAnkh is ahead of the server's
+	-- clock - or his own screen's guess at it, till the word comes)
+	TK.ankhGuess = {}
+	function TK.armourStep(char, now)
+		local untilAt = tonumber(char:GetAttribute("BlackAnkh"))
+		local on = (untilAt ~= nil and untilAt > workspace:GetServerTimeNow()) or (TK.ankhGuess[char] or 0) > now
+		if untilAt ~= nil then
+			TK.ankhGuess[char] = nil
+		end
+		if on and not TK.armour[char] then
+			TK.armourOn(char)
+		elseif not on and TK.armour[char] then
+			TK.armourOff(char)
+		end
+		-- ((round 102 review) Dark Shadow out of him for a move while he wears
+		-- it (the lunge, the claw, the guard, the wings, the finisher): the
+		-- armour IS it - it lets go of him and sets again after, never the
+		-- armour and the creature at once)
+		local rec = TK.armour[char]
+		if rec and os.clock() - rec.born > ((C.Ankh or {}).Grow or 0.25) then
+			local rig = TK.rigs[char]
+			local out = rig ~= nil and rig.pose ~= nil and rig.pose.Scale >= 0.4
+			if out ~= (rec.lent == true) then
+				rec.lent = out
+				for _, e in rec.parts do
+					if e.p.Parent then
+						tween(e.p, 0.12, { Transparency = out and 1 or e.t })
+					end
+				end
+				if rec.rim then
+					rec.rim.Enabled = not out
+				end
+				if rec.smoke then
+					rec.smoke.Rate = out and 0 or (rec.smokeRate or 0)
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- EVERY TOKOYAMI THIS SCREEN SEES: Dark Shadow every frame (within its
+	-- Cull), the cloak (near the camera), the armour; looked up twice a second
+	---------------------------------------------------------------------
+	TK.scanAt = 0
+	function TK.step(dt)
+		local now = os.clock()
+		dt = math.min(dt or 1 / 60, 0.1)
+		if now >= TK.scanAt then
+			TK.scanAt = now + 0.5
+			local list = {}
+			for _, plr in Players:GetPlayers() do
+				if TK.isToko(plr.Character) then
+					table.insert(list, plr.Character)
+				end
+			end
+			local dummies = workspace:FindFirstChild("Dummies")
+			for _, m in dummies and dummies:GetChildren() or {} do
+				if TK.isToko(m) then
+					table.insert(list, m)
+				end
+			end
+			TK.bodies = list
+			for _, c in list do
+				TK.hookOn(c)
+			end
+			for char in TK.rigs do
+				if not TK.isToko(char) then
+					TK.dropRig(char)
+				end
+			end
+			for char in TK.cloaks do
+				if not TK.isToko(char) then
+					TK.cloaks[char] = nil
+				end
+			end
+			for char in TK.armour do
+				if not TK.isToko(char) then
+					TK.armourOff(char, not char.Parent)
+				end
+			end
+			for char, w in TK.wind do
+				if not char.Parent or w.untilAt < now then
+					TK.wind[char] = nil
+				end
+			end
+			for char in TK.tracks or {} do
+				if not TK.isToko(char) then
+					TK.tracks[char] = nil
+				end
+			end
+			for char in TK.ankhGuess do
+				if not char.Parent then
+					TK.ankhGuess[char] = nil
+				end
+			end
+			for char in TK.lunges or {} do
+				if not TK.isToko(char) then
+					TK.lunges[char] = nil
+				end
+			end
+			-- (a body that's not him any more lets go of his hook)
+			for c, fn in TK.hooks do
+				if not TK.isToko(c) then
+					TK.hooks[c] = nil
+					if VFX.HitHooks and VFX.HitHooks[c] == fn then
+						VFX.HitHooks[c] = nil
+					end
+				end
+			end
+		end
+		local cam = TK.camPos()
+		local CP = C.Cloak or {}
+		local cloakCull = TK.low() and (CP.LowCull or 80) or (CP.Cull or 160)
+		for _, char in TK.bodies do
+			local root = char.Parent and char:FindFirstChild("HumanoidRootPart")
+			if root and TK.ok(root.Position) then
+				local d = (root.Position - cam).Magnitude
+				local rig = TK.rigs[char]
+				if d <= (CM.Cull or 260) then
+					if not rig then
+						rig = TK.newRig(char)
+						TK.rigs[char] = rig
+					end
+					-- ((round 102 review) further than Lod.Near (Lod.LowNear on a
+					-- low-end machine) it's posed every other frame: its pose maths
+					-- is tens of microseconds a frame a Tokoyami, and a phone with
+					-- three of them in their ults paid it three times every frame)
+					local LOD = CM.Lod or {}
+					local skip = false
+					if d > (TK.low() and (LOD.LowNear or 50) or (LOD.Near or 110)) then
+						rig.lodSkip = not rig.lodSkip
+						skip = rig.lodSkip
+					end
+					if skip then
+						rig.lodDt = (rig.lodDt or 0) + dt
+					else
+						local ok, err = pcall(TK.stepRig, rig, char, root, now, math.min(dt + (rig.lodDt or 0), 0.1))
+						rig.lodDt = 0
+						if not ok and not TK.warned then
+							TK.warned = true
+							warn("[VFX.TK] " .. tostring(err))
+						end
+					end
+				elseif rig and d > (CM.Cull or 260) + 40 then
+					TK.dropRig(char)
+				end
+				if d <= cloakCull then
+					local cr = TK.bindCloak(char)
+					if cr then
+						TK.cloakStep(char, cr, dt, now)
+					end
+				end
+				TK.armourStep(char, now)
+			end
+		end
+		for char in TK.rigs do
+			if not char.Parent then
+				TK.dropRig(char)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE M1s: Dark Shadow's claws. He barely moves - a hand out, his cloak
+	-- swaying (his clips, M1_SETS.DarkShadow) - and it comes out of his chest
+	-- with the swing (TK.swing: Effects.Punch calls it as the swing starts)
+	-- at whoever's in reach in front: 1 the right claw raked across, 2 the
+	-- left back across, 3 an overhead chop, 4 both claws slammed down (the
+	-- server slams them into the street: TokoM1Slam), the scoop up, the slam
+	-- down. In BLACK ANKH his own armoured arm rakes them (M1_SETS.Ankh, the
+	-- body's M1Style). A landed one is his own on every screen (VFX.HitHooks:
+	-- TK.onHit): claw marks torn across them, the dark burst that eats the
+	-- light, the freeze, the shake.
+	---------------------------------------------------------------------
+	do
+		local function entry(motion, fallback, limbName, contact, cue)
+			return { Motion = motion, Fallback = fallback, Limb = limbName, Swing = "Straight", Contact = contact, Smear = false, OwnFx = true, Cue = cue }
+		end
+		M1_SETS.DarkShadow = {
+			entry("TokoM1_1", "TokoPoint", "RightHand", 0.12, "TokoClaw"),
+			entry("TokoM1_2", "TokoPointL", "LeftHand", 0.125, "TokoClaw"),
+			entry("TokoM1_3", "TokoPoint", "RightHand", 0.13, "TokoClaw"),
+			entry("TokoM1_4", "TokoPoint", "RightHand", 0.18, "TokoClawHeavy"),
+		}
+		VFX.M1Variants.Up.DarkShadow = entry("TokoM1Up", "TokoPoint", "RightHand", 0.16, "TokoClawHeavy")
+		VFX.M1Variants.Down.DarkShadow = entry("TokoM1Down", "TokoPoint", "RightHand", 0.17, "TokoClawHeavy")
+		M1_SETS.Ankh = {
+			entry("TokoAnkh1", "TokoRake", "RightHand", 0.12, "TokoAnkhSlash"),
+			entry("TokoAnkh2", "TokoRake", "LeftHand", 0.125, "TokoAnkhSlash"),
+			entry("TokoAnkh3", "TokoRake", "RightHand", 0.13, "TokoAnkhSlash"),
+			entry("TokoAnkh4", "TokoRake", "RightHand", 0.18, "TokoClawHeavy"),
+		}
+		VFX.M1Variants.Up.Ankh = entry("TokoAnkhUp", "TokoRake", "RightHand", 0.16, "TokoClawHeavy")
+		VFX.M1Variants.Down.Ankh = entry("TokoAnkhDown", "TokoRake", "RightHand", 0.17, "TokoClawHeavy")
+		M1_TRAIL.DarkShadow = RIM
+	end
+	-- whoever its claws are for: the nearest body in front within its reach,
+	-- else the air where a hit would land
+	function TK.m1Target(char, root)
+		local look = TK.flat(root.CFrame.LookVector, root)
+		local reach = (Config.M1.HitboxForward or 4) + (Config.M1.HitboxSize or Vector3.new(6.5, 6, 7.5)).Z / 2 + (Q.BladeReach or 3.5) + 1.5
+		if TK.ult(char) then
+			reach += (C.M1 or {}).UltReach or 4
+		end
+		local best, bestD
+		local function try(m)
+			local r = m ~= char and m.Parent and m:FindFirstChild("HumanoidRootPart")
+			local hum = r and m:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				local v = r.Position - root.Position
+				local flat = Vector3.new(v.X, 0, v.Z)
+				local d = flat.Magnitude
+				if d <= reach and math.abs(v.Y) < 9 and (d < 2 or flat.Unit:Dot(look) > 0.6) and (not bestD or d < bestD) then
+					best, bestD = r, d
+				end
+			end
+		end
+		for _, plr in Players:GetPlayers() do
+			if plr.Character then
+				try(plr.Character)
+			end
+		end
+		local dummies = workspace:FindFirstChild("Dummies")
+		for _, m in dummies and dummies:GetChildren() or {} do
+			try(m)
+		end
+		return best or (root.Position + look * 7.5)
+	end
+	-- (Effects.Punch, as the swing starts) out it comes
+	function TK.swing(char, count, finisher, variant)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local G = (C.Cloak or {}).Gust or {}
+		TK.gust(char, G.M1 or 0.35, 0.4)
+		if char:GetAttribute("M1Style") == "Ankh" or TK.armour[char] then
+			-- (BLACK ANKH: his own clawed arm - its claws' trails through the swing)
+			local rec = TK.armour[char]
+			if rec then
+				for _, tr in rec.claws do
+					tr.Enabled = true
+				end
+				task.delay(finisher and 0.4 or 0.3, function()
+					for _, tr in rec.claws do
+						pcall(function()
+							tr.Enabled = false -- (the armour may be gone by now)
+						end)
+					end
+				end)
+			end
+			return
+		end
+		local name = finisher and ((variant == "Up" and "M1Up") or (variant == "Down" and "M1Down") or "M1_4") or ("M1_" .. math.clamp(count or 1, 1, 3))
+		local rig = TK.rigs[char]
+		local fromIn = not (rig and rig.pose and rig.pose.Scale >= 0.4)
+		TK.play(char, name, { target = TK.m1Target(char, root) })
+		if fromIn then
+			VFX.PlaySound("TokoEmerge", root.Position, 0.7)
+		end
+		if finisher then
+			VFX.PlaySound("TokoGrowl", root.Position, 0.8)
+		end
+	end
+	-- (Effects.Punch, at the contact - EVERY swing, a whiff too) a dark arc
+	-- off its claw (his own in BLACK ANKH), a breath of its smoke
+	function TK.punch(char, count, finisher, fist, look, hit, variant)
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root or not TK.ok(fist) then
+			return
+		end
+		TK.hookOn(char)
+		local ankh = TK.armour[char] ~= nil
+		local rig = TK.rigs[char]
+		local right = not (hit and hit.Limb == "LeftHand")
+		local tip = (not ankh and rig and rig.tips and rig.tips[right and "R" or "L"]) or (root.Position + look * (ankh and 5 or 6.5) + UP * 0.5)
+		if not TK.ok(tip) then
+			return
+		end
+		local side = look:Cross(UP)
+		local tilt = (count == 2 and -1 or 1) * (finisher and 0 or 35)
+		if variant == "Up" then
+			tilt = 80
+		elseif variant == "Down" or (count == 3 and not finisher) then
+			tilt = -80
+		end
+		local cf = CFrame.lookAt(tip, tip + side) * CFrame.Angles(math.rad(tilt), 0, 0)
+		moonArc(cf, (finisher and 3.4 or 2.4) * (TK.ult(char) and 1.8 or 1), ankh and RIM or Color3.fromRGB(70, 36, 110), finisher and 170 or 130)
+		if finisher then
+			TK.darkBurst(tip, 2.4, 0.3)
+		end
+	end
+	-- the landed hit's own look, on every screen (VFX.HitHooks)
+	TK.TILT = { ["1"] = -28, ["2"] = 28, ["3"] = 80, ["4"] = 90, Up = -78, Down = 86, Air = 10 }
+	function TK.onHit(char, target, data)
+		-- (only while he's Tokoyami: a hero switch keeps the same body)
+		if type(data) ~= "table" or data.M1 == nil or not TK.isToko(char) then
+			return false
+		end
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (troot and root and TK.ok(troot.Position)) then
+			return false
+		end
+		local kind = tostring(data.M1)
+		local K = ((C.M1 or {}).Kinds or {})[kind] or {}
+		local s = (K.Size or 1) * (TK.ult(char) and 1.4 or 1)
+		local v = troot.Position - root.Position
+		local along = Vector3.new(v.X, 0, v.Z)
+		along = along.Magnitude > 0.3 and along.Unit or TK.flat(root.CFrame.LookVector, root)
+		local at = troot.Position - along * 0.55 + UP * 0.3
+		-- its claw marks torn across them (their own way each hit), the dark
+		-- burst, the shadow splashed off
+		TK.slashes(at, along, TK.TILT[kind] or 0, s, 3, 0.32)
+		if kind == "4" or kind == "Down" then
+			TK.slashes(at, along, -(TK.TILT[kind] or 0) + 20, s, 3, 0.32)
+		end
+		TK.darkBurst(at, 2.2 * s, 0.3)
+		if TK.armour[char] then
+			billboardRing(at, 1, 6 * s, RIM, 3, 0.2)
+		end
+		local stop = K.Stop or 0.06
+		VFX.Hitstop(target, stop)
+		VFX.Hitstop(char, stop)
+		local me = TK.me()
+		if me and (me == char or me == target) then
+			VFX.Shake(K.Shake or 0.5, stop + 0.12)
+			if K.Frame then
+				VFX.ImpactFrame(K.Frame)
+			end
+		end
+		return true
+	end
+	-- (the hook on every Tokoyami this screen sees - TK.step looks them up)
+	function TK.hookOn(char)
+		local H = VFX.HitHooks
+		if not H or H[char] ~= nil then
+			return -- (ours already - or someone else's on this body for now: not taken over)
+		end
+		local fn = TK.hooks[char] or function(target, data)
+			return TK.onHit(char, target, data)
+		end
+		TK.hooks[char] = fn
+		VFX.HitHooks[char] = fn
+	end
+	-- (server) THE 4TH: its two claws slam them into the street - the
+	-- street takes it a beat later
+	function Effects.TokoM1Slam(char, data)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		if not troot then
+			return
+		end
+		local SL = (C.M1 or {}).Slam or {}
+		task.wait(SL.Delay or 0.08)
+		if not troot.Parent then
+			return
+		end
+		local g = groundPoint(troot.Position)
+		VFX.PlaySound("TokoSlamGround", g, 1)
+		shockDisc(g + UP * 0.3, UP, 2, 14, 0.32, RIM)
+		TK.darkBurst(g + UP * 0.5, 4, 0.35)
+		dustPuffs(g, 0.7, TK.low() and 3 or 6, DUST, 0.6, false)
+		groundMark(g, 2.8, INK, 3)
+		if VFX.AK and VFX.AK.crack then
+			for i = 1, TK.low() and 3 or 6 do
+				local a = i / 6 * TAU + rand(-0.3, 0.3)
+				pcall(VFX.AK.crack, g + Vector3.new(math.cos(a), 0, math.sin(a)) * 1.2, Vector3.new(math.cos(a), 0, math.sin(a)), rand(4, 8), 0)
+			end
+		end
+		rocks(g + UP, 0.6, TK.low() and 2 or 5)
+		VFX.ShakeAt(g, 1.6, 60, 0.28)
+		local me = TK.me()
+		if me and (me == char or me == target) then
+			VFX.ImpactFrame(0.04)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- 1: DARK SHADOW - his arm out; it's flung out of his chest flat along
+	-- the line, claws wide, its trail stretched behind it (the server's word,
+	-- ShadowLungeGo, says when and how fast); it shuts on whoever it reaches
+	-- (ShadowLungeCatch: "Aiyo!"), hauls them back - its claws on them all the
+	-- way - lifts them and drops them in front of him (ShadowLungeDrop); empty,
+	-- it comes back (ShadowLungeMiss). The ult's takes three: a tendril of it
+	-- on each of the others.
+	---------------------------------------------------------------------
+	TK.lunges = {}
+	function TK.lungeDrive(st)
+		-- (its body placed so its claws lead the tip of the lunge)
+		return function(rig, P, t, rootCF)
+			local hit = st.hit
+			if t < hit then
+				return P
+			end
+			local reach = math.clamp((t - hit) * st.speed, 0, st.range)
+			if st.back then
+				reach = math.clamp(st.backFrom * (1 - (t - st.backAt) / 0.3), 0, st.range)
+			end
+			local at = (st.from or rootCF.Position) + st.dir * (reach + 1)
+			local o = TK.aim(P, 1, rootCF, at)
+			return o
+		end
+	end
+	function Effects.ShadowLunge(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = TK.spec(char, "ShadowLunge")
+		local d = TK.flat(data.Dir, root)
+		if isLocal then
+			face(root, d)
+		end
+		VFX.Motion(char, "TokoLunge")
+		TK.gust(char, ((C.Cloak or {}).Gust or {}).Move or 0.7, 0.8)
+		VFX.PlaySound("TokoEmerge", root.Position, 0.9)
+		local st = { dir = d, from = nil, speed = spec.Speed or 150, range = spec.Range or 46, hit = spec.Startup or 0.22 }
+		TK.lunges[char] = st
+		-- ((round 102 review) if no word of a catch or a miss comes - it's let
+		-- go by itself, back along its line)
+		local tr = TK.play(char, "Lunge", { drive = TK.lungeDrive(st), life = st.hit + st.range / math.max(st.speed, 1) + 1 })
+		if tr then
+			function tr.expire()
+				if TK.lunges[char] == st then
+					Effects.ShadowLungeMiss(char, { Dir = st.dir, Reach = st.range })
+				else
+					TK.stop(char, 0.3)
+				end
+			end
+		end
+		task.delay(st.hit, function()
+			if TK.lunges[char] == st and root.Parent then
+				VFX.PlaySound("TokoLunge", root.Position, 1)
+				local g = groundPoint(root.Position + d * 3)
+				streaks(root.Position + d * 2, d, TK.low() and 3 or 6, 1.2, 5, 18, Color3.fromRGB(60, 30, 90), 0.3)
+				shockDisc(root.Position + d * 2 + UP * 0.5, d, 1.5, 7, 0.22, RIM, 4)
+				dustPuffs(g, 0.4, 2, DUST, 0.5, false)
+			end
+		end)
+	end
+	function Effects.ShadowLungeGo(char, data)
+		local st = char and TK.lunges[char]
+		if st and TK.ok(data.From) then
+			st.from = data.From
+			st.dir = TK.flat(data.Dir, char:FindFirstChild("HumanoidRootPart"))
+			st.speed = tonumber(data.Speed) or st.speed
+			st.range = tonumber(data.Range) or st.range
+		end
+	end
+	function Effects.ShadowLungeCatch(char, data)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local targets = type(data.Targets) == "table" and data.Targets or { data.Target }
+		local first = typeof(targets[1]) == "Instance" and targets[1] or nil
+		local troot = first and first:FindFirstChild("HumanoidRootPart")
+		if not (root and troot) then
+			return
+		end
+		TK.lunges[char] = nil
+		local ult = TK.ult(char)
+		VFX.PlaySound("TokoGrab", troot.Position, 1)
+		VFX.PlaySound("TokoDrag", root.Position, 0.8)
+		if ult then
+			VFX.PlaySound("TokoUltGrowl", root.Position, 0.9)
+		else
+			-- ((round 102 review) its "Aiyo!": a shout in the game's comic
+			-- bubble over ITS head, and its own squawk out of the creature
+			-- takes - not text-to-speech: a man's voice pitched up isn't Dark
+			-- Shadow, and every screen near a catch asked Roblox's speech
+			-- service for it each time - the experience's shared rate limit, a
+			-- round trip late on the catch, silent wherever it's refused)
+			local rig = TK.rigs[char]
+			TK.shout(rig and rig.shown and rig.parts.Skull or char, (C.Shout or {}).Aiyo or "AIYO!")
+			VFX.PlaySound("TokoAiyo", troot.Position, 1)
+		end
+		TK.play(char, "LungeCatch", { target = troot, life = (tonumber(data.Drag) or 0.42) + 1.5 })
+		-- each caught: its claws shut on them (the burst, the marks), held
+		-- in its grip; the others on tendrils of it
+		local rig = TK.rigs[char]
+		for i, m in targets do
+			local r = typeof(m) == "Instance" and m:FindFirstChild("HumanoidRootPart")
+			if r then
+				TK.darkBurst(r.Position, 3, 0.3)
+				TK.slashes(r.Position, TK.flat(r.Position - root.Position, root), 70, 1, 3, 0.3)
+				VFX.Pose(m, "TokoHeld", (tonumber(data.Drag) or 0.42) + 0.2)
+				if i > 1 and rig and not TK.low() then
+					TK.tendril(rig, i == 2 and "R" or "L", r, (tonumber(data.Drag) or 0.42) + 0.3)
+				end
+			end
+		end
+		VFX.ShakeAt(troot.Position, 0.8, 50, 0.2)
+	end
+	-- a tendril of it from its claw to someone it holds (a Beam, writhing)
+	function TK.tendril(rig, side, troot, time)
+		local hand = rig.parts["Hand" .. side]
+		local a0 = Instance.new("Attachment")
+		a0.Parent = hand
+		local a1 = Instance.new("Attachment")
+		a1.Parent = troot
+		local beam = Instance.new("Beam")
+		beam.Name = "DarkShadowTendril"
+		beam.Attachment0, beam.Attachment1 = a0, a1
+		beam.Color = ColorSequence.new(SHADOW, RIM)
+		beam.LightEmission = 0.2
+		beam.LightInfluence = 0
+		beam.FaceCamera = true
+		beam.Segments = 10
+		beam.Width0, beam.Width1 = 1.2 * math.max(rig.lastS, 0.5), 0.6
+		beam.Transparency = NumberSequence.new(0.1)
+		beam.Parent = hand
+		rig.beams = rig.beams or {}
+		table.insert(rig.beams, beam)
+		local t0 = os.clock()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			local t = os.clock() - t0
+			if t > time or not (hand.Parent and troot.Parent) then
+				conn:Disconnect()
+				for _, x in { beam, a0, a1 } do
+					pcall(x.Destroy, x)
+				end
+				return
+			end
+			beam.CurveSize0 = math.sin(t * 23) * 2
+			beam.CurveSize1 = math.cos(t * 17) * 2
+		end)
+	end
+	-- ((round 102 review) DARK SHADOW SAYS IT: the game's comic shout
+	-- (VFX.SpeechBubble's Bangers bubble, popped in on a Back ease) in its
+	-- own colours - black, its yellow eyes' lettering, its violet rim - over
+	-- its own head (a part of it, or a body), tipped a little: a squawk
+	function TK.shout(at, text, life)
+		local adornee = at
+		if typeof(at) == "Instance" and at:IsA("Model") then
+			adornee = at:FindFirstChild("Head") or at:FindFirstChild("HumanoidRootPart")
+		end
+		if typeof(adornee) ~= "Instance" or not adornee:IsA("BasePart") or not adornee.Parent then
+			return nil
+		end
+		local S = C.Shout or {}
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "DarkShadowShout"
+		bb.Adornee = adornee
+		bb.Size = UDim2.fromOffset(S.Width or 190, S.Height or 64)
+		bb.StudsOffsetWorldSpace = Vector3.new(0, (S.Above or 2.4) + adornee.Size.Y * 0.5, 0)
+		bb.AlwaysOnTop = true
+		bb.MaxDistance = S.Range or 160
+		bb.LightInfluence = 0
+		bb.Parent = folder
+		local bubble = Instance.new("TextLabel")
+		bubble.AnchorPoint = Vector2.new(0.5, 0.5)
+		bubble.Position = UDim2.fromScale(0.5, 0.5)
+		bubble.Size = UDim2.fromScale(0.2, 0.2)
+		bubble.Rotation = S.Tilt or -7
+		bubble.BackgroundColor3 = S.Back or Color3.fromRGB(22, 12, 32)
+		bubble.Font = Enum.Font.Bangers
+		bubble.TextScaled = true
+		bubble.TextColor3 = EYE
+		bubble.Text = text
+		bubble.Parent = bb
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0.3, 0)
+		c.Parent = bubble
+		local st = Instance.new("UIStroke")
+		st.Thickness = 3
+		st.Color = RIM
+		st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		st.Parent = bubble
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0.08, 0)
+		pad.PaddingRight = UDim.new(0.08, 0)
+		pad.PaddingTop = UDim.new(0.1, 0)
+		pad.PaddingBottom = UDim.new(0.1, 0)
+		pad.Parent = bubble
+		tween(bubble, 0.16, { Size = UDim2.fromScale(1, 1) }, Enum.EasingStyle.Back)
+		task.delay(life or S.Life or 0.9, function()
+			tween(bubble, 0.18, { Size = UDim2.fromScale(0.1, 0.1), TextTransparency = 1, BackgroundTransparency = 1 })
+			tween(st, 0.18, { Transparency = 1 })
+			task.wait(0.2)
+			bb:Destroy()
+		end)
+		return bb
+	end
+	function Effects.ShadowLungeMiss(char, data)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local st = char and TK.lunges[char]
+		if not root then
+			return
+		end
+		TK.lunges[char] = nil
+		if tonumber(data.Reach) == 0 then
+			-- ((round 102 review) cut short before it was out: straight back in)
+			local tr = TK.tracks and TK.tracks[char]
+			if tr and tr.name == "Lunge" then
+				TK.stop(char, 0.25)
+			end
+			return
+		end
+		local reach = tonumber(data.Reach) or (st and st.range) or 30
+		local back = { dir = TK.flat(data.Dir, root), from = st and st.from or root.Position, speed = 0, range = reach, hit = 0, back = true, backAt = 0, backFrom = reach }
+		TK.play(char, "LungeMiss", { drive = TK.lungeDrive(back) })
+		VFX.PlaySound("TokoDrag", root.Position, 0.6)
+	end
+	function Effects.ShadowLungeDrop(char, data)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local targets = type(data.Targets) == "table" and data.Targets or {}
+		local first = typeof(targets[1]) == "Instance" and targets[1] or nil
+		local troot = first and first:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		if data.Cut or not troot then
+			TK.stop(char, 0.25)
+			return
+		end
+		TK.play(char, "LungeDrop", { target = troot })
+		task.delay(0.08, function()
+			for _, m in targets do
+				local r = typeof(m) == "Instance" and m:FindFirstChild("HumanoidRootPart")
+				if r then
+					local g = groundPoint(r.Position)
+					VFX.PlaySound("TokoDrop", g, 1)
+					shockDisc(g + UP * 0.3, UP, 2, 12, 0.3, RIM)
+					TK.darkBurst(g + UP * 0.6, 3.2, 0.3)
+					dustPuffs(g, 0.6, TK.low() and 2 or 5, DUST, 0.6, false)
+					groundMark(g, 2.4, INK, 3)
+					VFX.ShakeAt(g, 1.2, 50, 0.22)
+				end
+			end
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- 2: ABYSSAL CLAW - it rises huge over him roaring, its arms thrown up
+	-- like wings (the air drawn in, the dark gathering in its claws), and
+	-- brings both claws down in a wide arc in front: the street takes it - a
+	-- dark shockwave rolling out, the black burst, shadow spikes torn up along
+	-- the arc, cracks, rubble, the shake. The ult's: twice.
+	---------------------------------------------------------------------
+	function Effects.AbyssalClaw(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = TK.spec(char, "AbyssalClaw")
+		local d = TK.flat(data.Dir, root)
+		if isLocal then
+			face(root, d)
+		end
+		local twin = (spec.Slams or 1) > 1
+		VFX.Motion(char, twin and "TokoClawTwin" or "TokoClaw")
+		TK.gust(char, ((C.Cloak or {}).Gust or {}).Move or 0.7, (spec.Windup or 0.5) + 0.6)
+		VFX.PlaySound("TokoEmerge", root.Position, 0.9)
+		TK.play(char, twin and "ClawTwin" or "Claw", { target = root.Position + d * (spec.Ahead or 9) })
+		task.delay(0.18, function()
+			if root.Parent then
+				VFX.PlaySound("TokoClawRise", root.Position, 1)
+			end
+		end)
+		-- (the dark gathering in its claws before it comes down)
+		local rig = TK.rigs[char]
+		if rig and not TK.low() then
+			task.delay(0.22, function()
+				for _, side in { "R", "L" } do
+					local hand = rig.parts["Hand" .. side]
+					if hand and hand.Parent then
+						local pe = TK.smoke(hand, 30, { 0.6, 0.1 }, { 0.2, 0.3 }, RIM, -3)
+						pe.LightEmission = 0.3
+						task.delay(math.max((spec.Windup or 0.5) - 0.22, 0.05), function()
+							TK.shedOff({ pe })
+						end)
+					end
+				end
+			end)
+		end
+	end
+	function Effects.AbyssalClawSlam(char, data)
+		local at = TK.ok(data.Pos) and data.Pos or nil
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (at and root) then
+			return
+		end
+		local d = TK.flat(data.Dir, root)
+		local last = data.Last == true
+		local ult = TK.ult(char)
+		local s = ult and 1.4 or 1
+		local range = tonumber(data.Range) or 18
+		VFX.PlaySound("TokoClawSlam", at, last and 1.2 or 1)
+		VFX.PlaySound("TokoRoar", root.Position, last and 0.9 or 0.6) -- (it roars as it comes down)
+		-- the black burst where the claws come down, its rim
+		TK.darkBurst(at + UP * 1, 7 * s, 0.45)
+		-- the dark shockwave rolling out over the street (and a second behind it)
+		shockDisc(at + UP * 0.4, UP, 3, range * 2.2 * s, 0.5, INK)
+		task.delay(0.06, function()
+			shockDisc(at + UP * 0.3, UP, 2, range * 1.6 * s, 0.45, RIM)
+		end)
+		billboardRing(at + UP, 4, range * 1.5 * s, RIM, 6, 0.4)
+		-- shadow spikes torn up along the arc in front of him
+		local side = d:Cross(UP)
+		local n = TK.low() and 5 or 11
+		for i = 1, n do
+			local u = (i - 1) / (n - 1) - 0.5
+			local p = at + side * u * range * 0.9 * s + d * (math.cos(u * math.pi) - 0.6) * 4 * s
+			local g = groundPoint(p + UP * 3)
+			local h = rand(3, 6) * s * (1 - math.abs(u))
+			local spike = newPart(Vector3.new(0.9 * s, h, 0.9 * s), CFrame.new(g - UP * h * 0.5) * CFrame.Angles(rand(-0.3, 0.3), rand(0, 6), rand(-0.3, 0.3)), INK, Enum.Material.SmoothPlastic, Enum.PartType.Wedge)
+			spike.Name = "TokoSpike"
+			local dl = math.abs(u) * 0.12
+			tween(spike, 0.1, { CFrame = spike.CFrame + UP * h * 0.9 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out, dl)
+			tween(spike, 0.35, { CFrame = spike.CFrame - UP * 0.2, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, dl + 0.5)
+			cleanup(spike, dl + 0.9)
+		end
+		dustPuffs(at, 1.2 * s, TK.low() and 4 or 9, DUST, 0.9, false)
+		groundMark(at, 6 * s, INK, 4)
+		if VFX.AK and VFX.AK.crack then
+			for i = 1, TK.low() and 4 or 9 do
+				local a = i / 9 * TAU + rand(-0.25, 0.25)
+				pcall(VFX.AK.crack, at + Vector3.new(math.cos(a), 0, math.sin(a)) * 2, Vector3.new(math.cos(a), 0, math.sin(a)), rand(8, 16) * s, 0)
+			end
+		end
+		rocks(at + UP, 1.1 * s, TK.low() and 3 or 8)
+		VFX.ShakeAt(at, last and 2.6 or 2, 90, 0.45)
+		local me = TK.me()
+		if me and (me == char or (me:FindFirstChild("HumanoidRootPart") and (me.HumanoidRootPart.Position - at).Magnitude < range)) then
+			VFX.ImpactFrame(last and 0.05 or 0.035)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- 3: SHADOW GUARD - it wraps round him from behind, its arms crossed in
+	-- front of him and its head over his; a hit on it: it flinches, its
+	-- shadow splashes where it landed; the counter - its claw lashed out at
+	-- them (a growl, the marks); let go
+	---------------------------------------------------------------------
+	function Effects.ShadowGuard(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = TK.spec(char, "ShadowGuard")
+		VFX.Pose(char, "TokoGuard", (spec.Startup or 0.08) + (spec.Time or 1.8))
+		TK.gust(char, ((C.Cloak or {}).Gust or {}).Move or 0.7, 0.5)
+		VFX.PlaySound("TokoGuardUp", root.Position, 1)
+		TK.play(char, "Guard", {})
+		local g = groundPoint(root.Position)
+		shockDisc(g + UP * 0.2, UP, 2, 10, 0.35, RIM)
+		dustPuffs(g, 0.45, 2, DUST, 0.5, false)
+		-- (it lets go by itself after its time, if the server's word is late)
+		local token = TK.tracks and TK.tracks[char]
+		task.delay((spec.Startup or 0.08) + (spec.Time or 1.8) + 0.5, function()
+			local tr = TK.tracks and TK.tracks[char]
+			if tr and (tr == token or tr.name == "GuardHit" or tr.name == "Counter") then
+				TK.play(char, "GuardEnd", {})
+			end
+		end)
+	end
+	function Effects.ShadowGuardHit(char, data)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local at = TK.ok(data.Pos) and data.Pos or root.Position + TK.flat(root.CFrame.LookVector, root) * 2
+		local dir = TK.ok(data.Dir) and data.Dir or TK.flat(root.CFrame.LookVector, root)
+		VFX.PlaySound("TokoGuardHit", at, 1)
+		TK.darkBurst(at, 2.6, 0.25)
+		shockDisc(at, dir, 1, 7, 0.2, RIM)
+		local tr = TK.tracks and TK.tracks[char]
+		if tr and (tr.name == "Guard" or tr.name == "GuardHit") then
+			TK.play(char, "GuardHit", {})
+		end
+	end
+	function Effects.ShadowGuardCounter(char, data)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		if not (root and troot) then
+			return
+		end
+		VFX.PlaySound("TokoCounter", root.Position, 1)
+		TK.play(char, "Counter", { target = troot })
+		task.delay(0.08, function()
+			if troot.Parent then
+				TK.slashes(troot.Position, TK.flat(troot.Position - root.Position, root), -35, 1.3, 3, 0.35)
+				TK.darkBurst(troot.Position, 3.4, 0.3)
+				VFX.ShakeAt(troot.Position, 1, 50, 0.2)
+			end
+		end)
+	end
+	function Effects.ShadowGuardEnd(char)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		VFX.PlaySound("TokoGuardEnd", root.Position, 0.8)
+		VFX.ReleasePose(char, 0.2)
+		TK.play(char, "GuardEnd", {})
+	end
+
+	---------------------------------------------------------------------
+	-- 4: BLACK ANKH - his arms crossed, it pours out over him (Startup) and
+	-- sets as armour (TK.armour: from the body's word on every screen, his own
+	-- at once); off, it lets go of him in smoke
+	---------------------------------------------------------------------
+	function Effects.BlackAnkh(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = TK.spec(char, "BlackAnkh")
+		VFX.Motion(char, "TokoAnkh")
+		TK.play(char, "Ankh", {})
+		VFX.PlaySound("TokoEmerge", root.Position, 0.9)
+		local startup = spec.Startup or 0.35
+		task.delay(startup, function()
+			if not root.Parent then
+				return
+			end
+			if TK.mine(char) or isLocal then
+				TK.ankhGuess[char] = os.clock() + 1 -- (till the server's word arrives)
+			end
+			VFX.PlaySound("TokoAnkhOn", root.Position, 1)
+			TK.darkBurst(root.Position + UP * 0.5, 6, 0.4)
+			billboardRing(root.Position, 2, 12, RIM, 4, 0.35)
+			local g = groundPoint(root.Position)
+			shockDisc(g + UP * 0.2, UP, 2, 12, 0.35, INK)
+			TK.gust(char, 0.8, 0.4)
+		end)
+	end
+	function Effects.BlackAnkhEnd(char)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if root then
+			VFX.PlaySound("TokoAnkhOff", root.Position, 1)
+		end
+		if char then
+			TK.ankhGuess[char] = nil
+			TK.armourOff(char)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE ULT's 4: RAMPAGE - Dark Shadow off the leash: it thrashes round him
+	-- (left, right, up and smashed down), roaring; each swing a black arc
+	-- round him, a ring out along the street; the last the crater
+	---------------------------------------------------------------------
+	function Effects.ShadowRampage(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = TK.spec(char, "ShadowRampage")
+		VFX.Pose(char, "TokoRampage", spec.ActionTime or 1.6)
+		VFX.PlaySound("TokoRampage", root.Position, 1)
+		TK.gust(char, 1, (spec.ActionTime or 1.6))
+		TK.play(char, "Rampage", {})
+	end
+	function Effects.ShadowRampageHit(char, data)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local at = TK.ok(data.Pos) and data.Pos or root.Position
+		local radius = tonumber(data.Radius) or 20
+		local last = data.Last == true
+		local idx = tonumber(data.Index) or 1
+		VFX.PlaySound("TokoRampageHit", at, last and 1.3 or 1)
+		local g = groundPoint(at)
+		-- the sweep: a black arc right round him, the way it swung
+		local cf = CFrame.new(at + UP * 2) * CFrame.Angles(math.rad(90), 0, 0) * CFrame.Angles(0, 0, idx * 1.3)
+		moonArc(cf, radius * 0.7, INK, 300)
+		moonArc(cf * CFrame.new(0, 0, -0.4), radius * 0.72, RIM, 260)
+		shockDisc(g + UP * 0.3, UP, 4, radius * 2.2, 0.45, last and INK or RIM)
+		billboardRing(at, 4, radius * 2, RIM, 5, 0.35)
+		dustPuffs(g, 1, TK.low() and 3 or 7, DUST, 0.8, false)
+		if last then
+			local d = TK.flat(data.Dir, root)
+			local c = groundPoint(at + d * 8)
+			TK.darkBurst(c + UP, 9, 0.5)
+			groundMark(c, 7, INK, 4)
+			rocks(c + UP, 1.2, TK.low() and 3 or 8)
+			if VFX.AK and VFX.AK.crack then
+				for i = 1, TK.low() and 4 or 10 do
+					local a = i / 10 * TAU
+					pcall(VFX.AK.crack, c + Vector3.new(math.cos(a), 0, math.sin(a)) * 3, Vector3.new(math.cos(a), 0, math.sin(a)), rand(10, 20), 0)
+				end
+			end
+		end
+		VFX.ShakeAt(at, last and 3 or 1.8, 100, last and 0.5 or 0.3)
+		local me = TK.me()
+		if me and last and (me == char or (me:FindFirstChild("HumanoidRootPart") and (me.HumanoidRootPart.Position - at).Magnitude < radius)) then
+			VFX.ImpactFrame(0.05)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- R: BLACK FALLEN ANGEL - it becomes wings and carries him: behind his
+	-- back, its arms spread wide and beating (its clip loops), shadow shed
+	-- off them; up off the street, then he flies where his camera looks and
+	-- glides down. His own machine flies him (TK.fly, Mob's FLOAT's way)
+	---------------------------------------------------------------------
+	function TK.fly(char, root, hum, spec)
+		local old = TK.flies[char]
+		if old then
+			old.stop("Again")
+		end
+		local launch, time = spec.Launch or 0.18, spec.Time or 1.5
+		local fl = { t0 = os.clock(), v = Vector3.zero }
+		TK.flies[char] = fl
+		local att = Instance.new("Attachment")
+		att.Name = "TokoFlyAttachment"
+		att.Parent = root
+		local lv = Instance.new("LinearVelocity")
+		lv.Name = "TokoFly"
+		lv.Attachment0 = att
+		lv.MaxForce = moverForce(root, 6000)
+		lv.RelativeTo = Enum.ActuatorRelativeTo.World
+		lv.VectorVelocity = UP * (spec.Up or 46)
+		lv.Parent = root
+		local auto = hum.AutoRotate
+		hum.AutoRotate = false
+		local last = TK.flat(root.CFrame.LookVector, root)
+		local conn
+		function fl.stop(reason)
+			if fl.done then
+				return
+			end
+			fl.done = true
+			fl.reason = reason
+			if conn then
+				conn:Disconnect()
+			end
+			if lv.Parent then
+				lv:Destroy()
+			end
+			if att.Parent then
+				att:Destroy()
+			end
+			if hum.Parent then
+				hum.AutoRotate = auto
+			end
+			if TK.flies[char] == fl then
+				TK.flies[char] = nil
+			end
+		end
+		conn = RunService.Stepped:Connect(function()
+			local t = os.clock() - fl.t0
+			if not (root.Parent and hum.Parent) or TK.knocked(char, root, hum) then
+				fl.stop("Hit")
+				return
+			end
+			if not TK.isToko(char) then
+				fl.stop("Switch") -- ((round 102 review) another hero now: his wings are gone)
+				return
+			end
+			if t < launch then
+				return -- (up off the street)
+			end
+			if t < launch + time then
+				local cam = workspace.CurrentCamera
+				local look = cam and cam.CFrame.LookVector or root.CFrame.LookVector
+				local f = Vector3.new(look.X, 0, look.Z)
+				if f.Magnitude > 0.05 and f.Magnitude == f.Magnitude then
+					last = f.Unit
+				end
+				local pitch = math.clamp(math.deg(math.asin(math.clamp(look.Y, -1, 1))), spec.MinPitch or -22, spec.MaxPitch or 26)
+				fl.v = (last * math.cos(math.rad(pitch)) + UP * math.sin(math.rad(pitch))) * (spec.Speed or 66)
+				lv.VectorVelocity = fl.v
+				root.CFrame = CFrame.lookAt(root.Position, root.Position + last)
+				return
+			end
+			-- gliding down: his flight carried on a little, the fall held to FallSpeed
+			if isGrounded(root) or t > launch + time + (spec.DropTime or 2.5) then
+				fl.stop("Done")
+				return
+			end
+			local carry = Vector3.new(fl.v.X, 0, fl.v.Z) * 0.4
+			lv.VectorVelocity = carry - UP * (spec.FallSpeed or 14)
+			if carry.Magnitude > 1 then
+				root.CFrame = CFrame.lookAt(root.Position, root.Position + carry)
+			end
+		end)
+		return fl
+	end
+	-- (its wings stop shedding - the emitters may be gone with its body)
+	function TK.shedOff(sheds)
+		for _, pe in sheds do
+			pcall(function()
+				pe.Enabled = false
+			end)
+			cleanup(pe, 1)
+		end
+		table.clear(sheds)
+	end
+	function Effects.BlackFallenAngel(char, data, isLocal)
+		local root, hum = charParts(char)
+		if not root then
+			return
+		end
+		local spec = TK.spec(char, "BlackFallenAngel")
+		local launch, time = spec.Launch or 0.18, spec.Time or 1.5
+		local F = C.Fly or {}
+		VFX.Pose(char, "TokoFly", launch + time + 0.6)
+		VFX.PlaySound("TokoFly", root.Position, 1)
+		TK.gust(char, ((C.Cloak or {}).Gust or {}).Fly or 1, launch + time + 0.4)
+		TK.play(char, "Fly", {})
+		local g = groundPoint(root.Position)
+		shockDisc(g + UP * 0.2, UP, 3, 16, 0.4, RIM)
+		TK.darkBurst(g + UP * 0.6, 4, 0.35, false)
+		dustPuffs(g, 0.8, TK.low() and 2 or 5, DUST, 0.7, false)
+		streaks(g + UP * 0.5, UP, TK.low() and 3 or 7, 1.4, 4, 12, Color3.fromRGB(60, 30, 90), 0.35)
+		-- the shadow shed off its wings while he's up; a beat every Beat s
+		local rig = TK.rigs[char]
+		local sheds = {}
+		if rig and not TK.low() then
+			for _, side in { "R", "L" } do
+				local pe = TK.smoke(rig.parts["Hand" .. side], F.Shed or 10, { 0.5, 1.4 }, { 0.5, 0.9 }, nil, 1)
+				pe.Acceleration = Vector3.new(0, -4, 0)
+				table.insert(sheds, pe)
+			end
+		end
+		local t0 = os.clock()
+		local nextBeat = t0 + 0.32
+		local conn
+		local landed = false
+		conn = RunService.RenderStepped:Connect(function()
+			local now = os.clock()
+			local t = now - t0
+			if not root.Parent or t > launch + time + (spec.DropTime or 2.5) + 0.5 then
+				conn:Disconnect()
+				TK.shedOff(sheds)
+				local tr = TK.tracks and TK.tracks[char]
+				if tr and tr.name == "Fly" then
+					TK.play(char, "FlyEnd", {})
+				end
+				return
+			end
+			if t < launch + time and now >= nextBeat then
+				nextBeat = now + (F.Beat or 0.42)
+				VFX.PlaySound("TokoFlap", root.Position, 0.8)
+			end
+			if t > launch + time then
+				local tr = TK.tracks and TK.tracks[char]
+				if tr and tr.name == "Fly" then
+					TK.play(char, "FlyEnd", {})
+					TK.shedOff(sheds)
+				end
+			end
+			-- the landing: a beat of its wings at the street, the cloak, the dust
+			if t > launch + 0.35 and not landed then
+				rayParams.FilterDescendantsInstances = characterList()
+				local hit = workspace:Raycast(root.Position, Vector3.new(0, -3.8, 0), rayParams)
+				if hit then
+					landed = true
+					VFX.PlaySound("TokoLand", hit.Position, 1)
+					shockDisc(hit.Position + UP * 0.2, UP, 2, 10, 0.35, RIM)
+					dustPuffs(hit.Position, 0.6, 3, DUST, 0.6, false)
+					local tr = TK.tracks and TK.tracks[char]
+					if tr and tr.name == "Fly" then
+						TK.play(char, "FlyEnd", {})
+					end
+					VFX.ReleasePose(char, 0.2)
+					conn:Disconnect()
+					TK.shedOff(sheds)
+				end
+			end
+		end)
+		if hum and TK.drives(char, isLocal) then
+			TK.fly(char, root, hum, spec)
+			VFX.Hooks.SpeedLines(launch + time)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE ULT: ABYSSAL DARK SHADOW on the awakening kit (VFX.AK.FX.DarkShadow;
+	-- his clip MoveAwakenDarkShadow, anim/moves_toko.py): from the press the
+	-- shadow seeps out of him, a pool of it spreading under him, its two eyes
+	-- opening in the dark at his chest, his arms crossed holding it in; ON THE
+	-- HIT it bursts out of him three times the size roaring (its own clip:
+	-- Clips.Awaken), a ring of darkness out over the street, a column of
+	-- shadow up through him, plumes thrown off him, the street cracked; his
+	-- own impact pair, black and violet; then it looms over him, wild, the
+	-- world dimmed round him on every screen (TK.dim) till it's over
+	---------------------------------------------------------------------
+	local function akc()
+		return (Config.Awaken or {}).DarkShadow or {}
+	end
+	VFX.AK.MARKS.MoveAwakenDarkShadow = { Gather = 0.18, Hit = 0.3, Hold = 0.42, HoldEnd = 1.38 }
+	VFX.AK.FX.DarkShadow = {
+		press = function(ctx)
+			local A = akc()
+			local AK = VFX.AK
+			VFX.PlaySound("TokoAwakenSeep", ctx.root.Position, 1)
+			TK.play(ctx.char, "Awaken", {})
+			TK.gust(ctx.char, 0.6, ctx.hit + 0.8)
+			local g = ctx.g or (ctx.root.Position - UP * 3 * ctx.scale)
+			-- the pool spreading under him
+			local pool = newPart(Vector3.new(0.12, 2, 2), CFrame.new(g + UP * 0.06) * CFrame.Angles(0, 0, math.rad(90)), INK, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+			pool.Name = "TokoPool"
+			pool.Transparency = 0.15
+			tween(pool, math.max(ctx.hit, 0.1), { Size = Vector3.new(0.12, (A.Pool or 16) * ctx.scale, (A.Pool or 16) * ctx.scale) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			table.insert(ctx.props, pool)
+			ctx.tokoPool = pool
+			-- the shadow seeping off him
+			local torso = ctx.char:FindFirstChild("Torso") or ctx.char:FindFirstChild("UpperTorso") or ctx.root
+			local S = A.Seep or {}
+			local seep = newPart(Vector3.one * (S.Radius or 2.5) * 2 * ctx.scale, torso.CFrame, INK, Enum.Material.SmoothPlastic)
+			seep.Name = "TokoSeep"
+			seep.Transparency = 1
+			local pe = TK.smoke(seep, (S.Rate or 16) * (ctx.low and 0.4 or 1), { 1, 2.4 }, { 0.5, 0.9 }, nil, 1.5)
+			table.insert(ctx.props, seep)
+			ctx.tokoSeep = pe
+			-- its two eyes opening in the dark at his chest (not on his own lens)
+			task.spawn(function()
+				if not AK.at(ctx, A.Eyes or 0.1) then
+					return
+				end
+				local at = (torso.CFrame * CFrame.new(0, 0.3, -0.7)).Position
+				if ctx.mine and AK.lens(ctx, at, 0.6) then
+					return
+				end
+				for _, side in { 1, -1 } do
+					local e = newPart(Vector3.new(0.3, 0.02, 0.1) * ctx.scale, torso.CFrame * CFrame.new(side * 0.32 * ctx.scale, 0.35 * ctx.scale, -0.75 * ctx.scale), EYE, Enum.Material.Neon, nil)
+					e.Name = "TokoEyesOpen"
+					local mesh = Instance.new("SpecialMesh")
+					mesh.MeshType = Enum.MeshType.Sphere
+					mesh.Parent = e
+					tween(e, 0.12, { Size = Vector3.new(0.3, 0.38, 0.1) * ctx.scale })
+					table.insert(ctx.props, e)
+					cleanup(e, math.max(ctx.hit - (A.Eyes or 0.1), 0.05) + 0.05)
+				end
+			end)
+		end,
+		gather = function(ctx)
+			local rim = VFX.AK.rim(ctx)
+			rim.OutlineColor = RIM
+			tween(rim, 0.1, { OutlineTransparency = 0.2 })
+		end,
+		hit = function(ctx)
+			local A = akc()
+			local AK = VFX.AK
+			local s = ctx.scale
+			local g = ctx.g or (ctx.root.Position - UP * 3 * s)
+			AK.note(ctx, "itBursts")
+			if ctx.tokoSeep then
+				ctx.tokoSeep.Rate = 0
+				ctx.tokoSeep:Emit(ctx.low and 8 or 24)
+			end
+			if ctx.tokoPool and ctx.tokoPool.Parent then
+				tween(ctx.tokoPool, 0.6, { Transparency = 1, Size = Vector3.new(0.12, (A.Pool or 16) * 1.6 * s, (A.Pool or 16) * 1.6 * s) })
+			end
+			-- the ring of darkness out over the street, its violet edge
+			shockDisc(g + UP * 0.3, UP, 4, (A.Ring or 44) * s, 0.55, INK)
+			shockDisc(g + UP * 0.4, UP, 3, (A.Ring or 44) * 0.8 * s, 0.5, RIM)
+			-- the column of shadow up through him (not on his own lens)
+			local Pl = A.Pillar or {}
+			local ph, pw = (Pl.Height or 60) * s, (Pl.Width or 10) * s
+			if not ctx.mine or not AK.lens(ctx, ctx.root.Position + UP * 4 * s, pw * 0.5) then
+				local pillar = newPart(Vector3.new(ph, pw * 0.3, pw * 0.3), CFrame.new(g + UP * ph / 2) * CFrame.Angles(0, 0, math.rad(90)), INK, Enum.Material.ForceField, Enum.PartType.Cylinder)
+				pillar.Name = "TokoPillar"
+				pillar.Transparency = 0.05
+				-- (and the shadow pouring up it)
+				if not ctx.low then
+					local pe = TK.smoke(pillar, 0, { 3 * s, 7 * s }, { 0.5, 0.9 }, nil, 30 * s)
+					pe.Acceleration = Vector3.new(0, 60, 0)
+					pe:Emit(16)
+				end
+				tween(pillar, Pl.Life or 0.9, { Size = Vector3.new(ph, pw, pw), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				cleanup(pillar, (Pl.Life or 0.9) + 0.05)
+				table.insert(ctx.props, pillar)
+			end
+			-- plumes of shadow thrown off him
+			if not ctx.low then
+				local B = A.Burst or {}
+				local holder = newPart(Vector3.one * 3 * s, CFrame.new(ctx.root.Position), INK, Enum.Material.SmoothPlastic)
+				holder.Name = "TokoPlumes"
+				holder.Transparency = 1
+				local pe = TK.smoke(holder, 0, { 2.5 * s, 5 * s }, { 0.6, 1.1 }, nil, (B.Speed or 50) * s)
+				pe:Emit(B.Count or 14)
+				cleanup(holder, 1.4)
+				table.insert(ctx.props, holder)
+			end
+			billboardRing(ctx.root.Position, 3, 34 * s, RIM, 8, 0.45)
+			dustPuffs(g, 1.2 * s, ctx.low and 3 or 7, DUST, 0.9, false)
+			local CR = A.Crack or { 10, 20 }
+			local nc = ctx.low and math.ceil((A.Cracks or 8) / 2) or (A.Cracks or 8)
+			for i = 1, nc do
+				local a = (i - 0.5) / nc * TAU + rand(-0.2, 0.2)
+				pcall(AK.crack, g + Vector3.new(math.cos(a), 0, math.sin(a)) * 2 * s, Vector3.new(math.cos(a), 0, math.sin(a)), rand(CR[1], CR[2]) * s, rand(0, 0.1))
+			end
+			VFX.ShakeAt(ctx.root.Position, 2.8, 100, 0.55)
+			if ctx.mine then
+				VFX.Hooks.Flash(Color3.new(0, 0, 0), A.Flash or 0.12)
+			end
+		end,
+		impact = function(ctx)
+			return VFX.AK.P.pair(ctx, akc().Negative, nil)
+		end,
+		aura = function(ctx)
+			local AK = VFX.AK
+			local stop = AK.aura(ctx, ctx.spec.Aura or "ink")
+			-- (the dim lets go by itself when his ult's over - TK.dim)
+			TK.dim(ctx.char, true)
+			return function(...)
+				TK.dim(ctx.char, false)
+				return stop(...)
+			end
+		end,
+	}
+
+	-- THE WORLD DIMMED round him (the ult), on every screen: one grade of this
+	-- screen's own (a ColorCorrectionEffect it made: nothing of Lighting's is
+	-- touched), as strong as the nearest Tokoyami in his ult is near - eased
+	-- in, eased out, and gone (destroyed) when no one's left in it.
+	-- ((round 102 review) On the camera, not in Lighting - the way the
+	-- director's and the cut-ins' grades are: the realm's lighting swap
+	-- (VR's swap) takes the first ColorCorrectionEffect in Lighting for the
+	-- place's own grade, saves it, darkens it and "puts it back" - with the
+	-- dim in there it would have saved the dim's values and written them
+	-- onto the place's grade when it let go)
+	function TK.dim(char, on)
+		TK.dims[char] = on and { t0 = os.clock() } or nil
+		if on and not TK.dimConn then
+			local D = C.Dim or {}
+			local cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "TokoDim"
+			cc.Enabled = true
+			cc.Parent = workspace.CurrentCamera
+			TK.dimCC = cc
+			local level = 0
+			TK.dimConn = RunService.RenderStepped:Connect(function(dt)
+				local want = 0
+				local cam = TK.camPos()
+				-- (a new camera: the grade goes with it)
+				local camera = workspace.CurrentCamera
+				if camera and cc.Parent ~= camera then
+					local moved = pcall(function()
+						cc.Parent = camera
+					end)
+					if not moved then
+						cc = Instance.new("ColorCorrectionEffect")
+						cc.Name = "TokoDim"
+						cc.Parent = camera
+						TK.dimCC = cc
+					end
+				end
+				for c in TK.dims do
+					local r = c.Parent and c:FindFirstChild("HumanoidRootPart")
+					-- ((round 102 review) and not past his death or a hero switch,
+					-- even while the body still says it's in its ult)
+					if not r or TK.dead(c) or not TK.isToko(c) or (not TK.ult(c) and os.clock() - TK.dims[c].t0 > 2) then
+						TK.dims[c] = nil
+					else
+						local range = D.Range or 260
+						local d = (r.Position - cam).Magnitude
+						want = math.max(want, math.clamp((range - d) / (range * 0.3), 0, 1))
+					end
+				end
+				local rate = want > level and 1 / (D.In or 0.6) or 1 / (D.Out or 1.2)
+				level = level + math.clamp(want - level, -rate * dt, rate * dt)
+				cc.TintColor = Color3.new(1, 1, 1):Lerp(D.Tint or Color3.fromRGB(196, 182, 228), level)
+				cc.Saturation = (D.Saturation or -0.45) * level
+				cc.Contrast = (D.Contrast or 0.14) * level
+				cc.Brightness = (D.Brightness or -0.1) * level
+				if next(TK.dims) == nil and level <= 0.001 then
+					TK.dimConn:Disconnect()
+					TK.dimConn = nil
+					cc:Destroy()
+					TK.dimCC = nil
+				end
+			end)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE FINISHER (Config.Finishers.Styles.DarkShadow, FX.DarkShadow):
+	-- "ABYSSAL SWALLOW" - his hand out; it engulfs them (its arms round them,
+	-- its beak open over them, the shadow closing on them), lifts them, and
+	-- drops them for the server's launch
+	---------------------------------------------------------------------
+	function TK.finisher(char, target, troot, d, time)
+		VFX.Pose(char, "TokoCommand", time)
+		VFX.Pose(target, "TokoHeld", time)
+		-- ((round 102 review) worn as BLACK ANKH it stays his armour - the
+		-- shadow that closes on them comes off it - not a second Dark Shadow out)
+		if not TK.armour[char] then
+			TK.play(char, "Swallow", { target = troot })
+		end
+		VFX.PlaySound("TokoSwallow", troot.Position, 1)
+		local wrap = newPart(Vector3.one * 2, troot.CFrame, INK, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		wrap.Name = "TokoSwallow"
+		wrap.Transparency = 0.6
+		tween(wrap, 0.25, { Size = Vector3.new(4.5, 6, 4.5), Transparency = 0.15 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0.12)
+		local t0 = os.clock()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			if not wrap.Parent then
+				conn:Disconnect() -- ((round 102 review) its shell already gone: nothing more to follow them with)
+				return
+			end
+			if os.clock() - t0 > time or not troot.Parent then
+				conn:Disconnect()
+				tween(wrap, 0.15, { Size = Vector3.new(8, 9, 8), Transparency = 1 })
+				cleanup(wrap, 0.2)
+				if troot.Parent then
+					TK.darkBurst(troot.Position, 6, 0.35)
+					VFX.PlaySound("TokoClawSlam", troot.Position, 1)
+					VFX.ShakeAt(troot.Position, 2, 60, 0.3)
+				end
+				return
+			end
+			wrap.CFrame = troot.CFrame
+		end)
+	end
+
+	-- (VFX.M1Kit.reach) the swing's extra reach on top of his BladeReach, the
+	-- server's way (Kit.TK.m1): BLACK ANKH's, the ult's
+	function TK.reach(char)
+		if not TK.isToko(char) then
+			return 0
+		end
+		local r = 0
+		if char:GetAttribute("M1Style") == "Ankh" then
+			r += (Q.Extra or {}).Reach or 3
+		end
+		if TK.ult(char) then
+			r += (C.M1 or {}).UltReach or 4
+		end
+		return r
+	end
+
+	-- a dash: his cloak thrown, a puff of its smoke where he was, a wisp after him
+	QUIRK_FX.Dash.DarkShadow = function(char, root)
+		if root and root.Parent then
+			VFX.PlaySound("TokoCloak", root.Position, 0.8)
+			TK.gust(char, 0.8, 0.35)
+			TK.darkBurst(root.Position - UP * 1.5, 2.2, 0.25, false)
+		end
+	end
+
+	RunService:BindToRenderStep("TokoDarkShadow", Enum.RenderPriority.Camera.Value + 4, function(dt)
+		local ok, err = pcall(TK.step, dt)
+		if not ok and not TK.warnedStep then
+			TK.warnedStep = true
+			warn("[VFX.TK] " .. tostring(err))
+		end
+	end)
+end)()
+
+---------------------------------------------------------------------------
+-- (round 103) PUCCI / C-MOON on every screen (VFX.CM; Config.Quirks.CMoon,
+-- Config.Pucci). C-MOON is a body of its own here, not CDV's box figure: a
+-- keyed rig of anchored parts (a skull with a dark band over an open jaw full
+-- of teeth, big red lashed eyes, a crown of four flaps, a pale striped body -
+-- a V chest over an hourglass waist -, olive shorts under a fur belt whose
+-- front is an upward arrow, arrows on its head, shoulders, arms, legs and
+-- boots) posed every frame from keyed poses (Config.Pucci.Poses / Clips: every
+-- move a clip of its own, its strikes placed so its fist lands on whoever it
+-- strikes), all of it moved in one BulkMoveTo; the fine detail hidden past
+-- the detail distance; one outline while it's out. It floats behind his right
+-- shoulder - "down" means nothing to it - out for every move and M1, faded
+-- 8 s after his last; its entrance the inside-out motif. His M1s (VFX.CM.swing
+-- / punch / onHit), INVERTED (CM.inverted: the negative shell, the stripes
+-- stamped, the down-arrows; the flip-back's twisted ring), THE GRAVITY LEASES
+-- on every screen (CM.grav: the falling-up pose from the body's CMoonGrav -
+-- dropped by its own server-time expiry; on their own screen the camera
+-- rolled and a green grade, both put back exactly), 1 USHAAAA! (CM.rush: the
+-- arms, the ghost arms on arcs - a pool, never built per punch -, the rhythm,
+-- THE VITAL SPOT's negative impact frame), 2 GRAVITY FLIP (CM.flip: the field,
+-- the street falling up, the snap, the slams), the passive (FALL UP), his dash.
+-- Builder B's moves hang off the same table (CM.play / CM.shout / CM.ring...).
+-- (In a function of its own: the main chunk is at its local limit.)
+---------------------------------------------------------------------------
+;(function()
+	local CM = { rigs = {}, tracks = {}, bodies = {}, hooks = {}, gravs = {}, invs = {}, rushes = {}, fields = {}, scanAt = 0, gravAt = 0 }
+	VFX.CM = CM
+	local Q = Config.Quirks.CMoon or {}
+	local C = Config.Pucci or {}
+	local MD = C.Model or {}
+	local COL = MD.Colors or {}
+	local PAL = C.Fx or {}
+	local LILAC = PAL.Lilac or Color3.fromRGB(196, 168, 255)
+	local VIOLET = PAL.Violet or Color3.fromRGB(86, 40, 140)
+	local GREEN = PAL.Green or Color3.fromRGB(108, 203, 75)
+	local DARK = PAL.Dark or Color3.fromRGB(30, 18, 44)
+	local WHITE = Color3.new(1, 1, 1)
+	local STRIPE = COL.stripe or Color3.fromRGB(44, 34, 54)
+	local TAU = math.pi * 2
+	local function rad(d)
+		return math.rad(d or 0)
+	end
+
+	---------------------------------------------------------------------
+	-- helpers
+	---------------------------------------------------------------------
+	function CM.low()
+		return IceKit.lowEnd()
+	end
+	function CM.isMe(char)
+		return typeof(char) == "Instance" and char.Parent ~= nil and char:GetAttribute("Quirk") == "CMoon"
+	end
+	-- the move as he has it right now (the ult's own while he's in it)
+	function CM.spec(char, id)
+		local ult = char and char:GetAttribute("UltActive") == true and Q.Ult or nil
+		for _, set in { ult and ult.Abilities, ult and { ult.Special, ult.Extra }, Q.Abilities, { Q.Special, Q.Extra }, Q.Ult and Q.Ult.Abilities } do
+			for _, a in set or {} do
+				if type(a) == "table" and a.Id == id then
+					return a
+				end
+			end
+		end
+		return {}
+	end
+	function CM.me()
+		local p = Players.LocalPlayer
+		return p and p.Character
+	end
+	function CM.camPos()
+		local cam = workspace.CurrentCamera
+		return cam and cam.CFrame.Position or Vector3.zero
+	end
+	-- a finite Vector3 (never NaN, never a wild one)
+	function CM.ok(v)
+		return typeof(v) == "Vector3" and v == v and v.Magnitude < 1e6
+	end
+	function CM.flat(v, root)
+		return flatten(typeof(v) == "Vector3" and v or nil, root)
+	end
+	-- the screen whose camera is his (his own body, or the one a dev's in)
+	function CM.mine(char)
+		local lp = Players.LocalPlayer
+		return lp ~= nil and typeof(char) == "Instance" and (lp.Character == char or char:GetAttribute("PossessedBy") == lp.UserId)
+	end
+	function CM.ult(char)
+		return char ~= nil and char:GetAttribute("UltActive") == true
+	end
+	function CM.dead(char)
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		return hum ~= nil and hum.Health <= 0
+	end
+	function CM.now()
+		return workspace:GetServerTimeNow()
+	end
+	-- a frame at `at` looking along dir, its up as near world-up as it can be
+	-- (CFrame.lookAt's, built from its axes: never degenerate straight up)
+	function CM.facing(at, dir, up)
+		local d = dir.Magnitude > 1e-6 and dir.Unit or Vector3.new(0, 0, -1)
+		up = up or UP
+		if math.abs(d:Dot(up)) > 0.99 then
+			up = math.abs(d.X) < 0.9 and Vector3.new(1, 0, 0) or Vector3.new(0, 0, 1)
+		end
+		local right = d:Cross(up).Unit
+		return CFrame.fromMatrix(at, right, right:Cross(d))
+	end
+	-- one move of many parts: BulkMoveTo, else one by one
+	function CM.move(parts, cfs)
+		if #parts == 0 then
+			return
+		end
+		if not CM.noBulk then
+			local ok = pcall(function()
+				workspace:BulkMoveTo(parts, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+			end)
+			if ok then
+				return
+			end
+			CM.bulkFails = (CM.bulkFails or 0) + 1
+			CM.noBulk = CM.bulkFails >= 3
+		end
+		for i, p in parts do
+			p.CFrame = cfs[i]
+		end
+	end
+	-- a triangle a, b, c as two wedges (TK.tri's way: cut at the foot of its
+	-- height on the longest side) - their CFrames and sizes, th thick; nil
+	-- for a sliver too thin to draw (never a .Unit of zero)
+	function CM.tri(a, b, c, th)
+		local ab, ac, bc = b - a, c - a, c - b
+		local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+		if abd > acd and abd > bcd then
+			c, a = a, c
+		elseif acd > bcd and acd > abd then
+			a, b = b, a
+		end
+		ab, ac, bc = b - a, c - a, c - b
+		local n = ac:Cross(ab)
+		if n.Magnitude < 1e-4 or bc.Magnitude < 1e-4 then
+			return nil
+		end
+		local right = n.Unit
+		local up = bc:Cross(right)
+		if up.Magnitude < 1e-5 then
+			return nil
+		end
+		up = up.Unit
+		local back = bc.Unit
+		local height = math.abs(ab:Dot(up))
+		if height < 1e-4 then
+			return nil
+		end
+		return CFrame.fromMatrix((a + b) / 2, right, up, back), Vector3.new(th, height, math.max(math.abs(ab:Dot(back)), 1e-3)),
+			CFrame.fromMatrix((a + c) / 2, -right, up, -back), Vector3.new(th, height, math.max(math.abs(ac:Dot(back)), 1e-3))
+	end
+	-- AN ARROW lying on a surface (normal) pointing `up`, Width w: its head
+	-- (a triangle w wide, 0.62 w tall) and its shaft (0.38 w x 0.62 w)
+	function CM.arrowGeo(at, normal, up, w)
+		if normal.Magnitude < 1e-4 then
+			return nil
+		end
+		local n = normal.Unit
+		local u = up - n * up:Dot(n)
+		if u.Magnitude < 1e-4 then
+			return nil
+		end
+		u = u.Unit
+		local r = u:Cross(n)
+		local base = at + u * (w * 0.05)
+		local sl = w * 0.62
+		return { base - r * w / 2, base + r * w / 2, base + u * (w * 0.62) }, CFrame.fromMatrix(base - u * sl / 2, r, u), Vector3.new(w * 0.38, sl, 0.07)
+	end
+
+	---------------------------------------------------------------------
+	-- C-MOON'S BODY (CM.newRig): built once for every Pucci this screen sees
+	-- (within Model.Cull of the camera, late joiners too), every part
+	-- anchored, no collisions, no queries, no touches, no shadows, in one
+	-- Model with one outline Highlight (enabled only while it's out). Every
+	-- part is an item on a bone: where it sits at scale 1 (and where it sits
+	-- with its arrows pointing down - the Flip)
+	---------------------------------------------------------------------
+	CM.ORDER = {}
+	do
+		local B, done = MD.Bones or {}, {}
+		for _ = 1, 32 do
+			local added = false
+			for name, b in B do
+				if not done[name] and (not b[1] or done[b[1]]) then
+					done[name] = true
+					table.insert(CM.ORDER, name)
+					added = true
+				end
+			end
+			if not added then
+				break
+			end
+		end
+	end
+	function CM.newRig(char)
+		local model = Instance.new("Model")
+		model.Name = "CMoon"
+		model:SetAttribute("Owner", char.Name)
+		model.Parent = folder
+		local rig = { char = char, model = model, items = {}, arrows = {}, alpha = -1, lastS = -1, born = os.clock(), fineOn = true, lit = false, flipped = false, bufP = {}, bufC = {} }
+		local function add(bone, size, lcf, color, material, shape, ell, fine, flipCf, flipSize)
+			local p = newPart(size, CFrame.new(0, -5000, 0), color, material, shape, model)
+			p.Name = "CM" .. bone
+			p.Transparency = 1
+			if ell then
+				local mesh = Instance.new("SpecialMesh")
+				mesh.MeshType = Enum.MeshType.Sphere
+				mesh.Parent = p
+			end
+			local it = { part = p, bone = bone, lp = lcf.Position, lr = lcf.Rotation, size = size, color = color, mat = material, fine = fine == true }
+			if flipCf then
+				it.fp, it.fr, it.fsize = flipCf.Position, flipCf.Rotation, flipSize or size
+			end
+			table.insert(rig.items, it)
+			return it
+		end
+		for _, e in MD.Parts or {} do
+			local r = e[5] or { 0, 0, 0 }
+			local lcf = CFrame.new(e[4]) * CFrame.Angles(rad(r[1]), rad(r[2]), rad(r[3]))
+			local shape = (e[2] == "Cyl" and Enum.PartType.Cylinder) or (e[2] == "Ball" and Enum.PartType.Ball) or nil
+			local it = add(e[1], e[3], lcf, COL[e[6]] or WHITE, Enum.Material[e[7] or "SmoothPlastic"] or Enum.Material.SmoothPlastic, shape, e[2] == "Ell", e.Fine)
+			it.eye = e[6] == "eye"
+		end
+		for _, e in MD.Tris or {} do
+			local c1, s1, c2, s2 = CM.tri(e[2], e[3], e[4], e[5])
+			if c1 then
+				add(e[1], s1, c1, COL[e[6]] or WHITE, Enum.Material.SmoothPlastic, Enum.PartType.Wedge, false, e.Fine)
+				add(e[1], s2, c2, COL[e[6]] or WHITE, Enum.Material.SmoothPlastic, Enum.PartType.Wedge, false, e.Fine)
+			end
+		end
+		-- the arrows (head + shaft; the belt's on a gold rim), and the same
+		-- turned to point down (a pose's Flip)
+		for _, e in MD.Arrows or {} do
+			local bone, at, n, up, w, col, rim = e[1], e[2], e[3], e[4], e[5], e[6], e[7]
+			local head, shaft, ss = CM.arrowGeo(at, n, up, w)
+			local headF, shaftF, ssF = CM.arrowGeo(at, n, -up, w)
+			if head and headF then
+				if rim then
+					local rh = CM.arrowGeo(at - n.Unit * 0.03, n, up, w * 1.22)
+					local rhF = CM.arrowGeo(at - n.Unit * 0.03, n, -up, w * 1.22)
+					local a1, b1, a2, b2 = CM.tri(rh[1], rh[2], rh[3], 0.05)
+					local f1, g1, f2, g2 = CM.tri(rhF[1], rhF[2], rhF[3], 0.05)
+					if a1 and f1 then
+						add(bone, b1, a1, COL[rim] or WHITE, Enum.Material.Metal, Enum.PartType.Wedge, false, e.Fine, f1, g1)
+						add(bone, b2, a2, COL[rim] or WHITE, Enum.Material.Metal, Enum.PartType.Wedge, false, e.Fine, f2, g2)
+					end
+				end
+				local a1, b1, a2, b2 = CM.tri(head[1], head[2], head[3], 0.07)
+				local f1, g1, f2, g2 = CM.tri(headF[1], headF[2], headF[3], 0.07)
+				if a1 and f1 then
+					table.insert(rig.arrows, add(bone, b1, a1, COL[col] or GREEN, Enum.Material.SmoothPlastic, Enum.PartType.Wedge, false, e.Fine, f1, g1))
+					table.insert(rig.arrows, add(bone, b2, a2, COL[col] or GREEN, Enum.Material.SmoothPlastic, Enum.PartType.Wedge, false, e.Fine, f2, g2))
+				end
+				table.insert(rig.arrows, add(bone, ss, shaft, COL[col] or GREEN, Enum.Material.SmoothPlastic, nil, false, e.Fine, shaftF, ssF))
+			end
+		end
+		-- its outline: one Highlight, on only while it's out (none on a low-end machine)
+		if not CM.low() then
+			local O = MD.Outline or {}
+			local h = Instance.new("Highlight")
+			h.Name = "CMoonOutline"
+			h.FillColor = COL.eye or Color3.fromRGB(232, 36, 52)
+			h.FillTransparency = 1
+			h.OutlineColor = STRIPE
+			h.OutlineTransparency = O.Transparency or 0.15
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Enabled = false
+			h.Adornee = model
+			h.Parent = model
+			rig.outline = h
+		end
+		return rig
+	end
+	function CM.dropRig(char)
+		local rig = CM.rigs[char]
+		if rig then
+			CM.rigs[char] = nil
+			for _, g in rig.ghosts or {} do
+				pcall(g.model.Destroy, g.model)
+			end
+			pcall(function()
+				rig.model:Destroy()
+			end)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- ITS POSES: a named pose (anything it leaves out Base's), mirrored (the
+	-- other way round), blended; placed at someone (Aim)
+	---------------------------------------------------------------------
+	-- ((round 103, builder B) and MADE IN HEAVEN's horse: Horse - the barrel's
+	-- pitch -, Neck, and its front legs' stride - GallopW of the way from the
+	-- gallop it loops by itself to the pose's Gallop: GR1 / GR2 the right leg's
+	-- raise and knee, GL1 / GL2 the left's)
+	local FIELDS = { "Out", "Up", "Side", "Yaw", "Pitch", "Roll", "Scale", "Twist", "Lean", "Tilt", "Crown", "Lit", "Flip", "Horse", "Neck", "GallopW", "GR1", "GR2", "GL1", "GL2" }
+	local LIMBS = { "RA", "LA", "RL", "LL" }
+	CM.cache = {}
+	function CM.copy(p)
+		local o = {}
+		for _, k in FIELDS do
+			o[k] = p[k]
+		end
+		o.Head = { p.Head[1], p.Head[2], p.Head[3] }
+		for _, k in LIMBS do
+			o[k] = { table.unpack(p[k]) }
+		end
+		return o
+	end
+	function CM.mirror(p)
+		local o = CM.copy(p)
+		o.Side, o.Yaw, o.Roll, o.Twist, o.Tilt = -p.Side, -p.Yaw, -p.Roll, -p.Twist, -p.Tilt
+		o.Head = { p.Head[1], -p.Head[2], -p.Head[3] }
+		o.RA, o.LA = { table.unpack(p.LA) }, { table.unpack(p.RA) }
+		o.RL, o.LL = { table.unpack(p.LL) }, { table.unpack(p.RL) }
+		o.GR1, o.GR2, o.GL1, o.GL2 = p.GL1, p.GL2, p.GR1, p.GR2 -- ((round 103, builder B) the horse's legs too)
+		return o
+	end
+	function CM.resolve(name, mirror)
+		local key = name .. (mirror and "~m" or "")
+		local hit = CM.cache[key]
+		if hit then
+			return hit
+		end
+		local PS = C.Poses or {}
+		local base = PS.Base or {}
+		local p = PS[name] or base
+		local o = {}
+		for _, k in FIELDS do
+			o[k] = p[k] or base[k] or 0
+		end
+		o.Scale = p.Scale or base.Scale or 1
+		o.Head = p.Head or base.Head or { 0, 0, 0 }
+		for _, k in LIMBS do
+			local v = p[k] or base[k] or { 0, 0, 0, 0, 0 }
+			o[k] = { v[1] or 0, v[2] or 0, v[3] or 0, v[4] or 0, v[5] or 0 }
+		end
+		-- ((round 103, builder B) MADE IN HEAVEN's front legs held by the pose: Gallop = { right raise, right knee, left raise, left knee })
+		local gal = type(p.Gallop) == "table" and p.Gallop or nil
+		if gal then
+			o.GR1, o.GR2, o.GL1, o.GL2 = gal[1] or 0, gal[2] or 0, gal[3] or 0, gal[4] or 0
+		end
+		o = CM.copy(o)
+		if mirror then
+			o = CM.mirror(o)
+		end
+		CM.cache[key] = o
+		return o
+	end
+	function CM.blend(a, b, t)
+		local o = {}
+		for _, k in FIELDS do
+			o[k] = a[k] + (b[k] - a[k]) * t
+		end
+		o.Head = { a.Head[1] + (b.Head[1] - a.Head[1]) * t, a.Head[2] + (b.Head[2] - a.Head[2]) * t, a.Head[3] + (b.Head[3] - a.Head[3]) * t }
+		for _, k in LIMBS do
+			local x, y, r = a[k], b[k], {}
+			for i = 1, 5 do
+				r[i] = x[i] + (y[i] - x[i]) * t
+			end
+			o[k] = r
+		end
+		return o
+	end
+	function CM.ease(u, kind)
+		if kind == "in" then
+			return u * u * u
+		elseif kind == "out" then
+			return 1 - (1 - u) ^ 3
+		elseif kind == "inout" then
+			return u < 0.5 and 4 * u * u * u or 1 - (-2 * u + 2) ^ 3 / 2
+		end
+		return u
+	end
+	-- EVERY BONE from a pose (its pelvis from his root: Side, Up, -Out, turned
+	-- Yaw / Pitch / Roll; the spine 0.4 / 0.6 of Twist / Lean / Tilt; the head;
+	-- the crown's flaps flared on their hinges; each arm raised / out / swung
+	-- across then its forearm twisted and bent; each leg raised / out / swung,
+	-- the knee and the toes) - and its scale (every offset x it)
+	function CM.fk(P, rootCF)
+		local B = MD.Bones or {}
+		local s = math.max(P.Scale or 1, 0.01)
+		local W = {}
+		W.pelvis = rootCF * CFrame.new(P.Side, P.Up, -P.Out) * CFrame.Angles(0, rad(P.Yaw), 0) * CFrame.Angles(-rad(P.Pitch), 0, 0) * CFrame.Angles(0, 0, -rad(P.Roll))
+		for _, name in CM.ORDER do
+			local b = B[name]
+			local parent = b and b[1] and W[b[1]]
+			if parent then
+				local cf = parent * CFrame.new(b[2] * s)
+				local side = string.sub(name, -1) == "L" and -1 or 1
+				local kind = string.sub(name, 1, 4)
+				if name == "waist" or name == "chest" then
+					local k = name == "waist" and 0.4 or 0.6
+					cf = cf * CFrame.Angles(0, rad(P.Twist * k), 0) * CFrame.Angles(-rad(P.Lean * k), 0, 0) * CFrame.Angles(0, 0, -rad(P.Tilt * k))
+				elseif name == "head" then
+					local H = P.Head
+					cf = cf * CFrame.Angles(0, rad(H[2]), 0) * CFrame.Angles(-rad(H[1]), 0, 0) * CFrame.Angles(0, 0, -rad(H[3]))
+				elseif b.Hinge then
+					local h = b.Hinge * s
+					cf = cf * CFrame.new(h) * CFrame.Angles(0, 0, -(b.Side or side) * rad(P.Crown)) * CFrame.new(-h)
+				elseif kind == "uppe" or kind == "thig" then
+					local a = kind == "uppe" and (side == 1 and P.RA or P.LA) or (side == 1 and P.RL or P.LL)
+					cf = cf * CFrame.Angles(0, rad(a[3] * side), 0) * CFrame.Angles(0, 0, rad(a[2] * side)) * CFrame.Angles(rad(a[1]), 0, 0)
+				elseif kind == "fore" then
+					local a = side == 1 and P.RA or P.LA
+					cf = cf * CFrame.Angles(0, rad(a[5] * side), 0) * CFrame.Angles(rad(a[4]), 0, 0)
+				elseif kind == "shin" then
+					local a = side == 1 and P.RL or P.LL
+					cf = cf * CFrame.Angles(-rad(a[4]), 0, 0)
+				elseif kind == "foot" then
+					local a = side == 1 and P.RL or P.LL
+					cf = cf * CFrame.Angles(-rad(a[5]), 0, 0)
+				end
+				W[name] = cf
+			end
+		end
+		return W, s
+	end
+	-- its punching face (a fist bone's), in the world
+	function CM.fistAt(W, s, arm)
+		local F = MD.Fist or Vector3.new(0, -0.8, 0)
+		if arm == "B" then
+			return ((W.fistR * (F * s)) + (W.fistL * (F * s))) / 2
+		end
+		return (arm == "L" and W.fistL or W.fistR) * (F * s)
+	end
+	-- AT SOMEONE: turned to them (w of the way), and its whole body moved so
+	-- its striking fist lands Through short of their middle - at any range or
+	-- height (within Clamp of him)
+	function CM.aim(p, w, rootCF, target, arm)
+		if w <= 0 or not target then
+			return p
+		end
+		local at = typeof(target) == "Instance" and target.Parent and target.Position or (typeof(target) == "Vector3" and target) or nil
+		if not CM.ok(at) then
+			return p
+		end
+		local tl = rootCF:PointToObjectSpace(at)
+		local fl = Vector3.new(tl.X, 0, tl.Z)
+		local dist = fl.Magnitude
+		if dist < 0.3 then
+			return p
+		end
+		local fd = fl / dist
+		local o = CM.copy(p)
+		o.Yaw = p.Yaw + math.deg(math.atan2(-fd.X, -fd.Z)) * w
+		local W, s = CM.fk(o, rootCF)
+		local tip = CM.fistAt(W, s, arm or "R")
+		local want = at - rootCF:VectorToWorldSpace(fd) * (MD.Through or 0.55)
+		local dl = rootCF:VectorToObjectSpace(want - tip)
+		local CL = MD.Clamp or {}
+		o.Side = p.Side + dl.X * w
+		o.Up = math.clamp(p.Up + dl.Y * w, CL.MinUp or -2.5, CL.MaxUp or 8)
+		o.Out = math.clamp(p.Out - dl.Z * w, CL.MinOut or -4, CL.MaxOut or 40)
+		return o
+	end
+
+	---------------------------------------------------------------------
+	-- ITS CLIPS (TK's format and way): CM.play starts one on him (from
+	-- wherever it is now - the first key is that), CM.sample reads it at a
+	-- time on his own pose clock (so his hitstop freezes it), each key at its
+	-- target by its Aim; a drive can take over its pose (the rush)
+	---------------------------------------------------------------------
+	function CM.clip(name)
+		return (C.Clips or {})[name]
+	end
+	function CM.play(char, name, opts)
+		local clip = CM.clip(name)
+		if typeof(char) ~= "Instance" or not clip then
+			return nil
+		end
+		local rig = CM.rigs[char]
+		opts = opts or {}
+		local tr = {
+			name = name, clip = clip, t0 = opts.t0 or poseTime(char, os.clock()), target = opts.target, mirror = opts.mirror == true or clip.Mirror == true,
+			aimAll = opts.aimAll, drive = opts.drive, speed = opts.speed or 1, from = rig and rig.pose or nil, life = opts.life, expire = opts.expire,
+		}
+		CM.tracks[char] = tr
+		if rig then
+			rig.track = tr
+			rig.idleFrom = nil
+		end
+		CM.wake(char)
+		return tr
+	end
+	function CM.stop(char, blend)
+		if typeof(char) ~= "Instance" then
+			return
+		end
+		local rig = CM.rigs[char]
+		CM.tracks[char] = nil
+		if rig then
+			rig.track = nil
+			rig.idleFrom = { pose = rig.pose, t0 = os.clock(), dur = blend or 0.35 }
+		end
+	end
+	-- (any action: it's out, and stays out Show.Fade s after)
+	function CM.wake(char)
+		CM.woke = CM.woke or {}
+		CM.woke[char] = os.clock()
+	end
+	function CM.length(clip)
+		local keys = clip.Keys or {}
+		return keys[#keys] and keys[#keys][1] or 0
+	end
+	function CM.keyPose(tr, key, rootCF)
+		local mirrored = key.Mirror == true ~= tr.mirror
+		local p = CM.resolve(key[2], mirrored)
+		local w = math.max(key.Aim or 0, tr.aimAll or 0)
+		local arm = key.Arm
+		if arm and mirrored and arm ~= "B" then
+			arm = arm == "R" and "L" or "R"
+		end
+		return CM.aim(p, w, rootCF, tr.target, arm)
+	end
+	function CM.sample(tr, t, rootCF)
+		local keys = tr.clip.Keys
+		local n = #keys
+		if n == 0 then
+			return nil
+		end
+		if t >= keys[n][1] then
+			return CM.keyPose(tr, keys[n], rootCF), true
+		end
+		for i = 1, n - 1 do
+			local k0, k1 = keys[i], keys[i + 1]
+			if t >= k0[1] and t < k1[1] then
+				local a = (i == 1 and tr.from) or CM.keyPose(tr, k0, rootCF)
+				local b = CM.keyPose(tr, k1, rootCF)
+				local u = (t - k0[1]) / math.max(k1[1] - k0[1], 1e-3)
+				return CM.blend(a, b, CM.ease(u, k1[3])), false
+			end
+		end
+		return CM.keyPose(tr, keys[1], rootCF), false
+	end
+
+	---------------------------------------------------------------------
+	-- THE FRAME: every part from its bone (CM.fk), one move for all of it.
+	-- Sizes are set only when its scale changes (or its arrows turn).
+	---------------------------------------------------------------------
+	function CM.place(rig, P, rootCF)
+		if rig.heaven and CM.placeHeaven then
+			return CM.placeHeaven(rig, P, rootCF) -- ((round 103, builder B) MADE IN HEAVEN: its own frame)
+		end
+		local W, s = CM.fk(P, rootCF)
+		local flipped = (P.Flip or 0) > 0.5
+		table.clear(rig.bufP)
+		table.clear(rig.bufC)
+		local parts, cfs = rig.bufP, rig.bufC
+		local scaleMoved = math.abs(s - rig.lastS) > 0.004
+		local flipMoved = flipped ~= rig.flipped
+		for _, it in rig.items do
+			if it.fine and not rig.fineOn then
+				continue
+			end
+			local bcf = W[it.bone]
+			if bcf then
+				local lp, lr, size = it.lp, it.lr, it.size
+				if flipped and it.fp then
+					lp, lr, size = it.fp, it.fr, it.fsize
+				end
+				if scaleMoved or (flipMoved and it.fp) or it.stale then
+					it.part.Size = size * s
+					it.stale = nil
+				end
+				table.insert(parts, it.part)
+				table.insert(cfs, bcf * CFrame.new(lp * s) * lr)
+			end
+		end
+		if scaleMoved then
+			rig.lastS = s
+			for _, it in rig.items do
+				if it.fine and not rig.fineOn then
+					it.stale = true -- (sized when it's drawn again)
+				end
+			end
+		end
+		rig.flipped = flipped
+		CM.move(parts, cfs)
+		rig.W, rig.s = W, s
+		rig.at = W.chest and W.chest.Position or W.pelvis.Position
+	end
+	-- shown at alpha (0 solid .. 1 gone); the fine detail only near
+	function CM.show(rig, alpha, fineOn)
+		if math.abs(alpha - rig.alpha) < 0.02 and fineOn == rig.fineOn then
+			return
+		end
+		rig.alpha = alpha
+		rig.fineOn = fineOn
+		for _, it in rig.items do
+			it.part.Transparency = (it.fine and not fineOn) and 1 or alpha
+		end
+	end
+	-- its arrows lit (Neon green: its gravity moves and touches) or not
+	function CM.light(rig, on)
+		if rig.lit == on then
+			return
+		end
+		rig.lit = on
+		if rig.dark then
+			return -- (the entrance's dark frame: its colours come back after)
+		end
+		for _, it in rig.arrows do
+			it.part.Color = on and (COL.glow or GREEN) or it.color
+			it.part.Material = on and Enum.Material.Neon or it.mat
+		end
+	end
+	-- the entrance: every part in its stripe colour (its underside, turned
+	-- out), then its own colours
+	function CM.darken(rig, on)
+		if rig.dark == on then
+			return
+		end
+		rig.dark = on
+		for _, it in rig.items do
+			if on then
+				it.part.Color = STRIPE
+				if it.mat == Enum.Material.Neon then
+					it.part.Material = Enum.Material.SmoothPlastic
+				end
+			else
+				it.part.Color = it.color
+				it.part.Material = it.mat
+			end
+		end
+		if not on and rig.lit then
+			rig.lit = false
+			CM.light(rig, true)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- BETWEEN MOVES: behind his right shoulder, higher than him (Base) - or
+	-- in front, Ready, for Show.Back s after a move - never still: a bob, a
+	-- slow roll and pitch drift ("down" means nothing to it), its head looking
+	-- round, its crown swaying, leaning into his run
+	---------------------------------------------------------------------
+	function CM.idlePose(rig, char, root, now, dt)
+		local I = C.Idle or {}
+		local SH = C.Show or {}
+		local ready = now - (rig.lastAct or -1e9) < (SH.Back or 0.6)
+		if ready ~= rig.wasReady then
+			rig.wasReady = ready
+			rig.idleFrom = rig.pose and { pose = rig.pose, t0 = now, dur = 0.45 } or nil
+		end
+		local p = CM.copy(CM.resolve(rig.heaven and "Loom" or (ready and "Ready" or "Base"), false)) -- ((round 103, builder B) MADE IN HEAVEN looms over him)
+		if now >= (rig.lookNext or 0) then
+			rig.lookNext = now + (I.LookEvery or 2.6) * (0.6 + rng:NextNumber() * 0.8)
+			rig.lookYaw = rand(-(I.Look or 14), I.Look or 14)
+		end
+		rig.headYaw = (rig.headYaw or 0) + ((rig.lookYaw or 0) - (rig.headYaw or 0)) * math.min((dt or 1 / 60) * 3, 1)
+		p.Head = { p.Head[1], p.Head[2] + rig.headYaw, p.Head[3] }
+		p.Up += math.sin(now * (I.BobSpeed or 2.2)) * (I.Bob or 0.2)
+		p.Roll += math.sin(now * TAU * (I.RollHz or 0.35)) * (I.Roll or 7)
+		p.Pitch += math.sin(now * TAU * (I.PitchHz or 0.27) + 1.3) * (I.Pitch or 4)
+		p.Crown += math.sin(now * 1.7) * (I.Crown or 3)
+		local v = root.AssemblyLinearVelocity
+		local speed = v == v and Vector3.new(v.X, 0, v.Z).Magnitude or 0
+		p.Pitch += (I.Lean or 12) * math.clamp(speed / (I.LeanAt or 20), 0, 1)
+		return p
+	end
+
+	-- ONE FRAME of his C-MOON
+	function CM.stepRig(rig, char, root, now, dt, d)
+		local rootCF = root.CFrame
+		if rootCF.Position ~= rootCF.Position then
+			return -- (a body flung NaN for a frame: it keeps its last pose)
+		end
+		local I = C.Idle or {}
+		local SH = C.Show or {}
+		local dead = CM.dead(char)
+		local tr = CM.tracks[char]
+		if tr and rig.track ~= tr then
+			rig.track = tr
+			tr.from = tr.from or rig.pose
+		end
+		-- it follows him with a floaty lag (tighter while it fights)
+		local k = tr and (I.FollowFight or 26) or (I.Follow or 9)
+		if not rig.follow or (rig.follow.Position - rootCF.Position).Magnitude > 30 then
+			rig.follow = rootCF
+		else
+			rig.follow = rig.follow:Lerp(rootCF, 1 - math.exp(-dt * k))
+		end
+		local base = rig.follow
+		local P, done
+		if tr then
+			local t = (poseTime(char, now) - tr.t0) * tr.speed
+			P, done = CM.sample(tr, t, base)
+			if P and tr.drive then
+				P = tr.drive(rig, P, t, base) or P
+			end
+			rig.lastAct = now
+			if done and not tr.clip.Hold then
+				CM.stop(char)
+			elseif tr.clip.Hold and (t > (tr.life or C.HoldLife or 6) or dead) then
+				if tr.expire and not dead then
+					tr.expire()
+				else
+					CM.stop(char, 0.3)
+				end
+			end
+		end
+		local woke = CM.woke and CM.woke[char]
+		if woke and woke > (rig.lastAct or -1e9) then
+			rig.lastAct = woke
+		end
+		local ult = CM.ult(char) and not dead
+		if ult then
+			rig.lastAct = now
+		end
+		if not P then
+			local idle = CM.idlePose(rig, char, root, now, dt)
+			local f = rig.idleFrom
+			if f and f.pose then
+				local u = math.clamp((now - f.t0) / math.max(f.dur, 1e-3), 0, 1)
+				P = CM.blend(f.pose, idle, CM.ease(u, "inout"))
+				if u >= 1 then
+					rig.idleFrom = nil
+				end
+			else
+				P = idle
+			end
+		end
+		rig.pose = P
+		-- OUT OR IN: out with any action, faded Show.Fade s after the last (and
+		-- on his death); its entrance on the way out
+		local out = not dead and now - (rig.lastAct or -1e9) < (SH.Fade or 8)
+		if out and not rig.out then
+			rig.summonAt = now
+			rig.exitAt = nil
+		elseif not out and rig.out then
+			rig.exitAt = now
+		end
+		rig.out = out
+		local alpha = 0
+		local drawP = P
+		if out and rig.summonAt then
+			local u = (now - rig.summonAt) / math.max(SH.Summon or 0.12, 1e-3)
+			if u < 1 then
+				CM.darken(rig, true)
+				drawP = CM.copy(P)
+				drawP.Scale = P.Scale * ((SH.SummonScale or 0.6) + (1 - (SH.SummonScale or 0.6)) * u)
+			else
+				rig.summonAt = nil
+				CM.darken(rig, false)
+				if rig.at and d < 160 then
+					billboardRing(rig.at, 1.5, 9, LILAC, 4, 0.3)
+					VFX.PlaySound("CMoonOn", rig.at, 0.8)
+				end
+			end
+		end
+		if not out then
+			local u = rig.exitAt and (now - rig.exitAt) / math.max(SH.Exit or 0.3, 1e-3) or 1
+			alpha = math.clamp(u, 0, 1)
+		end
+		-- (thinned out with the camera inside it)
+		local cp = CM.camPos()
+		if rig.at and alpha < 1 then
+			local dc = (cp - rig.at).Magnitude
+			local r = 2.4 + (MD.CameraFade or 3)
+			if dc < r then
+				alpha = math.max(alpha, math.clamp(1 - dc / r, 0, 1) * 0.85)
+			end
+		end
+		local LOD = MD.Lod or {}
+		local fineOn = d <= (CM.low() and (LOD.LowDetail or 35) or (LOD.Detail or 70))
+		CM.show(rig, alpha, fineOn)
+		if rig.outline then
+			local on = alpha < 0.7
+			if rig.outline.Enabled ~= on then
+				rig.outline.Enabled = on
+			end
+			local pulse = rig.pulseUntil and now < rig.pulseUntil
+			local want = pulse and ((MD.Outline or {}).Pulse or 0.75) or 1
+			if rig.outline.FillTransparency ~= want then
+				rig.outline.FillTransparency = want
+			end
+		end
+		CM.light(rig, (P.Lit or 0) > 0.5)
+		if alpha >= 0.999 then
+			rig.at = nil
+			return -- (gone: nothing to move)
+		end
+		-- (never under the street: lifted clear if its feet would go into it)
+		if now >= (rig.probeAt or 0) then
+			rig.probeAt = now + (I.Probe or 0.1)
+			local hit = groundRay(rootCF.Position + Vector3.new(0, 2, 0), 14)
+			rig.ground = hit and hit.Position.Y or nil
+		end
+		-- ((round 103 review) judged on last frame's feet with that frame's lift
+		-- taken off, so it's placed ONCE a frame - a lifted C-MOON was placed
+		-- twice (two full FKs and two BulkMoveTos of every part) every frame)
+		local need = 0
+		if rig.ground and rig.W and rig.W.footR and rig.W.footL then
+			local low = math.min(rig.W.footR.Position.Y, rig.W.footL.Position.Y) - 0.45 * (rig.s or 1) - (rig.liftUsed or 0)
+			need = math.max(rig.ground + (I.Clear or 0.3) - low, 0)
+		end
+		if need > 0.05 then
+			drawP = CM.copy(drawP)
+			drawP.Up += need
+			rig.liftUsed = need
+		else
+			rig.liftUsed = 0
+		end
+		CM.place(rig, drawP, base)
+	end
+
+	-- every frame: who's Pucci (every 0.5 s), each one's C-MOON (within Cull
+	-- of the camera; posed every other frame past Lod.Near), the gravity
+	-- leases' look (CM.gravStep), the rush (CM.rushStep)
+	function CM.step(dt)
+		local now = os.clock()
+		dt = math.min(dt or 1 / 60, 0.1)
+		if now >= CM.scanAt then
+			CM.scanAt = now + 0.5
+			local list = {}
+			for _, plr in Players:GetPlayers() do
+				if CM.isMe(plr.Character) then
+					table.insert(list, plr.Character)
+				end
+			end
+			local dummies = workspace:FindFirstChild("Dummies")
+			for _, m in dummies and dummies:GetChildren() or {} do
+				if CM.isMe(m) then
+					table.insert(list, m)
+				end
+			end
+			CM.bodies = list
+			for _, c in list do
+				CM.hookOn(c)
+			end
+			for char in CM.rigs do
+				if not CM.isMe(char) then
+					CM.dropRig(char)
+				end
+			end
+			for char in CM.tracks do
+				if not CM.isMe(char) then
+					CM.tracks[char] = nil
+				end
+			end
+			for char in CM.woke or {} do
+				if not char.Parent then
+					CM.woke[char] = nil
+				end
+			end
+			for char, st in CM.rushes do
+				if not CM.isMe(char) then
+					CM.rushEnd(st)
+				end
+			end
+			-- ((round 103 review) a field whose flip never came (he died in the
+			-- telegraph): let go - it held his body forever)
+			for char, f in CM.fields do
+				if not char.Parent or now - (f.at or 0) > 6 then
+					CM.fields[char] = nil
+				end
+			end
+			for c, fn in CM.hooks do
+				if not CM.isMe(c) then
+					CM.hooks[c] = nil
+					if VFX.HitHooks and VFX.HitHooks[c] == fn then
+						VFX.HitHooks[c] = nil
+					end
+				end
+			end
+		end
+		local cam = CM.camPos()
+		for _, char in CM.bodies do
+			local root = char.Parent and char:FindFirstChild("HumanoidRootPart")
+			if root and CM.ok(root.Position) then
+				local d = (root.Position - cam).Magnitude
+				local rig = CM.rigs[char]
+				if d <= (MD.Cull or 260) then
+					if not rig then
+						rig = CM.newRig(char)
+						CM.rigs[char] = rig
+					end
+					local LOD = MD.Lod or {}
+					local skip = false
+					if d > (CM.low() and (LOD.LowNear or 50) or (LOD.Near or 110)) then
+						rig.lodSkip = not rig.lodSkip
+						skip = rig.lodSkip
+					end
+					if skip then
+						rig.lodDt = (rig.lodDt or 0) + dt
+					else
+						local ok, err = pcall(CM.stepRig, rig, char, root, now, math.min(dt + (rig.lodDt or 0), 0.1), d)
+						rig.lodDt = 0
+						if not ok and not CM.warned then
+							CM.warned = true
+							warn("[VFX.CM] " .. tostring(err))
+						end
+					end
+				elseif rig and d > (MD.Cull or 260) + 40 then
+					CM.dropRig(char)
+				end
+			end
+		end
+		for char in CM.rigs do
+			if not char.Parent then
+				CM.dropRig(char)
+			end
+		end
+		for _, st in CM.rushes do
+			local ok, err = pcall(CM.rushStep, st, now, dt)
+			if not ok and not CM.warnedRush then
+				CM.warnedRush = true
+				warn("[VFX.CM] " .. tostring(err))
+			end
+		end
+		for _, rig in CM.rigs do
+			if rig.ghosts then
+				local ok, err = pcall(CM.ghostStep, rig, now)
+				if not ok and not CM.warnedGhost then
+					CM.warnedGhost = true
+					warn("[VFX.CM] " .. tostring(err))
+				end
+			end
+		end
+		if now >= CM.gravAt then
+			CM.gravAt = now + ((C.Grav or {}).Step or 0.1)
+			local ok, err = pcall(CM.gravStep, now)
+			if not ok and not CM.warnedGrav then
+				CM.warnedGrav = true
+				warn("[VFX.CM] " .. tostring(err))
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE LOOK'S BUILDING BLOCKS (builder B's moves use them too)
+	---------------------------------------------------------------------
+	-- A BUBBLE: the game's comic shout over someone (a body, a part, or a
+	-- point) - C-MOON's in the Code font (mechanical: code = true), his in the
+	-- comic font
+	function CM.shout(at, text, life, code, size)
+		local adornee = at
+		local anchor
+		if typeof(at) == "Instance" and at:IsA("Model") then
+			adornee = at:FindFirstChild("Head") or at:FindFirstChild("HumanoidRootPart")
+		elseif typeof(at) == "Vector3" and CM.ok(at) then
+			anchor = newPart(Vector3.one * 0.2, CFrame.new(at), WHITE, Enum.Material.SmoothPlastic)
+			anchor.Name = "CMoonShoutAt"
+			anchor.Transparency = 1
+			adornee = anchor
+		end
+		if typeof(adornee) ~= "Instance" or not adornee:IsA("BasePart") or not adornee.Parent then
+			return nil
+		end
+		local S = C.Shout or {}
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "CMoonShout"
+		bb.Adornee = adornee
+		bb.Size = UDim2.fromOffset((S.Width or 170) * (size or 1), (S.Height or 56) * (size or 1))
+		bb.StudsOffsetWorldSpace = Vector3.new(0, (S.Above or 2.2) + (anchor and 0 or adornee.Size.Y * 0.5), 0)
+		bb.AlwaysOnTop = true
+		bb.MaxDistance = S.Range or 160
+		bb.LightInfluence = 0
+		bb.Parent = folder
+		local bubble = Instance.new("TextLabel")
+		bubble.AnchorPoint = Vector2.new(0.5, 0.5)
+		bubble.Position = UDim2.fromScale(0.5, 0.5)
+		bubble.Size = UDim2.fromScale(0.2, 0.2)
+		bubble.Rotation = (S.Tilt or -6) * (code and 1 or -1)
+		bubble.BackgroundColor3 = code and (S.Back or Color3.fromRGB(28, 22, 36)) or Color3.fromRGB(250, 246, 236)
+		bubble.Font = code and Enum.Font.Code or Enum.Font.Bangers
+		bubble.TextScaled = true
+		bubble.TextColor3 = code and (COL.glow or GREEN) or Color3.fromRGB(24, 20, 28)
+		bubble.Text = text
+		bubble.Parent = bb
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(code and 0.12 or 0.3, 0)
+		c.Parent = bubble
+		local st = Instance.new("UIStroke")
+		st.Thickness = 3
+		st.Color = code and LILAC or (COL.gold or Color3.fromRGB(214, 174, 60))
+		st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		st.Parent = bubble
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0.08, 0)
+		pad.PaddingRight = UDim.new(0.08, 0)
+		pad.PaddingTop = UDim.new(0.1, 0)
+		pad.PaddingBottom = UDim.new(0.1, 0)
+		pad.Parent = bubble
+		tween(bubble, 0.14, { Size = UDim2.fromScale(1, 1) }, Enum.EasingStyle.Back)
+		task.delay(life or S.Life or 0.8, function()
+			tween(bubble, 0.16, { Size = UDim2.fromScale(0.1, 0.1), TextTransparency = 1, BackgroundTransparency = 1 })
+			tween(st, 0.16, { Transparency = 1 })
+			task.wait(0.18)
+			bb:Destroy()
+			if anchor then
+				anchor:Destroy()
+			end
+		end)
+		return bb
+	end
+	-- C-MOON's head (its bubbles sit over it), or his
+	function CM.headOf(char)
+		local rig = CM.rigs[char]
+		if rig and rig.out and rig.W and rig.W.head then
+			return rig.W.head * Vector3.new(0, 1.3 * (rig.s or 1), 0)
+		end
+		return char
+	end
+	-- AN ARROW GLYPH on screen (a chevron on a shaft - no font needed),
+	-- pointing along dir as this camera sees it, drifting `drift` studs and
+	-- fading over life
+	function CM.glyph(at, dir, color, size, life, drift)
+		if not CM.ok(at) or not CM.ok(dir) or dir.Magnitude < 1e-3 then
+			return nil
+		end
+		local cam = workspace.CurrentCamera
+		local angle = 0
+		if cam then
+			local cf = cam.CFrame
+			angle = math.deg(math.atan2(dir:Dot(cf.RightVector), dir:Dot(cf.UpVector)))
+		end
+		local anchor = newPart(Vector3.one * 0.2, CFrame.new(at), color, Enum.Material.SmoothPlastic)
+		anchor.Name = "CMoonGlyph"
+		anchor.Transparency = 1
+		anchor:SetAttribute("Dir", dir.Unit)
+		local bb = Instance.new("BillboardGui")
+		bb.Size = UDim2.fromScale(size, size)
+		bb.LightInfluence = 0
+		bb.MaxDistance = 300
+		bb.Adornee = anchor
+		bb.Parent = anchor
+		local box = Instance.new("Frame")
+		box.AnchorPoint = Vector2.new(0.5, 0.5)
+		box.Position = UDim2.fromScale(0.5, 0.5)
+		box.Size = UDim2.fromScale(1, 1)
+		box.BackgroundTransparency = 1
+		box.Rotation = angle
+		box.Parent = bb
+		local bits = {}
+		for i, spec in { { 0.5, 0.62, 0.2, 0.62, 0 }, { 0.34, 0.24, 0.16, 0.5, -45 }, { 0.66, 0.24, 0.16, 0.5, 45 } } do
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Position = UDim2.fromScale(spec[1], spec[2])
+			f.Size = UDim2.fromScale(spec[3], spec[4])
+			f.Rotation = spec[5]
+			f.BackgroundColor3 = color
+			f.BorderSizePixel = 0
+			f.Parent = box
+			bits[i] = f
+		end
+		if drift and CM.ok(drift) then
+			tween(anchor, life, { CFrame = CFrame.new(at + drift) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		end
+		for _, f in bits do
+			tween(f, life * 0.6, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, life * 0.4)
+		end
+		cleanup(anchor, life + 0.05)
+		return anchor
+	end
+	-- A RING ON THE STREET (n flat neon segments round a centre): the
+	-- field's edge, a crater's rim
+	function CM.ring(center, radius, color, life, thick, n, transparency)
+		if not CM.ok(center) then
+			return
+		end
+		n = n or math.clamp(math.floor(radius * 1.2), 12, 48)
+		local seg = TAU * radius / n * 1.08
+		for i = 1, n do
+			local a = (i - 0.5) / n * TAU
+			local at = center + Vector3.new(math.cos(a) * radius, 0.15, math.sin(a) * radius)
+			local p = newPart(Vector3.new(seg, 0.12, thick or 0.5), CM.facing(at, Vector3.new(-math.sin(a), 0, math.cos(a))) * CFrame.Angles(0, math.rad(90), 0), color, Enum.Material.Neon)
+			p.Name = "CMoonRing"
+			p.Transparency = transparency or 0.1
+			tween(p, life * 0.5, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, life * 0.5)
+			cleanup(p, life + 0.05)
+		end
+	end
+	-- THE NEGATIVE SHELL: a neon copy of their body in the complement of its
+	-- own colours (no Highlight on someone else's body), gone over life
+	function CM.shell(body, life, transparency)
+		for _, part in body:GetChildren() do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
+				local ghost = part:Clone()
+				if ghost then
+					-- ((round 103 review) its mesh kept - without it an R6 head is a
+					-- 2 x 1 x 1 brick: the negative of them had a box for a head)
+					for _, ch in ghost:GetChildren() do
+						if ch:IsA("SpecialMesh") then
+							pcall(function()
+								ch.TextureId = ""
+							end)
+						else
+							ch:Destroy()
+						end
+					end
+					if ghost:IsA("MeshPart") then
+						ghost.TextureID = ""
+					end
+					local c = part.Color
+					ghost.Anchored = true
+					ghost.CanCollide = false
+					ghost.CanQuery = false
+					ghost.CanTouch = false
+					ghost.CastShadow = false
+					ghost.Massless = true
+					ghost.Material = Enum.Material.Neon
+					ghost.Color = Color3.new(1 - c.R, 1 - c.G, 1 - c.B)
+					ghost.Size = part.Size * 1.04
+					ghost.Transparency = transparency or 0.35
+					ghost.CFrame = part.CFrame
+					ghost.Name = "CMoonShell"
+					ghost.Parent = folder
+					tween(ghost, life, { Transparency = 1 })
+					cleanup(ghost, life + 0.05)
+				end
+			end
+		end
+	end
+	-- THE MOBIUS RING (a second touch flipping them back): a band of
+	-- segments round them, its cross-section turned half a turn on the way
+	-- round, thrown outward
+	function CM.mobius(at, r0, r1, color, life)
+		if not CM.ok(at) then
+			return
+		end
+		local n = CM.low() and 10 or 18
+		for i = 1, n do
+			local a = (i - 0.5) / n * TAU
+			local twist = (i - 0.5) / n * math.pi
+			local dirOut = Vector3.new(math.cos(a), 0, math.sin(a))
+			local tangent = Vector3.new(-math.sin(a), 0, math.cos(a))
+			local function cfAt(r)
+				return CM.facing(at + dirOut * r, tangent) * CFrame.Angles(0, 0, twist)
+			end
+			local p = newPart(Vector3.new(0.12, 1.1, TAU * r0 / n * 1.1), cfAt(r0), color, Enum.Material.Neon)
+			p.Name = "CMoonMobius"
+			p.Transparency = 0.1
+			tween(p, life, { CFrame = cfAt(r1), Size = Vector3.new(0.06, 0.5, TAU * r1 / n * 1.1), Transparency = 1 }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+			cleanup(p, life + 0.05)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- procedural fallbacks for his clips (anim/moves_cmoon.py): what an R15
+	-- body, or a place without the clips, plays
+	---------------------------------------------------------------------
+	MOTIONS.PucciPoint = { { pose = { RightArm = { 86, 0, 8 }, Neck = { 4, 0, 0 } }, t = 0.08, hold = 0.12 }, recover = 0.2 }
+	MOTIONS.PucciPointL = { { pose = { LeftArm = { 86, 0, 8 }, Neck = { 4, 0, 0 } }, t = 0.08, hold = 0.12 }, recover = 0.2 }
+	MOTIONS.PucciSweep = { { pose = { RightArm = { 70, 30, 30 }, Waist = { 0, -8, 0 } }, t = 0.08 }, { pose = { RightArm = { 84, -20, 0 }, Waist = { 0, 8, 0 } }, t = 0.06, hold = 0.12 }, recover = 0.2 }
+	MOTIONS.PucciBless = { { pose = { RightArm = { 150, 0, 0 }, Neck = { -6, 0, 0 } }, t = 0.1 }, { pose = { RightArm = { 70, 0, 6 }, Neck = { 6, 0, 0 } }, t = 0.08, hold = 0.18 }, recover = 0.25 }
+	MOTIONS.CMoonRush = { { pose = { RightArm = { 90, 0, 6 }, LeftArm = { 48, 60, 0 }, Neck = { 2, 0, 0 } }, t = 0.15, hold = 1.5 }, recover = 0.35 }
+	MOTIONS.CMoonFlip = { { pose = { RightArm = { 70, 0, 60 }, LeftArm = { 70, 0, 60 }, Neck = { -10, 0, 0 } }, t = 0.2, hold = 1.0 }, { pose = { RightArm = 40, LeftArm = 40, Neck = { 12, 0, 0 } }, t = 0.1, hold = 0.3 }, recover = 0.3 }
+	MOTIONS.AwakenCMoon = { { pose = { RightArm = { 60, 40, 0 }, LeftArm = { 60, 40, 0 }, Neck = { 6, 0, 0 } }, t = 0.28 }, { pose = { RightArm = { 150, 0, 30 }, LeftArm = { 150, 0, 30 }, Neck = { -28, 0, 0 } }, t = 0.06, hold = 1 }, recover = 0.3 }
+	POSES.CMoonFallUp = { RightArm = { 150, 0, 40 }, LeftArm = { 130, 0, 60 }, RightLeg = 30, LeftLeg = -20, Waist = { -24, 10, 0 }, Neck = { -30, 0, 0 } }
+	POSES.CMoonSlung = { RightArm = { 120, 0, 70 }, LeftArm = { 170, 0, 30 }, RightLeg = 50, LeftLeg = -10, Waist = { 20, -14, 0 }, Neck = { -20, 0, 0 } }
+	POSES.CMoonRiseSelf = { RightArm = { 10, 0, 22 }, LeftArm = { 10, 0, 22 }, Neck = { -6, 0, 0 } }
+	POSES.CMoonVital = { RightArm = { 150, 0, -6 }, LeftArm = { 52, 40, 0 }, Neck = { -6, 0, 0 } }
+
+	---------------------------------------------------------------------
+	-- THE M1s: C-MOON's strikes. He barely moves - a hand out at them, the
+	-- other, a sweeping hand, the benediction (his clips, M1_SETS.CMoon) -
+	-- and C-MOON throws the punch with the swing (CM.swing: Effects.Punch
+	-- calls it as the swing starts), its fist ON whoever's in front at the
+	-- contact: 1 a right straight, 2 a left, 3 a right hook, 4 "SHAA!" (the
+	-- whole body behind one straight, its arrows lit - a touch: it inverts),
+	-- the uppercut, the hammer. A landed one is its own on every screen
+	-- (VFX.HitHooks: CM.onHit): a white impact ring at its fist, sparks, the
+	-- freeze.
+	---------------------------------------------------------------------
+	do
+		local function entry(motion, fallback, limbName, contact, cue)
+			return { Motion = motion, Fallback = fallback, Limb = limbName, Swing = "Straight", Contact = contact, Smear = false, OwnFx = true, Cue = cue }
+		end
+		M1_SETS.CMoon = {
+			entry("PucciM1_1", "PucciPoint", "RightHand", 0.12, "CMoonJab"),
+			entry("PucciM1_2", "PucciPointL", "LeftHand", 0.125, "CMoonJab"),
+			entry("PucciM1_3", "PucciSweep", "RightHand", 0.13, "CMoonJab"),
+			entry("PucciM1_4", "PucciBless", "RightHand", 0.18, "HeavySwing"),
+		}
+		VFX.M1Variants.Up.CMoon = entry("PucciM1Up", "PucciBless", "RightHand", 0.16, "HeavySwing")
+		VFX.M1Variants.Down.CMoon = entry("PucciM1Down", "PucciBless", "RightHand", 0.17, "HeavySwing")
+		M1_TRAIL.CMoon = LILAC
+	end
+	-- whoever its fist is for: the nearest body in front within its reach,
+	-- else the air where a hit would land
+	function CM.m1Target(char, root)
+		local look = CM.flat(root.CFrame.LookVector, root)
+		local reach = (Config.M1.HitboxForward or 4) + (Config.M1.HitboxSize or Vector3.new(6.5, 6, 7.5)).Z / 2 + (Q.StandReach or 3.2) + 1.5
+		local best, bestD
+		local function try(m)
+			local r = m ~= char and m.Parent and m:FindFirstChild("HumanoidRootPart")
+			local hum = r and m:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				local v = r.Position - root.Position
+				local fl = Vector3.new(v.X, 0, v.Z)
+				local d = fl.Magnitude
+				if d <= reach and math.abs(v.Y) < 9 and (d < 2 or fl.Unit:Dot(look) > 0.6) and (not bestD or d < bestD) then
+					best, bestD = r, d
+				end
+			end
+		end
+		for _, plr in Players:GetPlayers() do
+			if plr.Character then
+				try(plr.Character)
+			end
+		end
+		local dummies = workspace:FindFirstChild("Dummies")
+		for _, m in dummies and dummies:GetChildren() or {} do
+			try(m)
+		end
+		return best or (root.Position + look * 6.5)
+	end
+	-- (Effects.Punch, as the swing starts) C-MOON throws it
+	function CM.swing(char, count, finisher, variant)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local name = finisher and ((variant == "Up" and "M1Up") or (variant == "Down" and "M1Down") or "M1_4") or ("M1_" .. math.clamp(count or 1, 1, 3))
+		local target = CM.m1Target(char, root)
+		CM.play(char, name, { target = target })
+		local L = (C.Shout or {}).Lines or {}
+		if finisher and not variant then
+			task.delay(0.1, function()
+				CM.shout(CM.headOf(char), L.Shaa or "SHAA!", 0.7, true)
+			end)
+		elseif count == 3 and not finisher then
+			task.delay(0.08, function()
+				CM.shout(CM.headOf(char), L.Sha or "SHA!", 0.55, true)
+			end)
+		end
+	end
+	-- (Effects.Punch, at the contact - EVERY swing, a whiff too) the air
+	-- cracked off its fist: a lilac arc, a small white ring
+	function CM.punch(char, count, finisher, fist, look, hit, variant)
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root or not CM.ok(fist) then
+			return
+		end
+		CM.hookOn(char)
+		local rig = CM.rigs[char]
+		local right = not (hit and hit.Limb == "LeftHand")
+		local tip = (rig and rig.W and rig.out) and CM.fistAt(rig.W, rig.s, right and "R" or "L") or (root.Position + look * 6 + UP * 0.6)
+		if not CM.ok(tip) then
+			return
+		end
+		local side = look:Cross(UP)
+		local tilt = (count == 2 and -1 or 1) * (finisher and 0 or 25)
+		if variant == "Up" then
+			tilt = 80
+		elseif variant == "Down" then
+			tilt = -80
+		end
+		local cf = CM.facing(tip, side) * CFrame.Angles(math.rad(tilt), 0, 0)
+		moonArc(cf, finisher and 3 or 2, LILAC, finisher and 170 or 120)
+		billboardRing(tip, 0.4, finisher and 4.5 or 2.6, WHITE, 3, 0.12)
+		if finisher then
+			streaks(tip, look, CM.low() and 3 or 6, 0.6, 3, 9, LILAC, 0.18)
+		end
+	end
+	-- the landed hit's own look, on every screen (VFX.HitHooks): an M1, or a
+	-- tick of the rush (the server's own hit, broadcast per victim)
+	function CM.onHit(char, target, data)
+		if type(data) ~= "table" or not CM.isMe(char) then
+			return false
+		end
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (troot and root and CM.ok(troot.Position)) then
+			return false
+		end
+		local v = troot.Position - root.Position
+		local along = Vector3.new(v.X, 0, v.Z)
+		along = along.Magnitude > 0.3 and along.Unit or CM.flat(root.CFrame.LookVector, root)
+		local at = troot.Position - along * 0.6 + UP * 0.4
+		local st = CM.rushes[char]
+		if data.M1 == nil and data.Quiet and st and not st.done then
+			return CM.rushTick(st, target, troot, at, along)
+		end
+		if data.M1 == nil then
+			return false
+		end
+		local kind = tostring(data.M1)
+		local K = ((C.M1 or {}).Kinds or {})[kind] or {}
+		local ult = CM.ult(char)
+		local s = ult and 1.3 or 1
+		billboardRing(at, 0.6, (K.Ring or 3) * s, WHITE, 4, 0.18)
+		billboardRing(at, 0.4, (K.Ring or 3) * 0.7 * s, LILAC, 3, 0.16)
+		sparks(at, 0.35 * s, WHITE, LILAC, CM.low() and math.ceil((K.Sparks or 6) / 2) or (K.Sparks or 6))
+		if kind == "4" or kind == "Up" or kind == "Down" then
+			shockDisc(at, along, 1.2, (K.Ring or 5) * 1.6, 0.2, WHITE, 3)
+		end
+		local stop = K.Stop or 0.05
+		VFX.Hitstop(target, stop)
+		VFX.Hitstop(char, stop)
+		local me = CM.me()
+		if me and (me == char or me == target) then
+			VFX.Shake(K.Shake or 0.4, stop + 0.1)
+			if K.Frame then
+				VFX.ImpactFrame(K.Frame)
+			end
+		end
+		return true
+	end
+	-- (the hook on every Pucci this screen sees - CM.step looks them up)
+	function CM.hookOn(char)
+		local H = VFX.HitHooks
+		if not H or H[char] ~= nil then
+			return -- (ours already - or someone else's on this body for now: not taken over)
+		end
+		local fn = CM.hooks[char] or function(target, data)
+			return CM.onHit(char, target, data)
+		end
+		CM.hooks[char] = fn
+		VFX.HitHooks[char] = fn
+	end
+	-- (server) THE 4TH / the vital spot: they FALL AWAY from him - a lilac
+	-- streak along the way they fall, a ring where it took them
+	function Effects.CMoonM1Away(char, data)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		local d = CM.ok(data.Dir) and data.Dir.Magnitude > 0.1 and data.Dir.Unit or nil
+		if not troot or not d then
+			return
+		end
+		streaks(troot.Position, d, CM.low() and 3 or 6, 1.2, 4, 14, LILAC, 0.3)
+		billboardRing(troot.Position, 1, 8, LILAC, 4, 0.25)
+		CM.glyph(troot.Position + UP * 2.5, d, GREEN, 2.2, 0.6, d * 3)
+	end
+
+	---------------------------------------------------------------------
+	-- INVERTED (the server's CMoonInvert / CMoonFlipBack; while it lasts the
+	-- body's CMoonInverted, server time): turned inside out - a negative
+	-- shell of them, three dark stripes stamped across them, a violet seam
+	-- ring with a lilac one outside it; down-arrows drifting off them while
+	-- it lasts (CM.gravStep); flipped back: the Mobius ring thrown out, a
+	-- white ring
+	---------------------------------------------------------------------
+	function Effects.CMoonInvert(char, data)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		if not troot or not CM.ok(troot.Position) then
+			return
+		end
+		local I = C.Invert or {}
+		local at = troot.Position
+		CM.shell(target, I.Shell or 0.35)
+		local torso = target:FindFirstChild("Torso") or target:FindFirstChild("UpperTorso") or troot
+		local ts = torso.Size
+		for i, y in { 0.55, 0, -0.55 } do
+			local band = newPart(Vector3.new(ts.X + 0.16, 0.16, ts.Z + 0.16), torso.CFrame * CFrame.new(0, y * ts.Y / 2, 0) * CFrame.Angles(0, 0, math.rad((i - 2) * 6)), STRIPE, Enum.Material.SmoothPlastic)
+			band.Name = "CMoonStamp"
+			tween(band, I.Stamp or 0.3, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			cleanup(band, (I.Stamp or 0.3) + 0.05)
+		end
+		billboardRing(at, 1, 6, VIOLET, 7, 0.3)
+		billboardRing(at, 1.5, 9, LILAC, 3, 0.35)
+		VFX.PlaySound("CMoonInvert", at, 1)
+		CM.invs[target] = CM.invs[target] or { next = 0 }
+	end
+	function Effects.CMoonFlipBack(char, data)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		if not troot or not CM.ok(troot.Position) then
+			return
+		end
+		CM.invs[target] = nil
+		local at = troot.Position
+		CM.mobius(at, 1.5, 7, LILAC, 0.4)
+		billboardRing(at, 1, 10, WHITE, 5, 0.25)
+		sparks(at, 0.5, WHITE, GREEN, CM.low() and 5 or 10)
+		CM.shell(target, 0.2, 0.5)
+		VFX.PlaySound("CMoonFlipBack", at, 1)
+		local me = CM.me()
+		if me and (me == char or me == target) then
+			VFX.Shake(0.8, 0.2)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE GRAVITY LEASES on every screen (the body's CMoonGrav: its "down";
+	-- CMoonGravUntil: server time - past it this screen lets go by itself,
+	-- whether the clear ever comes or not; anything malformed is ignored).
+	-- Every screen: the falling-up pose (PoseCMoonFallUp - upside down about
+	-- its middle; PoseCMoonSlung once it falls in), down-arrows and green
+	-- streaks along its new "down", a lilac ring on the street under them. On
+	-- THEIR OWN screen: the camera rolled toward the new "down" (Grav.Roll at
+	-- most, rebuilt every frame from its target, eased back to level and
+	-- unbound at the end) and a green grade (a ColorCorrectionEffect on the
+	-- camera this screen makes and destroys). Nothing else of theirs touched.
+	---------------------------------------------------------------------
+	CM.GRAV_FOLDERS = { "Dummies", "TwiceClones", "NomuRaid" }
+	function CM.gravStep(now)
+		local sNow = CM.now()
+		local GC = C.Grav or {}
+		local I = C.Invert or {}
+		local seen = {}
+		local function look(m)
+			if typeof(m) ~= "Instance" or seen[m] or not m.Parent then
+				return
+			end
+			seen[m] = true
+			local root = m:FindFirstChild("HumanoidRootPart")
+			local down = m:GetAttribute("CMoonGrav")
+			local untilAt = m:GetAttribute("CMoonGravUntil")
+			local good = root ~= nil and CM.ok(down) and down.Magnitude > 0.5 and down.Magnitude < 1.5 and type(untilAt) == "number" and untilAt == untilAt and untilAt > sNow
+			local g = CM.gravs[m]
+			if good then
+				local kind = m:GetAttribute("CMoonGravKind")
+				local fall = kind == "Fall" or (kind == nil and down.Y < -0.3)
+				if not g then
+					g = { body = m, t0 = now, nextFx = 0 }
+					CM.gravs[m] = g
+					CM.gravOn(g, root)
+				end
+				g.down, g.untilAt = down.Unit, untilAt
+				-- (posed - and posed again if a flinch took the body meanwhile)
+				if fall ~= g.fall or (VFX.PoseToken(m) ~= g.token and not m:GetAttribute("Ragdolled")) then
+					g.fall = fall
+					VFX.Pose(m, fall and (GC.Slung or "CMoonSlung") or (GC.Pose or "CMoonFallUp"), math.max(untilAt - sNow, 0.2))
+					g.token = VFX.PoseToken(m)
+				end
+				if now >= g.nextFx and (root.Position - CM.camPos()).Magnitude < 180 then
+					g.nextFx = now + (GC.Lines or 0.12)
+					local d = g.down
+					CM.glyph(root.Position + Vector3.new(rand(-1.2, 1.2), rand(-1, 1.5), rand(-1.2, 1.2)), d, GREEN, 1.6, 0.4, d * 2.5)
+					streaks(root.Position - d * 2, d, 1, 1.2, 3, 8, GREEN, 0.25)
+				end
+			elseif g then
+				CM.gravOff(g)
+			end
+			-- inverted: a down-arrow drifting off them every Glyph s
+			local inv = m:GetAttribute("CMoonInverted")
+			if root and type(inv) == "number" and inv == inv and inv > sNow then
+				local r = CM.invs[m] or { next = 0 }
+				CM.invs[m] = r
+				if now >= r.next and (root.Position - CM.camPos()).Magnitude < 160 then
+					r.next = now + (I.Glyph or 0.4)
+					CM.glyph(root.Position + Vector3.new(rand(-0.9, 0.9), rand(1.2, 2.4), rand(-0.9, 0.9)), -UP, VIOLET, 1.4, 0.8, -UP * 1.6 + Vector3.new(rand(-1, 1), 0, rand(-1, 1)))
+				end
+			elseif CM.invs[m] then
+				CM.invs[m] = nil
+			end
+		end
+		for _, plr in Players:GetPlayers() do
+			look(plr.Character)
+		end
+		for _, name in CM.GRAV_FOLDERS do
+			local f = workspace:FindFirstChild(name)
+			for _, m in f and f:GetChildren() or {} do
+				if m:IsA("Model") then
+					look(m)
+				end
+			end
+		end
+		for m, g in CM.gravs do
+			if not seen[m] then
+				CM.gravOff(g)
+			end
+		end
+		for m in CM.invs do
+			if not seen[m] then
+				CM.invs[m] = nil
+			end
+		end
+	end
+	function CM.gravOn(g, root)
+		local gp = groundPoint(root.Position)
+		if CM.ok(gp) and (root.Position - gp).Magnitude < 8 then
+			billboardRing(gp + UP * 0.3, 1, 7, LILAC, 4, 0.35)
+		end
+		if g.body == CM.me() then
+			CM.rollOn()
+			VFX.Hooks.SpeedLines(0.6)
+		end
+	end
+	function CM.gravOff(g)
+		local m = g.body
+		CM.gravs[m] = nil
+		-- (let go of their pose - unless something else has it now: the ragdoll's, a hit's)
+		if m.Parent and VFX.PoseToken(m) == g.token and not m:GetAttribute("Ragdolled") then
+			VFX.ReleasePose(m, 0.25)
+		end
+		if CM.roll and m == CM.me() then
+			CM.roll.ending = true
+		end
+	end
+	-- the victim's own camera: rolled toward the new "down" (never past
+	-- Grav.Roll, never a flip), the green grade; put back exactly
+	function CM.rollOn()
+		local R = CM.roll
+		if R then
+			R.ending = nil
+			return
+		end
+		local GC = C.Grav or {}
+		local GR = GC.Grade or {}
+		R = { cur = 0 }
+		CM.roll = R
+		local cam = workspace.CurrentCamera
+		if cam then
+			local cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "CMoonGravGrade"
+			cc.TintColor = GR.Tint or Color3.fromRGB(215, 255, 215)
+			cc.Saturation = GR.Saturation or -0.15
+			cc.Enabled = true
+			cc.Parent = cam
+			R.cc = cc
+		end
+		RunService:BindToRenderStep("CMoonGravRoll", Enum.RenderPriority.Camera.Value + 2, function(dt)
+			local ok, err = pcall(CM.rollFrame, dt)
+			if not ok then
+				CM.rollOff()
+				warn("[VFX.CM] " .. tostring(err))
+			end
+		end)
+	end
+	function CM.rollFrame(dt)
+		local R = CM.roll
+		if not R then
+			return
+		end
+		-- ((round 103 review) a cutscene has this camera: hands off it at once
+		-- (it was rolling the cutscene's shot) - the roll and the grade let go)
+		if VFX.InCinematic and VFX.InCinematic() then
+			CM.rollOff()
+			return
+		end
+		dt = math.min(dt or 1 / 60, 0.1)
+		local GC = C.Grav or {}
+		local most = GC.Roll or 20
+		local cam = workspace.CurrentCamera
+		local g = CM.gravs[CM.me() or false]
+		local leaving = R.ending or g == nil or CM.now() > (g.untilAt or 0)
+		if leaving then
+			-- (back to level over RollBack s, the grade with it)
+			local step = most / math.max(GC.RollBack or 0.25, 0.01) * dt
+			R.cur = R.cur > 0 and math.max(R.cur - step, 0) or math.min(R.cur + step, 0)
+			if R.cc then
+				local k = math.clamp(math.abs(R.cur) / math.max(most, 1), 0, 1)
+				R.cc.TintColor = Color3.new(1, 1, 1):Lerp((GC.Grade or {}).Tint or Color3.fromRGB(215, 255, 215), k)
+				R.cc.Saturation = ((GC.Grade or {}).Saturation or -0.15) * k
+			end
+		elseif cam then
+			local lat = g.down:Dot(cam.CFrame.RightVector)
+			local want = math.clamp(math.deg(math.atan2(lat, -g.down.Y)), -most, most)
+			R.cur += (want - R.cur) * math.min(dt * (GC.RollRate or 6), 1)
+		end
+		R.cur = math.clamp(R.cur, -most, most)
+		-- (rebuilt from its look every frame - never added onto itself; one
+		-- last level frame when it's done)
+		if cam and (math.abs(R.cur) > 1e-3 or R.applied) then
+			local cf = cam.CFrame
+			local lk = cf.LookVector
+			if math.abs(lk.Y) < 0.98 then
+				cam.CFrame = CM.facing(cf.Position, lk) * CFrame.Angles(0, 0, rad(R.cur))
+			end
+			R.applied = math.abs(R.cur) > 1e-3
+		end
+		if leaving and math.abs(R.cur) <= 1e-3 then
+			CM.rollOff()
+		end
+	end
+	function CM.rollOff()
+		local R = CM.roll
+		if not R then
+			return
+		end
+		CM.roll = nil
+		RunService:UnbindFromRenderStep("CMoonGravRoll")
+		if R.cc then
+			pcall(function()
+				R.cc:Destroy()
+			end)
+		end
+	end
+	---------------------------------------------------------------------
+	-- SCREEN BEATS: THE NEGATIVE IMPACT FRAME (one frame: no colour, a green
+	-- cast - a camera grade this screen makes - then a white flash; never on
+	-- top of another move's coloured frame: VFX.ImpactHeld) and the FOV kick
+	-- (added, eased back - a delta on whatever the FOV is, so it comes back
+	-- exactly)
+	---------------------------------------------------------------------
+	function CM.negFrame(t)
+		if (VFX.ImpactHeld or 0) > os.clock() then
+			return
+		end
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		t = t or 0.05
+		VFX.ImpactHeld = os.clock() + t
+		local cc = Instance.new("ColorCorrectionEffect")
+		cc.Name = "CMoonNegative"
+		cc.Saturation = -1
+		cc.Contrast = 1.4
+		cc.Brightness = -0.05
+		cc.TintColor = Color3.fromRGB(170, 255, 160)
+		cc.Parent = cam
+		task.delay(t, function()
+			pcall(cc.Destroy, cc)
+			VFX.Hooks.Flash(WHITE, 0.08)
+		end)
+	end
+	function CM.fovKick(add, back)
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		-- ((round 103 review) the game's own punch (VFX.EngineKit.fovPunch):
+		-- it follows anyone else's FOV writes (the sprint's tween, a scope) and
+		-- stands down for a cutscene - this one subtracted its last add from
+		-- whatever was there, and was off by it after a sprint tween)
+		local EK = VFX.EngineKit
+		if EK and EK.fovPunch then
+			EK.fovPunch(add or 8, 0.03, math.max(back or 0.25, 0.05), 0)
+			return
+		end
+		local K = CM.kick or { on = 0 }
+		CM.kick = K
+		K.add, K.back, K.t0 = add or 8, math.max(back or 0.25, 0.05), os.clock()
+		if K.bound then
+			return
+		end
+		K.bound = true
+		RunService:BindToRenderStep("CMoonFov", Enum.RenderPriority.Camera.Value + 3, function()
+			local c = workspace.CurrentCamera
+			local u = (os.clock() - K.t0) / K.back
+			local want = u < 1 and K.add * (1 - u) ^ 2 or 0
+			if c then
+				c.FieldOfView = math.clamp(c.FieldOfView - K.on + want, 1, 120)
+			end
+			K.on = want
+			if u >= 1 then
+				K.bound, K.on = false, 0
+				RunService:UnbindFromRenderStep("CMoonFov")
+			end
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- 1: USHAAAA! (the owner's barrage). His hand thrown out ("C-MOON."),
+	-- the other on his cross - an upper-body clip over his walk (he keeps
+	-- walking at RushWalk in super armour); C-MOON lunges in front of him,
+	-- arms drawn back, its crown flared ("USHAAAA!"), then THE RUSH: its arms
+	-- swapping every Clips.Rush.Beat s (faster than the server's ticks; a
+	-- micro-freeze every few swaps), the striking fist on them; GHOST ARMS -
+	-- a pool, never built per punch - flung on arcs from its shoulders to
+	-- them, two or three a frame, a trail each; a light at its fists, its
+	-- red pulse; the bed climbing under the cracks. Each landed tick (the
+	-- server's own hit, through VFX.HitHooks: CM.rushTick) - a white ring and
+	-- a lilac one on them, sparks, the crack; a seam ring every few. Then the
+	-- breath (the bed cut dead), and THE VITAL SPOT (the server's word:
+	-- CMoonRushFinish) - the freeze, the negative frame, the FOV kick, a
+	-- white shock ring and a green one along the punch, the shake.
+	---------------------------------------------------------------------
+	function Effects.CMoonRush(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = CM.spec(char, "CMoonRush")
+		local L = (C.Shout or {}).Lines or {}
+		local old = CM.rushes[char]
+		if old then
+			CM.rushEnd(old)
+		end
+		local st = {
+			char = char, t0 = poseTime(char, os.clock()), startup = spec.Startup or 0.18, hits = math.max(spec.Hits or 22, 1), interval = spec.Interval or 0.065,
+			breath = spec.Breath or 0.08, ticks = 0, ghostAcc = 0, jit = {}, target = CM.m1Target(char, root),
+		}
+		st.rushEnd = st.startup + st.hits * st.interval
+		local fin = CM.clip("RushFinish")
+		st.finAt = st.rushEnd + st.breath - (fin and fin.Hit or 0.14)
+		st.total = st.finAt + (fin and CM.length(fin) or 0.75)
+		CM.rushes[char] = st
+		-- his own: the hand thrown out, the other on his cross - over his walk
+		if not VFX.Clip(char, "MoveCMoonRush", { legs = false, recover = 0.3 }) then
+			VFX.Motion(char, "CMoonRush")
+		end
+		CM.play(char, "Rush", { target = st.target, drive = CM.rushDrive(st), life = st.total + 0.05, expire = function()
+			CM.stop(char, 0.3)
+		end })
+		VFX.PlaySound("CMoonRushStart", root.Position, 1)
+		CM.shout(char, L.Call or "C-MOON.", 0.6, false)
+		task.delay(0.13, function()
+			if CM.rushes[char] == st then
+				CM.shout(CM.headOf(char), L.Rush or "USHAAAA!", 0.9, true)
+			end
+		end)
+		local WK = VFX.WindKit
+		if WK and WK.loop then
+			local ok, h = pcall(WK.loop, "CMoonRushBed", root, { gain = 1, fadeIn = 0.08, max = st.total + 1 })
+			st.bed = ok and h or nil
+		end
+		if isLocal then
+			VFX.Hooks.SpeedLines(st.rushEnd)
+		end
+	end
+	-- its pose through the rush: the arms swapping on the beat, each strike at
+	-- them (a hair off their middle each time: never the same punch twice);
+	-- then the breath and the vital spot (Clips.RushFinish, laid so its Hit
+	-- lands on the server's)
+	function CM.rushDrive(st)
+		return function(rig, P, t, rootCF)
+			if t < st.startup then
+				return P
+			end
+			local tp = st.target
+			local at = typeof(tp) == "Instance" and tp.Parent and tp.Position or (CM.ok(tp) and tp) or nil
+			if t < st.finAt then
+				local beat = (CM.clip("Rush") or {}).Beat or 0.038
+				local R = C.Rush or {}
+				local u = (t - st.startup) / beat
+				local n = math.floor(u)
+				local frac = u - n
+				local hold = (R.FreezeFor or 0.03) / beat
+				if n % (R.FreezeEvery or 3) == 0 and hold < 0.9 then
+					frac = math.max(frac - hold, 0) / (1 - hold)
+				end
+				local j = st.jit[n]
+				if not j then
+					j = Vector3.new(rand(-0.4, 0.4), rand(-0.4, 0.4), 0)
+					st.jit[n] = j
+					st.jit[n - 4] = nil
+				end
+				local spot = at and (at + j) or nil
+				local right = n % 2 == 0
+				local pa = CM.aim(CM.resolve(right and "RushL" or "RushR", false), 1, rootCF, spot, right and "L" or "R")
+				local pb = CM.aim(CM.resolve(right and "RushR" or "RushL", false), 1, rootCF, spot, right and "R" or "L")
+				st.arm = right and "R" or "L"
+				return CM.blend(pa, pb, CM.ease(math.clamp(frac / 0.6, 0, 1), "out"))
+			end
+			st.arm = "R"
+			st.finTr = st.finTr or { clip = CM.clip("RushFinish"), mirror = false, from = rig.pose }
+			st.finTr.target = at
+			if not st.finTr.clip then
+				return P
+			end
+			return CM.sample(st.finTr, t - st.finAt, rootCF) or P
+		end
+	end
+	-- (every frame while it runs) the bed, the light, the pulse, the ghost
+	-- arms, the low shake, the USHA bubbles
+	function CM.rushStep(st, now, dt)
+		local char = st.char
+		local root = char.Parent and char:FindFirstChild("HumanoidRootPart")
+		if not root or CM.dead(char) then
+			CM.rushEnd(st)
+			return
+		end
+		local R = C.Rush or {}
+		local L = (C.Shout or {}).Lines or {}
+		local t = poseTime(char, now) - st.t0
+		if t > st.total + 0.2 then
+			CM.rushEnd(st)
+			return
+		end
+		local rushing = t >= st.startup and t < st.rushEnd
+		if st.bed then
+			if t >= st.rushEnd or st.vital then
+				st.bed.stop(0.03) -- (cut dead at the breath)
+				st.bed = nil
+			else
+				local BP = R.BedPitch or { 1, 1.12 }
+				st.bed.set(1, BP[1] + (BP[2] - BP[1]) * math.clamp((t - st.startup) / math.max(st.rushEnd - st.startup, 0.1), 0, 1))
+			end
+		end
+		local rig = CM.rigs[char]
+		if rig then
+			if t < st.finAt + 0.45 then
+				rig.pulseUntil = now + 0.1
+			end
+			-- one light at its fists, the whole rush
+			if not rig.light then
+				for _, it in rig.items do
+					if it.bone == "fistR" then
+						local l = Instance.new("PointLight")
+						l.Name = "CMoonFists"
+						l.Color = LILAC
+						l.Shadows = false
+						l.Range = (R.Light or {}).Range or 8
+						l.Brightness = 0
+						l.Parent = it.part
+						rig.light = l
+						break
+					end
+				end
+			end
+			if rig.light then
+				rig.light.Brightness = (rushing and rig.out) and ((R.Light or {}).Brightness or 3) or 0
+			end
+			if rushing and rig.out and rig.W then
+				CM.ghostLaunch(st, rig, now, dt)
+			end
+		end
+		if rushing and now >= (st.shakeAt or 0) then
+			st.shakeAt = now + 0.1
+			VFX.ShakeAt(root.Position, R.ShakeLevel or 0.5, R.ShakeRange or 60, 0.14)
+		end
+		if rushing and now >= (st.bubbleAt or 0) and t > st.startup + 0.2 then
+			st.bubbleAt = now + st.interval * (R.BubbleEvery or 6)
+			local at = CM.headOf(char)
+			if typeof(at) == "Vector3" then
+				at += Vector3.new(rand(-1.2, 1.2), rand(-0.4, 0.8), rand(-1.2, 1.2))
+			end
+			CM.shout(at, L.Usha or "USHA", 0.35 + rng:NextNumber() * 0.2, true, ({ 0.7, 0.85, 1.05 })[rng:NextInteger(1, 3)])
+		end
+	end
+	-- a landed tick (from VFX.HitHooks): its look on them
+	function CM.rushTick(st, target, troot, at, along)
+		local R = C.Rush or {}
+		st.ticks += 1
+		st.target = troot -- (the server's own victim: the fists and the ghosts go there)
+		local low = CM.low()
+		if CM.ult(st.char) and CM.clockSpark then
+			return CM.clockSpark(st, at, along) -- ((round 103, builder B) HEAVEN'S RUSH: clock faces off every hit, a tick in the crack)
+		end
+		billboardRing(at, 0.3, rand(1.8, 2.6), WHITE, 3, 0.1)
+		billboardRing(at + along * 0.3, 0.3, 3, LILAC, 2, 0.12)
+		sparks(at, 0.28, WHITE, LILAC, low and 3 or math.floor(rand(6, 8.99)))
+		VFX.PlaySound("CMoonRushHit", at, 0.9)
+		if st.ticks % (R.SeamEvery or 4) == 0 then
+			billboardRing(at, 0.5, 4.2, VIOLET, 6, 0.2)
+			CM.glyph(at + UP * 1.6, -UP, VIOLET, 1.3, 0.3, -UP)
+		end
+		return true
+	end
+	-- THE GHOST ARMS: a pool of Rush.Ghosts arm copies (upper arm, elbow,
+	-- forearm, fist, knuckles - lilac, a trail off the fist), built once for
+	-- each C-MOON, flung on arcs and put away again
+	function CM.ghostPool(rig)
+		if rig.ghosts then
+			return rig.ghosts
+		end
+		rig.ghosts = {}
+		local R = C.Rush or {}
+		for _ = 1, (R.Ghosts or 14) do
+			local model = Instance.new("Model")
+			model.Name = "CMoonGhost"
+			model.Parent = folder
+			local g = { model = model, parts = {}, offs = {}, born = -1, life = 0 }
+			local function add(size, shape, ell, off)
+				local p = newPart(size, CFrame.new(0, -5000, 0), LILAC, Enum.Material.Neon, shape, model)
+				p.Name = "CMoonGhostArm"
+				p.Transparency = 1
+				if ell then
+					local mesh = Instance.new("SpecialMesh")
+					mesh.MeshType = Enum.MeshType.Sphere
+					mesh.Parent = p
+				end
+				table.insert(g.parts, p)
+				table.insert(g.offs, off)
+				return p
+			end
+			add(Vector3.new(0.78, 0.84, 0.4), nil, true, CFrame.new(0, 0, -0.25))
+			local fist = add(Vector3.new(0.74, 0.8, 0.6), nil, false, CFrame.new(0, 0, 0.15))
+			add(Vector3.new(0.95, 0.66, 0.66), Enum.PartType.Cylinder, false, CFrame.new(0, 0, 0.95) * CFrame.Angles(0, math.rad(90), 0))
+			add(Vector3.one * 0.62, Enum.PartType.Ball, false, CFrame.new(0, 0, 1.45))
+			add(Vector3.new(1.05, 0.62, 0.62), Enum.PartType.Cylinder, false, CFrame.new(0, 0, 2.0) * CFrame.Angles(0, math.rad(90), 0))
+			local a0 = Instance.new("Attachment")
+			a0.Position = Vector3.new(0, 0.4, 0)
+			a0.Parent = fist
+			local a1 = Instance.new("Attachment")
+			a1.Position = Vector3.new(0, -0.4, 0)
+			a1.Parent = fist
+			local tr = Instance.new("Trail")
+			tr.Attachment0 = a0
+			tr.Attachment1 = a1
+			tr.Color = ColorSequence.new(LILAC, WHITE)
+			tr.Transparency = NumberSequence.new(0.35, 1)
+			tr.WidthScale = NumberSequence.new(1, 0)
+			tr.LightEmission = 0.8
+			tr.Lifetime = 0.1
+			tr.Enabled = false
+			tr.Parent = fist
+			g.trail = tr
+			table.insert(rig.ghosts, g)
+		end
+		return rig.ghosts
+	end
+	function CM.ghostLaunch(st, rig, now, dt)
+		local R = C.Rush or {}
+		local pool = CM.ghostPool(rig)
+		st.ghostAcc += dt * (R.Rate or 50) * (CM.low() and 0.5 or 1)
+		local tp = st.target
+		local at = typeof(tp) == "Instance" and tp.Parent and tp.Position or (CM.ok(tp) and tp) or nil
+		if not at then
+			return
+		end
+		local s = rig.s or 0.92
+		while st.ghostAcc >= 1 do
+			st.ghostAcc -= 1
+			-- (the one put away longest)
+			local g, oldest = nil, math.huge
+			for _, c in pool do
+				if c.born + c.life < now and c.born < oldest then
+					g, oldest = c, c.born
+				end
+			end
+			if not g then
+				break
+			end
+			local right = rng:NextNumber() < 0.5
+			local shoulder = (right and rig.W.upperR or rig.W.upperL).Position
+			local span0 = at - shoulder
+			local across = span0:Cross(UP)
+			across = across.Magnitude > 1e-3 and across.Unit or Vector3.new(1, 0, 0)
+			-- (thrown from all round its shoulders: a fan of fists, not one arm)
+			local p0 = shoulder + across * rand(0, R.Fan or 1.6) * (right and 1 or -1) + UP * rand(-0.6, 1.1)
+			-- (anywhere over their front: a fist for every spot on them)
+			local p2 = at + across * rand(-(R.Face or 1.1), R.Face or 1.1) + UP * rand(-0.9, 1.4)
+			local span = p2 - p0
+			if span.Magnitude > 0.5 then
+				local mid = p0 + span * 0.5
+				g.p0, g.p2 = p0, p2
+				g.p1 = mid + across * rand(-(R.Spread or 2.2), R.Spread or 2.2) * (right and 1 or -1) * rand(0.2, 1) + UP * rand(-0.4, 1) * (R.Lift or 1.4)
+				g.born, g.life, g.scale = now, (R.Life or 0.14) * rand(0.85, 1.15), s
+				g.armed = false
+				-- ((round 103, builder B) HEAVEN'S RUSH: white-gold arms)
+				local col = CM.ult(st.char) and ((C.Accel or {}).Color or WHITE) or LILAC
+				if g.col ~= col then
+					g.col = col
+					for _, gp in g.parts do
+						gp.Color = col
+					end
+					pcall(function()
+						g.trail.Color = ColorSequence.new(col, WHITE)
+					end)
+				end
+				pcall(function()
+					g.trail.Enabled = false
+					g.trail:Clear()
+				end)
+			end
+		end
+	end
+	-- (every frame: the live ghosts along their arcs, the rest put away)
+	function CM.ghostStep(rig, now)
+		if not rig.ghosts then
+			return
+		end
+		local parts, cfs = {}, {}
+		for _, g in rig.ghosts do
+			local u = g.life > 0 and (now - g.born) / g.life or 2
+			if u >= 0 and u < 1 then
+				local e = 1 - (1 - u) ^ 2
+				local a, b, c = g.p0, g.p1, g.p2
+				local pos = a * ((1 - e) ^ 2) + b * (2 * (1 - e) * e) + c * (e * e)
+				local tan = (b - a) * (2 * (1 - e)) + (c - b) * (2 * e)
+				if tan.Magnitude < 1e-3 then
+					tan = c - a
+				end
+				if tan.Magnitude > 1e-3 then
+					local G = CM.facing(pos, tan)
+					local alpha = 0.4 + 0.6 * u ^ 1.5
+					for i, p in g.parts do
+						table.insert(parts, p)
+						local off = g.offs[i]
+						table.insert(cfs, G * CFrame.new(off.Position * g.scale) * off.Rotation)
+						p.Transparency = alpha
+					end
+					if g.armed and not g.trail.Enabled then
+						g.trail.Enabled = true
+					end
+					g.armed = true
+					g.shown = true
+				end
+			elseif g.shown then
+				g.shown = false
+				for _, p in g.parts do
+					p.Transparency = 1
+				end
+				pcall(function()
+					g.trail.Enabled = false
+				end)
+			end
+		end
+		CM.move(parts, cfs)
+	end
+	function CM.rushEnd(st)
+		if CM.rushes[st.char] == st then
+			CM.rushes[st.char] = nil
+		end
+		st.done = true
+		if st.bed then
+			st.bed.stop(0.1)
+			st.bed = nil
+		end
+		local rig = CM.rigs[st.char]
+		if rig and rig.light then
+			rig.light.Brightness = 0
+		end
+	end
+	-- (server) THE VITAL SPOT
+	function Effects.CMoonRushFinish(char, data)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local R = C.Rush or {}
+		local L = (C.Shout or {}).Lines or {}
+		local st = CM.rushes[char]
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local troot = target and target:FindFirstChild("HumanoidRootPart")
+		if st then
+			st.vital = true
+			if troot then
+				st.target = troot
+			end
+			if st.bed then
+				st.bed.stop(0.03)
+				st.bed = nil
+			end
+		end
+		local rig = CM.rigs[char]
+		if rig then
+			rig.pulseUntil = os.clock() + 0.45
+		end
+		-- (his benediction is his rush clip's own Hit2 - over his walk)
+		CM.shout(CM.headOf(char), L.Vital or "SHAA!!", 0.8, true)
+		task.delay(0.12, function()
+			CM.shout(char, L.Once or "Only once.", 0.9, false)
+		end)
+		local d = CM.ok(data.Dir) and data.Dir.Magnitude > 0.1 and Vector3.new(data.Dir.X, 0, data.Dir.Z).Unit or CM.flat(root.CFrame.LookVector, root)
+		VFX.PlaySound("CMoonRushFinish", troot and troot.Position or root.Position + d * 5, 1)
+		if not troot then
+			-- (nobody there: the punch into the air)
+			local at = root.Position + d * 7
+			shockDisc(at, d, 2, 10, 0.22, WHITE, 4)
+			streaks(at, d, CM.low() and 4 or 8, 1, 5, 14, WHITE, 0.22)
+			return
+		end
+		local at = troot.Position - d * 0.4
+		local stop = R.Stop or 0.12
+		VFX.Hitstop(target, stop)
+		VFX.Hitstop(char, stop)
+		billboardRing(at, 1.5, 12, WHITE, 6, 0.25)
+		billboardRing(at + d * 1.5, 1, 9, GREEN, 4, 0.3)
+		shockDisc(at, d, 2, 14, 0.25, WHITE, 4)
+		streaks(at, d, CM.low() and 5 or 10, 1, 6, 18, WHITE, 0.25)
+		streaks(at, d, CM.low() and 2 or 4, 0.6, 6, 14, GREEN, 0.3)
+		local SH = R.Shake or { 2.8, 90, 0.35 }
+		VFX.ShakeAt(at, SH[1], SH[2], SH[3])
+		local me = CM.me()
+		if me and (me == char or me == target) then
+			CM.negFrame(R.Frame or 0.05)
+			CM.fovKick(R.Fov or 8, R.FovBack or 0.25)
+		end
+	end
+	-- (server) the rush cut short (his death, a hero switch, grabbed...): it all stops
+	function Effects.CMoonRushEnd(char)
+		local st = CM.rushes[char]
+		if st then
+			CM.rushEnd(st)
+		end
+		local tr = CM.tracks[char]
+		if tr and (tr.name == "Rush" or tr.name == "RushFinish") then
+			CM.stop(char, 0.3)
+		end
+	end
+	-- (server) where the one it hit came down: a crater's rim, dust
+	function Effects.CMoonRushLand(char, data)
+		local pos = CM.ok(data.Pos) and data.Pos or nil
+		if not pos then
+			return
+		end
+		CM.ring(pos, 3.5, DARK, 0.9, 0.5)
+		shockDisc(pos + UP * 0.3, UP, 2, 12, 0.3, LILAC)
+		dustPuffs(pos, 0.8, CM.low() and 2 or 5, Color3.fromRGB(196, 186, 176), 0.8, false)
+		VFX.ShakeAt(pos, 1.2, 70, 0.25)
+	end
+
+	---------------------------------------------------------------------
+	-- 2: GRAVITY FLIP (the owner's). The telegraph (his arms thrown wide
+	-- like a sermon; C-MOON's palm slammed flat on the street, its arrows lit
+	-- and turned down; a green ring and a lilac one at the radius, a lilac
+	-- one round him, a sub suck; his star and cross flash white-gold); then
+	-- the server's word (GravityFlipRise): a faint dome over the field, the
+	-- street falling up (chunks of it, its own colour, tumbling up out of the
+	-- radius), green streaks rising, a green grade on screens inside, the
+	-- rumble - C-MOON upside down over him; THE FLIP (GravityFlipSnap): a
+	-- violet ring round his feet, streaks from every body to it, the chunks
+	-- coming down with them; each body's slam (GravityFlipSlam)
+	---------------------------------------------------------------------
+	function Effects.GravityFlip(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = CM.spec(char, "GravityFlip")
+		local F = C.Flip or {}
+		local radius = spec.Radius or 36
+		local center = groundPoint(root.Position)
+		if not CM.ok(center) then
+			center = root.Position - UP * 3
+		end
+		CM.play(char, "Flip", {})
+		VFX.Motion(char, "CMoonFlip")
+		VFX.PlaySound("CMoonFlipCall", root.Position, 1)
+		local life = (spec.FlipAt or 1.4) + 0.2
+		CM.ring(center, radius, GREEN, life, 0.7)
+		CM.ring(center, radius - 1.4, LILAC, life, 0.35, nil, 0.35)
+		CM.ring(center, F.Inner or 8, LILAC, 0.7, 0.45)
+		shockDisc(center + UP * 0.3, UP, 2, radius * 2, 0.3, LILAC)
+		-- his star and his cross flash white-gold
+		local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or root
+		local head = char:FindFirstChild("Head")
+		for _, spot in { { torso, CFrame.new(0, 0.3, -0.62), Vector3.new(1.6, 1.8, 0.1) }, { head, CFrame.new(0, 0.42, -0.66), Vector3.new(0.5, 0.5, 0.1) } } do
+			if spot[1] then
+				local glow = newPart(spot[3], spot[1].CFrame * spot[2], Color3.fromRGB(255, 236, 170), Enum.Material.Neon, Enum.PartType.Ball)
+				glow.Name = "CMoonHoly"
+				glow.Transparency = 0.2
+				tween(glow, 0.35, { Transparency = 1, Size = spot[3] * 1.8 })
+				cleanup(glow, 0.4)
+			end
+		end
+		CM.fields[char] = { center = center, radius = radius, chunks = {}, at = os.clock() }
+	end
+	-- (server, at the telegraph's end) everyone inside falls up
+	function Effects.GravityFlipRise(char, data)
+		local center = CM.ok(data.Pos) and data.Pos or nil
+		if not center then
+			return
+		end
+		local spec = CM.spec(char, "GravityFlip")
+		local F = C.Flip or {}
+		local L = (C.Shout or {}).Lines or {}
+		local radius = tonumber(data.Radius) or spec.Radius or 36
+		local flipIn = tonumber(data.FlipAt) or ((spec.FlipAt or 1.4) - (spec.Telegraph or 0.25))
+		local g = groundPoint(center)
+		if not CM.ok(g) then
+			g = center - UP * 3
+		end
+		local field = CM.fields[char] or { chunks = {}, at = os.clock() }
+		field.center, field.radius, field.flipAt = g, radius, os.clock() + flipIn
+		if typeof(char) == "Instance" then
+			CM.fields[char] = field
+		end
+		VFX.PlaySound("CMoonFlipRise", center, 1)
+		VFX.PlaySound("CMoonFlipBed", center, 1)
+		if char then
+			CM.shout(char, L.Fall or "Fall away from me.", 1, false)
+		end
+		-- the faint dome over the field
+		local dome = newPart(Vector3.new(radius * 2, radius * 0.9, radius * 2), CFrame.new(g), LILAC, Enum.Material.ForceField, Enum.PartType.Ball)
+		dome.Name = "CMoonDome"
+		dome.Transparency = 1
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Parent = dome
+		tween(dome, 0.3, { Transparency = F.Dome or 0.88 })
+		tween(dome, 0.4, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, flipIn + 0.3)
+		cleanup(dome, flipIn + 0.8)
+		-- the street falls up: chunks of it (its own colour), tumbling
+		local CH = F.Chunks or { 14, 20 }
+		local n = math.floor(rand(CH[1], CH[2] + 0.99))
+		if CM.low() then
+			n = math.ceil(n / 2)
+		end
+		local CS = F.ChunkSize or { 0.7, 2.2 }
+		for _ = 1, n do
+			local a = rand(0, TAU)
+			local r = math.sqrt(rng:NextNumber()) * radius * 0.92
+			local spot = g + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+			local hit = groundRay(spot + UP * 6, 20)
+			local color, mat = Color3.fromRGB(120, 116, 112), Enum.Material.Slate
+			if hit and hit.Instance then
+				pcall(function()
+					color, mat = hit.Instance.Color, hit.Material
+				end)
+				spot = hit.Position
+			end
+			local size = Vector3.new(rand(CS[1], CS[2]), rand(CS[1], CS[2]) * 0.5, rand(CS[1], CS[2]))
+			local p = newPart(size, CFrame.new(spot) * CFrame.Angles(rand(0, 3), rand(0, 3), rand(0, 3)), color, mat)
+			p.Name = "CMoonChunk"
+			local up = (F.ChunkRise or 26) * rand(0.6, 1.2)
+			tween(p, flipIn + 0.1, { CFrame = CFrame.new(spot + UP * up + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(1, 4)) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			cleanup(p, flipIn + 1.6)
+			table.insert(field.chunks, p)
+		end
+		-- green streaks rising through the field
+		for _ = 1, CM.low() and math.ceil((F.Streaks or 14) / 2) or (F.Streaks or 14) do
+			local a = rand(0, TAU)
+			local r = math.sqrt(rng:NextNumber()) * radius
+			streaks(g + Vector3.new(math.cos(a) * r, rand(0, 4), math.sin(a) * r), UP, 1, 0.5, rand(6, 12), rand(16, 28), GREEN, rand(0.4, 0.7))
+		end
+		-- a green grade on screens inside it
+		CM.fieldGrade(g, radius, os.clock() + flipIn + 0.6)
+		VFX.ShakeAt(g, 0.9, radius + 30, flipIn)
+	end
+	-- (server, at FlipAt) gravity flips toward him
+	function Effects.GravityFlipSnap(char, data)
+		local pos = CM.ok(data.Pos) and data.Pos or nil
+		if not pos then
+			return
+		end
+		local F = C.Flip or {}
+		local ring = tonumber(data.Ring) or 6
+		local g = groundPoint(pos)
+		if not CM.ok(g) then
+			g = pos - UP * 3
+		end
+		VFX.PlaySound("CMoonFlipSnap", pos, 1)
+		CM.ring(g, ring, VIOLET, 0.8, 0.7)
+		billboardRing(g + UP * 0.5, 2, ring * 2.2, VIOLET, 6, 0.3)
+		for _, m in type(data.Targets) == "table" and data.Targets or {} do
+			local r = typeof(m) == "Instance" and m:FindFirstChild("HumanoidRootPart")
+			if r and CM.ok(r.Position) then
+				local to = g + CM.flat(r.Position - g, r) * ring
+				local span = to - r.Position
+				if span.Magnitude > 1 then
+					streaks(r.Position, span.Unit, 2, 0.6, math.min(span.Magnitude * 0.4, 14), span.Magnitude, LILAC, 0.35)
+				end
+			end
+		end
+		-- the street comes back down with them
+		local field = CM.fields[char]
+		if field then
+			for _, p in field.chunks do
+				if p.Parent then
+					local a = rand(0, TAU)
+					local to = g + Vector3.new(math.cos(a), 0, math.sin(a)) * (ring + rand(0, 6))
+					tween(p, rand(0.25, 0.4), { CFrame = CFrame.new(to) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+					tween(p, 0.4, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.45)
+					cleanup(p, 0.9)
+				end
+			end
+			CM.fields[char] = nil
+		end
+		local SH = F.Shake or { 1.6, 80, 0.3 }
+		VFX.ShakeAt(g, SH[1], SH[2], SH[3])
+	end
+	-- (server) one body slammed down round his feet
+	function Effects.GravityFlipSlam(char, data)
+		local pos = CM.ok(data.Pos) and data.Pos or nil
+		if not pos then
+			return
+		end
+		VFX.PlaySound("CMoonFlipSlam", pos, 1)
+		CM.ring(pos, 3.2, DARK, 1, 0.5)
+		billboardRing(pos + UP, 2, 10, WHITE, 5, 0.25)
+		shockDisc(pos + UP * 0.3, UP, 2, 14, 0.3, LILAC)
+		dustPuffs(pos, 1, CM.low() and 3 or 6, Color3.fromRGB(196, 186, 176), 0.9, false)
+		groundMark(pos, 3, DARK, 4)
+		rocks(pos + UP, 0.7, CM.low() and 2 or 5)
+		VFX.ShakeAt(pos, 1.8, 80, 0.3)
+	end
+	-- THE FIELD'S GRADE: one grade of this screen's own (a ColorCorrectionEffect
+	-- on the camera: nothing of Lighting's is touched) while the camera's in a
+	-- field, eased in and out, destroyed when the last field's done
+	function CM.fieldGrade(center, radius, untilAt)
+		CM.fieldUntil = math.max(CM.fieldUntil or 0, untilAt)
+		CM.fieldCenter, CM.fieldRadius = center, radius
+		if CM.fieldConn then
+			return
+		end
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		local F = C.Flip or {}
+		local cc = Instance.new("ColorCorrectionEffect")
+		cc.Name = "CMoonFieldGrade"
+		cc.Parent = cam
+		CM.fieldCC = cc
+		local level = 0
+		CM.fieldConn = RunService.RenderStepped:Connect(function(dt)
+			local inside = CM.fieldCenter and (CM.camPos() - CM.fieldCenter).Magnitude < (CM.fieldRadius or 36) + 12
+			local want = (os.clock() < CM.fieldUntil and inside) and (F.Grade or 0.6) or 0
+			local rate = want > level and 4 or 2.5
+			level += math.clamp(want - level, -rate * dt, rate * dt)
+			cc.TintColor = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(196, 255, 190), level)
+			cc.Saturation = -0.12 * level
+			cc.Brightness = 0.03 * level
+			if os.clock() >= CM.fieldUntil and level <= 0.001 then
+				CM.fieldConn:Disconnect()
+				CM.fieldConn = nil
+				cc:Destroy()
+				CM.fieldCC = nil
+			end
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- THE PASSIVE, FALL UP (Effects.SuperLeap / SuperLand for him): he isn't
+	-- jumping - he's falling upward, calm, arms a little out
+	-- (PoseCMoonRiseSelf), C-MOON upside down beside him, green streaks
+	-- rising past him, a green ring and a lilac one left on the street; the
+	-- landing a ripple
+	---------------------------------------------------------------------
+	function CM.fallUp(char, _data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local F = C.FallUp or {}
+		VFX.Pose(char, "CMoonRiseSelf", 1.4)
+		CM.play(char, "FallUp", { life = 2.5 })
+		local pos = root.Position - UP * 2.5
+		CM.ring(pos, F.Ring or 9, GREEN, 0.6, 0.4)
+		billboardRing(pos, 2, 14, LILAC, 5, 0.3)
+		streaks(pos, UP, F.Streaks or 8, 2.5, 8, 22, GREEN, 0.35)
+		local stopTrail = addTrail(root, GREEN, 0.3, 1.6)
+		if isLocal then
+			VFX.Hooks.SpeedLines(1)
+		end
+		VFX.PlaySound("CMoonFallUp", pos, 1)
+		task.delay(1.2, function()
+			stopTrail(0)
+		end)
+	end
+	function CM.fallDown(char, data)
+		local root = charParts(char)
+		local pos = typeof(data) == "table" and CM.ok(data.Pos) and data.Pos or (root and groundPoint(root.Position))
+		if not CM.ok(pos) then
+			return
+		end
+		if root then
+			VFX.Pose(char, "Land", 0.4)
+		end
+		local tr = CM.tracks[char]
+		if tr and tr.name == "FallUp" then
+			CM.stop(char, 0.3)
+		end
+		billboardRing(pos + UP, 3, 18, LILAC, 6, 0.3)
+		CM.ring(pos, 5, GREEN, 0.5, 0.4)
+		shockDisc(pos + UP * 0.4, UP, 3, 26, 0.35, LILAC)
+		dustPuffs(pos, 0.9, CM.low() and 2 or 5, Color3.fromRGB(206, 196, 186), 0.8, false)
+		groundMark(pos, 4, DARK, 3)
+		VFX.PlaySound("CMoonLand", pos, 1)
+		VFX.ShakeAt(pos, 1.2, 60, 0.25)
+	end
+	-- HIS DASH: he "falls" sideways - a lilac smear, two arrows along it
+	-- pointing the way he went, a lilac after-image of him
+	QUIRK_FX.Dash.CMoon = function(char, root, dir)
+		if not (root and root.Parent) then
+			return
+		end
+		local d = CM.ok(dir) and dir.Magnitude > 0.1 and dir.Unit or CM.flat(root.CFrame.LookVector, root)
+		afterimage(char, LILAC, 0.25)
+		streaks(root.Position, d, CM.low() and 2 or 4, 1.4, 5, 12, LILAC, 0.25)
+		for i = 1, 2 do
+			CM.glyph(root.Position + d * (i * 2) + UP * 0.5, d, GREEN, 1.6, 0.35, d * 2)
+		end
+		VFX.PlaySound("CMoonDash", root.Position, 0.8)
+	end
+
+	-- (end of VFX.CM)
+	RunService:BindToRenderStep("PucciCMoon", Enum.RenderPriority.Camera.Value + 4, function(dt)
+		local ok, err = pcall(CM.step, dt)
+		if not ok and not CM.warnedStep then
+			CM.warnedStep = true
+			warn("[VFX.CM] " .. tostring(err))
+		end
+	end)
+end)()
+
+---------------------------------------------------------------------------
+-- (round 103, builder B) PUCCI / C-MOON on every screen - the rest of his kit
+-- (VFX.CM, the same table). 3 INSIDE OUT (CM.insides: the disc of street in
+-- front torn into slabs - its own colour on top, C-MOON's dark stripe
+-- underneath, a lilac seam - peeled up and turned over, held overhead, then
+-- thrown down the server's own paths spinning, a trail each; each one that
+-- lands bursts into dark chunks), R SELF-INVERSION (CM.selfs: his body turned
+-- inside out - a negative shell of it held on him -, a violet seam ring
+-- spinning round his waist, lilac ones above and below; a hit passing through
+-- him: one negative frame on his screen and the attacker's; C-MOON's
+-- backhand), 4 NEW MOON (the uppercut, the aim marked on the street before
+-- the sling, the line of light down it, the crash), THE FINISHER (one slow
+-- punch through the chest; they fall up into the sky), THE AWAKENING
+-- (VFX.AK.FX.CMoon: he rises counting primes before a black new moon, motes
+-- falling UP round him; on the hit he turns to light, C-MOON breaks into
+-- shards and MADE IN HEAVEN bursts out rearing, clock faces flung out along
+-- the street), MADE IN HEAVEN itself (CM.heavenSwap: the same rig - its
+-- humanoid half on C-MOON's upper bones, every C-MOON clip on its arms -, the
+-- front half of a horse fused at its waist galloping on the air, the cable,
+-- clock faces whose hands turn, the speedometer's needle), TIME ACCELERATES
+-- (CM.heavenStep: on every screen within Range of an ulting Pucci a sun of
+-- its own streaking across the sky, day and night swinging on a camera grade
+-- - Lighting never written -, the clock ticking faster, afterimages of him),
+-- and the ult's moves: TIME ACCELERATION (his own machine behind each of them
+-- in turn), ACCELERATE (his own machine down the line), INSIDE OUT:
+-- ACCELERATED (white-gold streaks), THE NEW WORLD (a pillar of light, the
+-- time-lapse running away, the WHITE-OUT).
+-- (Its own function: the main chunk's locals stay as they are.)
+---------------------------------------------------------------------------
+;(function()
+	local CM = VFX.CM
+	if not CM then
+		return
+	end
+	local C = Config.Pucci or {}
+	local PAL = C.Fx or {}
+	local LILAC = PAL.Lilac or Color3.fromRGB(196, 168, 255)
+	local VIOLET = PAL.Violet or Color3.fromRGB(86, 40, 140)
+	local GREEN = PAL.Green or Color3.fromRGB(108, 203, 75)
+	local DARK = PAL.Dark or Color3.fromRGB(30, 18, 44)
+	local WHITE = Color3.new(1, 1, 1)
+	local STRIPE = ((C.Model or {}).Colors or {}).stripe or Color3.fromRGB(44, 34, 54)
+	local LIGHT = (C.Accel or {}).Color or Color3.fromRGB(255, 236, 170)
+	local HV = C.Heaven or {}
+	local TAU = math.pi * 2
+	CM.insides, CM.selfs, CM.moons, CM.heavens, CM.newWorlds, CM.ghostAt = {}, {}, {}, {}, {}, {}
+	local function lines()
+		return (C.Shout or {}).Lines or {}
+	end
+	-- a flat unit direction from data (else his facing)
+	local function dirOf(v, root)
+		if CM.ok(v) and Vector3.new(v.X, 0, v.Z).Magnitude > 0.05 then
+			return Vector3.new(v.X, 0, v.Z).Unit
+		end
+		return CM.flat(root.CFrame.LookVector, root)
+	end
+	local function rootOf(m)
+		local r = typeof(m) == "Instance" and m.Parent and m:FindFirstChild("HumanoidRootPart") or nil
+		return (r and CM.ok(r.Position)) and r or nil
+	end
+
+	---------------------------------------------------------------------
+	-- MADE IN HEAVEN (Config.Pucci.Heaven): built once on the rig the first
+	-- time it's wanted (into a model inside C-MOON's, so the one outline
+	-- covers whichever is shown), every part an item on a bone - C-MOON's
+	-- upper bones, the horse's off its pelvis; the clock hands and the
+	-- speedometer's needle turn about their face's centre; the cable a chain
+	-- of cylinders on a bow, rebuilt every frame
+	---------------------------------------------------------------------
+	function CM.buildHeaven(rig)
+		if rig.mih then
+			return rig.mih
+		end
+		local COLS = HV.Colors or {}
+		local hm = Instance.new("Model")
+		hm.Name = "MadeInHeaven"
+		hm.Parent = rig.model
+		local list, clocks = {}, {}
+		for _, e in HV.Parts or {} do
+			local r = e[5] or { 0, 0, 0 }
+			local lcf = CFrame.new(e[4]) * CFrame.Angles(math.rad(r[1]), math.rad(r[2]), math.rad(r[3]))
+			local shape = (e[2] == "Cyl" and Enum.PartType.Cylinder) or (e[2] == "Ball" and Enum.PartType.Ball) or (e[2] == "Wedge" and Enum.PartType.Wedge) or nil
+			local p = newPart(e[3], CFrame.new(0, -5000, 0), COLS[e[6]] or WHITE, Enum.Material[e[7] or "SmoothPlastic"] or Enum.Material.SmoothPlastic, shape, hm)
+			p.Name = "CM" .. e[1]
+			p.Transparency = 1
+			if e[2] == "Ell" then
+				local mesh = Instance.new("SpecialMesh")
+				mesh.MeshType = Enum.MeshType.Sphere
+				mesh.Parent = p
+			end
+			local it = { part = p, bone = e[1], lp = lcf.Position, lr = lcf.Rotation, size = e[3], color = p.Color, mat = p.Material, token = e[6], tick = e.Tick == true }
+			it.fine = it.token == "hand" or it.token == "needle"
+			table.insert(list, it)
+			if e[2] == "Cyl" and it.token == "clock" then
+				table.insert(clocks, { bone = e[1], center = lcf.Position, axis = lcf.Rotation * Vector3.new(1, 0, 0), hands = {} })
+			end
+		end
+		-- each hand (and the needle) on its own face - the nearest on its bone;
+		-- the longer hand the minute's
+		for _, it in list do
+			if (it.token == "hand" and not it.tick) or it.token == "needle" then
+				local best, bestD
+				for _, c in clocks do
+					local dd = (c.center - it.lp).Magnitude
+					if c.bone == it.bone and dd < 0.6 and (not bestD or dd < bestD) then
+						best, bestD = c, dd
+					end
+				end
+				if best and it.token == "needle" then
+					it.spin = { kind = "needle", center = best.center, axis = best.axis }
+				elseif best then
+					table.insert(best.hands, it)
+				end
+			end
+		end
+		for _, c in clocks do
+			table.sort(c.hands, function(a, b)
+				return a.size.Y > b.size.Y
+			end)
+			for i, it in c.hands do
+				it.spin = { kind = i == 1 and "minute" or "hour", center = c.center, axis = c.axis }
+			end
+		end
+		-- the cable, from its shoulder blades to the horse's cut-off rear
+		local CB = HV.Cable or {}
+		rig.cable = {}
+		for i = 1, math.max(CB.Segments or 8, 2) do
+			local th = CB.Thick or 0.3
+			local p = newPart(Vector3.new(1, th, th), CFrame.new(0, -5000, 0), COLS[CB.Color or "whiteshade"] or WHITE, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder, hm)
+			p.Name = "CMcable"
+			p.Transparency = 1
+			local it = { part = p, bone = "chest", lp = Vector3.zero, lr = CFrame.new(), size = p.Size, color = p.Color, mat = p.Material, cable = i }
+			table.insert(rig.cable, it)
+			table.insert(list, it)
+		end
+		rig.mih = list
+		rig.mihModel = hm
+		return list
+	end
+	-- the horse's bones off C-MOON's pelvis (Heaven.Horse) on a pose: Horse
+	-- (negative rears) and a strike's rear (rig.rearCur), Neck (up), its front
+	-- legs galloping on the air by themselves - or held where the pose says
+	-- (GallopW of the way to GR1 / GR2, GL1 / GL2)
+	function CM.heavenBones(rig, P, W, s)
+		local H = HV.Horse or {}
+		local G = HV.Gallop or {}
+		local function off(name)
+			local b = H[name]
+			return CFrame.new((b and b[2] or Vector3.zero) * s)
+		end
+		local horse = (P.Horse or 0) + (rig.rearCur or 0)
+		W.hbody = W.pelvis * off("hbody") * CFrame.Angles(-math.rad(horse), 0, 0)
+		W.hneck = W.hbody * off("hneck") * CFrame.Angles(-math.rad(((H.hneck or {}).Tip or 28) - (P.Neck or 0)), 0, 0)
+		W.hhead = W.hneck * off("hhead") * CFrame.Angles(-math.rad((H.hhead or {}).Tip or 14), 0, 0)
+		local RA, KN = G.Raise or { 20, 60 }, G.Knee or { 20, 80 }
+		local ph = rig.gallopPh or 0
+		local function stride(a)
+			local u = (math.sin(a) + 1) / 2
+			local k = (math.sin(a + 1.3) + 1) / 2
+			return RA[1] + (RA[2] - RA[1]) * u, KN[1] + (KN[2] - KN[1]) * k
+		end
+		local r1, r2 = stride(ph)
+		local l1, l2 = stride(ph + math.pi * 0.9)
+		local w = math.clamp(P.GallopW or 0, 0, 1)
+		r1, r2 = r1 + ((P.GR1 or 0) - r1) * w, r2 + ((P.GR2 or 0) - r2) * w
+		l1, l2 = l1 + ((P.GL1 or 0) - l1) * w, l2 + ((P.GL2 or 0) - l2) * w
+		W.hupR = W.hbody * off("hupR") * CFrame.Angles(math.rad(r1), 0, 0)
+		W.hlowR = W.hupR * off("hlowR") * CFrame.Angles(-math.rad(r2), 0, 0)
+		W.hupL = W.hbody * off("hupL") * CFrame.Angles(math.rad(l1), 0, 0)
+		W.hlowL = W.hupL * off("hlowL") * CFrame.Angles(-math.rad(l2), 0, 0)
+	end
+	-- ONE FRAME of MADE IN HEAVEN (CM.place hands it here): every part from its
+	-- bone, the hands and the needle turned, the cable on its bow - one move
+	function CM.placeHeaven(rig, P, rootCF)
+		local now = os.clock()
+		local dt = math.clamp(now - (rig.heavenT or now), 0, 0.1)
+		rig.heavenT = now
+		local rate = rig.clockRate or 1
+		rig.gallopPh = ((rig.gallopPh or 0) + dt * ((HV.Gallop or {}).Rate or 1.6) * TAU * math.min(rate, 2.5)) % (TAU * 64)
+		-- (a strike: the horse rears its head out of the punch line)
+		local tr = rig.track
+		local striking = tr ~= nil and tr.target ~= nil and tr.name ~= "Burst" and tr.name ~= "Rear"
+		local want = striking and (HV.Rear or -20) or 0
+		rig.rearCur = (rig.rearCur or 0) + (want - (rig.rearCur or 0)) * math.min(dt * 12, 1)
+		local W, s = CM.fk(P, rootCF)
+		CM.heavenBones(rig, P, W, s)
+		table.clear(rig.bufP)
+		table.clear(rig.bufC)
+		local parts, cfs = rig.bufP, rig.bufC
+		local scaleMoved = math.abs(s - rig.lastS) > 0.004
+		local CL = HV.Clock or {}
+		local NE = HV.Needle or {}
+		rig.clockT = (rig.clockT or 0) + dt * rate
+		local minute = rig.clockT / math.max(CL.Minute or 2, 0.05) * TAU
+		local angles = { minute = minute, hour = minute / (CL.Hour or 12), needle = math.rad(math.sin(rig.clockT * (NE.Rate or 3)) * (NE.Swing or 70) * 0.5) }
+		for _, it in rig.items do
+			if it.cable or (it.fine and not rig.fineOn) then
+				continue
+			end
+			local bcf = W[it.bone]
+			if bcf then
+				if scaleMoved or it.stale then
+					it.part.Size = it.size * s
+					it.stale = nil
+				end
+				local lcf = CFrame.new(it.lp * s) * it.lr
+				local sp = it.spin
+				if sp then
+					local c = sp.center * s
+					lcf = CFrame.new(c) * CFrame.fromAxisAngle(sp.axis, -(angles[sp.kind] or 0)) * CFrame.new(-c) * lcf
+				end
+				table.insert(parts, it.part)
+				table.insert(cfs, bcf * lcf)
+			end
+		end
+		if scaleMoved then
+			rig.lastS = s
+			for _, it in rig.items do
+				if it.fine and not rig.fineOn then
+					it.stale = true
+				end
+			end
+		end
+		local CB = HV.Cable or {}
+		if rig.cable and W.chest and W.hbody then
+			local a = W.chest * ((CB.From or Vector3.new(0, 0.4, 0.5)) * s)
+			local b = W.hbody * ((CB.To or Vector3.new(0, 0.3, 0.9)) * s)
+			local ctrl = (a + b) / 2 + W.pelvis.UpVector * (CB.Up or 1.6) * s - W.pelvis.LookVector * (CB.Back or 1.4) * s
+			local n = #rig.cable
+			local prev = a
+			local th = (CB.Thick or 0.3) * s
+			for i, it in rig.cable do
+				local t = i / n
+				local q = a * ((1 - t) ^ 2) + ctrl * (2 * (1 - t) * t) + b * (t * t)
+				local span = q - prev
+				local len = span.Magnitude
+				if len > 1e-3 then
+					local size = Vector3.new(len + 0.05, th, th)
+					if (it.part.Size - size).Magnitude > 0.01 then
+						it.part.Size = size
+					end
+					table.insert(parts, it.part)
+					table.insert(cfs, CM.facing((prev + q) / 2, span) * CFrame.Angles(0, math.rad(90), 0))
+				end
+				prev = q
+			end
+		end
+		CM.move(parts, cfs)
+		rig.W, rig.s = W, s
+		rig.at = W.chest and W.chest.Position or W.pelvis.Position
+	end
+	-- C-MOON <-> MADE IN HEAVEN on the same rig (its outline's colour too; the
+	-- rush's light carried to the shown fist); everything shown again at once
+	function CM.heavenSwap(rig, on)
+		if (rig.heaven == true) == on then
+			return
+		end
+		if rig.dark then
+			CM.darken(rig, false)
+		end
+		local MD = C.Model or {}
+		local function lightTo(items)
+			if not rig.light then
+				return
+			end
+			for _, it in items do
+				if it.bone == "fistR" and not it.cable then
+					rig.light.Parent = it.part
+					return
+				end
+			end
+		end
+		if on then
+			CM.light(rig, false)
+			local list = CM.buildHeaven(rig)
+			rig.cmItems = rig.cmItems or rig.items
+			rig.cmArrows = rig.cmArrows or rig.arrows
+			for _, it in rig.cmItems do
+				it.part.Transparency = 1
+			end
+			rig.items, rig.arrows = list, {}
+			rig.heaven = true
+			lightTo(list)
+			if rig.outline then
+				rig.outline.OutlineColor = (HV.Outline or {}).Color or LIGHT
+				rig.outline.OutlineTransparency = (HV.Outline or {}).Transparency or 0.2
+			end
+		else
+			for _, it in rig.mih or {} do
+				it.part.Transparency = 1
+			end
+			rig.items, rig.arrows = rig.cmItems or rig.items, rig.cmArrows or rig.arrows
+			rig.heaven = false
+			rig.rearCur = 0
+			lightTo(rig.items)
+			if rig.outline then
+				rig.outline.OutlineColor = STRIPE
+				rig.outline.OutlineTransparency = (MD.Outline or {}).Transparency or 0.15
+			end
+		end
+		rig.alpha, rig.lastS, rig.lit = -1, -1, false
+		for _, it in rig.items do
+			it.stale = nil
+		end
+	end
+	-- wanted: his ult on - from its awakening's hit on this screen (or a
+	-- moment into it, for a screen that saw no awakening: a late joiner)
+	function CM.heavenWanted(rig, char, now)
+		if not CM.ult(char) or CM.dead(char) then
+			rig.ultSeen = nil
+			return false
+		end
+		rig.ultSeen = rig.ultSeen or now
+		if CM.heavens[char] then
+			return true
+		end
+		local AK = VFX.AK
+		local run = AK and AK.runs and AK.runs[char]
+		if run and not run.done then
+			return false -- (its awakening is on: it bursts out on the hit)
+		end
+		return now - rig.ultSeen > ((Config.Awaken or {}).HitAt or 0.3) + 0.25
+	end
+	do
+		local stepRigA = CM.stepRig
+		function CM.stepRig(rig, char, root, now, dt, d)
+			local want = CM.heavenWanted(rig, char, now)
+			if want ~= (rig.heaven == true) then
+				local ok, err = pcall(CM.heavenSwap, rig, want)
+				if not ok and not CM.warnedHeaven then
+					CM.warnedHeaven = true
+					warn("[VFX.CM] " .. tostring(err))
+				end
+			end
+			if rig.heaven then
+				rig.clockRate = CM.clockRate(char)
+			end
+			return stepRigA(rig, char, root, now, dt, d)
+		end
+	end
+	-- how far through his ult he is (0 .. 1: the player's UltEnds)
+	function CM.ultProgress(char)
+		local plr = typeof(char) == "Instance" and Players:GetPlayerFromCharacter(char) or nil
+		local ends = plr and plr:GetAttribute("UltEnds")
+		local dur = math.max((Config.Quirks.CMoon and Config.Quirks.CMoon.Ult or {}).Duration or 25, 1)
+		if type(ends) ~= "number" or ends ~= ends then
+			return 0
+		end
+		return math.clamp(1 - (ends - CM.now()) / dur, 0, 1)
+	end
+	-- the clocks' pace (Clock.Faster x by the ult's end; THE NEW WORLD's x3)
+	function CM.clockRate(char)
+		local rate = 1 + (((HV.Clock or {}).Faster or 4) - 1) * CM.ultProgress(char)
+		return CM.newWorlds[char] and rate * 3 or rate
+	end
+	-- HEAVEN'S RUSH's landed tick: a clock face off the hit (its hands
+	-- spinning), a white ring, the crack with a tick in it
+	function CM.clockSpark(st, at, along)
+		billboardRing(at, 0.3, rand(2, 2.8), WHITE, 3, 0.1)
+		if st.ticks % 2 == 0 then
+			CM.clockFace(at + along * 0.4 + Vector3.new(rand(-0.6, 0.6), rand(-0.4, 0.8), rand(-0.6, 0.6)), along, 0.9, at + along * 0.4 + Vector3.new(rand(-2, 2), rand(0.5, 2.5), rand(-2, 2)), 0.25, true)
+		end
+		sparks(at, 0.3, WHITE, LIGHT, CM.low() and 3 or 7)
+		VFX.PlaySound("HeavenRushHit", at, 0.9)
+		return true
+	end
+	-- A CLOCK FACE (MADE IN HEAVEN's motif: a cream face, a gold rim, two dark
+	-- hands spinning) flown from `at` to `to` over life, facing along `normal`
+	-- (flat on the street: up) - or upright facing the camera if `upright`
+	function CM.clockFace(at, normal, size, to, life, upright)
+		if not (CM.ok(at) and CM.ok(to)) then
+			return
+		end
+		local COLS = HV.Colors or {}
+		local rim = newPart(Vector3.new(0.1, size * 1.12, size * 1.12), CFrame.new(at), COLS.rim or Color3.fromRGB(201, 162, 58), Enum.Material.Metal, Enum.PartType.Cylinder)
+		local face = newPart(Vector3.new(0.12, size, size), CFrame.new(at), COLS.clock or Color3.fromRGB(245, 235, 208), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		local h1 = newPart(Vector3.new(0.14, size * 0.4, size * 0.07), CFrame.new(at), COLS.hand or Color3.fromRGB(26, 26, 26), Enum.Material.SmoothPlastic)
+		local h2 = newPart(Vector3.new(0.14, size * 0.27, size * 0.08), CFrame.new(at), COLS.hand or Color3.fromRGB(26, 26, 26), Enum.Material.SmoothPlastic)
+		local parts = { rim, face, h1, h2 }
+		for _, p in parts do
+			p.Name = "CMoonClock"
+		end
+		local spin0 = rand(0, TAU)
+		task.spawn(function()
+			local t0 = os.clock()
+			while face.Parent do
+				local u = (os.clock() - t0) / math.max(life, 0.05)
+				if u >= 1 then
+					break
+				end
+				local e = 1 - (1 - u) ^ 3
+				local pos = at:Lerp(to, e) + UP * math.sin(u * math.pi) * size * 0.5
+				local n = normal
+				if upright then
+					local cam = workspace.CurrentCamera
+					n = cam and (cam.CFrame.Position - pos) or normal
+				end
+				local base = CM.facing(pos, n.Magnitude > 1e-3 and n or UP) * CFrame.Angles(0, math.rad(90), 0)
+				local spin = spin0 + u * 14
+				local cfs = {
+					base * CFrame.new(-0.02, 0, 0),
+					base,
+					base * CFrame.Angles(spin, 0, 0) * CFrame.new(0.08, size * 0.18, 0),
+					base * CFrame.Angles(spin / 12, 0, 0) * CFrame.new(0.09, size * 0.12, 0),
+				}
+				CM.move(parts, cfs)
+				local a = math.clamp((u - 0.6) / 0.4, 0, 1)
+				for _, p in parts do
+					p.Transparency = a
+				end
+				task.wait()
+			end
+			for _, p in parts do
+				pcall(p.Destroy, p)
+			end
+		end)
+	end
+	-- a line of light from a to b, gone over life
+	function CM.lightLine(a, b, life, color, width)
+		if not (CM.ok(a) and CM.ok(b)) or (b - a).Magnitude < 0.5 then
+			return
+		end
+		local w = width or 0.35
+		local p = newPart(Vector3.new((b - a).Magnitude, w, w), CM.facing((a + b) / 2, b - a) * CFrame.Angles(0, math.rad(90), 0), color or LIGHT, Enum.Material.Neon, Enum.PartType.Cylinder)
+		p.Name = "CMoonLine"
+		p.Transparency = 0.1
+		tween(p, life, { Transparency = 1, Size = Vector3.new((b - a).Magnitude, w * 0.2, w * 0.2) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		cleanup(p, life + 0.05)
+	end
+
+	---------------------------------------------------------------------
+	-- THE ULT'S WORLD: TIME ACCELERATES (Config.Pucci.Accel) - every screen
+	-- within Range of an ulting Pucci (as strong as the nearest is near): a
+	-- sun of this screen's own (a Neon ball and its glow, Dist studs out round
+	-- the camera) sweeping a full arc over the city every lap - Lap[1] at the
+	-- ult's start, Lap[2] by its end, NewWorldLap through THE NEW WORLD's
+	-- windup - with a streak behind it (Trail of a lap; the whole circle as
+	-- the lap shortens: a ring of light round the sky); day and night swinging
+	-- on a ColorCorrectionEffect this screen makes on its camera (never faster
+	-- than StrobeHz; white as THE NEW WORLD comes), the clock ticking faster,
+	-- afterimages of him. Lighting is never written; all of it goes (eased
+	-- out, destroyed) when no ulting Pucci is in range.
+	---------------------------------------------------------------------
+	function CM.heavenOn(A)
+		local SU = A.Sun or {}
+		local H = { level = 0, phase = rand(0.3, 1.2), gphase = 0, trail = {}, lap = 6 }
+		H.sun = newPart(Vector3.one * (SU.Size or 60), CFrame.new(0, -5000, 0), SU.Color or LIGHT, Enum.Material.Neon, Enum.PartType.Ball)
+		H.sun.Name = "CMoonSun"
+		H.sun.Transparency = 1
+		H.glow = newPart(Vector3.one * (SU.Size or 60) * (SU.Glow or 2.6), CFrame.new(0, -5000, 0), SU.Color or LIGHT, Enum.Material.Neon, Enum.PartType.Ball)
+		H.glow.Name = "CMoonSunGlow"
+		H.glow.Transparency = 1
+		for i = 1, math.max(SU.Segments or 14, 2) do
+			local p = newPart(Vector3.new(1, 1, 1), CFrame.new(0, -5000, 0), SU.Color or LIGHT, Enum.Material.Neon, Enum.PartType.Cylinder)
+			p.Name = "CMoonSunTrail"
+			p.Transparency = 1
+			H.trail[i] = p
+		end
+		local cam = workspace.CurrentCamera
+		if cam then
+			local cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "CMoonHeaven"
+			cc.Enabled = true
+			cc.Parent = cam
+			H.cc = cc
+		end
+		CM.hv = H
+		return H
+	end
+	function CM.heavenOff()
+		local H = CM.hv
+		if not H then
+			return
+		end
+		CM.hv = nil
+		for _, p in { H.sun, H.glow, H.cc } do
+			pcall(p.Destroy, p)
+		end
+		for _, p in H.trail do
+			pcall(p.Destroy, p)
+		end
+	end
+	function CM.heavenDraw(H, A, cam, white)
+		local SU = A.Sun or {}
+		local dist = SU.Dist or 900
+		local tilt = SU.Tilt or 0.35
+		local arcUp = Vector3.new(0, math.cos(tilt), math.sin(tilt))
+		local function at(ph)
+			return cam + (Vector3.new(math.cos(ph), 0, 0) + arcUp * math.sin(ph)) * dist
+		end
+		local function high(ph)
+			return math.clamp(math.sin(ph) * 4 + 0.6, 0, 1) -- (below the street: gone)
+		end
+		local lv = H.level
+		local sp = at(H.phase)
+		local hi = high(H.phase)
+		H.sun.Transparency = 1 - lv * hi
+		H.glow.Transparency = 1 - lv * hi * 0.22
+		local parts, cfs = { H.sun, H.glow }, { CFrame.new(sp), CFrame.new(sp) }
+		local frac = math.clamp(SU.Trail or 0.35, 0, 1)
+		frac = math.min(frac + (1 - frac) * math.clamp((1.2 - H.lap) / 1.0, 0, 1), 0.98)
+		local n = #H.trail
+		local prev = sp
+		for i, p in H.trail do
+			local ph = H.phase - frac * TAU * i / n
+			local q = at(ph)
+			local span = q - prev
+			local len = span.Magnitude
+			local width = (SU.Size or 60) * 0.5 * (1 - (i - 1) / n * 0.7)
+			p.Size = Vector3.new(len + 2, width, width)
+			p.Transparency = 1 - lv * high(ph) * 0.8 * (1 - (i - 1) / n * 0.8)
+			if len > 0.01 then
+				table.insert(parts, p)
+				table.insert(cfs, CM.facing((prev + q) / 2, span) * CFrame.Angles(0, math.rad(90), 0))
+			end
+			prev = q
+		end
+		CM.move(parts, cfs)
+		local cc = H.cc
+		if cc then
+			local D, N, Wt = A.Day or {}, A.Night or {}, A.White or {}
+			local kn = (1 - math.cos(H.gphase)) / 2 * (1 - white) -- (0: day .. 1: night)
+			local depth = (A.Depth or 0.6) * lv
+			local function mix(key)
+				local a, b = D[key] or 0, N[key] or 0
+				local v = (a + (b - a) * kn) * depth
+				return v + ((Wt[key] or 0) - v) * white * lv
+			end
+			cc.Brightness = mix("Brightness")
+			cc.Saturation = mix("Saturation")
+			cc.Contrast = mix("Contrast")
+			local tint = WHITE:Lerp((D.Tint or WHITE):Lerp(N.Tint or WHITE, kn), depth)
+			cc.TintColor = tint:Lerp(Wt.Tint or WHITE, white * lv)
+		end
+	end
+	-- (he's the fast one: an afterimage of him every Ghost.Every s while he moves)
+	function CM.heavenGhost(char, root, now, dd)
+		local GH = (C.Accel or {}).Ghost or {}
+		if dd > (GH.Range or 220) then
+			return
+		end
+		local v = root.AssemblyLinearVelocity
+		local sp = v == v and Vector3.new(v.X, 0, v.Z).Magnitude or 0
+		local every = (GH.Every or 0.1) * (CM.low() and 2 or 1)
+		if sp >= (GH.MinSpeed or 4) and now - (CM.ghostAt[char] or 0) >= every then
+			CM.ghostAt[char] = now
+			afterimage(char, LIGHT, GH.Life or 0.3)
+		end
+	end
+	function CM.heavenStep(dt, now)
+		local A = C.Accel or {}
+		local cam = CM.camPos()
+		local best, bestD
+		for _, char in CM.bodies do
+			local root = rootOf(char)
+			if root and CM.ult(char) and not CM.dead(char) then
+				local dd = (root.Position - cam).Magnitude
+				if dd <= (A.Range or 700) and (not bestD or dd < bestD) then
+					best, bestD = char, dd
+				end
+				CM.heavenGhost(char, root, now, dd)
+			end
+		end
+		for char in CM.heavens do
+			if not (char.Parent and CM.ult(char)) then
+				CM.heavens[char] = nil
+			end
+		end
+		for char in CM.newWorlds do
+			if not (char.Parent and CM.ult(char)) then
+				CM.newWorldEnd(char)
+			end
+		end
+		for char in CM.ghostAt do
+			if not char.Parent then
+				CM.ghostAt[char] = nil
+			end
+		end
+		for char, m in CM.moons do
+			if not char.Parent or now - m.t0 > 4 then
+				CM.moons[char] = nil -- (a whiff, or a crash this screen never heard of)
+			end
+		end
+		local H = CM.hv
+		if H and not (H.sun.Parent and H.glow.Parent) then
+			CM.heavenOff() -- (something cleared this screen's effects: made again)
+			H = nil
+		end
+		if not best then
+			if H then
+				H.level = math.max(H.level - dt / math.max(A.Out or 0.6, 0.05), 0)
+				CM.heavenDraw(H, A, cam, 0)
+				if H.level <= 0 then
+					CM.heavenOff()
+				end
+			end
+			return
+		end
+		H = H or CM.heavenOn(A)
+		local u = CM.ultProgress(best)
+		local LP = (A.Sun or {}).Lap or { 6, 1.2 }
+		local lap = LP[1] + (LP[2] - LP[1]) * u
+		local white = 0
+		local nw = CM.newWorlds[best]
+		if nw then
+			local k = math.clamp((now - nw.t0) / math.max(nw.windup, 0.1), 0, 1)
+			lap += ((A.NewWorldLap or 0.15) - lap) * k
+			white = k * k
+		end
+		H.lap = lap
+		H.phase = (H.phase + dt / math.max(lap, 0.05) * TAU) % TAU
+		H.gphase = (H.gphase + dt * math.min(1 / math.max(lap, 0.05), A.StrobeHz or 1.2) * TAU) % TAU
+		local range = A.Range or 700
+		local want = math.clamp((range - bestD) / (range * 0.4), 0, 1)
+		local rate = want > H.level and 1 / math.max(A.In or 0.8, 0.05) or 1 / math.max(A.Out or 0.6, 0.05)
+		H.level += math.clamp(want - H.level, -rate * dt, rate * dt)
+		CM.heavenDraw(H, A, cam, white)
+		-- the clock (faster as it goes)
+		local T = A.Tick or { 0.5, 0.12 }
+		local every = (T[1] + (T[2] - T[1]) * u) * (nw and 0.5 or 1)
+		if now >= (H.tickAt or 0) and H.level > 0.2 then
+			H.tickAt = now + every
+			local root = rootOf(best)
+			if root then
+				VFX.PlaySound("HeavenTick", root.Position, 0.8 * H.level)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- 3: INSIDE OUT (Config.Pucci.InsideOut). His palm pressed at the
+	-- street, then a backhand flick (MoveCMoonInsideOut); C-MOON's palms on it
+	-- (its clip InsideOut). At Startup the disc in front TURNED INSIDE OUT: a
+	-- violet ring, Disc slabs of it - the street's own colour and stuff on top,
+	-- C-MOON's dark stripe underneath, a lilac seam - peeled up and turned
+	-- over, then held Rip studs overhead; at the server's throw
+	-- (InsideOutThrow) each down its own path spinning, a trail; the ones
+	-- left over drop away. Each one landing (InsideOutHit): dark chunks, a
+	-- white ring, debris. The ult's (ACCELERATED): white-gold streaks.
+	---------------------------------------------------------------------
+	function CM.slab(spot, yaw, color, mat, size, fast)
+		local th = size.Y
+		local top = newPart(Vector3.new(size.X, th * 0.5, size.Z), CFrame.new(spot), color, mat)
+		local under = newPart(Vector3.new(size.X * 0.96, th * 0.42, size.Z * 0.96), CFrame.new(spot), STRIPE, Enum.Material.SmoothPlastic)
+		local seam = newPart(Vector3.new(size.X * 1.03, 0.09, size.Z * 1.03), CFrame.new(spot), LILAC, Enum.Material.Neon)
+		local band = newPart(Vector3.new(size.X * 0.98, 0.07, size.Z * 0.2), CFrame.new(spot), LILAC, Enum.Material.Neon)
+		local parts = { top, under, seam, band }
+		for _, p in parts do
+			p.Name = "CMoonSlab"
+		end
+		local IO = C.InsideOut or {}
+		local a0 = Instance.new("Attachment")
+		a0.Position = Vector3.new(size.X * 0.45, 0, 0)
+		a0.Parent = top
+		local a1 = Instance.new("Attachment")
+		a1.Position = Vector3.new(-size.X * 0.45, 0, 0)
+		a1.Parent = top
+		local trail = Instance.new("Trail")
+		trail.Attachment0 = a0
+		trail.Attachment1 = a1
+		local tc = fast and ((IO.Fast or {}).Color or LIGHT) or LILAC
+		trail.Color = ColorSequence.new(tc, WHITE)
+		trail.Transparency = NumberSequence.new(0.2, 1)
+		trail.LightEmission = 0.8
+		trail.Lifetime = fast and ((IO.Fast or {}).Trail or 0.1) or (IO.Trail or 0.18)
+		trail.Enabled = false
+		trail.Parent = top
+		local offs = { CFrame.new(0, th * 0.25, 0), CFrame.new(0, -th * 0.21, 0), CFrame.new(), CFrame.new(0, -th * 0.43, 0) }
+		return { parts = parts, offs = offs, trail = trail, cf = CFrame.new(spot) * CFrame.Angles(0, yaw, 0), size = size, phase = "lie" }
+	end
+	function CM.slabDrop(s)
+		for _, p in s.parts do
+			pcall(p.Destroy, p)
+		end
+		s.phase = "gone"
+	end
+	function Effects.InsideOut(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = CM.spec(char, "InsideOut")
+		local d = dirOf(data.Dir, root)
+		local old = CM.insides[char]
+		if old then
+			CM.insideEnd(old)
+		end
+		local st = { char = char, t0 = os.clock(), d = d, fast = CM.ult(char), slabs = {}, startup = spec.Startup or 0.3, throw = spec.Throw or 0.55, spec = spec }
+		CM.insides[char] = st
+		if not VFX.Clip(char, "MoveCMoonInsideOut", { recover = 0.25 }) then
+			VFX.Motion(char, "CMoonInsideOut")
+		end
+		CM.play(char, "InsideOut", { target = root.Position + d * 30 + UP * 2 })
+		VFX.PlaySound("CMoonJab", root.Position, 0.7)
+		task.delay(st.startup, function()
+			if CM.insides[char] ~= st or not root.Parent then
+				return
+			end
+			CM.insideRip(st, root)
+		end)
+	end
+	-- at Startup: the palms on the street - the disc torn up and turned over
+	function CM.insideRip(st, root)
+		local IO = C.InsideOut or {}
+		local spec = st.spec
+		local d = st.d
+		local disc = groundPoint(root.Position + d * (spec.Ahead or 5))
+		if not CM.ok(disc) then
+			disc = root.Position + d * (spec.Ahead or 5) - UP * 3
+		end
+		st.disc = disc
+		local radius = (spec.Disc or 12) / 2
+		CM.ring(disc, radius, VIOLET, 0.7, 0.55)
+		CM.ring(disc, radius + 0.8, LILAC, 0.6, 0.3, nil, 0.3)
+		billboardRing(disc + UP, 2, radius * 2.6, LILAC, 5, 0.3)
+		shockDisc(disc + UP * 0.3, UP, 2, radius * 2.4, 0.3, LILAC)
+		dustPuffs(disc, 0.45, CM.low() and 2 or 4, Color3.fromRGB(196, 186, 176), 0.7, false)
+		groundMark(disc, radius * 0.7, DARK, 2.5)
+		rocks(disc + UP, 0.8, CM.low() and 2 or 5)
+		VFX.PlaySound("CMoonPalm", disc, 1)
+		VFX.PlaySound("CMoonTilesRip", disc, 1)
+		VFX.ShakeAt(disc, ((IO.Shake or {})[1] or 1.1), ((IO.Shake or {})[2] or 60), ((IO.Shake or {})[3] or 0.25))
+		local DN = IO.Disc or { 5, 7 }
+		local n = math.max(math.floor(rand(DN[1], DN[2] + 0.99)), (CM.ult(st.char) and spec.Slabs or 0))
+		if CM.low() then
+			n = math.max(math.ceil(n * 0.6), spec.Slabs or 3)
+		end
+		local right = d:Cross(UP)
+		local size = IO.Slab or Vector3.new(3.4, 0.8, 4.4)
+		for i = 1, n do
+			local a = (i - 0.5) / n * TAU + rand(-0.25, 0.25)
+			local r = rand(1, radius * 0.6)
+			local spot = disc + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+			local color, mat = Color3.fromRGB(120, 116, 112), Enum.Material.Concrete
+			local hit = groundRay(spot + UP * 4, 12)
+			if hit and hit.Instance then
+				pcall(function()
+					color, mat = hit.Instance.Color, hit.Material
+				end)
+			end
+			local s = CM.slab(spot + UP * (size.Y * 0.25), rand(0, TAU), color, mat, size, st.fast)
+			s.spot = spot
+			s.out = Vector3.new(math.cos(a), 0, math.sin(a))
+			-- (held overhead in a crown round the disc, each tipped out, its
+			-- dark underside up: spread on an arc so none hides another)
+			local k = n > 1 and ((i - 1) / (n - 1) - 0.5) or 0
+			local arc = math.rad(math.min(200, n * 30)) * k
+			local outward = (-d * math.cos(arc) + right * math.sin(arc)) * -1
+			local holdAt = disc + UP * ((IO.Rip or 6) + (i % 2) * 1.1) + outward * (2.2 + n * 0.35)
+			s.hold = CM.facing(holdAt, outward) * CFrame.Angles(math.pi + math.rad(38), 0, 0)
+			s.phase, s.p0 = "peel", os.clock()
+			s.from = s.cf
+			table.insert(st.slabs, s)
+		end
+	end
+	-- (server, at Throw) the slabs down the server's own paths
+	function Effects.InsideOutThrow(char, data)
+		local root = charParts(char)
+		local list = type(data.Slabs) == "table" and data.Slabs or nil
+		if not root or not list then
+			return
+		end
+		local st = CM.insides[char]
+		if st and st.thrown then
+			CM.insideEnd(st) -- (a throw this screen already drew: its slabs go)
+			st = nil
+		end
+		if not st then
+			st = { char = char, t0 = os.clock() - 0.6, d = dirOf(data.Dir, root), fast = data.Fast == true, slabs = {}, startup = 0, throw = 0, spec = CM.spec(char, "InsideOut") }
+			CM.insides[char] = st
+		end
+		st.thrown = true
+		st.fast = st.fast or data.Fast == true
+		local speed = math.max(tonumber(data.Speed) or 170, 1)
+		local IO = C.InsideOut or {}
+		VFX.PlaySound(st.fast and "HeavenTiles" or "CMoonTilesThrow", root.Position, 1)
+		local i = 0
+		for _, path in list do
+			if type(path) == "table" and CM.ok(path.From) and CM.ok(path.To) then
+				i += 1
+				local s = st.slabs[i]
+				if not s then
+					s = CM.slab(path.From, rand(0, TAU), Color3.fromRGB(120, 116, 112), Enum.Material.Concrete, IO.Slab or Vector3.new(3.4, 0.8, 4.4), st.fast)
+					s.cf = CFrame.new(path.From) * CFrame.Angles(math.pi, 0, 0)
+					st.slabs[i] = s
+				end
+				local from = s.cf.Position
+				local span = path.To - from
+				s.phase, s.p0 = "fly", os.clock()
+				s.from, s.to = from, path.To
+				s.dur = math.max(span.Magnitude / speed, 0.05)
+				s.aim = span.Magnitude > 0.1 and span.Unit or st.d
+				s.rot = s.cf.Rotation
+				s.trail.Enabled = true
+				if st.fast then
+					for _, p in s.parts do
+						if p.Material ~= Enum.Material.Neon then
+							p.Color = p.Color:Lerp(LIGHT, 0.5)
+						end
+					end
+				end
+			end
+		end
+		-- the ones left over drop away
+		for k = i + 1, #st.slabs do
+			local s = st.slabs[k]
+			if s.phase ~= "gone" then
+				s.phase, s.p0, s.from = "drop", os.clock(), s.cf
+			end
+		end
+		st.flyUntil = os.clock() + 1.5
+	end
+	-- (server) one landing: on someone, or on a wall
+	function Effects.InsideOutHit(char, data)
+		local pos = CM.ok(data.Pos) and data.Pos or nil
+		if not pos then
+			return
+		end
+		local IO = C.InsideOut or {}
+		local st = char and CM.insides[char]
+		if st then
+			-- (the slab that got there: done)
+			local best, bestD
+			for _, s in st.slabs do
+				if s.phase == "fly" and s.to then
+					local dd = (s.to - pos).Magnitude
+					if not bestD or dd < bestD then
+						best, bestD = s, dd
+					end
+				end
+			end
+			if best and bestD < 6 then
+				CM.slabDrop(best)
+			end
+		end
+		local d = CM.ok(data.Dir) and data.Dir.Magnitude > 0.1 and data.Dir.Unit or UP
+		local fast = st and st.fast
+		for _ = 1, CM.low() and math.ceil((IO.Chunks or 5) / 2) or (IO.Chunks or 5) do
+			local p = newPart(Vector3.new(rand(0.4, 1), rand(0.3, 0.6), rand(0.4, 1)), CFrame.new(pos) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), rng:NextNumber() < 0.5 and STRIPE or DARK, Enum.Material.SmoothPlastic, Enum.PartType.Wedge)
+			p.Name = "CMoonChunk"
+			local to = pos + (d * rand(1, 3) + Vector3.new(rand(-1, 1), rand(0.4, 1.4), rand(-1, 1)) * 3)
+			tween(p, 0.5, { CFrame = CFrame.new(to) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			cleanup(p, 0.55)
+		end
+		billboardRing(pos, 1, data.Wall and 6 or 8, WHITE, 5, 0.22)
+		billboardRing(pos, 1, 5, fast and LIGHT or LILAC, 3, 0.2)
+		sparks(pos, 0.4, WHITE, fast and LIGHT or LILAC, CM.low() and 4 or 8)
+		dustPuffs(pos - UP * 2, 0.6, CM.low() and 1 or 3, Color3.fromRGB(196, 186, 176), 0.6, false)
+		VFX.PlaySound("CMoonTileHit", pos, 1)
+		VFX.ShakeAt(pos, 0.9, 50, 0.18)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		if target and target:FindFirstChild("HumanoidRootPart") then
+			VFX.Hitstop(target, 0.05)
+		end
+	end
+	-- (every frame) the slabs: peeled up and turned over, held overhead, flown, dropped
+	function CM.insideStep(st, now)
+		local char = st.char
+		if not char.Parent or now - st.t0 > 6 or (st.thrown and now > (st.flyUntil or 0) and #st.slabs == 0) then
+			CM.insideEnd(st)
+			return
+		end
+		local IO = C.InsideOut or {}
+		local parts, cfs = {}, {}
+		local alive = 0
+		for _, s in st.slabs do
+			if s.phase == "gone" then
+				continue
+			end
+			alive += 1
+			local t = now - s.p0
+			if s.phase == "peel" then
+				-- up off the street about its outer edge, and over
+				local u = math.clamp(t / 0.16, 0, 1)
+				local e = 1 - (1 - u) ^ 2
+				local lift = s.spot + UP * ((IO.Peel or 2.5) * e + s.size.Y * 0.25) + s.out * e * 0.6
+				s.cf = CFrame.new(lift) * s.from.Rotation * CFrame.Angles(math.pi * e, 0, 0)
+				if u >= 1 then
+					s.phase, s.p0, s.from = "rise", now, s.cf
+				end
+			elseif s.phase == "rise" then
+				-- held overhead, turning slowly, the underside up
+				local u = math.clamp(t / 0.22, 0, 1)
+				local e = 1 - (1 - u) ^ 3
+				local bob = math.sin(now * 5 + s.spot.X) * 0.15
+				s.cf = s.from:Lerp(s.hold, e) + UP * bob
+				if not st.thrown and now - st.t0 > st.throw + 0.9 then
+					s.phase, s.p0, s.from = "drop", now, s.cf -- (no throw came: it falls away)
+				end
+			elseif s.phase == "fly" then
+				local u = math.clamp(t / s.dur, 0, 1)
+				local pos = s.from:Lerp(s.to, u)
+				local axis = s.aim:Cross(UP)
+				axis = axis.Magnitude > 1e-3 and axis.Unit or Vector3.new(1, 0, 0)
+				s.cf = CFrame.new(pos) * CFrame.fromAxisAngle(axis, -(IO.Spin or 3) * TAU * t) * s.rot
+				if u >= 1 then
+					CM.slabDrop(s)
+					alive -= 1
+					continue
+				end
+			elseif s.phase == "drop" then
+				local u = math.clamp(t / 0.45, 0, 1)
+				s.cf = s.from + Vector3.new(0, -9 * u * u, 0)
+				for _, p in s.parts do
+					p.Transparency = u
+				end
+				if u >= 1 then
+					CM.slabDrop(s)
+					alive -= 1
+					continue
+				end
+			end
+			for k, p in s.parts do
+				table.insert(parts, p)
+				table.insert(cfs, s.cf * s.offs[k])
+			end
+		end
+		CM.move(parts, cfs)
+		if alive <= 0 and (st.thrown or now - st.t0 > st.throw + 1.5) then
+			CM.insideEnd(st)
+		end
+	end
+	function CM.insideEnd(st)
+		if CM.insides[st.char] == st then
+			CM.insides[st.char] = nil
+		end
+		for _, s in st.slabs do
+			if s.phase ~= "gone" then
+				CM.slabDrop(s)
+			end
+		end
+		table.clear(st.slabs)
+	end
+
+	---------------------------------------------------------------------
+	-- R: SELF-INVERSION (Config.Pucci.Inside). A hand on his cross, his head
+	-- bowed (PoseCMoonInvert, held for the Window); C-MOON wrapped round him
+	-- from behind (Guard); HE IS TURNED INSIDE OUT - a negative shell of his
+	-- body held on him, pulsing, a violet seam ring spinning round his waist,
+	-- lilac ones above and below, "Turn inside out." A hit passing through
+	-- him (SelfInversionHit): a white ring where it struck, the frame negative
+	-- for one frame on his screen and the attacker's. C-MOON's backhand
+	-- (SelfInversionCounter) at whoever threw it. Let go at the window's end
+	-- (SelfInversionEnd - or the body's CMoonInside, server time, by itself)
+	---------------------------------------------------------------------
+	function Effects.SelfInversion(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = CM.spec(char, "SelfInversion")
+		local IN = C.Inside or {}
+		local window = (spec.Startup or 0.04) + (spec.Window or 0.7)
+		CM.selfEnd(char)
+		local st = { char = char, t0 = os.clock(), untilAt = os.clock() + window, shell = {}, rings = {} }
+		CM.selfs[char] = st
+		VFX.Pose(char, "CMoonInvert", window + 0.1)
+		CM.play(char, "Guard", { life = window + 0.1, expire = function()
+			CM.stop(char, 0.25)
+		end })
+		CM.shout(char, lines().Inside or "Turn inside out.", 0.8, false)
+		VFX.PlaySound("CMoonInvertSelf", root.Position, 1)
+		billboardRing(root.Position, 1, 9, VIOLET, 6, 0.3)
+		billboardRing(root.Position, 1, 12, LILAC, 3, 0.35)
+		shockDisc(root.Position, UP, 1, 8, 0.25, LILAC)
+		-- his body inside out: a negative shell of it, held on him
+		for _, part in char:GetChildren() do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
+				local c = part.Color
+				local ghost = newPart(part.Size * 1.06, part.CFrame, Color3.new(1 - c.R, 1 - c.G, 1 - c.B), Enum.Material.Neon)
+				ghost.Name = "CMoonInside"
+				ghost.Transparency = IN.Shell or 0.5
+				-- ((round 103 review) the head's own shape, not a 2 x 1 x 1 brick)
+				local mesh = part:FindFirstChildOfClass("SpecialMesh")
+				if mesh then
+					local m = Instance.new("SpecialMesh")
+					pcall(function()
+						m.MeshType = mesh.MeshType
+						m.MeshId = mesh.MeshId
+						m.Scale = mesh.Scale
+					end)
+					m.Parent = ghost
+				end
+				table.insert(st.shell, { ghost, part })
+			end
+		end
+		local RR = IN.Rings or { 1.9, 2.4 }
+		local n = CM.low() and 8 or 14
+		for k, r in { { 0, RR[1] or 1.9, VIOLET, 0.3 }, { 1.45, RR[2] or 2.4, LILAC, 0.16 }, { -1.55, RR[2] or 2.4, LILAC, 0.16 } } do
+			local ring = { y = r[1], r = r[2], dir = k == 2 and -1 or 1, segs = {} }
+			local seg = TAU * r[2] / n * 1.06
+			for _ = 1, n do
+				local p = newPart(Vector3.new(r[4], r[4], seg), CFrame.new(root.Position), r[3], Enum.Material.Neon)
+				p.Name = "CMoonSeam"
+				p.Transparency = 0.15
+				table.insert(ring.segs, p)
+			end
+			table.insert(st.rings, ring)
+		end
+		if isLocal then
+			VFX.Hooks.SpeedLines(0.3)
+		end
+	end
+	function CM.selfStep(st, now)
+		local char = st.char
+		local root = rootOf(char)
+		local inside = char and char:GetAttribute("CMoonInside")
+		local serverOver = type(inside) == "number" and inside == inside and CM.now() > inside + 0.15
+		if not root or CM.dead(char) or now > st.untilAt + 0.3 or (serverOver and now > st.untilAt) then
+			CM.selfEnd(char)
+			return
+		end
+		local IN = C.Inside or {}
+		local t = now - st.t0
+		local fade = math.clamp(1 - (st.untilAt - now) / 0.15, 0, 1)
+		local parts, cfs = {}, {}
+		local alpha = (IN.Shell or 0.5) + math.sin(t * (IN.Pulse or 6) * TAU) * 0.12
+		for _, sh in st.shell do
+			local g, p = sh[1], sh[2]
+			if p.Parent then
+				table.insert(parts, g)
+				table.insert(cfs, p.CFrame)
+				g.Transparency = math.clamp(alpha + fade * (1 - alpha), 0, 1)
+			end
+		end
+		local center = root.Position + UP * 0.1
+		for _, ring in st.rings do
+			local spin = t * (IN.Spin or 9) * ring.dir
+			local n = #ring.segs
+			for i, p in ring.segs do
+				local ang = spin + (i - 0.5) / n * TAU
+				table.insert(parts, p)
+				table.insert(cfs, CFrame.new(center + UP * ring.y) * CFrame.Angles(0, -ang, 0) * CFrame.new(ring.r, 0, 0))
+				p.Transparency = math.clamp(0.15 + fade * 0.85, 0, 1)
+			end
+		end
+		CM.move(parts, cfs)
+	end
+	function CM.selfEnd(char)
+		local st = CM.selfs[char]
+		if not st then
+			return
+		end
+		CM.selfs[char] = nil
+		for _, sh in st.shell do
+			pcall(sh[1].Destroy, sh[1])
+		end
+		for _, ring in st.rings do
+			for _, p in ring.segs do
+				pcall(p.Destroy, p)
+			end
+		end
+	end
+	-- (server) a hit passed through him
+	function Effects.SelfInversionHit(char, data)
+		local root = charParts(char)
+		local pos = CM.ok(data.Pos) and data.Pos or (root and root.Position)
+		if not pos then
+			return
+		end
+		billboardRing(pos, 0.5, 5, WHITE, 4, 0.18)
+		billboardRing(pos, 0.5, 3.5, VIOLET, 5, 0.22)
+		sparks(pos, 0.35, WHITE, LILAC, CM.low() and 3 or 6)
+		if CM.ok(data.Dir) and data.Dir.Magnitude > 0.1 then
+			streaks(pos, -data.Dir.Unit, CM.low() and 2 or 4, 0.5, 3, 7, LILAC, 0.2) -- (it went straight through him)
+		end
+		VFX.PlaySound("CMoonPhase", pos, 1)
+		local me = CM.me()
+		local attacker = typeof(data.Attacker) == "Instance" and data.Attacker or nil
+		if me and (me == char or me == attacker) then
+			CM.negFrame((C.Inside or {}).Frame or 0.04)
+		end
+	end
+	-- (server) C-MOON's backhand at whoever threw it
+	function Effects.SelfInversionCounter(char, data)
+		local root = charParts(char)
+		local troot = rootOf(data.Target)
+		if not root or not troot then
+			return
+		end
+		CM.play(char, "Counter", { target = troot })
+		if not VFX.Clip(char, "MoveCMoonCounter", { recover = 0.25 }) then
+			VFX.Motion(char, "CMoonCounter")
+		end
+		local d = dirOf(troot.Position - root.Position, root)
+		task.delay(0.06, function()
+			if not troot.Parent then
+				return
+			end
+			local rig = CM.rigs[char]
+			local tip = (rig and rig.W and rig.out) and CM.fistAt(rig.W, rig.s, "R") or troot.Position
+			if CM.ok(tip) then
+				moonArc(CM.facing(tip, d) * CFrame.Angles(0, 0, math.rad(90)), 2.6, LILAC, 150)
+			end
+			billboardRing(troot.Position, 1, 7, WHITE, 5, 0.22)
+			sparks(troot.Position, 0.45, WHITE, LILAC, CM.low() and 4 or 9)
+			VFX.PlaySound("CMoonCounter", troot.Position, 1)
+			CM.shout(CM.headOf(char), lines().Sha or "SHA!", 0.5, true)
+		end)
+	end
+	function Effects.SelfInversionEnd(char)
+		CM.selfEnd(char)
+		local tr = CM.tracks[char]
+		if tr and tr.name == "Guard" then
+			CM.stop(char, 0.25)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- 4: NEW MOON (Config.Pucci.NewMoon). A finger at the sky, then his arm
+	-- swung down at where he aims (MoveCMoonNewMoon); C-MOON dashes under the
+	-- first in front and uppercuts (NewMoon); the server's word on who it
+	-- caught (NewMoonUpper): "SHAA!", the crack, a ring, green streaks under
+	-- them and an arrow over them pointing at the SKY - their down now -,
+	-- the aim marked on the street MarkAt s before the sling (a warning);
+	-- the sling (NewMoonSling): a line of light down it; the crash
+	-- (NewMoonCrash). Nobody there: it whiffs.
+	---------------------------------------------------------------------
+	function CM.firstIn(char, root, d, range, width)
+		local best, bestD
+		local function try(m)
+			local r = m ~= char and rootOf(m)
+			local hum = r and m:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				local v = r.Position - root.Position
+				local along = v:Dot(d)
+				local side = (v - d * along)
+				if along > -1 and along <= range and Vector3.new(side.X, 0, side.Z).Magnitude <= width / 2 + 1 and math.abs(v.Y) < 8 and (not bestD or along < bestD) then
+					best, bestD = r, along
+				end
+			end
+		end
+		for _, plr in Players:GetPlayers() do
+			if plr.Character then
+				try(plr.Character)
+			end
+		end
+		local dummies = workspace:FindFirstChild("Dummies")
+		for _, m in dummies and dummies:GetChildren() or {} do
+			try(m)
+		end
+		return best
+	end
+	function Effects.NewMoon(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = CM.spec(char, "NewMoon")
+		local d = dirOf(data.Dir, root)
+		local target = CM.firstIn(char, root, d, spec.Range or 12, spec.Width or 6)
+		CM.moons[char] = { t0 = os.clock(), target = target }
+		if not VFX.Clip(char, "MoveCMoonNewMoon", { recover = 0.3 }) then
+			VFX.Motion(char, "CMoonNewMoon")
+		end
+		CM.play(char, "NewMoon", { target = target or (root.Position + d * 7 + UP * 1.5) })
+		VFX.PlaySound("CMoonJab", root.Position, 0.9)
+		task.delay(0.08, function()
+			CM.shout(char, lines().Sky or "Fall into the sky.", 0.9, false)
+		end)
+		if isLocal then
+			VFX.Hooks.SpeedLines(0.25)
+		end
+	end
+	-- (server) the uppercut: who it caught (none: a whiff), where they'll come down
+	function Effects.NewMoonUpper(char, data)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local NM = C.NewMoon or {}
+		local spec = CM.spec(char, "NewMoon")
+		local troot = rootOf(data.Target)
+		local tr = CM.tracks[char]
+		if not troot then
+			VFX.PlaySound("CMoonWhiff", root.Position, 1)
+			local rig = CM.rigs[char]
+			local tip = rig and rig.W and CM.fistAt(rig.W, rig.s, "R")
+			if CM.ok(tip) then
+				moonArc(CM.facing(tip, CM.flat(root.CFrame.LookVector, root)), 2.4, LILAC, 140)
+			end
+			return
+		end
+		if tr and tr.name == "NewMoon" then
+			tr.target = troot
+		end
+		local at = troot.Position
+		billboardRing(at, 1, 9, WHITE, 6, 0.22)
+		billboardRing(at + UP, 1, 6, LILAC, 4, 0.25)
+		shockDisc(at, UP, 1.5, 10, 0.25, WHITE, 3)
+		sparks(at, 0.5, WHITE, GREEN, CM.low() and 5 or 11)
+		streaks(at - UP * 3, UP, CM.low() and 4 or 8, 1.2, 6, 26, GREEN, 0.5)
+		CM.glyph(at + UP * 3.2, UP, GREEN, 2.4, 0.9, UP * 6)
+		VFX.PlaySound("CMoonUppercut", at, 1)
+		CM.shout(CM.headOf(char), lines().Shaa or "SHAA!", 0.7, true)
+		VFX.Hitstop(data.Target, 0.08)
+		VFX.Hitstop(char, 0.08)
+		local me = CM.me()
+		if me and (me == char or me == data.Target) then
+			VFX.Shake(1, 0.2)
+		end
+		-- the aim marked on the street, a beat before the sling (a warning)
+		local aim = CM.ok(data.Aim) and data.Aim or nil
+		if aim then
+			local slingIn = tonumber(data.SlingIn) or ((spec.SlingAt or 1.4) - (spec.Startup or 0.2))
+			task.delay(math.max(slingIn - (NM.MarkAt or 0.35), 0), function()
+				local r = spec.CrashRadius or 9
+				CM.ring(aim, r, VIOLET, (NM.MarkAt or 0.35) + 0.9, 0.6)
+				CM.ring(aim, r * 0.4, LILAC, (NM.MarkAt or 0.35) + 0.9, 0.35, nil, 0.3)
+				CM.glyph(aim + UP * 6, -UP, VIOLET, 3, (NM.MarkAt or 0.35) + 0.6, -UP * 3)
+			end)
+		end
+	end
+	-- (server, at SlingAt) slung down at it: a line of light down the way
+	function Effects.NewMoonSling(char, data)
+		local troot = rootOf(data.Target)
+		local pos = CM.ok(data.Pos) and data.Pos or nil
+		if not troot or not pos then
+			return
+		end
+		local span = pos - troot.Position
+		if span.Magnitude > 1 then
+			CM.lightLine(troot.Position, pos, 0.5, LILAC, 0.3)
+			streaks(troot.Position, span.Unit, CM.low() and 3 or (C.NewMoon or {}).Streaks or 8, 1, math.min(span.Magnitude * 0.3, 10), span.Magnitude, GREEN, 0.4)
+			CM.glyph(troot.Position + span.Unit * 3, span.Unit, GREEN, 2.2, 0.5, span.Unit * 6)
+		end
+		VFX.PlaySound("CMoonSling", troot.Position, 1)
+	end
+	-- (server) the crash
+	function Effects.NewMoonCrash(char, data)
+		local pos = CM.ok(data.Pos) and data.Pos or nil
+		if not pos then
+			return
+		end
+		local NM = C.NewMoon or {}
+		local spec = char and CM.spec(char, "NewMoon") or {}
+		CM.ring(pos, 4, DARK, 1, 0.6)
+		billboardRing(pos + UP, 2, (spec.CrashRadius or 9) * 2.4, WHITE, 6, 0.28)
+		billboardRing(pos + UP, 2, (spec.CrashRadius or 9) * 1.8, DARK, 7, 0.32)
+		shockDisc(pos + UP * 0.3, UP, 2, (spec.CrashRadius or 9) * 2.6, 0.35, LILAC)
+		dustPuffs(pos, 1.2, CM.low() and 3 or 7, Color3.fromRGB(196, 186, 176), 1, false)
+		groundMark(pos, 4, DARK, 4)
+		rocks(pos + UP, 0.9, CM.low() and 3 or 7)
+		VFX.PlaySound("CMoonCrash", pos, 1)
+		local SH = NM.Shake or { 2.2, 90, 0.35 }
+		VFX.ShakeAt(pos, SH[1], SH[2], SH[3])
+		if char then
+			CM.moons[char] = nil
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE FINISHER: ONLY ONCE. AT A VITAL SPOT. (FX.CMoon -> here). His
+	-- benediction (PoseCMoonVital); C-MOON draws back slowly - the stillness
+	-- is the point - "Only once."; ONE PUNCH through the chest at its Hit
+	-- (Clips.Vital): the negative frame on the two screens involved, the
+	-- inside-out visuals, the crack; then they fall UP into the sky (the
+	-- server's launch): green streaks under them, an arrow over them pointing
+	-- at the sky
+	---------------------------------------------------------------------
+	function CM.finisher(char, target, troot, d, time)
+		if not (troot and troot.Parent) then
+			return
+		end
+		VFX.Pose(char, "CMoonVital", time)
+		CM.play(char, "Vital", { target = troot })
+		task.delay(0.1, function()
+			CM.shout(char, lines().Once or "Only once.", 0.9, false)
+		end)
+		local vital = CM.clip("Vital")
+		task.delay(vital and vital.Hit or 0.6, function()
+			if not troot.Parent then
+				return
+			end
+			local at = troot.Position
+			local dd = CM.ok(d) and Vector3.new(d.X, 0, d.Z).Magnitude > 0.1 and Vector3.new(d.X, 0, d.Z).Unit or UP
+			local rig = CM.rigs[char]
+			if rig then
+				rig.pulseUntil = os.clock() + 0.5
+			end
+			VFX.Hitstop(target, 0.12)
+			VFX.Hitstop(char, 0.12)
+			local me = CM.me()
+			if me and (me == char or me == target) then
+				CM.negFrame(0.06)
+				CM.fovKick(8, 0.3)
+			end
+			Effects.CMoonInvert(char, { Target = target })
+			billboardRing(at, 2, 16, WHITE, 7, 0.3)
+			billboardRing(at + dd * 1.5, 1, 11, GREEN, 4, 0.35)
+			shockDisc(at, dd, 2, 16, 0.3, WHITE, 4)
+			streaks(at, dd, CM.low() and 5 or 10, 1, 6, 18, WHITE, 0.25)
+			CM.shout(CM.headOf(char), lines().Vital or "SHAA!!", 0.8, true)
+			VFX.PlaySound("CMoonVital", at, 1)
+		end)
+		task.delay(time, function()
+			if not troot.Parent then
+				return
+			end
+			local at = troot.Position
+			streaks(at - UP * 3, UP, CM.low() and 5 or 10, 1.4, 8, 34, GREEN, 0.6)
+			CM.glyph(at + UP * 3.5, UP, GREEN, 3, 1, UP * 10)
+			CM.ring(groundPoint(at), 5, GREEN, 0.8, 0.5)
+			VFX.PlaySound("CMoonFallUp", at, 1)
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- G: MADE IN HEAVEN on the awakening kit (VFX.AK.FX.CMoon; his clip
+	-- MoveAwakenCMoon; numbers Config.Awaken.CMoon). THE PRESS: his hands
+	-- pressed together, rising; C-MOON over him, arms spread, its arrows lit;
+	-- he counts primes (one every PrimeGap s, round his head); a new moon -
+	-- a black disc with a thin bright rim - rising behind him; motes of light
+	-- falling UP round him; the riser and the clock. THE HIT: he turns to
+	-- light (a pillar up through him; on his screen a white-gold flash),
+	-- C-MOON breaks into shards of light and MADE IN HEAVEN bursts out
+	-- rearing (its Burst clip: from here the rig is MIH - CM.heavens), clock
+	-- faces flung out along the street, a white-gold ring; his own impact
+	-- pair (Negative). Then it looms over him (Loom) for the ult.
+	---------------------------------------------------------------------
+	local function akc()
+		return (Config.Awaken or {}).CMoon or {}
+	end
+	VFX.AK.MARKS.MoveAwakenCMoon = { Gather = 0.18, Hit = 0.3, Hold = 0.42, HoldEnd = 1.38 }
+	VFX.AK.FX.CMoon = {
+		press = function(ctx)
+			local A = akc()
+			local AK = VFX.AK
+			local s = ctx.scale
+			CM.heavens[ctx.char] = nil
+			CM.wake(ctx.char)
+			CM.play(ctx.char, "Awaken", { life = ctx.release + 0.5 })
+			VFX.PlaySound("CMoonAwakenRise", ctx.root.Position, 1)
+			local g = ctx.g or (ctx.root.Position - UP * 3 * s)
+			-- the new moon rising behind him
+			local M = A.Moon or {}
+			local size = (M.Size or 12) * s
+			-- ((round 103 review) on HIS screen the camera is behind him: a moon
+			-- behind him was a black wall over the whole shot (out/b's
+			-- move_Awaken from behind) - there it rises AHEAD of him, over his
+			-- head, the way he faces; everyone else sees it behind him)
+			local function moonCf(up)
+				local at = ctx.mine and (ctx.root.Position + ctx.d * (M.Ahead or 9) * s + UP * (M.AheadUp or 3) * s) or (ctx.root.Position - ctx.d * (M.Back or 4.5) * s)
+				return CM.facing(at + UP * up, ctx.d) * CFrame.Angles(0, math.rad(90), 0)
+			end
+			local top = (M.Up or 7) * s
+			local rim = newPart(Vector3.new(0.1, size * 1.07, size * 1.07), moonCf(top - 3 * s), LIGHT, Enum.Material.Neon, Enum.PartType.Cylinder)
+			rim.Name = "CMoonNewMoon"
+			rim.Transparency = 0.3
+			local disc = newPart(Vector3.new(0.4, size, size), moonCf(top - 3 * s), Color3.fromRGB(6, 4, 10), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder) -- (thicker than its rim, on the same plane: a thin bright rim seen from either side)
+			disc.Name = "CMoonNewMoon"
+			for _, p in { rim, disc } do
+				tween(p, ctx.hit + 0.25, { CFrame = p.CFrame + UP * 3 * s }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				tween(p, 0.25, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, ctx.release - 0.3)
+				table.insert(ctx.props, p)
+			end
+			-- the primes, round his head
+			local P = A.Primes or {}
+			local spin = math.atan2(ctx.d.X, ctx.d.Z)
+			for i, n in P do
+				task.spawn(function()
+					if not AK.at(ctx, (i - 1) * (A.PrimeGap or 0.03)) then
+						return
+					end
+					local a = spin + (i - 1) / math.max(#P, 1) * TAU
+					local at = ctx.root.Position + UP * (ctx.headY or 1.5) + Vector3.new(math.cos(a) * 2.4, rand(-0.2, 0.7), math.sin(a) * 2.4) * s
+					if ctx.mine and AK.lens(ctx, at, 0.5) then
+						return
+					end
+					CM.shout(at, tostring(n), 0.9, false, 0.42)
+				end)
+			end
+			-- motes of light falling UP round him
+			for _ = 1, ctx.low and math.ceil((A.Motes or 18) / 2) or (A.Motes or 18) do
+				task.spawn(function()
+					if not AK.at(ctx, rand(0, ctx.hit + 0.8)) then
+						return
+					end
+					local a, r = rand(0, TAU), rand(1.5, 5) * s
+					local p0 = g + Vector3.new(math.cos(a) * r, rand(0, 1.5) * s, math.sin(a) * r)
+					if ctx.mine and AK.lens(ctx, p0, 0.3) then
+						return
+					end
+					local m = newPart(Vector3.one * rand(0.2, 0.42) * s, CFrame.new(p0), rng:NextNumber() < 0.5 and LIGHT or WHITE, Enum.Material.Neon, Enum.PartType.Ball)
+					m.Name = "CMoonMote"
+					tween(m, 0.9, { CFrame = CFrame.new(p0 + UP * rand(9, 16) * s), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+					cleanup(m, 0.95)
+				end)
+			end
+		end,
+		gather = function(ctx)
+			local rim = VFX.AK.rim(ctx)
+			if rim then
+				rim.OutlineColor = LIGHT
+				tween(rim, 0.1, { OutlineTransparency = 0.2 })
+			end
+		end,
+		hit = function(ctx)
+			local A = akc()
+			local AK = VFX.AK
+			local s = ctx.scale
+			local g = ctx.g or (ctx.root.Position - UP * 3 * s)
+			AK.note(ctx, "turnsToLight")
+			-- C-MOON breaks into light
+			local rig = CM.rigs[ctx.char]
+			local from = (rig and rig.at) or (ctx.root.Position + UP * 3 * s - ctx.d * 1.5 * s)
+			for i = 1, ctx.low and math.ceil((A.Shards or 20) / 2) or (A.Shards or 20) do
+				local dirS = Vector3.new(rand(-1, 1), rand(-0.3, 1), rand(-1, 1))
+				dirS = dirS.Magnitude > 0.1 and dirS.Unit or UP
+				local p = newPart(Vector3.new(rand(0.3, 0.8), rand(0.3, 0.9), 0.12) * s, CFrame.new(from) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), i % 3 == 0 and LILAC or Color3.fromRGB(236, 232, 244), Enum.Material.Neon, Enum.PartType.Wedge)
+				p.Name = "CMoonShard"
+				tween(p, 0.7, { CFrame = CFrame.new(from + dirS * rand(5, 12) * s) * CFrame.Angles(rand(0, 6), rand(0, 6), rand(0, 6)), Transparency = 1 }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+				cleanup(p, 0.75)
+			end
+			-- MADE IN HEAVEN bursts out rearing (the rig is it from this frame)
+			CM.heavens[ctx.char] = os.clock()
+			CM.play(ctx.char, "Burst", {})
+			-- he turns to light: the pillar up through him (not on his own lens)
+			local L = A.Light or {}
+			local PL = L.Pillar or {}
+			local ph, pw = (PL.Height or 70) * s, (PL.Width or 10) * s
+			if not ctx.mine or not AK.lens(ctx, ctx.root.Position + UP * 4 * s, pw * 0.5) then
+				local pillar = newPart(Vector3.new(ph, pw * 0.4, pw * 0.4), CFrame.new(g + UP * ph / 2) * CFrame.Angles(0, 0, math.rad(90)), LIGHT, Enum.Material.Neon, Enum.PartType.Cylinder)
+				pillar.Name = "CMoonLightPillar"
+				pillar.Transparency = 0.25
+				tween(pillar, PL.Life or 0.9, { Size = Vector3.new(ph, pw, pw), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				cleanup(pillar, (PL.Life or 0.9) + 0.05)
+				table.insert(ctx.props, pillar)
+			end
+			-- the clock faces flung out along the street
+			local CL = A.Clocks or {}
+			local n = ctx.low and math.ceil((CL.Count or 8) / 2) or (CL.Count or 8)
+			for i = 1, n do
+				local a = (i - 0.5) / n * TAU
+				local out = Vector3.new(math.cos(a), 0, math.sin(a))
+				local size = (CL.Size or 2.4) * s
+				CM.clockFace(g + UP * 0.3 + out * 1.5 * s, UP, size, g + UP * 0.2 + out * (CL.Radius or 14) * s, CL.Life or 1.4)
+			end
+			billboardRing(ctx.root.Position, 3, 40 * s, LIGHT, 8, 0.45)
+			CM.ring(g, (CL.Radius or 14) * s, LIGHT, 1.2, 0.5)
+			shockDisc(g + UP * 0.3, UP, 4, 46 * s, 0.55, LIGHT)
+			VFX.PlaySound("CMoonShatter", from, 1)
+			VFX.ShakeAt(ctx.root.Position, 2.6, 120, 0.5)
+			if ctx.mine then
+				VFX.Hooks.Flash(LIGHT, L.Flash or 0.2)
+			end
+		end,
+		impact = function(ctx)
+			return VFX.AK.P.pair(ctx, akc().Negative, nil)
+		end,
+		aura = function(ctx)
+			return VFX.AK.aura(ctx, ctx.spec.Aura or "motes")
+		end,
+	}
+
+	---------------------------------------------------------------------
+	-- THE ULT's moves on screen. 2 TIME ACCELERATION (Config.Pucci.Blitz):
+	-- "Time accelerates." - then (HeavenBlitzGo, the server's list) behind
+	-- each of them in turn, Gap s apart - HIS OWN MACHINE puts him there
+	-- (never into a wall, never off the street: CM.blitzSpot) and back - an
+	-- afterimage left at every spot, lines of light joining them, MADE IN
+	-- HEAVEN's hand-blade (Slash / SlashL) at each; each slash
+	-- (HeavenBlitzSlash): a white arc, sparks, the blade's ring; all of them
+	-- at once at the end (HeavenBlitzEnd)
+	---------------------------------------------------------------------
+	function CM.blitzSpot(troot, from)
+		local BL = C.Blitz or {}
+		local c = troot.Position
+		local away = Vector3.new(c.X - from.X, 0, c.Z - from.Z)
+		away = away.Magnitude > 0.1 and away.Unit or -CM.flat(troot.CFrame.LookVector, troot)
+		local behind = BL.Behind or 3.4
+		-- ((round 103 review) behind them - else in front - each side short of
+		-- a wall and over the street; neither: nil, he stays where he is (the
+		-- in-front spot was never checked: into a wall, or off the edge))
+		local depth = (C.Step or {}).Ground or 14
+		local function clear(side)
+			local spot = c + side * behind
+			local wall = VFX.ST and VFX.ST.ray and VFX.ST.ray(c, spot + side * 1.2)
+			if wall then
+				local back = (wall.Position - c):Dot(side) - 1.2
+				if back < 1.5 then
+					return nil -- (no room on this side)
+				end
+				spot = c + side * back
+			end
+			if not groundRay(spot, depth) then
+				return nil
+			end
+			return spot
+		end
+		local spot = clear(away) or clear(-away)
+		if not spot then
+			return nil
+		end
+		return CM.facing(spot, Vector3.new(c.X - spot.X, 0, c.Z - spot.Z))
+	end
+	function Effects.HeavenBlitz(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		VFX.Pose(char, "HeavenBlitz", 0.8)
+		VFX.PlaySound("HeavenStep", root.Position, 0.8)
+		CM.shout(char, lines().Accel or "Time accelerates.", 0.8, false)
+		billboardRing(root.Position, 1, 10, LIGHT, 5, 0.3)
+		if isLocal then
+			VFX.Hooks.SpeedLines(0.6)
+		end
+	end
+	function Effects.HeavenBlitzGo(char, data)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local BL = C.Blitz or {}
+		local gap = tonumber(data.Gap) or 0.07
+		local from = CM.ok(data.From) and data.From or root.Position
+		local list = {}
+		for _, m in type(data.Targets) == "table" and data.Targets or {} do
+			local tr = rootOf(m)
+			if tr then
+				table.insert(list, tr)
+			end
+		end
+		local mine = CM.mine(char)
+		local home = root.CFrame
+		VFX.PlaySound("HeavenBlitzGo", root.Position, 1)
+		task.spawn(function()
+			local prev = root.Position
+			for i, troot in list do
+				task.wait(gap)
+				if not root.Parent or CM.dead(char) or not troot.Parent then
+					continue
+				end
+				-- ((round 103 review) nowhere clear round them: he slashes from where he is)
+				local cf = CM.blitzSpot(troot, from) or root.CFrame
+				if mine and not root.Anchored then
+					-- his own machine puts him there (it owns his body)
+					root.AssemblyLinearVelocity = Vector3.zero
+					root.CFrame = cf
+				end
+				if VFX.ST and VFX.ST.ghost then
+					VFX.ST.ghost(char, BL.Ghost or 0.6, (not mine) and cf or nil, LIGHT)
+				end
+				CM.lightLine(prev, cf.Position, BL.Line or 0.45)
+				prev = cf.Position
+				CM.play(char, i % 2 == 1 and "Slash" or "SlashL", { target = troot })
+			end
+			task.wait(gap)
+			if #list > 0 and root.Parent and not CM.dead(char) then
+				if mine and not root.Anchored then
+					root.AssemblyLinearVelocity = Vector3.zero
+					root.CFrame = home
+				end
+				CM.lightLine(prev, home.Position, BL.Line or 0.45)
+			end
+		end)
+	end
+	function Effects.HeavenBlitzSlash(char, data)
+		local troot = rootOf(data.Target)
+		local at = troot and troot.Position or (CM.ok(data.Pos) and data.Pos) or nil
+		if not at then
+			return
+		end
+		local BL = C.Blitz or {}
+		local root = charParts(char)
+		local d = root and dirOf(at - root.Position, root) or Vector3.new(0, 0, -1)
+		local tilt = math.rad(rand(-35, 35))
+		moonArc(CM.facing(at + UP * 0.4, d) * CFrame.Angles(0, 0, math.rad(90) + tilt), BL.Arc or 3.2, WHITE, 170)
+		moonArc(CM.facing(at + UP * 0.4, d) * CFrame.Angles(0, 0, math.rad(90) + tilt), (BL.Arc or 3.2) * 0.8, LIGHT, 150)
+		sparks(at, 0.4, WHITE, LIGHT, CM.low() and 4 or 9)
+		billboardRing(at, 1, 6, LIGHT, 4, 0.2)
+		VFX.PlaySound("HeavenBlitzSlash", at, 1)
+		if troot then
+			VFX.Hitstop(data.Target, 0.05)
+		end
+	end
+	function Effects.HeavenBlitzEnd(char, data)
+		local n = 0
+		for _, m in type(data.Targets) == "table" and data.Targets or {} do
+			local tr = rootOf(m)
+			if tr then
+				n += 1
+				billboardRing(tr.Position, 1.5, 11, WHITE, 6, 0.28)
+				shockDisc(tr.Position, UP, 2, 12, 0.3, LIGHT)
+				if n == 1 then
+					VFX.PlaySound("CMoonRushFinish", tr.Position, 0.9)
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE ULT's R: ACCELERATE (Config.Pucci.Step). His own machine carries
+	-- him Distance down the aim in Time s (CM.stepPath: probed every Probe
+	-- studs, Pad short of a wall, never where there's no street within Ground
+	-- below - the server walks the same path), afterimages along it, a white
+	-- streak; on everyone else's screen the server's line (HeavenStepPass)
+	---------------------------------------------------------------------
+	function CM.stepPath(from, d, dist)
+		local SP = C.Step or {}
+		local probe = math.max(SP.Probe or 2.5, 0.5)
+		local pad = SP.Pad or 1.6
+		local depth = SP.Ground or 14
+		local at, walked = from, 0
+		local ray = VFX.ST and VFX.ST.ray
+		while walked < dist - 1e-3 do
+			local step = math.min(probe, dist - walked)
+			local nxt = at + d * step
+			local wall = ray and ray(at, at + d * (step + pad))
+			if wall then
+				at = at + d * math.max((wall.Position - at):Dot(d) - pad, 0)
+				break
+			end
+			if not groundRay(nxt + UP * -2, depth + 1) then
+				break -- (no street under the next step: never off the edge)
+			end
+			at, walked = nxt, walked + step
+		end
+		return at
+	end
+	function CM.stepGhosts(char, from, to, n, here)
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root or not (VFX.ST and VFX.ST.ghost) then
+			return
+		end
+		local span = to - from
+		local face = root.CFrame.Rotation
+		for i = 1, n do
+			local p = from + span * ((i - 0.5) / n)
+			VFX.ST.ghost(char, 0.35 + 0.25 * i / n, CFrame.new(p) * face, LIGHT)
+		end
+		CM.lightLine(from, to, 0.35, WHITE, 0.5)
+		CM.lightLine(from + UP * 0.8, to + UP * 0.8, 0.3, LIGHT, 0.25)
+	end
+	function Effects.HeavenStep(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = CM.spec(char, "HeavenStep")
+		local d = dirOf(data.Dir, root)
+		if not VFX.Clip(char, "MoveHeavenStep", { recover = 0.2 }) then
+			VFX.Motion(char, "HeavenStep")
+		end
+		VFX.PlaySound("HeavenStep", root.Position, 1)
+		if not CM.mine(char) then
+			return -- (everyone else: the server's line - HeavenStepPass)
+		end
+		local from = root.Position
+		local to = CM.stepPath(from, d, spec.Distance or 55)
+		local time = math.max(spec.Time or 0.12, 0.02)
+		local face = CM.facing(from, d).Rotation
+		VFX.Hooks.SpeedLines(0.35)
+		task.spawn(function()
+			local t0 = os.clock()
+			while root.Parent and not root.Anchored do
+				local u = math.clamp((os.clock() - t0) / time, 0, 1)
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.CFrame = CFrame.new(from:Lerp(to, u)) * face
+				if u >= 1 then
+					break
+				end
+				task.wait()
+			end
+			CM.stepGhosts(char, from, to, (C.Step or {}).Ghosts or spec.Afterimages or 6)
+		end)
+	end
+	function Effects.HeavenStepPass(char, data)
+		local root = charParts(char)
+		if not root or not (CM.ok(data.From) and CM.ok(data.To)) then
+			return
+		end
+		CM.stepGhosts(char, data.From, data.To, (C.Step or {}).Ghosts or 6)
+	end
+	function Effects.HeavenStepHit(char, data)
+		local pos = CM.ok(data.Pos) and data.Pos or nil
+		if pos then
+			billboardRing(pos, 1, 6, WHITE, 4, 0.2)
+			sparks(pos, 0.35, WHITE, LIGHT, CM.low() and 3 or 6)
+			VFX.PlaySound("HeavenRushHit", pos, 1)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE ULT's 4: THE NEW WORLD (Config.Pucci.NewWorld). Rising, arms spread,
+	-- then flung up to the sky at the Call (MoveNewWorld); MADE IN HEAVEN
+	-- rearing up into the light (Rear); a pillar of light up through him; on
+	-- every screen the time-lapse runs away (CM.heavenStep: the sun's lap
+	-- down to NewWorldLap - a ring of light round the sky -, the grade going
+	-- white); "Heaven draws near." ... "The universe begins again."; THE
+	-- WHITE-OUT (NewWorldWhite) on every screen within Range: a white
+	-- ScreenGui In s up, held the move's WhiteOut, Out s away (and gone).
+	---------------------------------------------------------------------
+	function Effects.NewWorld(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local spec = CM.spec(char, "NewWorld")
+		local NW = C.NewWorld or {}
+		local windup = spec.Windup or 3.2
+		local B = spec.Beats or {}
+		CM.newWorldEnd(char)
+		local rec = { t0 = os.clock(), windup = windup, props = {} }
+		CM.newWorlds[char] = rec
+		if not VFX.Clip(char, "MoveNewWorld", { recover = 0.4 }) then
+			VFX.Motion(char, "NewWorld")
+		end
+		CM.play(char, "Rear", { life = windup + 0.8, expire = function()
+			CM.stop(char, 0.4)
+		end })
+		VFX.PlaySound("NewWorldRise", root.Position, 1)
+		CM.shout(char, lines().Heaven or "Heaven draws near.", 1.2, false)
+		local g = groundPoint(root.Position)
+		task.delay(B.Rise or 0.1, function()
+			if CM.newWorlds[char] ~= rec then
+				return
+			end
+			local PL = NW.Pillar or {}
+			local h, w = PL.Height or 160, PL.Width or 16
+			local pillar = newPart(Vector3.new(h, w * 0.3, w * 0.3), CFrame.new(g + UP * h / 2) * CFrame.Angles(0, 0, math.rad(90)), LIGHT, Enum.Material.ForceField, Enum.PartType.Cylinder)
+			pillar.Name = "CMoonPillar"
+			pillar.Transparency = 0.6
+			tween(pillar, 0.6, { Size = Vector3.new(h, w, w), Transparency = 0.1 })
+			local core = newPart(Vector3.new(h, w * 0.2, w * 0.2), CFrame.new(g + UP * h / 2) * CFrame.Angles(0, 0, math.rad(90)), WHITE, Enum.Material.Neon, Enum.PartType.Cylinder)
+			core.Name = "CMoonPillar"
+			core.Transparency = 0.45
+			tween(core, windup, { Size = Vector3.new(h, w * 0.5, w * 0.5), Transparency = 0.15 })
+			for _, p in { pillar, core } do
+				table.insert(rec.props, p)
+				cleanup(p, windup + 2.5)
+			end
+		end)
+		-- motes falling up round him, faster as it comes
+		task.spawn(function()
+			while CM.newWorlds[char] == rec and os.clock() - rec.t0 < windup do
+				local a, r = rand(0, TAU), rand(2, 10)
+				local p0 = g + Vector3.new(math.cos(a) * r, rand(0, 2), math.sin(a) * r)
+				local m = newPart(Vector3.one * rand(0.25, 0.5), CFrame.new(p0), rng:NextNumber() < 0.5 and LIGHT or WHITE, Enum.Material.Neon, Enum.PartType.Ball)
+				m.Name = "CMoonMote"
+				tween(m, 0.9, { CFrame = CFrame.new(p0 + UP * rand(18, 34)), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				cleanup(m, 0.95)
+				task.wait(CM.low() and 0.12 or 0.05)
+			end
+		end)
+		task.delay(B.Call or 2.6, function()
+			if CM.newWorlds[char] == rec then
+				CM.shout(char, lines().Universe or "The universe begins again.", 1.4, false)
+			end
+		end)
+		VFX.ShakeAt(root.Position, 0.6, 220, windup)
+		if isLocal then
+			VFX.Hooks.SpeedLines(windup)
+		end
+	end
+	function CM.newWorldEnd(char)
+		local rec = CM.newWorlds[char]
+		if not rec then
+			return
+		end
+		CM.newWorlds[char] = nil
+		for _, p in rec.props do
+			if p.Parent then
+				tween(p, 0.3, { Transparency = 1 })
+				cleanup(p, 0.35)
+			end
+		end
+	end
+	-- (server, at the Windup) THE WHITE-OUT
+	function Effects.NewWorldWhite(char, data)
+		local root = charParts(char)
+		local pos = CM.ok(data.Pos) and data.Pos or (root and root.Position)
+		if not pos then
+			return
+		end
+		local NW = C.NewWorld or {}
+		local spec = char and CM.spec(char, "NewWorld") or {}
+		if char then
+			CM.newWorldEnd(char)
+		end
+		VFX.PlaySound("NewWorldWhite", pos, 1)
+		if (CM.camPos() - pos).Magnitude <= (NW.Range or 900) then
+			CM.whiteOut(spec.WhiteOut or 0.8, NW.In or 0.06, NW.Out or 0.5)
+		end
+		shockDisc(pos, UP, 6, (spec.Radius or 180) * 0.6, 0.6, WHITE)
+		billboardRing(pos, 6, 120, LIGHT, 10, 0.6)
+		VFX.ShakeAt(pos, 3.5, 400, 0.8)
+	end
+	function Effects.NewWorldCancel(char)
+		CM.newWorldEnd(char)
+		local tr = CM.tracks[char]
+		if tr and tr.name == "Rear" then
+			CM.stop(char, 0.3)
+		end
+	end
+	function CM.whiteOut(hold, inT, outT)
+		local lp = Players.LocalPlayer
+		local pg = lp and lp:FindFirstChildOfClass("PlayerGui")
+		if not pg then
+			return nil
+		end
+		if CM.whiteGui then
+			pcall(CM.whiteGui.Destroy, CM.whiteGui)
+		end
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "CMoonWhiteOut"
+		gui.IgnoreGuiInset = true
+		gui.ResetOnSpawn = false
+		gui.DisplayOrder = 40
+		local f = Instance.new("Frame")
+		f.Size = UDim2.fromScale(1, 1)
+		f.BackgroundColor3 = Color3.fromRGB(255, 252, 240)
+		f.BackgroundTransparency = 1
+		f.BorderSizePixel = 0
+		f.Parent = gui
+		gui.Parent = pg
+		CM.whiteGui = gui
+		tween(f, math.max(inT, 0.01), { BackgroundTransparency = 0 })
+		task.delay(inT + hold, function()
+			if f.Parent then
+				tween(f, math.max(outT, 0.01), { BackgroundTransparency = 1 })
+			end
+		end)
+		task.delay(inT + hold + outT + 0.05, function()
+			if CM.whiteGui == gui then
+				CM.whiteGui = nil
+			end
+			pcall(gui.Destroy, gui)
+		end)
+		return gui
+	end
+
+	---------------------------------------------------------------------
+	-- procedural fallbacks for his clips (anim/moves_cmoon.py): what an R15
+	-- body, or a place without the clips, plays
+	---------------------------------------------------------------------
+	MOTIONS.CMoonInsideOut = { { pose = { RightArm = { 40, 0, 10 }, Waist = { 14, 0, 0 }, Neck = { 14, 0, 0 } }, t = 0.28 }, { pose = { RightArm = { 80, -40, 30 }, Waist = { -4, 18, 0 } }, t = 0.08, hold = 0.2 }, recover = 0.3 }
+	MOTIONS.CMoonCounter = { { pose = { RightArm = { 80, 50, 10 }, Waist = { 0, 16, 0 } }, t = 0.06, hold = 0.18 }, recover = 0.2 }
+	MOTIONS.CMoonNewMoon = { { pose = { RightArm = { 168, 0, 4 }, Neck = { -18, 0, 0 } }, t = 0.18, hold = 1.0 }, { pose = { RightArm = { 70, 0, 6 }, Neck = { 10, 0, 0 } }, t = 0.1, hold = 0.3 }, recover = 0.3 }
+	MOTIONS.HeavenStep = { { pose = { RightArm = { -20, 0, 10 }, LeftArm = { -20, 0, 10 }, Waist = { 14, 0, 0 } }, t = 0.06, hold = 0.12 }, recover = 0.2 }
+	MOTIONS.NewWorld = { { pose = { RightArm = { 100, 0, 50 }, LeftArm = { 100, 0, 50 }, Neck = { -12, 0, 0 } }, t = 0.5, hold = 2.0 }, { pose = { RightArm = { 165, 0, 20 }, LeftArm = { 165, 0, 20 }, Neck = { -30, 0, 0 } }, t = 0.2, hold = 0.9 }, recover = 0.4 }
+	POSES.CMoonInvert = { RightArm = { 64, 42, 0 }, LeftArm = { 10, 0, 6 }, Neck = { 22, 0, 0 } }
+	POSES.HeavenBlitz = { RightArm = { 90, -50, 20 }, LeftArm = { 20, 0, 14 }, Waist = { 0, -20, 0 }, Neck = { 0, -10, 0 } }
+
+	-- (every frame: the slabs, the self-inversion, the ult's world)
+	function CM.stepB(dt)
+		local now = os.clock()
+		dt = math.min(dt or 1 / 60, 0.1)
+		for _, st in CM.insides do
+			local ok, err = pcall(CM.insideStep, st, now)
+			if not ok and not CM.warnedInside then
+				CM.warnedInside = true
+				warn("[VFX.CM] " .. tostring(err))
+			end
+		end
+		for _, st in CM.selfs do
+			local ok, err = pcall(CM.selfStep, st, now)
+			if not ok and not CM.warnedSelf then
+				CM.warnedSelf = true
+				warn("[VFX.CM] " .. tostring(err))
+			end
+		end
+		local ok, err = pcall(CM.heavenStep, dt, now)
+		if not ok and not CM.warnedHv then
+			CM.warnedHv = true
+			warn("[VFX.CM] " .. tostring(err))
+		end
+	end
+	RunService:BindToRenderStep("PucciHeaven", Enum.RenderPriority.Camera.Value + 5, function(dt)
+		local ok, err = pcall(CM.stepB, dt)
+		if not ok and not CM.warnedStepB then
+			CM.warnedStepB = true
+			warn("[VFX.CM] " .. tostring(err))
+		end
+	end)
+end)()
+
+
+---------------------------------------------------------------------------
+-- (round 104) THE JJBA PLACE'S STANDS ON EVERY SCREEN (VFX.JS; Config.JJBA).
+-- Its own Stand models (ReplicatedStorage.JJBA.Stands - STAR PLATINUM, THE
+-- WORLD, C-MOON, MADE IN HEAVEN) take the place of the part-built figures:
+-- each one cloned here, every part anchored and out of physics, its joints
+-- read and taken out - then posed every frame through its own rig (a joint's
+-- Part1 = Part0 * C0 * T * C1^-1), all of it in one BulkMoveTo. Where T comes
+-- from: one of the JJBA place's own clips (JJBA.Clips: its animations, and
+-- its Moon Animator saves turned into KeyframeSequences) for the action the
+-- Stand is doing - else the pose the old figure would have held there (CDV's
+-- angles turned into its joints'), so every move it already had moves it -
+-- blended across every change. C-MOON and MADE IN HEAVEN ride Pucci's own rig
+-- (VFX.CM: its bones place their limbs, so every keyed pose of his moves
+-- holds). The JJBA place's knives, road roller, hit models and sounds go into
+-- DIO's moves; STAR PLATINUM's and POM's moves are drawn here. A model that
+-- isn't there (or Config.JJBA.Enabled = false): the part-built figures again.
+-- (Its own function: the main chunk's locals stay as they are.)
+---------------------------------------------------------------------------
+;(function()
+	local JC = Config.JJBA or {}
+	local CDV, CM, DV = VFX.CDV, VFX.CM, VFX.DV
+	local RS = game:GetService("ReplicatedStorage")
+	local ContentProvider = game:GetService("ContentProvider")
+	local JS = { clips = {}, failed = {}, ok = {}, warned = {} }
+	VFX.JS = JS
+	local IDENT = CFrame.new()
+	local MAIN = { RootJoint = true, Neck = true, ["Left Shoulder"] = true, ["Right Shoulder"] = true, ["Left Hip"] = true, ["Right Hip"] = true }
+	local PURPLE = Color3.fromRGB(150, 110, 255)
+	local DEEP = Color3.fromRGB(70, 40, 160)
+	local CYAN = Color3.fromRGB(0, 236, 255)
+	local VOID = Color3.fromRGB(14, 14, 18)
+	local WHITE = Color3.new(1, 1, 1)
+	local function warnOnce(key, err)
+		if not JS.warned[key] then
+			JS.warned[key] = true
+			warn("[VFX.JS] " .. key .. ": " .. tostring(err))
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE FOLDER
+	---------------------------------------------------------------------
+	function JS.folder(name)
+		local root = RS:FindFirstChild(JC.Folder or "JJBA")
+		if not root then
+			return nil
+		end
+		return name and root:FindFirstChild(name) or root
+	end
+	function JS.effect(name)
+		local f = JS.folder("Effects")
+		return f and f:FindFirstChild(name) or nil
+	end
+	-- is this Stand drawn from the JJBA place's model?
+	function JS.on(kind)
+		if JC.Enabled == false then
+			return false
+		end
+		local spec = JC.Stands and JC.Stands[kind]
+		if not spec or spec.Use == false then
+			return false
+		end
+		local stands = JS.folder("Stands")
+		return stands ~= nil and stands:FindFirstChild(spec.Model or kind) ~= nil
+	end
+	-- the move as he has it right now (the ult's own while he's in it)
+	function JS.spec(char, id)
+		local plr = char and Players:GetPlayerFromCharacter(char)
+		local name = (plr and plr:GetAttribute("Quirk")) or (char and char:GetAttribute("Quirk")) or ""
+		local q = Config.Quirks[name]
+		if q then
+			local ulting = (char and char:GetAttribute("UltActive") == true) or (plr and plr:GetAttribute("UltActive") == true)
+			local ult = ulting and q.Ult or nil
+			for _, set in { ult and ult.Abilities, ult and { ult.Special, ult.Extra }, q.Abilities, { q.Special, q.Extra } } do
+				for _, a in set or {} do
+					if type(a) == "table" and a.Id == id then
+						return a
+					end
+				end
+			end
+		end
+		return Config.FindAbilityById(id) or {}
+	end
+
+	---------------------------------------------------------------------
+	-- ITS CLIPS: a KeyframeSequence read once into tracks by joint (its
+	-- Part1's name), sampled at any time with the Pose's own easing
+	---------------------------------------------------------------------
+	local function ease(u, style, dir)
+		if style == Enum.PoseEasingStyle.Constant then
+			return 0
+		elseif style == Enum.PoseEasingStyle.Linear then
+			return u
+		end
+		u = math.clamp(u, 0, 1)
+		local inout = dir == Enum.PoseEasingDirection.InOut
+		local out = dir == Enum.PoseEasingDirection.Out
+		-- (the old styles run their direction the other way round: CubicV2 doesn't)
+		if style ~= Enum.PoseEasingStyle.CubicV2 and not inout then
+			out = not out
+		end
+		if style == Enum.PoseEasingStyle.Elastic or style == Enum.PoseEasingStyle.Bounce then
+			local ok, v = pcall(function()
+				return TweenService:GetValue(u, style == Enum.PoseEasingStyle.Elastic and Enum.EasingStyle.Elastic or Enum.EasingStyle.Bounce,
+					inout and Enum.EasingDirection.InOut or out and Enum.EasingDirection.Out or Enum.EasingDirection.In)
+			end)
+			if ok and type(v) == "number" then
+				return v
+			end
+		end
+		if inout then
+			return u < 0.5 and 4 * u * u * u or 1 - (-2 * u + 2) ^ 3 / 2
+		end
+		return out and 1 - (1 - u) ^ 3 or u * u * u
+	end
+	function JS.clip(name)
+		local c = JS.clips[name]
+		if c ~= nil then
+			return c or nil
+		end
+		local f = JS.folder("Clips")
+		local ks = f and f:FindFirstChild(name)
+		if not ks or not ks:IsA("KeyframeSequence") then
+			JS.clips[name] = false
+			return nil
+		end
+		local kfs = {}
+		for _, kf in ks:GetChildren() do
+			if kf:IsA("Keyframe") then
+				table.insert(kfs, kf)
+			end
+		end
+		table.sort(kfs, function(a, b)
+			return a.Time < b.Time
+		end)
+		local tracks, length = {}, 0
+		for _, kf in kfs do
+			length = math.max(length, kf.Time)
+			for _, pose in kf:GetDescendants() do
+				if pose:IsA("Pose") and (pose.Weight > 0 or pose.CFrame ~= IDENT) then
+					local tr = tracks[pose.Name]
+					if not tr then
+						tr = {}
+						tracks[pose.Name] = tr
+					end
+					table.insert(tr, { t = kf.Time, cf = pose.CFrame, style = pose.EasingStyle, dir = pose.EasingDirection })
+				end
+			end
+		end
+		c = { length = math.max(length, 1 / 30), loop = ks.Loop, tracks = tracks }
+		JS.clips[name] = c
+		return c
+	end
+	function JS.sample(c, t, out)
+		for name, tr in c.tracks do
+			local n = #tr
+			if n == 1 or t <= tr[1].t then
+				out[name] = tr[1].cf
+			elseif t >= tr[n].t then
+				out[name] = tr[n].cf
+			else
+				local i = 1
+				while i < n - 1 and tr[i + 1].t <= t do
+					i += 1
+				end
+				local a, b = tr[i], tr[i + 1]
+				out[name] = a.cf:Lerp(b.cf, ease((t - a.t) / math.max(b.t - a.t, 1e-4), a.style, a.dir))
+			end
+		end
+		return out
+	end
+
+	---------------------------------------------------------------------
+	-- A RIG: the Stand's model cloned (scripts, humanoids and values out),
+	-- scaled, every part anchored; its joints read (C0 / C1, and which ones a
+	-- clip moves: the rig's own six, then any chain off a "Stand" part - MADE
+	-- IN HEAVEN's legs), then taken out. The walk: out from the root along the
+	-- moving joints first, then the welds and accessories; each part's turn at
+	-- rest (A) so a pose can be put on any joint whatever its C0 / C1 (M).
+	---------------------------------------------------------------------
+	function JS.build(kind, parent)
+		local spec = JC.Stands[kind]
+		local src = JS.folder("Stands"):FindFirstChild(spec.Model or kind)
+		local model = src:Clone()
+		model.Name = "JJBA_" .. kind
+		for _, d in model:GetDescendants() do
+			if d:IsA("LuaSourceContainer") or d:IsA("Humanoid") or d:IsA("AnimationController") or d:IsA("ValueBase") or d:IsA("Sound") then
+				d:Destroy()
+			end
+		end
+		local scale = spec.Scale or 1
+		if math.abs(scale - 1) > 1e-3 then
+			pcall(function()
+				model:ScaleTo(scale)
+			end)
+		end
+		local r = { kind = kind, model = model, parts = {}, base = {}, size = {}, decals = {}, meshes = {}, trails = {}, byName = {}, rel = {}, relB = {},
+			steps = {}, f = 1, T = {}, last = {}, alpha = -1, bufP = {}, bufC = {}, cf = {} }
+		for _, d in model:GetDescendants() do
+			if d:IsA("BasePart") then
+				table.insert(r.parts, d)
+				r.base[d] = d.Transparency
+				r.size[d] = d.Size
+				d.Anchored = true
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CanTouch = false
+				d.CastShadow = false
+				d.Massless = true
+				r.byName[d.Name] = r.byName[d.Name] or d
+				d.Transparency = 1
+			elseif d:IsA("Decal") or d:IsA("Texture") then
+				r.decals[d] = d.Transparency
+				d.Transparency = 1
+			elseif d:IsA("SpecialMesh") and d.MeshType == Enum.MeshType.FileMesh then
+				r.meshes[d] = d.Scale
+			elseif d:IsA("Trail") then
+				table.insert(r.trails, d)
+				d.Enabled = false
+			elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Light") then
+				d.Enabled = false
+			end
+		end
+		local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model.PrimaryPart or r.parts[1]
+		r.root = root
+		r.torso = model:FindFirstChild("Torso") or root
+		local joints = {}
+		for _, d in model:GetDescendants() do
+			if d:IsA("JointInstance") and d.Part0 and d.Part1 and d.Part0:IsDescendantOf(model) and d.Part1:IsDescendantOf(model) then
+				table.insert(joints, { p0 = d.Part0, p1 = d.Part1, c0 = d.C0, c1 = d.C1, name = d.Name, motor = d:IsA("Motor6D") })
+			elseif d:IsA("WeldConstraint") and d.Part0 and d.Part1 and d.Part0:IsDescendantOf(model) and d.Part1:IsDescendantOf(model) then
+				table.insert(joints, { p0 = d.Part0, p1 = d.Part1, c0 = d.Part0.CFrame:ToObjectSpace(d.Part1.CFrame), c1 = IDENT, name = "WeldConstraint" })
+			end
+		end
+		local animBy = {}
+		for pass = 1, 2 do
+			for _, j in joints do
+				if j.motor and not j.anim and not animBy[j.p1.Name] then
+					local moving = (pass == 1 and MAIN[j.name]) or (pass == 2 and not MAIN[j.name] and (string.find(j.p0.Name, "Stand", 1, true) ~= nil or j.name == "LowerHip"))
+					if moving then
+						j.anim = true
+						animBy[j.p1.Name] = j
+					end
+				end
+			end
+		end
+		r.animBy = animBy
+		for _, d in model:GetDescendants() do
+			if d:IsA("JointInstance") or d:IsA("WeldConstraint") then
+				d:Destroy()
+			end
+		end
+		local done = { [root] = true }
+		local A = { [root] = IDENT }
+		local function walk(onlyMoving)
+			local grew = true
+			while grew do
+				grew = false
+				for _, j in joints do
+					if (j.anim or not onlyMoving) and not j.used then
+						local fwd = done[j.p0] == true and not done[j.p1]
+						local back = done[j.p1] == true and not done[j.p0]
+						if fwd or back then
+							j.used = true
+							local from, to = fwd and j.p0 or j.p1, fwd and j.p1 or j.p0
+							done[to] = true
+							table.insert(r.steps, { from = from, to = to, j = j, fwd = fwd })
+							local rel = fwd and (j.c0 * j.c1:Inverse()) or (j.c1 * j.c0:Inverse())
+							A[to] = A[from] * rel.Rotation
+							grew = true
+						end
+					end
+				end
+			end
+		end
+		walk(true)
+		walk(false)
+		for _, j in joints do
+			if j.anim then
+				j.M = (A[j.p0] or IDENT) * j.c0.Rotation
+				j.Mi = j.M:Inverse()
+			end
+			j.c0b, j.c1b = j.c0, j.c1
+			j.c1i, j.c0i = j.c1:Inverse(), j.c0:Inverse()
+			if (j.p0 == root and j.p1 == r.torso) or (j.p1 == root and j.p0 == r.torso) then
+				r.rootJoint = j
+			end
+			if j.name == "Right Shoulder" then
+				r.shoulder = j
+			end
+		end
+		for _, p in r.parts do
+			if not done[p] then
+				r.relB[p] = root.CFrame:ToObjectSpace(p.CFrame)
+				r.rel[p] = r.relB[p]
+			end
+		end
+		r.joints = joints
+		model.Parent = parent
+		return r
+	end
+
+	-- drawn at f x the size it was built at (C-MOON's own scale: its summon
+	-- grows it from 0.6): the parts, file meshes and joint offsets
+	function JS.rescale(r, f)
+		if math.abs(f - r.f) < 0.015 then
+			return
+		end
+		r.f = f
+		for p, s in r.size do
+			p.Size = s * f
+		end
+		for m, s in r.meshes do
+			m.Scale = s * f
+		end
+		for _, j in r.joints do
+			j.c0 = CFrame.new(j.c0b.Position * f) * j.c0b.Rotation
+			j.c1 = CFrame.new(j.c1b.Position * f) * j.c1b.Rotation
+			j.c0i, j.c1i = j.c0:Inverse(), j.c1:Inverse()
+		end
+		for p, c in r.relB do
+			r.rel[p] = CFrame.new(c.Position * f) * c.Rotation
+		end
+	end
+
+	-- every part, from the root's frame and each moving joint's T
+	function JS.solve(r, rootCF, T)
+		if rootCF.Position ~= rootCF.Position then
+			return
+		end
+		local cf = r.cf
+		cf[r.root] = rootCF
+		for _, st in r.steps do
+			local j = st.j
+			local t = j.anim and T[j.p1.Name] or nil
+			local a = cf[st.from]
+			if st.fwd then
+				cf[st.to] = t and (a * j.c0 * t * j.c1i) or (a * j.c0 * j.c1i)
+			else
+				cf[st.to] = t and (a * j.c1 * t:Inverse() * j.c0i) or (a * j.c1 * j.c0i)
+			end
+		end
+		local parts, cfs = r.bufP, r.bufC
+		table.clear(parts)
+		table.clear(cfs)
+		for _, p in r.parts do
+			local c = cf[p] or (r.rel[p] and rootCF * r.rel[p])
+			if c then
+				table.insert(parts, p)
+				table.insert(cfs, c)
+			end
+		end
+		if not pcall(function()
+			workspace:BulkMoveTo(parts, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+		end) then
+			for i, p in parts do
+				p.CFrame = cfs[i]
+			end
+		end
+	end
+
+	-- shown at alpha (0 gone .. 1 solid): its own see-through parts stay so
+	function JS.show(r, alpha)
+		if math.abs(alpha - r.alpha) < 0.02 and not (alpha == 0 and r.alpha ~= 0) then
+			return
+		end
+		r.alpha = alpha
+		for p, b in r.base do
+			p.Transparency = 1 - (1 - b) * alpha
+		end
+		for d, b in r.decals do
+			d.Transparency = 1 - (1 - b) * alpha
+		end
+		local on = alpha > 0.5
+		if on ~= r.auraOn then
+			r.auraOn = on
+			for _, e in r.aura or {} do
+				e.Enabled = on
+			end
+		end
+	end
+
+	-- its aura (the JJBA place's ParticleEffect.<Aura>.Auras on its torso)
+	-- and its summon / dismiss bursts (AppearStars, Disappear)
+	function JS.dress(r, kind)
+		local spec = JC.Stands[kind] or {}
+		local pe = JS.effect("ParticleEffect")
+		local set = pe and spec.Aura and pe:FindFirstChild(spec.Aura)
+		local holder = r.torso
+		if not set or not holder or IceKit.lowEnd() then
+			return
+		end
+		r.aura, r.bursts = {}, {}
+		local auras = set:FindFirstChild("Auras")
+		for _, e in auras and auras:GetChildren() or {} do
+			if e:IsA("ParticleEmitter") then
+				local c = e:Clone()
+				c.Rate = e.Rate * (spec.AuraRate or 0.35)
+				c.Enabled = false
+				c.Parent = holder
+				table.insert(r.aura, c)
+			end
+		end
+		for _, n in { "AppearStars1", "AppearStars2", "Disappear", "Summon", "SpawnAura" } do
+			local e = set:FindFirstChild(n)
+			if e and e:IsA("ParticleEmitter") then
+				local c = e:Clone()
+				c.Enabled = false
+				c.Parent = holder
+				r.bursts[n] = c
+			end
+		end
+	end
+	function JS.burst(r, out)
+		local S = JC.Summon or {}
+		local list = out and { "Disappear" } or { "AppearStars1", "AppearStars2", "Summon", "SpawnAura" }
+		for _, n in list do
+			local e = r.bursts and r.bursts[n]
+			if e then
+				pcall(e.Emit, e, S.Burst or 18)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- A CDV STAND (STAR PLATINUM, THE WORLD): CDV.step hands every frame
+	-- here; true = drawn here (its own parts stay hidden). The source: the
+	-- clip for what it's doing (Config.JJBA.Stands[kind]: Idle / Walk at his
+	-- shoulder, Barrage in the rush, Heavy, Finger, Knives...), else the pose.
+	---------------------------------------------------------------------
+	JS.ACTIONS = { idle = "Idle", barrage = "Barrage", rage = "Pose", awaken = "Pose", finger = "Finger", heavy = "Heavy", knives = "Knives", rush = "Rush" }
+	local SIDE = { ["Right Arm"] = { "armR", 1 }, ["Left Arm"] = { "armL", -1 }, ["Right Leg"] = { "legR", 1 }, ["Left Leg"] = { "legL", -1 } }
+	-- CDV's angles, on this rig's joints
+	function JS.poseT(r, pose, T)
+		for name, j in r.animBy do
+			local D
+			if name == "Torso" then
+				D = CFrame.Angles(math.rad(pose.lean or 0), math.rad(pose.twist or 0), 0)
+			elseif name == "Head" then
+				local h = pose.head or { 0, 0 }
+				D = CFrame.Angles(math.rad(h[1] or 0), math.rad(h[2] or 0), 0)
+			else
+				local sd = SIDE[name]
+				local a = sd and pose[sd[1]]
+				if a then
+					local side = sd[2]
+					D = CFrame.Angles(0, math.rad(side * (a[2] or 0)), 0) * CFrame.Angles(0, 0, math.rad(side * (a[3] or 0))) * CFrame.Angles(math.rad(a[1] or 0), 0, 0)
+				end
+			end
+			if D then
+				T[name] = j.Mi * D * j.M
+			end
+		end
+	end
+	-- from one source to the next over Config.JJBA.Fade
+	function JS.blend(r, T, now)
+		local fade = JC.Fade or 0.1
+		local from = r.from
+		if from and now - r.fromAt < fade then
+			local k = (now - r.fromAt) / fade
+			k = k * k * (3 - 2 * k)
+			for name, a in from do
+				T[name] = a:Lerp(T[name] or IDENT, k)
+			end
+			for name, b in T do
+				if not from[name] then
+					T[name] = IDENT:Lerp(b, k)
+				end
+			end
+		else
+			r.from = nil
+		end
+		table.clear(r.last)
+		for name, c in T do
+			r.last[name] = c
+		end
+	end
+	function JS.cdv(st, char, root, action, acting, pose, _dt, now)
+		local kind = st.kind
+		if not JS.on(kind) then
+			if st.js then
+				pcall(function()
+					st.js.model:Destroy()
+				end)
+				st.js = nil
+				st.shown = -1
+			end
+			return false
+		end
+		local r = st.js
+		if not r then
+			local ok, res = pcall(JS.build, kind, st.model)
+			if not ok or not res then
+				warnOnce("build " .. kind, res)
+				JC.Stands[kind].Use = false
+				return false
+			end
+			r = res
+			st.js = r
+			st.shown = -1
+			pcall(JS.dress, r, kind)
+		end
+		local spec = JC.Stands[kind]
+		local key = JS.ACTIONS[action]
+		if action == "idle" and not acting then
+			local v = root.AssemblyLinearVelocity
+			if v == v and Vector3.new(v.X, 0, v.Z).Magnitude > 4 and spec.Walk then
+				key = "Walk"
+			end
+		end
+		local name = key and spec[key]
+		local clip = name and JS.clip(name)
+		local src = clip and name or "pose"
+		if src ~= r.src then
+			r.from = r.src and table.clone(r.last) or nil
+			r.fromAt = now
+			r.src = src
+			r.clipAt = now
+			r.stamp = st.lastActive
+		elseif clip and not clip.loop and st.lastActive ~= r.stamp then
+			-- (asked again: from the top)
+			r.from = table.clone(r.last)
+			r.fromAt = now
+			r.clipAt = now
+			r.stamp = st.lastActive
+		end
+		local T = r.T
+		table.clear(T)
+		if clip then
+			local t = now - r.clipAt
+			JS.sample(clip, clip.loop and (t % clip.length) or math.min(t, clip.length), T)
+		else
+			JS.poseT(r, pose, T)
+		end
+		JS.blend(r, T, now)
+		if st.alpha > 0.01 then
+			JS.solve(r, st.cf, T)
+			-- its fists: where the punches come from (CDV's hidden ones moved onto them)
+			for key2, arm in { armR = "Right Arm", armL = "Left Arm" } do
+				local fist, p = st.fists and st.fists[key2], r.byName[arm]
+				local c = p and r.cf[p]
+				if fist and c then
+					fist.CFrame = c * CFrame.new(0, -p.Size.Y / 2, 0)
+				end
+			end
+			-- the rush: its arm trails on, and arms everywhere at once
+			local rushing = action == "barrage"
+			if rushing ~= r.trailing then
+				r.trailing = rushing
+				for _, tr in r.trails do
+					tr.Enabled = rushing
+				end
+			end
+			if rushing and rng:NextNumber() < 0.55 and nearCamera(st.cf.Position, 120) then
+				local torso = r.cf[r.torso] or st.cf
+				local ghost = newPart(Vector3.new(0.9, 0.9, 2.8), torso * CFrame.new(rand(-1.8, 1.8), rand(-0.4, 1.4), -2.4 - rand(0, 1.2)), st.tint or PURPLE, Enum.Material.Neon)
+				ghost.Transparency = 0.5
+				tween(ghost, 0.1, { Transparency = 1, CFrame = ghost.CFrame * CFrame.new(0, 0, -1.5) })
+				cleanup(ghost, 0.12)
+			end
+		end
+		-- out of nothing in a burst of its stars
+		local was = r.alpha
+		JS.show(r, st.alpha)
+		if was >= 0 and was < 0.05 and st.alpha >= 0.05 then
+			JS.burst(r, false)
+		elseif was > 0.3 and st.alpha <= 0.3 and r.wasOut then
+			JS.burst(r, true)
+		end
+		r.wasOut = st.alpha > 0.3
+		return true
+	end
+	-- (CDV.step's call: never let a slip here take the Stand down with it)
+	function JS.cdvSafe(...)
+		local ok, res = pcall(JS.cdv, ...)
+		if not ok then
+			warnOnce("stand", res)
+			return false
+		end
+		return res == true
+	end
+	-- where it stands for the new actions (CDV.PLACES), and the old figure's
+	-- pose for them (the part-built one, if the model isn't there)
+	if CDV then
+		CDV.PLACES.heavy = CDV.PLACES.heavy or CFrame.new(0.3, 0.6, -2.9)
+		CDV.PLACES.finger = CDV.PLACES.finger or CFrame.new(0.5, 0.7, -2.3)
+		CDV.PLACES.knives = CDV.PLACES.knives or CFrame.new(1.4, 0.9, -1.4)
+		CDV.POSES.heavy = CDV.POSES.heavy or CDV.POSES.smash
+		CDV.POSES.finger = CDV.POSES.finger or CDV.POSES.jabR
+		CDV.POSES.knives = CDV.POSES.knives or CDV.POSES.punchR
+		-- STAR PLATINUM's part-built stand-in (only if its model's gone): The
+		-- World's figure in its colours
+		CDV.PURPLE, CDV.PURPLE_DEEP = PURPLE, DEEP
+		function CDV.buildStar(char)
+			local st = CDV.buildWorld(char)
+			st.kind, st.tint, st.shoutStroke = "StarPlatinum", PURPLE, Color3.fromRGB(34, 16, 80)
+			st.model.Name = "StarPlatinum"
+			for _, e in st.parts do
+				local c = e.part.Color
+				if c == CDV.GOLD or c == CDV.GOLD_DEEP then
+					e.part.Color = PURPLE
+				elseif c == CDV.TEAL then
+					e.part.Color = DEEP
+				end
+			end
+			if st.highlight then
+				st.highlight.FillColor = PURPLE
+				st.highlight.OutlineColor = Color3.fromRGB(46, 20, 104)
+			end
+			CDV.stands[char] = st
+			return st
+		end
+		-- its colours for the shouts and the outline, from the config
+		local tintOf = function(st)
+			local spec = JC.Stands and JC.Stands[st.kind]
+			if spec and JS.on(st.kind) then
+				st.tint = spec.Tint or st.tint
+				st.shoutStroke = spec.Stroke or st.shoutStroke
+				if st.highlight and spec.Outline then
+					st.highlight.OutlineColor = spec.Outline
+				end
+			end
+		end
+		local get0 = CDV.get
+		function CDV.get(char)
+			local st = get0(char)
+			if st and not st.tinted then
+				st.tinted = true
+				pcall(tintOf, st)
+			end
+			return st
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- C-MOON / MADE IN HEAVEN on Pucci's rig (VFX.CM): after CM.place has
+	-- moved its bones, each mesh limb takes its bone's turn (an arm or a leg
+	-- the line from its shoulder / hip to its fist / foot), the torso sits
+	-- on the chest with its shoulders on C-MOON's; CM.show's fade is its fade
+	---------------------------------------------------------------------
+	-- a bone's turn, swung so its -Y runs from a to b (a whole arm or leg on
+	-- the one segment the JJBA rigs have)
+	function JS.limbRot(a, b)
+		local R = a.Rotation
+		if not b then
+			return R
+		end
+		local want = b.Position - a.Position
+		if want.Magnitude < 1e-3 then
+			return R
+		end
+		want = want.Unit
+		local have = -R.UpVector
+		local axis = have:Cross(want)
+		local sin = axis.Magnitude
+		if sin < 1e-4 then
+			return R
+		end
+		return CFrame.fromAxisAngle(axis / sin, math.atan2(sin, have:Dot(want))) * R
+	end
+	local UPPER_Y = ((((Config.Pucci or {}).Model or {}).Bones or {}).upperR or {})[2]
+	UPPER_Y = typeof(UPPER_Y) == "Vector3" and UPPER_Y.Y or 0.42
+	function JS.cmHide(rig)
+		for _, o in rig.js or {} do
+			JS.show(o, 0)
+		end
+	end
+	function JS.cmPlace(rig)
+		local heaven = rig.heaven == true
+		local kind = heaven and (JC.Heaven or "MadeInHeaven") or ((JC.Users or {}).CMoon or "CMoon")
+		local W, s = rig.W, rig.s or 1
+		if not W or not W.chest or not JS.on(kind) then
+			JS.cmHide(rig)
+			return false
+		end
+		rig.js = rig.js or {}
+		local r = rig.js[kind]
+		if not r then
+			local ok, res = pcall(JS.build, kind, rig.model)
+			if not ok or not res then
+				warnOnce("build " .. kind, res)
+				JC.Stands[kind].Use = false
+				return false
+			end
+			r = res
+			rig.js[kind] = r
+			pcall(JS.dress, r, kind)
+		end
+		for k, o in rig.js do
+			if k ~= kind then
+				JS.show(o, 0)
+			end
+		end
+		rig.jsCur = r
+		JS.rescale(r, s)
+		local Rb = r.Rb or {}
+		r.Rb = Rb
+		Rb.Torso = W.chest.Rotation
+		Rb.Head = W.head and W.head.Rotation or nil
+		Rb["Right Arm"] = W.upperR and JS.limbRot(W.upperR, W.fistR or W.foreR) or nil
+		Rb["Left Arm"] = W.upperL and JS.limbRot(W.upperL, W.fistL or W.foreL) or nil
+		if heaven then
+			Rb.StandLowerTorso = W.hbody and W.hbody.Rotation or nil
+			Rb.StandRightUpperLeg = W.hupR and W.hupR.Rotation or nil
+			Rb.StandRightLowerLeg = W.hlowR and W.hlowR.Rotation or nil
+			Rb.StandLeftUpperLeg = W.hupL and W.hupL.Rotation or nil
+			Rb.StandLeftLowerLeg = W.hlowL and W.hlowL.Rotation or nil
+		else
+			Rb["Right Leg"] = W.thighR and JS.limbRot(W.thighR, W.footR or W.shinR) or nil
+			Rb["Left Leg"] = W.thighL and JS.limbRot(W.thighL, W.footL or W.shinL) or nil
+		end
+		local T = r.T
+		table.clear(T)
+		for name, j in r.animBy do
+			local b1, b0 = Rb[name], Rb[j.p0.Name]
+			if name ~= "Torso" and b1 and b0 then
+				T[name] = j.Mi * (b0:Inverse() * b1) * j.M
+			end
+		end
+		local shY = r.shoulder and r.shoulder.c0.Position.Y or 0.5 * r.f
+		local torsoCF = CFrame.new((W.chest * CFrame.new(0, UPPER_Y * s - shY, 0)).Position) * Rb.Torso
+		local rj = r.rootJoint
+		local rootCF
+		if rj and rj.p1 == r.torso then
+			rootCF = torsoCF * rj.c1 * rj.c0i
+		elseif rj then
+			rootCF = torsoCF * rj.c0 * rj.c1i
+		else
+			rootCF = torsoCF
+		end
+		JS.solve(r, rootCF, T)
+		return true
+	end
+	if CM then
+		local place0, show0 = CM.place, CM.show
+		function CM.place(rig, P, rootCF)
+			place0(rig, P, rootCF)
+			local ok, used = pcall(JS.cmPlace, rig)
+			if not ok then
+				warnOnce("C-MOON", used)
+				used = false
+			end
+			if used ~= (rig.jsUsed == true) then
+				rig.jsUsed = used
+				rig.alpha = -1 -- (CM.show hands every part its fade again)
+				if not used then
+					JS.cmHide(rig)
+				end
+			end
+		end
+		function CM.show(rig, alpha, fineOn)
+			local changed = not (math.abs(alpha - rig.alpha) < 0.02 and fineOn == rig.fineOn)
+			show0(rig, alpha, fineOn)
+			if rig.jsUsed then
+				if changed then
+					for _, it in rig.items do
+						it.part.Transparency = 1
+					end
+				end
+				if rig.jsCur then
+					local was = rig.jsCur.alpha
+					JS.show(rig.jsCur, 1 - alpha)
+					if was >= 0 and was < 0.05 and 1 - alpha >= 0.05 then
+						JS.burst(rig.jsCur, false)
+					end
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- DIO'S KNIVES and ROAD ROLLER (the JJBA place's DIOKNIFE / RoadRoller)
+	---------------------------------------------------------------------
+	local KNIFE_TURN = CFrame.Angles(math.rad(90), math.rad(90), 0)
+	local function bare(p)
+		for _, d in p:GetDescendants() do
+			if d:IsA("LuaSourceContainer") then
+				d:Destroy()
+			end
+		end
+		for _, d in { p, table.unpack(p:GetDescendants()) } do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CanTouch = false
+				d.CastShadow = false
+			end
+		end
+		return p
+	end
+	-- k.set(cf: looking down the throw), k.gone(t) - TW.knife's shape
+	function JS.knife(cf)
+		local src = JC.Enabled ~= false and JS.effect("DIOKNIFE")
+		if not src then
+			return nil
+		end
+		local p = bare(src:Clone())
+		p.Transparency = 0
+		p.CFrame = cf * KNIFE_TURN
+		p.Parent = folder
+		local trail = p:FindFirstChildWhichIsA("Trail", true)
+		if trail then
+			trail.Enabled = true
+		end
+		cleanup(p, 20)
+		local k = {}
+		function k.set(c)
+			if p.Parent then
+				p.CFrame = c * KNIFE_TURN
+			end
+		end
+		function k.gone(t)
+			tween(p, t or 0.15, { Transparency = 1 })
+			cleanup(p, (t or 0.15) + 0.05)
+		end
+		return k
+	end
+	function JS.roller(cf)
+		local src = JC.Enabled ~= false and JS.effect("RoadRoller")
+		if not src then
+			return nil
+		end
+		local m = Instance.new("Model")
+		m.Name = "RoadRoller"
+		m.Parent = folder
+		local p = bare(src:Clone())
+		p.Size = p.Size * ((JC.Roller or {}).Scale or 0.8)
+		p.Parent = m
+		local off = CFrame.new(0, p.Size.Y / 2, 0)
+		local r = { model = m, parts = { { part = p, off = off } } }
+		function r.set(c)
+			p.CFrame = c * off
+			r.cf = c
+		end
+		r.set(cf)
+		cleanup(m, 30)
+		return r
+	end
+	if DV then
+		local roller0 = DV.roller
+		function DV.roller(cf)
+			local ok, r = pcall(JS.roller, cf)
+			return (ok and r) or roller0(cf)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- THE HIT MODELS (the JJBA place's LightHit / HeavyHit: its curves pulled
+	-- back, its shards flung out and stretched, its ball blown up and faded)
+	---------------------------------------------------------------------
+	function JS.hit(kind, at, dir)
+		if JC.Enabled == false or typeof(at) ~= "Vector3" or not nearCamera(at, 160) then
+			return
+		end
+		local H = JC.Hits or {}
+		local list = H[kind] or {}
+		local name = list[rng:NextInteger(1, math.max(#list, 1))]
+		local src = name and JS.effect(name)
+		if not src or not src:IsA("Model") then
+			return
+		end
+		local big = kind == "Heavy"
+		local life = (H.Life or 0.45) * (big and 1.7 or 1)
+		local d = typeof(dir) == "Vector3" and dir.Magnitude > 0.05 and dir.Unit or Vector3.new(0, 0, -1)
+		local m = src:Clone()
+		bare(m)
+		pcall(function()
+			m:PivotTo(CFrame.lookAt(at, at + d) * CFrame.Angles(0, 0, rand(0, math.pi * 2)))
+		end)
+		m.Parent = folder
+		for _, v in m:GetChildren() do
+			if v:IsA("BasePart") then
+				if v.Name == "CurveEffect" then
+					tween(v, life / 2, { CFrame = v.CFrame - v.CFrame.UpVector * (big and 15 or 5) }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+					local beam = v:FindFirstChildWhichIsA("Beam")
+					if beam then
+						task.spawn(function()
+							for i = 1, 8 do
+								task.wait()
+								beam.Transparency = NumberSequence.new(i / 8)
+							end
+						end)
+					end
+				elseif v.Name == "SmallEffect" then
+					tween(v, life / 2, { CFrame = v.CFrame + v.CFrame.RightVector * (big and 20 or 8), Size = v.Size + Vector3.new(rand(big and 10 or 1, big and 45 or 8), 0.005, 0.005), Transparency = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+				elseif v.Name == "BallEffect" then
+					tween(v, life / 2, { Size = v.Size + Vector3.one * 10, Transparency = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+				elseif v.Name == "ParticleEffect" then
+					local pe = v:FindFirstChildWhichIsA("ParticleEmitter")
+					if pe then
+						pe.Enabled = true
+						task.delay(life / 4, function()
+							pe.Enabled = false
+						end)
+					end
+				elseif string.find(v.Name, "Effect", 1, true) then
+					tween(v, life / 2, { CFrame = v.CFrame * CFrame.Angles(rand(-5, 5), rand(-5, 5), rand(-5, 5)), Size = v.Size + Vector3.new(rand(9, 15), 0, rand(9, 15)), Transparency = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+				end
+			end
+		end
+		cleanup(m, life + 0.3)
+	end
+
+	---------------------------------------------------------------------
+	-- THE VOICES: a JJBA clip that won't load (private to whoever uploaded
+	-- it) falls back to its text-to-speech line; an ult theme that won't, to
+	-- its Fallback (checked once, a few seconds in)
+	---------------------------------------------------------------------
+	local voice0 = VFX.Voice
+	function VFX.Voice(name, part, beatAt)
+		local line = Config.Voice and Config.Voice[name]
+		if line and line.Fallback and type(line.Id) == "string" and JS.failed[line.Id] and Config.Voice[line.Fallback] then
+			return voice0(line.Fallback, part, beatAt)
+		end
+		return voice0(name, part, beatAt)
+	end
+	task.spawn(function()
+		task.wait(6)
+		local ids, seen = {}, {}
+		local function want(id)
+			if type(id) == "string" and id ~= "" and not seen[id] then
+				seen[id] = true
+				table.insert(ids, id)
+			end
+		end
+		for _, line in Config.Voice or {} do
+			if type(line) == "table" and line.Fallback then
+				want(line.Id)
+			end
+		end
+		local tracks = (Config.UltMusic or {}).Tracks or {}
+		for _, tr in tracks do
+			if type(tr) == "table" and tr.Fallback then
+				want(tr.Id)
+			end
+		end
+		if #ids == 0 then
+			return
+		end
+		pcall(function()
+			ContentProvider:PreloadAsync(ids, function(id, status)
+				if status == Enum.AssetFetchStatus.Success then
+					JS.ok[id] = true
+				elseif status ~= Enum.AssetFetchStatus.None then
+					JS.failed[id] = true
+				end
+			end)
+		end)
+		for q, tr in tracks do
+			if type(tr) == "table" and tr.Fallback and JS.failed[tr.Id] then
+				tracks[q] = tr.Fallback
+			end
+		end
+	end)
+
+	---------------------------------------------------------------------
+	-- DIO: the rush's voice, the knives' voice and The World's own clip
+	---------------------------------------------------------------------
+	local muda0, knives0 = Effects.MudaRush, Effects.KnifeVolley
+	if muda0 then
+		function Effects.MudaRush(char, data, isLocal, ability)
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root then
+				VFX.PlaySound("MudaVoice", root.Position, 1)
+			end
+			return muda0(char, data, isLocal, ability)
+		end
+	end
+	if knives0 then
+		function Effects.KnifeVolley(char, data, isLocal, ability)
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root then
+				VFX.PlaySound("KnifeVoice", root.Position, 1)
+			end
+			if CDV then
+				CDV.act(char, "knives", 0.7, "knives")
+			end
+			return knives0(char, data, isLocal, ability)
+		end
+	end
+
+	-- stopped time, Star Platinum's: a purple ring out of it too
+	local stop0 = Effects.TimeStop
+	if stop0 then
+		function Effects.TimeStop(char, data, ...)
+			if type(data) == "table" and data.Kind == "StarPlatinum" then
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root then
+					billboardRing(root.Position + UP * 2, 3, 80, PURPLE, 14, 0.6)
+					shockDisc(root.Position, UP, 4, 90, 0.5, PURPLE)
+				end
+			end
+			return stop0(char, data, ...)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- STAR PLATINUM'S MOVES
+	---------------------------------------------------------------------
+	POSES.JotaroPose = POSES.JotaroPose or { RightArm = { 160, 0, -10 }, LeftArm = { 10, 0, 18 }, Waist = { 6, -20, 0 }, Neck = { 6, 14, 0 }, RightLeg = { -8, 0, 8 }, LeftLeg = { 12, 0, 6 } }
+	POSES.JotaroPoint = POSES.JotaroPoint or { RightArm = { 95, 0, -4 }, LeftArm = { 14, 0, 14 }, Waist = { -6, 16, 0 }, Neck = { -4, -12, 0 }, RightLeg = { -12, 0, 6 }, LeftLeg = { 16, 0, 4 } }
+	local function stand(char)
+		return CDV and CDV.get(char)
+	end
+
+	-- 1: ORA ORA ORA!
+	function Effects.OraRush(char, data, isLocal)
+		VFX.Pose(char, "StandUser", 0.7)
+		local root = charParts(char)
+		if not root or not CDV then
+			return
+		end
+		local ability = JS.spec(char, "OraRush")
+		if isLocal then
+			face(root, flatten(data.Dir, root))
+		end
+		local hits, interval = ability.Hits or 18, ability.Interval or 0.07
+		local total = 0.15 + hits * interval
+		local st = CDV.act(char, "barrage", total)
+		if not st then
+			return
+		end
+		local rage = ability.Rage == true
+		CDV.shout(st, rage and "ORA ORA ORA ORA!!" or "ORA ORA ORA!", rage and 9 or 8, total)
+		VFX.PlaySound("OraVoice", root.Position, 1)
+		for k = 1, hits do
+			task.delay(0.15 + (k - 1) * interval, function()
+				if not root.Parent then
+					return
+				end
+				VFX.PlaySound("Dora", root.Position, 0.55)
+				if k % 2 == 0 then
+					local front = root.Position + flatten(root.CFrame.LookVector, root) * 4.5 + UP * 0.8
+					sparks(front + Vector3.new(rand(-1, 1), rand(-0.6, 1), rand(-1, 1)), 0.5, WHITE, PURPLE, 5)
+				end
+				if k % 6 == 0 then
+					CDV.shout(st, "ORA!", 4, 0.4)
+				end
+			end)
+		end
+		task.wait(total)
+		if not root.Parent then
+			return
+		end
+		CDV.act(char, "heavy", 0.6, "heavy")
+		CDV.shout(st, "ORAAA!!", 6, 0.8)
+		local dd = flatten(root.CFrame.LookVector, root)
+		local fist = root.Position + dd * 5 + UP
+		VFX.PlaySound("OraFinish", fist, 1)
+		VFX.PlaySound("DoraFinish", fist, 0.8)
+		JS.hit("Heavy", fist, dd)
+		shockDisc(fist, dd, 2, 16, 0.3, WIND, 8)
+		billboardRing(fist, 2, 18, PURPLE, 6, 0.3)
+		streaks(fist, dd, 12, 2, 8, 22, WIND, 0.3)
+		VFX.ShakeAt(fist, 2.4, 80, 0.3)
+		if nearCamera(fist, 60) then
+			VFX.ImpactFrame(0.08)
+		end
+	end
+
+	-- 2: STAR FINGER (the wind-up; the server sends the shot)
+	function Effects.StarFinger(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local ability = JS.spec(char, "StarFinger")
+		if isLocal then
+			face(root, flatten(data.Dir, root))
+		end
+		VFX.Pose(char, "JotaroPoint", 0.6)
+		if CDV then
+			local st = CDV.act(char, "finger", (ability.Startup or 0.28) + 0.5, "finger")
+			if st then
+				CDV.shout(st, "STAR FINGER!", 6, 0.8)
+			end
+		end
+	end
+	function Effects.StarFingerShot(char, data)
+		local from, to = data.From, data.To
+		if typeof(from) ~= "Vector3" or typeof(to) ~= "Vector3" then
+			return
+		end
+		local st = CDV and CDV.stands[char]
+		local fist = st and st.fists and st.fists.armR
+		local a = (fist and fist.Parent and (fist.Position - from).Magnitude < 8) and fist.Position or from
+		local v = to - a
+		local len = v.Magnitude
+		if len < 0.5 then
+			return
+		end
+		VFX.PlaySound("StarFingerShot", a, 1)
+		local look = CFrame.lookAt(a, to)
+		local fingers = {}
+		for k = -1, 1, 2 do
+			local p = newPart(Vector3.new(0.24, 0.24, 0.1), look, (st and st.tint) or PURPLE, Enum.Material.SmoothPlastic)
+			table.insert(fingers, { part = p, off = look.RightVector * k * 0.15 })
+		end
+		local out = 0.07
+		local t0 = os.clock()
+		repeat
+			local u = math.clamp((os.clock() - t0) / out, 0, 1)
+			local tip = a + v * u
+			for _, f in fingers do
+				local l = math.max((tip - a).Magnitude, 0.1)
+				f.part.Size = Vector3.new(0.24, 0.24, l)
+				f.part.CFrame = CFrame.lookAt((a + tip) / 2 + f.off, tip + f.off)
+			end
+			task.wait()
+		until u >= 1
+		streaks(to, -v.Unit, 6, 1, 4, 10, WIND, 0.2)
+		if typeof(data.Hit) == "Instance" then
+			VFX.PlaySound("StarFingerHit", to, 1)
+			JS.hit("Light", to, v.Unit)
+			sparks(to, 0.8, WHITE, PURPLE, 10)
+			VFX.ShakeAt(to, 1.6, 60, 0.2)
+		else
+			sparks(to, 0.5, WHITE, PURPLE, 5)
+		end
+		task.wait(0.16)
+		for _, f in fingers do
+			tween(f.part, 0.1, { Size = Vector3.new(0.24, 0.24, 0.1), CFrame = CFrame.lookAt(a + f.off, to + f.off) })
+			cleanup(f.part, 0.12)
+		end
+	end
+
+	-- 3: ORA! (the wind-up; the server sends the impact)
+	function Effects.OraHeavy(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local ability = JS.spec(char, "OraHeavy")
+		if isLocal then
+			face(root, flatten(data.Dir, root))
+		end
+		VFX.Pose(char, "StandUser", 0.8)
+		if CDV then
+			local st = CDV.act(char, "heavy", (ability.Startup or 0.38) + 0.4, "heavy")
+			if st then
+				CDV.shout(st, ability.CutIn and "ORAAA!!" or "ORA!", 6, 0.9)
+			end
+		end
+		VFX.PlaySound("OraHeavy", root.Position, 1)
+	end
+	function Effects.OraHeavyHit(char, data)
+		local at = typeof(data.Pos) == "Vector3" and data.Pos
+		if not at then
+			return
+		end
+		local d = typeof(data.Dir) == "Vector3" and data.Dir or Vector3.new(0, 0, -1)
+		VFX.PlaySound("OraHeavyHit", at, data.Hit and 1 or 0.7)
+		JS.hit("Heavy", at, d)
+		shockDisc(at, d, 2, 22, 0.35, WIND, 10)
+		billboardRing(at, 2, 22, PURPLE, 7, 0.3)
+		streaks(at, d, 14, 2, 10, 26, WIND, 0.3)
+		dustPuffs(groundPoint(at), 1.2, 6, Color3.fromRGB(206, 196, 186), 0.9, true)
+		VFX.ShakeAt(at, 3, 120, 0.35)
+		if data.Hit and nearCamera(at, 60) then
+			VFX.ImpactFrame(0.1)
+		end
+	end
+
+	-- R: STAR PLATINUM: THE WORLD
+	function Effects.StarWorld(char, _data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		if not VFX.Clip(char, "MoveJotaroTimeStop") then
+			VFX.Pose(char, "JotaroPose", 1.2)
+		end
+		local st = CDV and CDV.act(char, "rage", 1.3)
+		if st then
+			CDV.shout(st, "STAR PLATINUM: THE WORLD!!", 10, 1.3)
+		end
+		VFX.SpeechBubble(char, (Config.Voice.StarWorld or {}).Bubble or "STAR PLATINUM: THE WORLD!!", 1.4)
+		VFX.Voice("StarWorld", root)
+		VFX.PlaySound("StarWorld", root.Position, 1)
+		billboardRing(root.Position + UP * 2, 2, 40, PURPLE, 10, 0.5)
+		if isLocal and SHOTS.ZaWarudo then
+			VFX.Cinematic(char, SHOTS.ZaWarudo, { Title = "STAR PLATINUM: THE WORLD", Color = PURPLE, Own = true })
+		end
+	end
+
+	-- 4: BEARING SHOT (the flick; the server sends the shot)
+	function Effects.BearingShot(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		if isLocal then
+			face(root, flatten(data.Dir, root))
+		end
+		VFX.Pose(char, "JotaroPoint", 0.5)
+		if CDV then
+			CDV.act(char, "jabR", 0.35, "m1")
+		end
+		VFX.PlaySound("BearingFlick", root.Position, 1)
+	end
+	function Effects.BearingTrail(char, data)
+		local from, to = data.From, data.To
+		if typeof(from) ~= "Vector3" or typeof(to) ~= "Vector3" then
+			return
+		end
+		local v = to - from
+		local len = v.Magnitude
+		if len < 0.5 then
+			return
+		end
+		local speed = tonumber(data.Speed) or 320
+		local ball = newPart(Vector3.one * 0.35, CFrame.new(from), Color3.fromRGB(200, 204, 214), Enum.Material.Metal, Enum.PartType.Ball)
+		local streak = newPart(Vector3.new(0.12, 0.12, 1), CFrame.lookAt(from, to), PURPLE, Enum.Material.Neon)
+		streak.Transparency = 0.3
+		local time = math.clamp(len / speed, 0.03, 1)
+		local t0 = os.clock()
+		repeat
+			local u = math.clamp((os.clock() - t0) / time, 0, 1)
+			local p = from + v * u
+			ball.CFrame = CFrame.new(p)
+			local back = math.min(len * u, 6)
+			streak.Size = Vector3.new(0.12, 0.12, math.max(back, 0.1))
+			streak.CFrame = CFrame.lookAt(p - v.Unit * back / 2, p)
+			task.wait()
+		until u >= 1
+		tween(streak, 0.12, { Transparency = 1 })
+		cleanup(streak, 0.15)
+		cleanup(ball, 0.05)
+		for _, m in type(data.Hits) == "table" and data.Hits or {} do
+			local r = typeof(m) == "Instance" and m:FindFirstChild("HumanoidRootPart")
+			if r then
+				VFX.PlaySound("BearingHit", r.Position, 1)
+				JS.hit("Light", r.Position, v.Unit)
+				sparks(r.Position, 0.6, WHITE, PURPLE, 8)
+			end
+		end
+		sparks(to, 0.4, WHITE, PURPLE, 4)
+	end
+
+	-- ULT 4: ORA ORA... ORA!!
+	function Effects.OraFinale(char, _data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		VFX.Pose(char, "JotaroPose", 1)
+		local st = CDV and CDV.act(char, "rage", 0.8)
+		if st then
+			CDV.shout(st, "...YARE YARE DAZE.", 8, 1)
+		end
+		VFX.Voice("YareYare", root)
+		if isLocal and SHOTS.RoadRoller then
+			VFX.Cinematic(char, SHOTS.ZaWarudo or SHOTS.RoadRoller, { Title = "ORA ORA... ORA!!", Color = PURPLE, Own = true })
+		end
+	end
+	function Effects.OraFinaleGo(char, data)
+		local root = charParts(char)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local tr = target and target:FindFirstChild("HumanoidRootPart")
+		if not root or not CDV then
+			return
+		end
+		local hits, interval = tonumber(data.Hits) or 30, tonumber(data.Interval) or 0.05
+		local total = 0.3 + hits * interval
+		local st = CDV.act(char, "barrage", total, "barrage")
+		if not st then
+			return
+		end
+		CDV.shout(st, "ORA ORA ORA ORA ORA!!", 10, total)
+		VFX.PlaySound("OraVoice", root.Position, 1.2)
+		for k = 1, hits do
+			task.delay(0.3 + (k - 1) * interval, function()
+				if not root.Parent then
+					return
+				end
+				if k % 2 == 0 then
+					VFX.PlaySound("Dora", root.Position, 0.6)
+				end
+				if tr and tr.Parent and k % 3 == 0 then
+					sparks(tr.Position + Vector3.new(rand(-1, 1), rand(-0.5, 1.5), rand(-1, 1)), 0.5, WHITE, PURPLE, 4)
+				end
+				if k % 8 == 0 then
+					CDV.shout(st, "ORA!", 5, 0.4)
+				end
+			end)
+		end
+	end
+	function Effects.OraFinaleBlow(char, data)
+		local target = typeof(data.Target) == "Instance" and data.Target or nil
+		local tr = target and target:FindFirstChild("HumanoidRootPart")
+		local st = CDV and CDV.act(char, "heavy", 0.7, "heavy")
+		if st then
+			CDV.shout(st, "ORAAAA!!", 10, 1)
+		end
+		if tr then
+			local d = typeof(data.Dir) == "Vector3" and data.Dir or Vector3.new(0, 0, -1)
+			VFX.PlaySound("OraHeavyHit", tr.Position, 1.2)
+			JS.hit("Heavy", tr.Position, d)
+			shockDisc(tr.Position, d, 3, 30, 0.4, WIND, 12)
+			billboardRing(tr.Position, 3, 30, PURPLE, 9, 0.35)
+			VFX.ShakeAt(tr.Position, 3.5, 150, 0.4)
+			if nearCamera(tr.Position, 80) then
+				VFX.ImpactFrame(0.12)
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- POM'S MOVES (his own body: the JJBA place's clips on him where it had
+	-- them - MovePOMFist, MovePOMHeavyStart, MovePOMHeavy, MovePOMVoidBall)
+	---------------------------------------------------------------------
+	POSES.POMPunch = POSES.POMPunch or { RightArm = { 95, 0, -4 }, LeftArm = { 30, 0, 22 }, Waist = { -12, 26, 0 }, Neck = { -4, -16, 0 }, RightLeg = { -18, 0, 6 }, LeftLeg = { 22, 0, 4 } }
+	POSES.POMWind = POSES.POMWind or { RightArm = { 40, 0, 50 }, LeftArm = { 60, 0, -10 }, Waist = { 8, -30, 0 }, Neck = { -6, 20, 0 }, RightLeg = { 10, 0, 8 }, LeftLeg = { -14, 0, 6 } }
+	POSES.POMThrow = POSES.POMThrow or { RightArm = { 120, 0, -10 }, LeftArm = { 20, 0, 30 }, Waist = { -18, 20, 0 }, Neck = { -8, -12, 0 }, RightLeg = { -20, 0, 6 }, LeftLeg = { 24, 0, 4 } }
+	local function pomClip(char, name, pose, hold)
+		if not VFX.Clip(char, name) then
+			VFX.Pose(char, pose, hold or 0.5)
+		end
+	end
+	local function voidBurst(at, size)
+		sparks(at, size * 0.6, CYAN, VOID, math.floor(6 + size * 4))
+		billboardRing(at, size, size * 6, CYAN, 4, 0.25)
+		local core = newPart(Vector3.one * size, CFrame.new(at), VOID, Enum.Material.Neon, Enum.PartType.Ball)
+		tween(core, 0.25, { Size = Vector3.one * size * 3, Transparency = 1 })
+		cleanup(core, 0.3)
+	end
+
+	-- 1: FIST ATTACK (his own screen carries him in)
+	function Effects.POMFist(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local ability = JS.spec(char, "POMFist")
+		local d = flatten(data.Dir, root)
+		if isLocal then
+			face(root, d)
+			task.delay(ability.Startup or 0.18, function()
+				if root.Parent then
+					dash(root, d * ((ability.Lunge or 9) / 0.12), 0.12)
+				end
+			end)
+		end
+		pomClip(char, "MovePOMFist", "POMPunch", 0.5)
+		VFX.PlaySound("POMSwing", root.Position, 1)
+	end
+	function Effects.POMHit(char, data)
+		local at = typeof(data.Pos) == "Vector3" and data.Pos
+		if not at then
+			return
+		end
+		local d = typeof(data.Dir) == "Vector3" and data.Dir or Vector3.new(0, 0, -1)
+		if data.Heavy then
+			VFX.PlaySound("POMHeavyHit", at, 1)
+			JS.hit("Heavy", at, d)
+			shockDisc(at, d, 2, 20, 0.3, CYAN, 8)
+			VFX.ShakeAt(at, 2.6, 100, 0.3)
+		else
+			VFX.PlaySound(data.Hit and "POMHit" or "POMSwing", at, 1)
+			if data.Hit then
+				JS.hit("Light", at, d)
+			end
+		end
+		voidBurst(at, data.Heavy and 1.6 or 0.9)
+		local shock = tonumber(data.Shock)
+		if shock then
+			local g = groundPoint(at)
+			shockDisc(g + UP * 0.5, UP, 4, shock * 2, 0.4, CYAN)
+			dustPuffs(g, 1.2, 8, Color3.fromRGB(60, 64, 72), 1, true)
+			rocks(g, 1.2, 8)
+		end
+	end
+	-- 2: DOUBLE ATTACK
+	function Effects.POMDouble(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local ability = JS.spec(char, "POMDouble")
+		if isLocal then
+			face(root, flatten(data.Dir, root))
+		end
+		pomClip(char, "MovePOMFist", "POMPunch", 0.4)
+		VFX.PlaySound("POMSwing", root.Position, 1)
+		task.wait((ability.Startup or 0.3) + (ability.Gap or 0.42) - 0.12)
+		if root.Parent then
+			pomClip(char, "MovePOMHeavy", "POMPunch", 0.5)
+			VFX.PlaySound("POMSwing", root.Position, 1)
+		end
+	end
+	-- 3: HEAVY CHARGE (the wind-up; the server sends the release)
+	function Effects.POMCharge(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local ability = JS.spec(char, "POMCharge")
+		if isLocal then
+			face(root, flatten(data.Dir, root))
+		end
+		pomClip(char, "MovePOMHeavyStart", "POMWind", ability.Charge or 0.9)
+		VFX.PlaySound("POMCharge", root.Position, 1)
+		local t0 = os.clock()
+		while os.clock() - t0 < (ability.Charge or 0.9) and root.Parent do
+			local a = rand(0, math.pi * 2)
+			local out = Vector3.new(math.cos(a), rand(-0.3, 0.6), math.sin(a)) * rand(3, 5)
+			local p = newPart(Vector3.one * 0.3, CFrame.new(root.Position + out), CYAN, Enum.Material.Neon, Enum.PartType.Ball)
+			tween(p, 0.25, { CFrame = CFrame.new(root.Position + UP * 0.5), Size = Vector3.one * 0.05 })
+			cleanup(p, 0.3)
+			task.wait(0.05)
+		end
+	end
+	function Effects.POMChargeRelease(char)
+		local root = charParts(char)
+		if root then
+			pomClip(char, "MovePOMHeavy", "POMPunch", 0.6)
+			VFX.ShakeAt(root.Position, 2, 80, 0.25)
+		end
+	end
+	-- R: VOID BALL (the throw; the server sends the ball)
+	function Effects.POMVoid(char, data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		if isLocal then
+			face(root, flatten(data.Dir, root))
+		end
+		pomClip(char, "MovePOMVoidBall", "POMThrow", 0.6)
+		VFX.PlaySound("POMVoid", root.Position, 1)
+	end
+	-- a void ball down its line on every screen (the server's own numbers)
+	function Effects.POMVoidBall(char, data)
+		local from, d = data.From, data.Dir
+		if typeof(from) ~= "Vector3" or typeof(d) ~= "Vector3" or d.Magnitude < 0.1 then
+			return
+		end
+		d = d.Unit
+		local speed, range = tonumber(data.Speed) or 75, tonumber(data.Range) or 90
+		local radius = tonumber(data.Radius) or 3.2
+		local src = JS.effect("POM")
+		src = src and src:FindFirstChild("AntiPHYSeball")
+		local ball
+		if src and JC.Enabled ~= false then
+			ball = bare(src:Clone())
+			ball.Size = Vector3.one * radius * 2
+			ball.Parent = folder
+		else
+			ball = newPart(Vector3.one * radius * 2, CFrame.new(from), VOID, Enum.Material.Neon, Enum.PartType.Ball)
+		end
+		ball.CFrame = CFrame.new(from)
+		local rim = newPart(Vector3.one * radius * 2.3, CFrame.new(from), CYAN, Enum.Material.ForceField, Enum.PartType.Ball)
+		rim.Transparency = 0.3
+		VFX.PlaySound(data.Last and "POMLastWord" or "POMVoid", from, 1)
+		local t0 = os.clock()
+		local time = range / speed
+		local lastPuff = 0
+		while os.clock() - t0 < time do
+			local u = (os.clock() - t0) / time
+			local at = from + d * range * u
+			local spin = CFrame.Angles(0, (os.clock() - t0) * 6, 0)
+			ball.CFrame = CFrame.new(at) * spin
+			rim.CFrame = ball.CFrame
+			if os.clock() - lastPuff > 0.08 then
+				lastPuff = os.clock()
+				if nearCamera(at, 160) then
+					local edge = at + rng:NextUnitVector() * radius
+					sparks(edge, 0.4, CYAN, VOID, 3)
+					VFX.PlaySound("POMErase", at, 0.6)
+				end
+			end
+			task.wait()
+		end
+		tween(ball, 0.25, { Size = Vector3.one * 0.1, Transparency = 1 })
+		tween(rim, 0.25, { Size = Vector3.one * radius * 4, Transparency = 1 })
+		cleanup(ball, 0.3)
+		cleanup(rim, 0.3)
+		voidBurst(from + d * range, radius)
+	end
+	-- 4: VOID SLAM (the server carries him; this draws it)
+	function Effects.POMSlam(char)
+		local root = charParts(char)
+		if root then
+			pomClip(char, "MovePOMHeavyStart", "POMWind", 0.5)
+			VFX.PlaySound("POMJump", root.Position, 1)
+		end
+	end
+	function Effects.POMSlamGo(char, data)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		local t = tonumber(data.Time) or 0.55
+		local t0 = os.clock()
+		while os.clock() - t0 < t and root.Parent do
+			if nearCamera(root.Position, 160) then
+				local p = newPart(Vector3.one * 0.6, CFrame.new(root.Position), VOID, Enum.Material.Neon, Enum.PartType.Ball)
+				tween(p, 0.3, { Size = Vector3.one * 0.05, Transparency = 1 })
+				cleanup(p, 0.35)
+			end
+			task.wait(0.04)
+		end
+		if root.Parent then
+			pomClip(char, "MovePOMHeavy", "POMPunch", 0.5)
+		end
+	end
+	function Effects.POMSlamLand(char, data)
+		local at = typeof(data.Pos) == "Vector3" and data.Pos
+		if not at then
+			return
+		end
+		local r = tonumber(data.Radius) or 15
+		VFX.PlaySound("POMSlam", at, 1)
+		JS.hit("Heavy", at + UP, UP)
+		shockDisc(at + UP * 0.5, UP, 4, r * 2.2, 0.45, CYAN)
+		shockDisc(at + UP * 0.8, UP, 2, r * 1.6, 0.35, WIND)
+		dustPuffs(at, 2, 12, Color3.fromRGB(60, 64, 72), 1.2, true)
+		rocks(at, 2, 14)
+		groundMark(at, r * 0.6, Color3.fromRGB(20, 22, 28), 6)
+		voidBurst(at + UP, 2.5)
+		VFX.ShakeAt(at, 3.5, 160, 0.45)
+		if nearCamera(at, 70) then
+			VFX.ImpactFrame(0.08)
+		end
+	end
+	-- ULT 4: LAST WORD (the wind-up; the server sends the ball)
+	function Effects.POMLastWord(char, _data, isLocal)
+		local root = charParts(char)
+		if not root then
+			return
+		end
+		pomClip(char, "MovePOMHeavyStart", "POMWind", 1.1)
+		VFX.SpeechBubble(char, (Config.Voice.POMLastWordCall or {}).Bubble or "LAST WORD.", 1.6)
+		VFX.Voice("POMLastWordCall", root)
+		VFX.PlaySound("POMCharge", root.Position, 1.2)
+		if isLocal and SHOTS.ZaWarudo then
+			VFX.Cinematic(char, SHOTS.ZaWarudo, { Title = "LAST WORD", Color = CYAN, Own = true })
+		end
+		local t0 = os.clock()
+		while os.clock() - t0 < 1 and root.Parent do
+			local a = rand(0, math.pi * 2)
+			local out = Vector3.new(math.cos(a), rand(-0.2, 1), math.sin(a)) * rand(5, 9)
+			local p = newPart(Vector3.one * 0.5, CFrame.new(root.Position + out), CYAN, Enum.Material.Neon, Enum.PartType.Ball)
+			tween(p, 0.3, { CFrame = CFrame.new(root.Position + UP * 2), Size = Vector3.one * 0.05 })
+			cleanup(p, 0.35)
+			task.wait(0.03)
+		end
+		if root.Parent then
+			pomClip(char, "MovePOMVoidBall", "POMThrow", 0.8)
+		end
+	end
 end)()
 
 return VFX

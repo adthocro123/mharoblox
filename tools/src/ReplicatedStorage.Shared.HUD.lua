@@ -5344,9 +5344,49 @@ do
 			FH.readyName.Visible = ready
 			FH.say(FH.readyName, string.upper(ultName or "ULT"))
 			FH.fitLabel(FH.readyName)
+			FH.drawMeter(hero, ready, active)
 		end
 		ultReady = ready
 		FH.touchUlt()
+	end
+
+	-- (round 102) A HERO'S OWN WORDS FOR HIS METER (Config.Quirks[q].Meter -
+	-- Mob's emotion counter): his tag small over the % (Label: MOB), full:
+	-- the key and Full (100%) in place of the ult's name, up: Active (???%)
+	-- in place of the seconds. Every other hero's meter as it was.
+	function FH.drawMeter(hero, ready, active)
+		local V = FH.cfg("Vitals")
+		local m = hero and FH.state.meter or nil
+		if FH.readyName and FH.readyKey then
+			-- (the ult's name back after the key - where a meter's ??? moved it)
+			FH.readyName.Position = FH.at(FH.ex + FH.readyKey.Size.X.Offset + 6, top(FH.ly, V.Ready))
+			FH.mirror(FH.readyName)
+		end
+		if not m then
+			if FH.meterTag then
+				FH.meterTag.Visible = false
+				FH.mirror(FH.meterTag)
+			end
+			return
+		end
+		if not FH.meterTag then
+			FH.meterTag = FH.pair({ Name = "UltTag", Text = "", Size = V.PctSign, Shadow = 1, Z = 2, Parent = ultBar, Visible = false, Pos = UDim2.new() })
+		end
+		local tag = FH.meterTag
+		tag.Visible = true
+		FH.say(tag, string.upper(tostring(m.Label or "")))
+		tag.Position = FH.at(FH.ex + 1, top(FH.ly - (ready and V.ReadyKey or V.Pct) - 3, V.PctSign))
+		FH.fitLabel(tag)
+		if ready then
+			FH.say(FH.readyName, tostring(m.Full or "100%"))
+			FH.fitLabel(FH.readyName)
+		elseif active then
+			FH.ultSecs.Visible = false
+			FH.readyName.Visible = true
+			FH.readyName.Position = FH.at(FH.ex, top(FH.ly, V.Ready))
+			FH.say(FH.readyName, tostring(m.Active or "???%"))
+			FH.fitLabel(FH.readyName)
+		end
 	end
 
 	-- one paper frame on the slash (the full ult's beat)
@@ -5387,6 +5427,7 @@ do
 		st.name = view and string.upper(view.DisplayName or "") or nil
 		st.mode = view and view.ModeName or nil
 		st.color = view and view.Color or nil
+		st.meter = view and type(view.Meter) == "table" and view.Meter or nil -- (round 102: a hero's own meter words)
 		if FH.slash then
 			ST.tintSlash(FH.slash, st.color or tok().Paper)
 		end
