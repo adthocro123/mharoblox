@@ -1,0 +1,38 @@
+{
+ "items": [
+  [
+   "ReplicatedStorage.Tools",
+   "ReplicatedStorage.JJBA",
+   "Items"
+  ],
+  [
+   "ReplicatedStorage.AnimParts",
+   "ReplicatedStorage.JJBA",
+   "Held"
+  ],
+  [
+   "ReplicatedStorage.Animatons.getstand.UseArrow_Dummy3",
+   "ReplicatedStorage.Animations",
+   "MoveStandArrow",
+   [
+    "IntValue",
+    "Folder",
+    "StringValue",
+    "NumberValue",
+    "BoolValue"
+   ]
+  ],
+  [
+   "ReplicatedStorage.Animatons.GenericAnimationXyiation.RokakakaEat.RokakakaEat_Dummy3",
+   "ReplicatedStorage.Animations",
+   "MoveRokakakaEat",
+   [
+    "IntValue",
+    "Folder",
+    "StringValue",
+    "NumberValue",
+    "BoolValue"
+   ]
+  ]
+ ]
+}

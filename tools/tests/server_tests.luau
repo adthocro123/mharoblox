@@ -14392,6 +14392,202 @@ end)
 	task.wait(0.2)
 end)
 
+---------------------------------------------------------------------------
+-- Round 106: THE STAND ARROWS AND THE ROKAKAKA (the owner's JJBA place's,
+-- lying about the city): an arrow gives a Stand - his, past the DEV ONLY
+-- lock -, a Rokakaka takes it back off him
+---------------------------------------------------------------------------
+;M.section(function()
+	print("== round 106: the Stand arrows and the Rokakaka")
+	local IT = Config.JJBA.Items
+	check(IT ~= nil and IT.Enabled ~= false and IT.Arrow.Clip == "MoveStandArrow" and IT.Rokakaka.Clip == "MoveRokakakaEat"
+		and IT.Arrow.Stab < IT.Arrow.Give and IT.Arrow.Give < IT.Arrow.Time and IT.Rokakaka.Take < IT.Rokakaka.Time,
+		"Config.JJBA.Items: the arrow and the Rokakaka, on the JJBA place's clips")
+	local pool = {}
+	for _, e in IT.Arrow.Pool do
+		pool[e[1]] = e[2]
+	end
+	check(pool.StarPlatinum == 59 and pool.TheWorld == 41, "the arrow's pool: the JJBA place's odds (Star Platinum 59, The World 41)")
+	check(IT.Arrow.Prompt.Hold == 0 and IT.Rokakaka.Prompt.Hold == 0, "no hold on their prompts (the game presses one for you with a tap of E)")
+	check(type(Config.Sounds.StandArrowStab) == "table" and type(Config.Sounds.StandArrowAwaken) == "table" and type(Config.Sounds.RokakakaBite) == "table" and type(Config.Sounds.RokakakaGone) == "table",
+		"their sounds")
+	local JI = dx.JJBAItems
+	check(JI ~= nil and type(JI.use) == "function" and type(JI.keeps) == "function", "the server has them (Kit.JI)")
+	if not JI then
+		return
+	end
+	-- stand-ins for ReplicatedStorage.JJBA.Items (the place has the JJBA place's own)
+	local J = ReplicatedStorage:FindFirstChild("JJBA")
+	if not J then
+		J = M.new("Folder", "JJBA")
+		J.Parent = ReplicatedStorage
+	end
+	local items = M.new("Folder", "Items")
+	items.Parent = J
+	for _, n in { "Arrow", "Rokakaka" } do
+		local p = M.new("Part", n)
+		p.Size = n == "Arrow" and Vector3.new(2.5, 0.1, 0.1) or Vector3.new(1, 1, 1)
+		p.CFrame = n == "Arrow" and CFrame.Angles(0, 0, math.pi / 2) or CFrame.new() -- (the arrow stood on end, as it's stored)
+		local pp = M.new("ProximityPrompt", "ProximityPrompt")
+		pp.HoldDuration = 0.5
+		pp.Parent = p
+		p.Parent = items
+	end
+	local X = 106000
+	JI.spotList = {}
+	for i = 0, 5 do
+		table.insert(JI.spotList, Vector3.new(X + i * 40, 0, 0))
+	end
+	JI.live():ClearAllChildren()
+	JI.started = false
+	JI.start()
+	local function lying(kind)
+		local out = {}
+		for _, it in JI.live():GetChildren() do
+			if it:GetAttribute("JJBAItem") == kind then
+				table.insert(out, it)
+			end
+		end
+		return out
+	end
+	check(#lying("Arrow") == IT.Arrow.Count and #lying("Rokakaka") == IT.Rokakaka.Count,
+		"they're about: " .. #lying("Arrow") .. " arrows, " .. #lying("Rokakaka") .. " Rokakaka")
+	local spotsUsed, dup = {}, false
+	for _, it in JI.live():GetChildren() do
+		local s = it:GetAttribute("JJBASpot")
+		dup = dup or s == nil or spotsUsed[s] ~= nil
+		spotsUsed[s or 0] = true
+	end
+	check(not dup, "...each at a spot of its own")
+	local arrow = lying("Arrow")[1]
+	local pp = arrow:FindFirstChildOfClass("ProximityPrompt")
+	check(arrow.Anchored == true and arrow.CanCollide == false and pp ~= nil and pp.HoldDuration == 0 and pp.MaxActivationDistance == IT.Arrow.Prompt.Range
+		and pp.ActionText == IT.Arrow.Prompt.Action and pp.KeyboardKeyCode == Enum.KeyCode.E,
+		"an arrow lies anchored with its prompt (E, no hold)")
+	check(math.abs(arrow.Position.Y - (1.25 + IT.Float)) < 0.05, "...stood on end, Float off the ground (" .. string.format("%.2f", arrow.Position.Y) .. ")")
+	check(arrow:FindFirstChildOfClass("PointLight") ~= nil, "...with a glow")
+
+	-- B: no dev access, on a public hero
+	studioMode = false
+	game.CreatorId = 1
+	A:SetAttribute("Tester", true)
+	local function stand(at)
+		if bChar then
+			bChar.Parent = nil
+		end
+		bChar, bHum, bRoot = spawnChar(B, CFrame.new(at))
+		task.wait(0.05)
+	end
+	fire(TestCommand, A, "GrantDev", B.UserId, true)
+	fire(TestCommand, A, "GrantDev", B.UserId, false) -- (his access settled: none)
+	fire(SelectQuirk, B, "Explosion")
+	task.wait(0.1)
+	check(B:GetAttribute("Quirk") == "Explosion" and B:GetAttribute("DevAccess") == false, "B: no dev access, on Explosion")
+	stand(arrow.Position + Vector3.new(40, 2, 0))
+	check(JI.use(B, arrow, 0.1) == false and arrow.Parent ~= nil, "too far from it: nothing")
+	stand(arrow.Position + Vector3.new(3, 2, 0))
+	clearSent()
+	local spot = arrow:GetAttribute("JJBASpot")
+	IT.Arrow.Respawn = 0.5
+	local ok = JI.use(B, arrow, 0.1)
+	local sent = sentTo(B, "JJBAItem")
+	check(ok == true and arrow.Parent == nil, "B stabs himself with it: it's off the street")
+	check(#sent == 1 and sent[1].Kind == "Arrow" and sent[1].Stand == "StarPlatinum" and typeof(sent[1].From) == "Vector3",
+		"...every screen plays it (JJBAItem: the arrow, Star Platinum, from where it lay)")
+	check((tonumber(bChar:GetAttribute("CombatActionUntil")) or 0) >= workspace:GetServerTimeNow() + IT.Arrow.Time - 0.2 and bChar:GetAttribute("SlowedTo") == 0,
+		"...held still for its clip")
+	check(B:GetAttribute("Quirk") == "Explosion", "...not his yet (the Stand comes at Give)")
+	local other = lying("Arrow")[1]
+	check(JI.use(B, other, 0.1) == false and other.Parent ~= nil, "...and he can't take another meanwhile")
+	task.wait(IT.Arrow.Give + 0.15)
+	check(B:GetAttribute("Quirk") == "StarPlatinum" and B:GetAttribute("ArrowStand") == "StarPlatinum" and B:GetAttribute("StandFrom") == "Explosion",
+		"a Stand awakens in him: STAR PLATINUM (his: ArrowStand; from Explosion)")
+	local told = sentTo(B, "Notice")
+	check(#told >= 1 and tostring(told[#told].Text):find("STAR PLATINUM", 1, true) ~= nil, "...and he's told")
+	task.wait(0.6)
+	local back = lying("Arrow")
+	local again = false
+	for _, it in back do
+		again = again or it:GetAttribute("JJBASpot") == spot
+	end
+	check(#back == IT.Arrow.Count and not again, "the arrow's back Respawn s later, somewhere else")
+	-- the DEV ONLY lock leaves it with him
+	fire(TestCommand, A, "GrantDev", B.UserId, true)
+	fire(TestCommand, A, "GrantDev", B.UserId, false)
+	check(B:GetAttribute("DevAccess") == false and B:GetAttribute("Quirk") == "StarPlatinum", "losing dev access leaves him his arrow's Stand")
+	-- not two Stands
+	task.wait(IT.Arrow.Time - IT.Arrow.Give)
+	clearSent()
+	other = lying("Arrow")[1]
+	stand(other.Position + Vector3.new(3, 2, 0))
+	check(JI.use(B, other, 0.5) == false and other.Parent ~= nil and B:GetAttribute("Quirk") == "StarPlatinum", "an arrow won't take to a Stand user")
+	told = sentTo(B, "Notice")
+	check(#told == 1 and told[1].Text == IT.Text.HaveStand, "...he's told why")
+	-- the Rokakaka takes it
+	local fruit = lying("Rokakaka")[1]
+	stand(fruit.Position + Vector3.new(3, 2, 0))
+	clearSent()
+	IT.Rokakaka.Respawn = 0.5
+	check(JI.use(B, fruit) == true and fruit.Parent == nil, "he eats a Rokakaka")
+	sent = sentTo(B, "JJBAItem")
+	check(#sent == 1 and sent[1].Kind == "Rokakaka" and sent[1].Stand == "StarPlatinum", "...every screen plays it")
+	task.wait(IT.Rokakaka.Take + 0.15)
+	check(B:GetAttribute("Quirk") == "Explosion" and B:GetAttribute("ArrowStand") == nil and B:GetAttribute("StandFrom") == nil,
+		"his Stand's gone: Explosion again")
+	task.wait(IT.Rokakaka.Time - IT.Rokakaka.Take + 0.5)
+	fruit = lying("Rokakaka")[1]
+	stand(fruit.Position + Vector3.new(3, 2, 0))
+	clearSent()
+	check(JI.use(B, fruit) == false and fruit.Parent ~= nil and #sentTo(B, "Notice") == 1, "a Rokakaka does nothing without a Stand (he's told)")
+	-- picking another hero himself gives an arrow's Stand up
+	other = lying("Arrow")[1]
+	stand(other.Position + Vector3.new(3, 2, 0))
+	check(JI.use(B, other, 0.9) == true, "another arrow...")
+	task.wait(IT.Arrow.Give + 0.15)
+	check(B:GetAttribute("Quirk") == "TheWorld" and B:GetAttribute("ArrowStand") == "TheWorld", "...THE WORLD this time (the pool's other 41)")
+	task.wait(IT.Arrow.Time - IT.Arrow.Give + 2.6) -- (past the switch cooldown)
+	fire(SelectQuirk, B, "Engine")
+	check(B:GetAttribute("Quirk") == "Engine" and B:GetAttribute("ArrowStand") == nil, "picking another hero gives it up")
+	task.wait(2.6)
+	fire(SelectQuirk, B, "TheWorld")
+	check(B:GetAttribute("Quirk") == "Engine", "...and he can't pick it back (DEV ONLY)")
+	-- knocked out before it takes: nothing
+	other = lying("Arrow")[1]
+	stand(other.Position + Vector3.new(3, 2, 0))
+	check(JI.use(B, other, 0.1) == true, "an arrow...")
+	bHum.Health = 0
+	task.wait(IT.Arrow.Give + 0.15)
+	check(B:GetAttribute("Quirk") == "Engine" and B:GetAttribute("ArrowStand") == nil, "...knocked out before it takes: no Stand")
+	-- busy: not now
+	task.wait(0.6)
+	other = lying("Arrow")[1]
+	stand(other.Position + Vector3.new(3, 2, 0))
+	bChar:SetAttribute("Ragdolled", true)
+	clearSent()
+	check(JI.use(B, other, 0.1) == false and other.Parent ~= nil and #sentTo(B, "Notice") == 1, "ragdolled: not now")
+	bChar:SetAttribute("Ragdolled", nil)
+	-- Unlocks = false: only the Stands he could pick anyway (none, without access)
+	IT.Unlocks = false
+	clearSent()
+	check(JI.use(B, other, 0.1) == false and other.Parent ~= nil and #sentTo(B, "Notice") == 1, "Unlocks = false: no Stand answers him (they're DEV ONLY)")
+	fire(TestCommand, A, "GrantDev", B.UserId, true)
+	check(JI.draw(B, 0.1) == "StarPlatinum", "...with dev access, the pool's his again")
+	fire(TestCommand, A, "GrantDev", B.UserId, false)
+	IT.Unlocks = true
+	-- Enabled = false: nothing more comes back
+	IT.Enabled = false
+	check(JI.fill("Arrow") == nil, "Enabled = false: none put down")
+	IT.Enabled = true
+	-- back as it was
+	IT.Arrow.Respawn, IT.Rokakaka.Respawn = 60, 60
+	JI.live():ClearAllChildren()
+	studioMode = true
+	stand(Vector3.new(0, 3, 4))
+	fire(SelectQuirk, B, "Explosion")
+	task.wait(0.2)
+end)
+
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}

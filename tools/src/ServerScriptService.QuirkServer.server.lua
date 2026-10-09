@@ -20170,7 +20170,9 @@ local function refreshDevAccess(player)
 	-- lost access while playing a dev character: back to a regular quirk
 	-- (round 86: DEV ONLY as the roster switch has it, Config.IsDevOnly)
 	local quirk = Config.Quirks[player:GetAttribute("Quirk") or ""]
-	if quirk and Config.IsDevOnly(player:GetAttribute("Quirk")) and not canUseDev(player) then
+	-- ((round 106) an arrow's Stand stays his: Kit.JI.keeps)
+	if quirk and Config.IsDevOnly(player:GetAttribute("Quirk")) and not canUseDev(player)
+		and not (Kit.JI and Kit.JI.keeps(player, player:GetAttribute("Quirk"))) then
 		for _, name in Config.QuirkOrder do
 			if not Config.IsDevOnly(name) then
 				applyQuirk(player, name)
@@ -20351,7 +20353,8 @@ do
 		end
 		for _, player in Players:GetPlayers() do
 			local q = player:GetAttribute("Quirk")
-			if q and Config.Quirks[q] and not was[q] and Config.IsDevOnly(q) and not canUseDev(player) then
+			if q and Config.Quirks[q] and not was[q] and Config.IsDevOnly(q) and not canUseDev(player)
+				and not (Kit.JI and Kit.JI.keeps(player, q)) then -- ((round 106) an arrow's Stand stays his)
 				local shown = Config.Quirks[q].DisplayName or q
 				if RO.KeepUntilRespawn == false then
 					Roster.pulled[player] = nil
@@ -25491,7 +25494,7 @@ do
 		local dealt = AE.dealt[plr]
 		AE.home[plr], AE.dealt[plr] = nil, nil
 		local q = Config.Quirks[home or ""]
-		if dealt and plr:GetAttribute("Quirk") == dealt and q and (not Config.IsDevOnly(home) or canUseDev(plr)) then
+		if dealt and plr:GetAttribute("Quirk") == dealt and q and (not Config.IsDevOnly(home) or canUseDev(plr) or (Kit.JI and Kit.JI.keeps(plr, home))) then
 			AE.swap(plr, home)
 			AE.tell(plr, "HERO SHUFFLE's over: you're " .. string.upper(q.DisplayName or home) .. " again", true)
 		end
@@ -35223,6 +35226,372 @@ UseAbility.OnServerEvent:Connect(function(player, ...)
 	Kit.onUseAbility(player, ...)
 end)
 
+---------------------------------------------------------------------------
+-- (round 106) THE STAND ARROWS AND THE ROKAKAKA (Config.JJBA.Items; Kit.JI):
+-- the owner's JJBA place's, lying about the city. An arrow: a Stand awakens
+-- in whoever stabs himself with it (one of Pool, by weight) - his from then
+-- on. A Rokakaka: a Stand user eats it and his Stand leaves him. Each one
+-- taken comes back Respawn s later wherever's free. Everyone's screen plays
+-- the JJBA place's clip with the thing in his hand (VFX "JJBAItem").
+-- (In a function of its own: the main chunk's at its local limit.)
+---------------------------------------------------------------------------
+xpcall(function()
+	local IT = Config.JJBA and Config.JJBA.Items
+	if not IT then
+		return
+	end
+	local RS = game:GetService("ReplicatedStorage")
+	local JI = { used = setmetatable({}, { __mode = "k" }), busy = setmetatable({}, { __mode = "k" }), spotList = nil, started = false }
+	Kit.JI = JI
+	Destruction.JJBAItems = JI -- (the tests)
+	local KINDS = { "Arrow", "Rokakaka" }
+	local STANDS = {}
+	for _, q in IT.Stands or {} do
+		STANDS[q] = true
+	end
+	local T = IT.Text or {}
+	local RED = Color3.fromRGB(255, 150, 120)
+
+	function JI.isStand(q)
+		return q ~= nil and (STANDS[q] == true or (Config.Quirks[q] ~= nil and Config.Quirks[q].Stand == true))
+	end
+	-- an arrow's Stand stays his (refreshDevAccess, the roster switch, HERO SHUFFLE)
+	function JI.keeps(player, q)
+		return IT.Unlocks ~= false and q ~= nil and player:GetAttribute("ArrowStand") == q
+	end
+	-- he picked a hero himself (SelectQuirk): an arrow's Stand is given up
+	function JI.chose(player, q)
+		local had = player:GetAttribute("ArrowStand")
+		if had ~= nil and had ~= q then
+			player:SetAttribute("ArrowStand", nil)
+			player:SetAttribute("StandFrom", nil)
+		end
+	end
+	-- where a Rokakaka leaves him: the hero he was before the arrow, or the
+	-- first one he can pick that isn't a Stand
+	function JI.home(player)
+		local function ok(q)
+			return q ~= nil and Config.Quirks[q] ~= nil and not JI.isStand(q) and (not Config.IsDevOnly(q) or canUseDev(player))
+		end
+		local from = player:GetAttribute("StandFrom")
+		if ok(from) then
+			return from
+		end
+		for _, q in Config.QuirkOrder do
+			if ok(q) then
+				return q
+			end
+		end
+		return Config.QuirkOrder[1]
+	end
+	-- an arrow's Stand: one of Pool by weight (Unlocks = false: only the ones
+	-- he could pick anyway). roll: 0..1 (the tests)
+	function JI.draw(player, roll)
+		local pool, total = {}, 0
+		for _, e in (IT.Arrow and IT.Arrow.Pool) or {} do
+			local q, w = e[1], tonumber(e[2]) or 0
+			if Config.Quirks[q] and w > 0 and (IT.Unlocks ~= false or not Config.IsDevOnly(q) or canUseDev(player)) then
+				table.insert(pool, { q, w })
+				total += w
+			end
+		end
+		if total <= 0 then
+			return nil
+		end
+		local r = math.clamp(roll or math.random(), 0, 1) * total
+		for _, e in pool do
+			r -= e[2]
+			if r <= 0 then
+				return e[1]
+			end
+		end
+		return pool[#pool][1]
+	end
+
+	function JI.live()
+		local f = workspace:FindFirstChild(IT.Live or "JJBAItems")
+		if not f then
+			f = Instance.new("Folder")
+			f.Name = IT.Live or "JJBAItems"
+			f.Parent = workspace
+		end
+		return f
+	end
+	-- the spots they lie at (worked out once): a list of ground points
+	function JI.spots()
+		if JI.spotList then
+			return JI.spotList
+		end
+		local list = {}
+		local S = IT.Spots or {}
+		if S[1] ~= nil then
+			for _, v in S do
+				if typeof(v) == "Vector3" then
+					table.insert(list, v)
+				end
+			end
+		else
+			local holder = workspace
+			for name in string.gmatch(S.Folder or "Map.Spawns", "[^%.]+") do
+				holder = holder and holder:FindFirstChild(name)
+			end
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			local skip = { JI.live() }
+			if holder then
+				table.insert(skip, holder)
+			end
+			for _, p in Players:GetPlayers() do
+				if p.Character then
+					table.insert(skip, p.Character)
+				end
+			end
+			params.FilterDescendantsInstances = skip
+			local off, up, down = S.Off or 9, S.Up or 3, S.Down or 30
+			for _, pad in holder and holder:GetChildren() or {} do
+				if pad:IsA("BasePart") then
+					-- off to one side of the pad (not where people land), on what's under it
+					local top = pad.Position + Vector3.new(0, pad.Size.Y / 2 + 2.5, 0)
+					local a0 = math.random() * math.pi * 2
+					local found = nil
+					for k = 0, 7 do
+						local a = a0 + k * math.pi / 4
+						local dir = Vector3.new(math.cos(a), 0, math.sin(a)) * off
+						if not workspace:Raycast(top, dir, params) then
+							local hit = workspace:Raycast(top + dir + Vector3.new(0, up, 0), Vector3.new(0, -(up + down), 0), params)
+							if hit and hit.Normal.Y > 0.7 then
+								found = hit.Position
+								break
+							end
+						end
+					end
+					table.insert(list, found or (pad.Position + Vector3.new(0, pad.Size.Y / 2, 0)))
+				end
+			end
+		end
+		JI.spotList = list
+		return list
+	end
+
+	local function source(kind)
+		local J = RS:FindFirstChild(Config.JJBA.Folder or "JJBA")
+		local f = J and J:FindFirstChild(IT.Folder or "Items")
+		return f and f:FindFirstChild(kind)
+	end
+	-- how far the thing reaches below its middle, stood the way it's stored
+	local function halfHeight(part)
+		local cf, s = part.CFrame, part.Size
+		return 0.5 * (math.abs(cf.XVector.Y) * s.X + math.abs(cf.YVector.Y) * s.Y + math.abs(cf.ZVector.Y) * s.Z)
+	end
+
+	-- one lying at ground point `at` (spot: its number in JI.spots())
+	function JI.place(kind, at, spot)
+		local src = source(kind)
+		if not (src and src:IsA("BasePart")) then
+			return nil
+		end
+		local item = src:Clone()
+		for _, d in item:GetDescendants() do
+			if d:IsA("LuaSourceContainer") then
+				d:Destroy()
+			elseif d:IsA("BasePart") then
+				d.Anchored = false
+				d.CanCollide = false
+				d.CanTouch = false
+				d.CanQuery = false -- (no move's rays or the wrecking find it)
+				d.Massless = true
+			end
+		end
+		item.Anchored = true
+		item.CanCollide = false
+		item.CanTouch = false
+		item.CanQuery = false
+		item.CFrame = CFrame.new(at + Vector3.new(0, halfHeight(src) + (IT.Float or 0.8), 0)) * src.CFrame.Rotation
+		local P = (IT[kind] and IT[kind].Prompt) or {}
+		local pp = item:FindFirstChildOfClass("ProximityPrompt") or Instance.new("ProximityPrompt")
+		pp.ActionText = P.Action or ("Use " .. kind)
+		pp.ObjectText = P.Object or kind
+		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.GamepadKeyCode = Enum.KeyCode.DPadRight
+		pp.HoldDuration = P.Hold or 0
+		pp.MaxActivationDistance = P.Range or 10
+		pp.RequiresLineOfSight = false
+		pp.Enabled = true
+		pp.Parent = item
+		local L = IT.Light
+		if L then
+			local light = Instance.new("PointLight")
+			light.Color = L.Color or Color3.new(1, 0.85, 0.5)
+			light.Range = L.Range or 8
+			light.Brightness = L.Brightness or 1
+			light.Parent = item
+		end
+		item:SetAttribute("JJBAItem", kind)
+		item:SetAttribute("JJBASpot", spot)
+		item.Parent = JI.live()
+		pp.Triggered:Connect(function(player)
+			JI.use(player, item)
+		end)
+		return item
+	end
+
+	-- one more `kind` at a free spot (not where one just went: avoid)
+	function JI.fill(kind, avoid)
+		if IT.Enabled == false or Config.JJBA.Enabled == false then
+			return nil
+		end
+		local spots = JI.spots()
+		if #spots == 0 then
+			return nil
+		end
+		local taken = {}
+		for _, it in JI.live():GetChildren() do
+			local i = it:GetAttribute("JJBASpot")
+			if i then
+				taken[i] = true
+			end
+		end
+		local free = {}
+		for i in spots do
+			if not taken[i] and i ~= avoid then
+				table.insert(free, i)
+			end
+		end
+		if #free == 0 and avoid and not taken[avoid] then
+			free = { avoid }
+		end
+		if #free == 0 then
+			task.delay(15, JI.fill, kind) -- (every spot's got one: try again in a bit)
+			return nil
+		end
+		local i = free[math.random(#free)]
+		return JI.place(kind, spots[i], i)
+	end
+
+	function JI.start()
+		if JI.started or IT.Enabled == false then
+			return
+		end
+		JI.started = true
+		for _, kind in KINDS do
+			for _ = 1, (IT[kind] and IT[kind].Count) or 0 do
+				JI.fill(kind)
+			end
+		end
+	end
+
+	-- why he can't use one right now (nil: he can)
+	local function blocked(player, char)
+		if Kit.AE and Kit.AE.heroLocked(player) then
+			return T.Shuffle or "Not now"
+		end
+		if Kit.PS and (Kit.PS.victims[player] or (Kit.PS.away and Kit.PS.away(player))) then
+			return T.Away or "Not now"
+		end
+		if Kit.RK and Kit.RK.foe(player) then
+			return T.Ranked or "Not now"
+		end
+		if char:GetAttribute("Ragdolled") or char:GetAttribute("Stunned") or char:GetAttribute("Frozen")
+			or (tonumber(char:GetAttribute("CombatActionUntil")) or 0) > workspace:GetServerTimeNow() then
+			return T.Busy or "Not now"
+		end
+		return nil
+	end
+
+	local function shown(q)
+		local def = Config.Quirks[q]
+		return string.upper((def and (def.ModeName or def.DisplayName)) or q)
+	end
+
+	-- he pressed one: true if it's his (taken off the street, his clip on
+	-- every screen, the Stand his - or gone - partway through)
+	function JI.use(player, item, roll)
+		local kind = item and item:GetAttribute("JJBAItem")
+		local ks = kind and IT[kind]
+		if not ks or JI.used[item] or not item.Parent or IT.Enabled == false or Config.JJBA.Enabled == false then
+			return false
+		end
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (root and alive(char)) or JI.busy[player] then
+			return false
+		end
+		if (root.Position - item.Position).Magnitude > ((ks.Prompt and ks.Prompt.Range) or 10) + 6 then
+			return false
+		end
+		local why = blocked(player, char)
+		if why then
+			notice(player, why, RED)
+			return false
+		end
+		local q = player:GetAttribute("Quirk")
+		local stand
+		if kind == "Arrow" then
+			if JI.isStand(q) then
+				notice(player, T.HaveStand or "You've got a Stand already", RED)
+				return false
+			end
+			stand = JI.draw(player, roll)
+			if not stand then
+				notice(player, T.NoneLeft or "No Stand answers the arrow", RED)
+				return false
+			end
+		else
+			if not JI.isStand(q) then
+				notice(player, T.NoStand or "Only a Stand user can eat a Rokakaka", RED)
+				return false
+			end
+			stand = q
+		end
+		JI.used[item] = true
+		local token = {}
+		JI.busy[player] = token
+		local from, spot = item.Position, item:GetAttribute("JJBASpot")
+		item:Destroy()
+		task.delay(ks.Respawn or 60, JI.fill, kind, spot)
+		local hold = ks.Time or 2
+		char:SetAttribute("CombatActionUntil", math.max(tonumber(char:GetAttribute("CombatActionUntil")) or 0, workspace:GetServerTimeNow() + hold))
+		slow(char, hold, 0)
+		broadcast("JJBAItem", char, { Kind = kind, From = from, Stand = stand })
+		task.delay(kind == "Arrow" and (ks.Give or 1.9) or (ks.Take or 1.5), function()
+			if JI.busy[player] == token then
+				JI.busy[player] = nil
+			end
+			-- knocked out before it took: nothing (the thing's still used up)
+			if not player.Parent or player.Character ~= char or not alive(char) then
+				return
+			end
+			if kind == "Arrow" then
+				local was = player:GetAttribute("Quirk")
+				if JI.isStand(was) then
+					return -- (on one meanwhile)
+				end
+				applyQuirk(player, stand)
+				player:SetAttribute("ArrowStand", stand)
+				player:SetAttribute("StandFrom", was)
+				local def = Config.Quirks[stand]
+				notice(player, string.format(T.Got or "A Stand awakens in you: %s!", shown(stand)), def and def.Color or Color3.fromRGB(255, 212, 64))
+			else
+				if player:GetAttribute("Quirk") ~= stand then
+					return -- (switched meanwhile)
+				end
+				local home = JI.home(player)
+				player:SetAttribute("ArrowStand", nil)
+				player:SetAttribute("StandFrom", nil)
+				applyQuirk(player, home)
+				local def = Config.Quirks[home]
+				notice(player, string.format(T.Gone or "Your Stand is gone - you're %s again", string.upper((def and def.DisplayName) or home)), Color3.fromRGB(230, 230, 236))
+			end
+		end)
+		return true
+	end
+
+	task.defer(JI.start)
+end, function(err)
+	warn("[JJBA items] " .. tostring(err) .. "\n" .. debug.traceback())
+end)
+
+
 local lastSwitch = {} -- [player] = os.clock() of the last quirk switch
 local SWITCH_COOLDOWN = 2.5
 
@@ -35248,6 +35617,9 @@ SelectQuirk.OnServerEvent:Connect(function(player, quirkName)
 		return
 	end
 	lastSwitch[player] = now
+	if Kit.JI then
+		Kit.JI.chose(player, quirkName) -- (round 106: another hero - an arrow's Stand given up)
+	end
 	applyQuirk(player, quirkName)
 end)
 

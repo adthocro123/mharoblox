@@ -1,5 +1,7 @@
--- export_fixture.luau <assets104.rbxl> <out.rbxm>: ReplicatedStorage.JJBA,
--- trimmed for the tests (the stands, the clips, the effects the code uses)
+-- export_fixture.luau <assets.rbxl> <out.rbxm>: ReplicatedStorage.JJBA,
+-- trimmed for the tests (the stands, the clips, the effects the code uses);
+-- (round 106) and a second root: the clips of ReplicatedStorage.Animations
+-- the Stand arrow and the Rokakaka play
 local roblox = require("@lune/roblox")
 local fs = require("@lune/fs")
 local process = require("@lune/process")
@@ -21,11 +23,26 @@ end
 local pe = roblox.Instance.new("Folder")
 pe.Name = "ParticleEffect"
 pe.Parent = fx
-for _, n in { "SP", "TW", "Cmoon", "MIH", "POM" } do
+for _, n in { "SP", "TW", "Cmoon", "MIH", "POM", "GetStand" } do -- (round 106: GetStand - the arrow's burst)
 	local e = J.Effects.ParticleEffect:FindFirstChild(n)
 	if e then
 		e:Clone().Parent = pe
 	end
 end
-fs.writeFile(process.args[2], roblox.serializeModel({ out }))
-print("wrote", process.args[2], #out:GetDescendants(), "instances")
+-- (round 106) the Stand arrows and the Rokakaka: on the street and in the hand
+for _, n in { "Items", "Held" } do
+	local f = J:FindFirstChild(n)
+	if f then
+		f:Clone().Parent = out
+	end
+end
+local anims = roblox.Instance.new("Folder")
+anims.Name = "Animations"
+for _, n in { "MoveStandArrow", "MoveRokakakaEat" } do
+	local ks = game:GetService("ReplicatedStorage").Animations:FindFirstChild(n)
+	if ks then
+		ks:Clone().Parent = anims
+	end
+end
+fs.writeFile(process.args[2], roblox.serializeModel({ out, anims }))
+print("wrote", process.args[2], #out:GetDescendants(), "instances +", #anims:GetChildren(), "clips")

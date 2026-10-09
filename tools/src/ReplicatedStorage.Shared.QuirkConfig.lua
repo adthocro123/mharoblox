@@ -4728,6 +4728,69 @@ Config.JJBA.Stands.CrazyDiamond = {
 }
 Config.JJBA.Users.CrazyDiamond = "CrazyDiamond"
 
+-- (round 106) THE STAND ARROWS AND THE ROKAKAKA, the owner's JJBA place's:
+-- its Tools (JJBA.Items) lying about the city, its AnimParts (JJBA.Held) in
+-- the hand, its UseArrow and RokakakaEat clips (Animations.MoveStandArrow /
+-- MoveRokakakaEat). Walk up to one and press E (D-pad right; a tap on a
+-- phone):
+-- - an ARROW: he stabs himself with it and a Stand awakens in him - one of
+--   Pool, drawn by weight (the JJBA place's odds: Star Platinum 59, The
+--   World 41) - and he's its user from then on (Kit.JI). Not if he's on a
+--   Stand already.
+-- - a ROKAKAKA: he eats it and his Stand leaves him - he's the hero he was
+--   before the arrow again (or the first public one). Only on a Stand.
+-- Unlocks = true: an arrow's Stand is his though the Stands are DEV ONLY (as
+-- the JJBA place has it: anyone can get one) - his till a Rokakaka takes it
+-- or he picks another hero himself (the DEV ONLY lock, the roster switch and
+-- HERO SHUFFLE leave it with him). false: an arrow draws only from the
+-- Stands he could pick anyway.
+-- Count of each lie about at once, each at a spot of its own: Spots.Folder's
+-- pads (the map's spawns), Spots.Off studs off to one side of each, on
+-- whatever's under it (or Spots: a list of positions). One that's taken
+-- comes back Respawn s later wherever's free. Time: s it holds him (its
+-- clip). Each screen turns them (Spin: degrees a second) and bobs them (Bob
+-- studs) Float studs off the ground. Prompt.Hold stays 0: E is the
+-- finisher's too, and the game presses a prompt for you with a tap.
+-- Enabled = false: none of them about.
+Config.JJBA.Items = {
+	Enabled = true,
+	Folder = "Items", Held = "Held", -- ReplicatedStorage.JJBA.<Folder> (on the street) / <Held> (in the hand)
+	Live = "JJBAItems", -- workspace.<Live>: the ones lying about
+	Spots = { Folder = "Map.Spawns", Off = 9, Up = 3, Down = 30 },
+	Float = 0.8, Spin = 50, Bob = 0.25, Near = 260,
+	Light = { Color = Color3.fromRGB(255, 214, 120), Range = 9, Brightness = 1.4 },
+	Unlocks = true,
+	-- the Stands (an arrow won't take to a hero on one; a Rokakaka takes any of them)
+	Stands = { "StarPlatinum", "TheWorld", "CrazyDiamond", "CMoon", "POM" },
+	Arrow = {
+		Count = 3, Respawn = 60,
+		Pool = { { "StarPlatinum", 59 }, { "TheWorld", 41 } },
+		Prompt = { Action = "Use Arrow", Object = "Stand Arrow", Hold = 0, Range = 10 },
+		-- (s into its clip) Stab: its head goes in (the clip's own keys); Give:
+		-- the Stand's his; Aura: how long the JJBA place's GetStand burst
+		-- (JJBA.Effects.ParticleEffect.GetStand) streams off him from the stab
+		Clip = "MoveStandArrow", Time = 3, Stab = 0.88, Give = 1.9, Aura = 4,
+	},
+	Rokakaka = {
+		Count = 2, Respawn = 60,
+		Prompt = { Action = "Eat", Object = "Rokakaka", Hold = 0, Range = 10 },
+		-- (s into its clip) a bite at each of Bites - the fruit at his mouth,
+		-- down to each of Left of its size -, the Stand gone at Take
+		Clip = "MoveRokakakaEat", Time = 2.05, Bites = { 0.6, 0.92, 1.22 }, Left = { 0.66, 0.36, 0 }, Take = 1.5,
+	},
+	Text = {
+		Got = "A Stand awakens in you: %s!",
+		Gone = "Your Stand is gone - you're %s again",
+		HaveStand = "You've got a Stand already (a Rokakaka takes it)",
+		NoStand = "Only a Stand user can eat a Rokakaka",
+		NoneLeft = "No Stand answers the arrow",
+		Busy = "Not now",
+		Shuffle = "Not during HERO SHUFFLE",
+		Ranked = "Not in a ranked duel",
+		Away = "Not while you're in another body",
+	},
+}
+
 -- All Might's hero costume, worn in muscle form and Plus Ultra (catalog
 -- clothing ids, applied with a HumanoidDescription). Set Enabled = false to
 -- keep the player's own clothes. The casual yellow-pants look is
@@ -12508,6 +12571,34 @@ do
 	S.CMoonCineWhite = {
 		{ Id = L.BigBoomTail, Volume = 1.4, Length = 4, Fade = 2.5 },
 		{ Id = L.EarRing, Volume = 0.25, Speed = 1.2, Length = 2.5, Fade = 1.5 },
+	}
+end
+
+-- (round 106) THE STAND ARROW AND THE ROKAKAKA: the JJBA place's stab and its
+-- Stand's energy (Ids.Stab, Ids.StandEnergy) over the game's own layers; the
+-- fruit's bites, its swallow and the Stand draining out of him
+do
+	local L = Config.SoundLibraryLicensed
+	local J = Config.JJBA.Ids
+	local S = Config.Sounds
+	S.StandArrowStab = {
+		Range = 260,
+		{ Id = J.Stab, Volume = 1.1, Length = 1 },
+		{ Id = L.SwordStab, Volume = 0.8, Speed = 0.9, Length = 0.5 },
+		{ Id = L.MeatyThud, Volume = 0.6, Speed = 0.8, Length = 0.4 },
+	}
+	S.StandArrowAwaken = {
+		Range = 320,
+		{ Id = J.StandEnergy, Volume = 0.9, Length = 2.5 },
+		{ Id = J.SummonStand, Volume = 0.5, Length = 1.2 },
+		{ Id = L.SubBoom, Volume = 0.8, Speed = 0.8, Length = 1.6, Fade = 0.8 },
+	}
+	S.RokakakaBite = { Range = 200, { Id = L.BagelBite, Volume = 1.5, Speed = { 0.9, 1.05 } }, { Id = L.AppleChew, Volume = 1.2, Delay = 0.12, Length = 0.5 } }
+	S.RokakakaGone = {
+		Range = 260,
+		{ Id = L.Gulp, Volume = 1.3 },
+		{ Id = J.StandEnergy, Volume = 0.6, Speed = 0.6, Length = 1.8, Fade = 0.8, Delay = 0.15 },
+		{ Id = L.EarRing, Volume = 0.2, Speed = 0.8, Length = 1.4, Fade = 0.8, Delay = 0.2 },
 	}
 end
 

@@ -13261,6 +13261,174 @@ print("== round 105: C-MOON's CINEMATIC (VFX.JSC: the JJBA place's) and CRAZY DI
 	jj.Parent = nil
 end)()
 
+print("== round 106: THE STAND ARROWS AND THE ROKAKAKA (VFX.JI: the JJBA place's clips, the thing in his hand)")
+-- (in a function of its own: the main chunk is at its register limit here)
+;(function()
+	local JI = VFX.JI
+	local IT = Config.JJBA.Items
+	if not (JI and IT) then
+		problem("JJBA 106: VFX.JI / Config.JJBA.Items")
+		return
+	end
+	local okF, roots = pcall(function()
+		return r.deserializeModel(fs.readFile(process.env.JJBA_RBXM or "JJBA.rbxm"))
+	end)
+	local jj, clips = okF and roots[1], okF and roots[2]
+	if not (jj and clips and jj:FindFirstChild("Items") and jj:FindFirstChild("Held") and clips:FindFirstChild("MoveStandArrow")) then
+		problem("JJBA 106: the fixture (Items, Held, the two clips: " .. tostring(roots) .. ")")
+		return
+	end
+	local oldJ = ReplicatedStorage:FindFirstChild("JJBA")
+	if oldJ then
+		oldJ.Parent = nil
+	end
+	jj.Parent = ReplicatedStorage
+	local anims = ReplicatedStorage:FindFirstChild("Animations")
+	local madeAnims = anims == nil
+	if madeAnims then
+		anims = Instance.new("Folder")
+		anims.Name = "Animations"
+		anims.Parent = ReplicatedStorage
+	end
+	local clipList = clips:GetChildren()
+	for _, ks in clipList do
+		ks.Parent = anims
+	end
+	local cam = workspace.CurrentCamera
+	local camWas, focusWas = cam.CFrame, cam.Focus
+	cam.CFrame = r.CFrame.lookAt(Vector3.new(600, 8, 14), Vector3.new(600, 3, 0))
+	cam.Focus = r.CFrame.new(600, 3, 0)
+	local fxFolder = workspace:FindFirstChild("LocalVFX")
+	local function find(name)
+		return fxFolder and fxFolder:FindFirstChild(name)
+	end
+	local wasChar = localPlayer.Character
+	local mine = makeR6("Jotaro", Vector3.new(600, 3, 0))
+	localPlayer.Character = mine
+	local arm = mine:FindFirstChild("Right Arm")
+	local shoulder = mine.Torso:FindFirstChild("Right Shoulder")
+	local rest = shoulder and shoulder.C0
+
+	-- THE ARROW: the clip, the arrow in his hand, the stab, the Stand's name
+	VFX.Play("JJBAItem", mine, { Kind = "Arrow", From = Vector3.new(603, 2, 0), Stand = "StarPlatinum" }, true)
+	task.wait(0.15)
+	local held = find("JJBAHeld_Arrow")
+	local motor = held and held:FindFirstChild("JJBAHeld")
+	if not (held and motor and motor.Part0 == arm and motor.Part1 == held) then
+		problem("ARROW 106: the arrow in his right hand (on its own motor)")
+	elseif (motor.C0.Position - Vector3.new(0.0231, -1.045, 0.0454)).Magnitude > 0.01 then
+		problem("ARROW 106: ...where the JJBA place's motor held it (" .. tostring(motor.C0.Position) .. ")")
+	elseif held.CanCollide or held.Anchored or not held.Massless then
+		problem("ARROW 106: ...loose, massless, not colliding")
+	end
+	task.wait(0.45)
+	if shoulder and rest and (shoulder.C0.Position - rest.Position).Magnitude < 1e-3 and shoulder.C0.Rotation == rest.Rotation then
+		problem("ARROW 106: the JJBA place's clip moves his arm (MoveStandArrow)")
+	end
+	task.wait(IT.Arrow.Stab - 0.6 + 0.15)
+	local burst = find("JJBAGetStand")
+	local on = 0
+	for _, e in burst and burst:GetChildren() or {} do
+		if e:IsA("ParticleEmitter") and e.Enabled then
+			on += 1
+		end
+	end
+	if on < 8 then
+		problem("ARROW 106: the stab - the GetStand burst streaming off him (" .. on .. " emitters)")
+	end
+	task.wait(IT.Arrow.Give - IT.Arrow.Stab)
+	local title = find("JJBAStandName")
+	local label = title and title:FindFirstChildOfClass("TextLabel")
+	if not (label and label.Text == "STAR PLATINUM" and label.TextColor3 == Config.JJBA.Stands.StarPlatinum.Tint) then
+		problem("ARROW 106: the Stand's name over him, in its colour (" .. tostring(label and label.Text) .. ")")
+	end
+	task.wait(IT.Arrow.Time - IT.Arrow.Give + 0.45)
+	if held and held.Parent then
+		problem("ARROW 106: the arrow's gone from his hand at the end")
+	end
+	task.wait(IT.Arrow.Aura - IT.Arrow.Time + IT.Arrow.Stab + 0.2)
+	for _, e in burst and burst:GetChildren() or {} do
+		if e:IsA("ParticleEmitter") and e.Enabled then
+			problem("ARROW 106: the burst stops after Aura s")
+			break
+		end
+	end
+
+	-- THE ROKAKAKA: the fruit turning in his hand, bitten down, gone
+	VFX.Play("JJBAItem", mine, { Kind = "Rokakaka", Stand = "StarPlatinum" }, true)
+	task.wait(0.1)
+	local fruit = find("JJBAHeld_Rokakaka")
+	local fm = fruit and fruit:FindFirstChild("JJBAHeld")
+	if not (fruit and fm and fm.Part0 == arm) then
+		problem("ROKAKAKA 106: the fruit in his right hand")
+	else
+		local size0 = fruit.Size
+		local c0a = fm.C0
+		task.wait(0.4)
+		if (fm.C0.LookVector - c0a.LookVector).Magnitude < 0.05 then
+			problem("ROKAKAKA 106: the fruit turns in his hand as the clip has it")
+		end
+		task.wait(IT.Rokakaka.Bites[1] - 0.5 + 0.2)
+		if not (fruit.Size.Magnitude < size0.Magnitude * 0.8) then
+			problem("ROKAKAKA 106: a bite takes some of it (" .. tostring(fruit.Size) .. ")")
+		end
+		task.wait(IT.Rokakaka.Bites[#IT.Rokakaka.Bites] - IT.Rokakaka.Bites[1] + 0.05)
+		if not (fruit.Transparency >= 0.99 or fruit.Size.Magnitude < size0.Magnitude * 0.1 or not fruit.Parent) then
+			problem("ROKAKAKA 106: ...and the last bite finishes it")
+		end
+		task.wait(IT.Rokakaka.Time - IT.Rokakaka.Bites[#IT.Rokakaka.Bites] + 0.45)
+		if fruit.Parent then
+			problem("ROKAKAKA 106: nothing left in his hand at the end")
+		end
+	end
+
+	-- someone's far off: no thing in his hand drawn here
+	local far = makeR6("Faraway", Vector3.new(4000, 3, 0))
+	VFX.Play("JJBAItem", far, { Kind = "Arrow", Stand = "TheWorld" }, false)
+	task.wait(0.15)
+	local farHeld = find("JJBAHeld_Arrow")
+	if farHeld and farHeld:FindFirstChild("JJBAHeld") and farHeld.JJBAHeld.Part0 == far:FindFirstChild("Right Arm") then
+		problem("ARROW 106: past Near, nothing's drawn in his hand")
+	end
+	far:Destroy()
+
+	-- the ones lying about turn and bob
+	local live = Instance.new("Folder")
+	live.Name = IT.Live or "JJBAItems"
+	live.Parent = workspace
+	local item = Instance.new("Part")
+	item.Anchored = true
+	item.Size = Vector3.new(2.5, 0.1, 0.1)
+	item.CFrame = r.CFrame.new(600, 2.05, -6) * r.CFrame.Angles(0, 0, math.pi / 2)
+	item:SetAttribute("JJBAItem", "Arrow")
+	item.Parent = live
+	local cf0 = item.CFrame
+	task.wait(0.35)
+	if (item.CFrame.RightVector - cf0.RightVector).Magnitude > 0.01 then
+		problem("ITEMS 106: an arrow stays stood on end as it turns")
+	elseif (item.CFrame.LookVector - cf0.LookVector).Magnitude < 0.01 then
+		problem("ITEMS 106: the ones lying about turn")
+	elseif math.abs(item.CFrame.Position.Y - cf0.Position.Y) > (IT.Bob or 0.25) + 0.01 or ((item.CFrame.Position - cf0.Position) * Vector3.new(1, 0, 1)).Magnitude > 1e-3 then
+		problem("ITEMS 106: ...bobbing on the spot (" .. tostring(item.CFrame.Position) .. ")")
+	end
+	live:Destroy()
+
+	localPlayer.Character = wasChar
+	mine:Destroy()
+	cam.CFrame, cam.Focus = camWas, focusWas
+	for _, ks in clipList do
+		ks.Parent = nil
+	end
+	if madeAnims then
+		anims:Destroy()
+	end
+	jj.Parent = nil
+	if oldJ then
+		oldJ.Parent = ReplicatedStorage
+	end
+end)()
+
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")

@@ -5,18 +5,130 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 105, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 106, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
-| `jjba/` | Round 104: the tools that grafted the owner's JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview) |
+| `jjba/` | Round 104: the tools that grafted the owner's JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview). Round 106: `assets106.py` (the graft of the Stand arrows, the Rokakaka, the props in the hand and their two clips) and `spots_check.luau` (where the items go, worked out offline) |
 
 You need Python 3 with `numpy pillow lz4 zstandard` (and `ffmpeg` for preview
 videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tools.
 
 ---
 
-## Where things stand (Round 105)
+## Where things stand (Round 106)
+
+Round 106 builds on Round 105. The owner asked: "Also add the stand arrows
+and fruit". The JJBA place's Stand Arrow and Rokakaka now lie about the
+city. Three scripts changed (`QuirkConfig`, `VFX`, `QuirkServer`). The
+JJBA place's items, the props held in the hand and two clips were grafted
+in (`jjba/assets106.py`). Not playtested in Studio yet.
+
+**What came over from the JJBA place** (`jjba/assets106.py`; 1,660
+instances; the round 105 place's own 85,459 are unchanged):
+- `ReplicatedStorage.JJBA.Items`: its `Tools` folder. These are the Arrow
+  and the Rokakaka as they lie on the ground. Its third item, the Parallel
+  Crystal (which gives POM there), came with the folder but isn't placed:
+  its clip (`GetPOM`) is an animation id with no keyframes in the place.
+- `ReplicatedStorage.JJBA.Held`: its `AnimParts` folder. These are the
+  arrow and the fruit as they sit in the hand, each on the motor the JJBA
+  place used.
+- `ReplicatedStorage.Animations.MoveStandArrow` (its `UseArrow`, 3 s) and
+  `MoveRokakakaEat` (its `RokakakaEat`, 2 s). Both are KeyframeSequences,
+  played by the game's own clip player like every other move.
+- Its scripts did not come over. The game's own code does what they did.
+
+**How they work** (`Config.JJBA.Items`; server `Kit.JI`; VFX `VFX.JI`,
+effect `JJBAItem`):
+- **Where they lie.** There are 3 arrows and 2 Rokakaka at a time. Each is
+  9 studs off to one side of one of the map's spawn pads
+  (`Map.Spawns`), on whatever is under it. Each item has a spot of its own.
+  One that's taken comes back 60 s later at another free spot (the JJBA
+  place's respawn time).
+  - An offline check (`jjba/spots_check.luau`, every map part as its box)
+    finds a spot by all 11 pads: 6 at street level, 5 on upper floors and
+    rooftops.
+- **How they look.** They float a little off the ground, turn and bob on
+  each screen near them, and glow (a warm PointLight).
+- **Using one.** Walk up and press E (D-pad right on a controller, a tap on
+  a phone). There's no hold, unlike the JJBA place's 0.5 s: E is also the
+  finisher's key, and the game presses a prompt for you with a tap.
+- **The arrow.**
+  - He plays the JJBA place's clip with the arrow in his right hand.
+  - At 0.88 s its head goes in (the clip's own keys): the JJBA place's stab
+    sound and its GetStand burst streaming off him for 4 s.
+  - At 1.9 s a Stand awakens in him: its name rises over his head in its
+    colour, with the JJBA place's Stand energy sound.
+  - Which Stand: the JJBA place's own odds. Star Platinum 59, The World 41
+    (`Pool`; add others there).
+  - He's held still for the clip (3 s).
+  - Refused if he's on a Stand already ("a Rokakaka takes it").
+- **The Rokakaka.**
+  - He eats it on the JJBA place's clip. The fruit turns in his hand as the
+    clip has it.
+  - Three bites: each takes a piece, with bits flying off and a crunch.
+  - At 1.5 s his Stand drains out of him and he's the hero he was before
+    the arrow (or the first public hero).
+  - Refused if he isn't on a Stand ("Only a Stand user can eat a
+    Rokakaka").
+- **Not usable when:** ragdolled, stunned, mid-move, in HERO SHUFFLE, in a
+  ranked duel, or in or out of a possessed body. He's told why.
+  - Knocked out before it takes: he gets nothing, and the item is still
+    used up.
+
+**Who gets to keep an arrow's Stand** (`Unlocks`). All the Stands are DEV
+ONLY in the hero list. With `Unlocks = true` (the default, as in the JJBA
+place, where anyone can get one) an arrow's Stand belongs to whoever
+stabbed himself with it:
+- It stays through the DEV ONLY lock (losing dev access), the roster
+  switch, and HERO SHUFFLE (he gets it back when the shuffle ends).
+- He loses it by eating a Rokakaka, or by picking another hero himself.
+  The Stands are still DEV ONLY in the list, so he can't pick it back.
+- It lasts for his visit; it isn't saved.
+- A Stand from an arrow can't play ranked, like any DEV ONLY hero.
+- With `Unlocks = false`, an arrow only gives Stands he could pick anyway
+  (so nothing, for players without dev access).
+
+**Other settings:** `Count`, `Respawn`, `Spots` (or a list of positions),
+`Float` / `Spin` / `Bob`, `Light`, the clip timings, the prompt texts and
+every message. `Enabled = false`: none of them about.
+
+**Tests (round 106).**
+- Server: 37 checks.
+  - They're put down: 3 arrows and 2 Rokakaka, each at its own spot,
+    anchored, with the prompt (E, no hold) and the glow.
+  - An arrow, used by a player without dev access: it's taken, every
+    screen plays it, he's held for the clip, and Star Platinum is his at
+    Give.
+  - Then: he keeps it when dev access is lost; a second arrow is refused;
+    the arrow comes back elsewhere.
+  - The Rokakaka takes the Stand back (he's Explosion again), and does
+    nothing without one.
+  - The pool's other draw gives The World. Picking another hero gives it
+    up, and he can't pick it back.
+  - Knocked out mid-stab: no Stand. Ragdolled: refused.
+    `Unlocks = false`: refused without dev access. `Enabled = false`: none
+    put down.
+  - All pass on round 106; on round 105 the section fails at once.
+- Client:
+  - The arrow in his right hand on the JJBA place's motor, and the clip
+    moving his arm.
+  - At the stab, the GetStand burst (its 9 emitters), which stops after 4 s.
+  - The Stand's name in its colour, and the arrow gone at the end.
+  - The fruit turns in his hand, shrinks with each bite and is gone after
+    the last.
+  - Nothing is drawn in the hand of someone far off.
+  - The ones lying about turn, standing on end, and bob on the spot.
+  - The fixture (`tests/JJBA.rbxm`) now carries `Items`, `Held`,
+    `GetStand` and, as a second root, the two clips.
+- Full suites:
+  - Server: 2029 passed, 56 failed (round 105: 1992 passed, 56 failed).
+    The 37 more passes are this round's section. The failures are round
+    105's (two of them name a random emote, so their names differ each run).
+  - Client: stops at the same round 34 HUD error as before, with the same
+    91 problems before it. None are in round 106's section.
+
+### Round 105
 
 Round 105 builds on Round 104. The owner asked: "there should also be a
 cinematic for cmoon as well, port that over pls. fix crazy diamond as well,

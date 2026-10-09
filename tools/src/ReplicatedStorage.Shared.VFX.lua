@@ -111062,4 +111062,342 @@ end)()
 	end
 end)()
 
+---------------------------------------------------------------------------
+-- (round 106) THE STAND ARROWS AND THE ROKAKAKA on screen (VFX.JI;
+-- Config.JJBA.Items): the ones lying about turn and bob; whoever uses one
+-- plays the JJBA place's clip with the thing in his right hand (its
+-- AnimParts, JJBA.Held, on its own motor). The arrow: its head goes in at
+-- Stab (the JJBA place's stab, its GetStand burst streaming off him), the
+-- Stand's his at Give (its name over him, in its colour). The Rokakaka: the
+-- fruit turns in his hand as the clip has it, a bite at each of Bites (down
+-- to each of Left of its size, bits flying off), the Stand drained out of
+-- him at Take.
+-- (Its own function: the main chunk's locals stay as they are.)
+---------------------------------------------------------------------------
+;(function()
+	local JC = Config.JJBA or {}
+	local IT = JC.Items
+	if not IT then
+		return
+	end
+	local RS = game:GetService("ReplicatedStorage")
+	local JI = { tracks = {}, base = setmetatable({}, { __mode = "k" }) }
+	VFX.JI = JI
+	local FRUIT = Color3.fromRGB(150, 30, 24)
+
+	local function jfolder()
+		return RS:FindFirstChild(JC.Folder or "JJBA")
+	end
+
+	-- the JJBA place's AnimParts.<name> on his right hand, where its own
+	-- motor held it (C0 from the arm). Returns the thing and its motor
+	function JI.hold(char, name)
+		local J = jfolder()
+		local held = J and J:FindFirstChild(IT.Held or "Held")
+		local src = held and held:FindFirstChild(name)
+		local arm = char and char:FindFirstChild("Right Arm")
+		if not (src and src:IsA("BasePart") and arm) then
+			return nil
+		end
+		local prop = src:Clone()
+		local c0, c1 = CFrame.new(0, -1, 0), CFrame.new()
+		for _, d in prop:GetDescendants() do
+			if d:IsA("Motor6D") and d.Name == name then
+				c0, c1 = d.C0, d.C1
+				d:Destroy()
+			elseif d:IsA("LuaSourceContainer") or d:IsA("ProximityPrompt") then
+				d:Destroy()
+			end
+		end
+		local parts = prop:GetDescendants()
+		table.insert(parts, prop)
+		for _, p in parts do
+			if p:IsA("BasePart") then
+				p.Anchored = false
+				p.CanCollide = false
+				p.CanQuery = false
+				p.CanTouch = false
+				p.Massless = true
+				p.CastShadow = false
+			end
+		end
+		local motor = Instance.new("Motor6D")
+		motor.Name = "JJBAHeld"
+		motor.Part0 = arm
+		motor.Part1 = prop
+		motor.C0 = c0
+		motor.C1 = c1
+		motor.Parent = prop
+		prop.CFrame = arm.CFrame * c0 * c1:Inverse()
+		prop.Name = "JJBAHeld_" .. name
+		prop.Parent = folder
+		return prop, motor
+	end
+
+	-- a prop's own keys in a clip (the Rokakaka turning in his hand): { { time, CFrame } ... }
+	function JI.track(clipName, poseName)
+		local key = clipName .. "/" .. poseName
+		if JI.tracks[key] ~= nil then
+			return JI.tracks[key] or nil
+		end
+		local anims = RS:FindFirstChild("Animations")
+		local ks = anims and anims:FindFirstChild(clipName)
+		local keys = {}
+		if ks and ks:IsA("KeyframeSequence") then
+			for _, kf in ks:GetChildren() do
+				if kf:IsA("Keyframe") then
+					for _, p in kf:GetDescendants() do
+						if p:IsA("Pose") and p.Name == poseName and p.Weight > 0 then
+							table.insert(keys, { kf.Time, p.CFrame })
+						end
+					end
+				end
+			end
+			table.sort(keys, function(a, b)
+				return a[1] < b[1]
+			end)
+		end
+		JI.tracks[key] = #keys > 0 and keys or false
+		return #keys > 0 and keys or nil
+	end
+	-- (its keys are all Linear)
+	function JI.sample(keys, t)
+		local n = #keys
+		if t <= keys[1][1] then
+			return keys[1][2]
+		elseif t >= keys[n][1] then
+			return keys[n][2]
+		end
+		local i = 1
+		while keys[i + 1][1] <= t do
+			i += 1
+		end
+		local a = (t - keys[i][1]) / math.max(keys[i + 1][1] - keys[i][1], 1e-4)
+		return keys[i][2]:Lerp(keys[i + 1][2], a)
+	end
+
+	-- the JJBA place's GetStand burst streaming off his torso for `life` s
+	function JI.burst(part, life)
+		local J = jfolder()
+		local fx = J and J:FindFirstChild("Effects")
+		local pe = fx and fx:FindFirstChild("ParticleEffect")
+		local gs = pe and pe:FindFirstChild("GetStand")
+		if not (gs and part and part.Parent) then
+			return nil
+		end
+		local holder = newPart(part.Size, part.CFrame, Color3.new(1, 1, 1), nil, nil)
+		holder.Name = "JJBAGetStand"
+		holder.Transparency = 1
+		holder.Anchored = false
+		holder.Massless = true
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = part
+		weld.Part1 = holder
+		weld.Parent = holder
+		local list = {}
+		for _, e in gs:GetChildren() do
+			if e:IsA("ParticleEmitter") then
+				local c = e:Clone()
+				c.Enabled = true
+				c.Parent = holder
+				table.insert(list, c)
+			end
+		end
+		task.delay(life, function()
+			for _, c in list do
+				if c.Parent then
+					c.Enabled = false
+				end
+			end
+			cleanup(holder, 2.5)
+		end)
+		return holder
+	end
+
+	-- the Stand's name over him, in its colour
+	function JI.title(char, text, color)
+		local head = char:FindFirstChild("Head")
+		if not head then
+			return nil
+		end
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "JJBAStandName"
+		bb.Size = UDim2.fromScale(7, 1.6)
+		bb.StudsOffset = Vector3.new(0, 2.6, 0)
+		bb.LightInfluence = 0
+		bb.MaxDistance = 220
+		bb.Adornee = head
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.Bangers
+		label.TextScaled = true
+		label.Text = string.upper(text)
+		label.TextColor3 = color
+		label.TextStrokeColor3 = Color3.new(0, 0, 0)
+		label.TextStrokeTransparency = 0.2
+		label.TextTransparency = 1
+		label.Parent = bb
+		bb.Parent = folder
+		tween(label, 0.2, { TextTransparency = 0 })
+		tween(bb, 1.6, { StudsOffset = Vector3.new(0, 3.6, 0) }, Enum.EasingStyle.Sine)
+		tween(label, 0.4, { TextTransparency = 1, TextStrokeTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 1.2)
+		cleanup(bb, 1.7)
+		return bb
+	end
+
+	-- bits flying off the fruit at a bite
+	local function crumbs(pos)
+		for _ = 1, 5 do
+			local p = newPart(Vector3.one * math.random(10, 18) / 100, CFrame.new(pos), FRUIT, Enum.Material.SmoothPlastic)
+			local off = Vector3.new(math.random(-12, 12) / 10, -math.random(15, 30) / 10, math.random(-12, 12) / 10)
+			tween(p, 0.45, { Position = pos + off, Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			cleanup(p, 0.5)
+		end
+	end
+
+	local function standTint(stand)
+		local spec = JC.Stands and JC.Stands[((JC.Users or {})[stand or ""]) or ""]
+		local def = Config.Quirks[stand or ""]
+		return (spec and spec.Tint) or (def and def.Color) or Color3.fromRGB(255, 212, 64)
+	end
+
+	Effects.JJBAItem = function(char, data, isLocal)
+		local kind = data and data.Kind
+		local ks = kind and IT[kind]
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (ks and root) then
+			return
+		end
+		local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or root
+		local head = char:FindFirstChild("Head") or root
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local function gone()
+			return not char.Parent or (hum ~= nil and hum.Health <= 0)
+		end
+		local near = nearCamera(root.Position, IT.Near or 260)
+		local t0 = os.clock()
+		VFX.Clip(char, ks.Clip, { fade = 0.12, recover = 0.3 })
+		if near and typeof(data.From) == "Vector3" then
+			billboardRing(data.From, 1, 5, (IT.Light and IT.Light.Color) or GOLD, 6, 0.35) -- (where it lay)
+		end
+		local prop, motor = nil, nil
+		if near then
+			prop, motor = JI.hold(char, kind)
+		end
+		local tint = standTint(data.Stand)
+		local conn
+		local function done()
+			if conn then
+				conn:Disconnect()
+				conn = nil
+			end
+			if prop and prop.Parent then
+				prop:Destroy()
+			end
+		end
+		if kind == "Arrow" then
+			task.delay(ks.Stab or 0.88, function()
+				if gone() then
+					return done()
+				end
+				VFX.PlaySound("StandArrowStab", torso.Position)
+				if near then
+					JI.burst(torso, ks.Aura or 4)
+				end
+				if isLocal then
+					VFX.Shake(0.35, 0.25)
+				end
+			end)
+			task.delay(ks.Give or 1.9, function()
+				if gone() then
+					return done()
+				end
+				VFX.PlaySound("StandArrowAwaken", root.Position)
+				if near then
+					billboardRing(root.Position, 2, 16, tint, 8, 0.6)
+					local def = Config.Quirks[data.Stand or ""]
+					JI.title(char, (def and (def.ModeName or def.DisplayName)) or tostring(data.Stand), tint)
+				end
+			end)
+		else
+			-- the fruit turns in his hand as the clip has it
+			local keys = motor and JI.track(ks.Clip, kind)
+			if keys then
+				local base = motor.C0
+				conn = RunService.RenderStepped:Connect(function()
+					if not (prop and prop.Parent) or gone() then
+						return done()
+					end
+					motor.C0 = base * JI.sample(keys, os.clock() - t0)
+				end)
+			end
+			local size0 = prop and prop.Size
+			for i, at in ks.Bites or {} do
+				task.delay(at, function()
+					if gone() then
+						return done()
+					end
+					VFX.PlaySound("RokakakaBite", head.Position)
+					local k = (ks.Left or {})[i] or 0
+					if prop and prop.Parent and size0 then
+						if near then
+							crumbs(prop.CFrame.Position)
+						end
+						if k <= 0 then
+							tween(prop, 0.12, { Size = size0 * 0.05, Transparency = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+						else
+							tween(prop, 0.12, { Size = size0 * k }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+						end
+					end
+				end)
+			end
+			task.delay(ks.Take or 1.5, function()
+				if gone() then
+					return done()
+				end
+				VFX.PlaySound("RokakakaGone", root.Position)
+				if near then
+					billboardRing(root.Position, 16, 1.5, tint, 8, 0.55) -- (the Stand drained back into him, and gone)
+				end
+			end)
+		end
+		task.delay(ks.Time or 2, function()
+			if prop and prop.Parent then
+				for _, p in prop:GetDescendants() do
+					if p:IsA("BasePart") then
+						tween(p, 0.2, { Transparency = 1 })
+					end
+				end
+				tween(prop, 0.2, { Transparency = 1 })
+			end
+			task.delay(0.25, done)
+		end)
+	end
+
+	-- the ones lying about: turning and bobbing on every screen near them
+	RunService.RenderStepped:Connect(function()
+		local live = workspace:FindFirstChild(IT.Live or "JJBAItems")
+		if not live then
+			return
+		end
+		local cam = workspace.CurrentCamera
+		local eye = cam and cam.CFrame.Position
+		local t = os.clock()
+		for _, item in live:GetChildren() do
+			if item:IsA("BasePart") then
+				local b = JI.base[item]
+				if not b then
+					b = item.CFrame
+					JI.base[item] = b
+				end
+				if not eye or (eye - b.Position).Magnitude < (IT.Near or 260) then
+					item.CFrame = CFrame.new(b.Position + Vector3.new(0, math.sin(t * 2) * (IT.Bob or 0.25), 0))
+						* CFrame.Angles(0, math.rad(((IT.Spin or 50) * t) % 360), 0) * b.Rotation
+				end
+			end
+		end
+	end)
+end)()
+
 return VFX
