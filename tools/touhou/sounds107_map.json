@@ -1,254 +1,1031 @@
 {
+ "1657154945": {
+  "new": "7699333859",
+  "was": "item_select_03",
+  "owner": "SpacemanIgloo",
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
+ },
+ "2051450166": {
+  "new": "9120802168",
+  "was": "ground explosion",
+  "owner": "Mighty Productions",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "4898893138": {
+  "new": "138169148",
+  "was": "Block 1",
+  "owner": "streetjess",
+  "cat": "block",
+  "why": "private/deleted -> public (block)"
+ },
+ "4898894127": {
+  "new": "5560680723",
+  "was": "Block 2",
+  "owner": "streetjess",
+  "cat": "block",
+  "why": "private/deleted -> public (block)"
+ },
+ "4898901387": {
+  "new": "17256141274",
+  "was": "third",
+  "owner": "streetjess",
+  "cat": "block",
+  "why": "private/deleted -> public (block)"
+ },
+ "4898902438": {
+  "new": "8701825353",
+  "was": "Block 4",
+  "owner": "streetjess",
+  "cat": "block",
+  "why": "private/deleted -> public (block)"
+ },
+ "6706981173": {
+  "new": "9113823993",
+  "was": "AUTStandSwing1",
+  "owner": "Universe Time Studio",
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
+ },
+ "6861697328": {
+  "new": "131228548",
+  "was": "Audio/SwordClashAe",
+  "owner": "Grand Quest Games",
+  "cat": "block",
+  "why": "private/deleted -> public (block)"
+ },
+ "6861697362": {
+  "new": "17256141274",
+  "was": "Audio/SwordClashBe",
+  "owner": "Grand Quest Games",
+  "cat": "block",
+  "why": "private/deleted -> public (block)"
+ },
+ "6861697390": {
+  "new": "5868574236",
+  "was": "Audio/SwordClashB2e",
+  "owner": "Grand Quest Games",
+  "cat": "block",
+  "why": "private/deleted -> public (block)"
+ },
+ "6861697427": {
+  "new": "3518167306",
+  "was": "Audio/SwordClashA2e",
+  "owner": "Grand Quest Games",
+  "cat": "block",
+  "why": "private/deleted -> public (block)"
+ },
+ "7119100776": {
+  "new": "7441129469",
+  "was": "combo hit 1",
+  "owner": "kerupine",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "7119101332": {
+  "new": "138169148",
+  "was": "combo hit 2",
+  "owner": "kerupine",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "7119101555": {
+  "new": "175024455",
+  "was": "combo hit 3",
+  "owner": "kerupine",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "7211875405": {
+  "new": "8128429188",
+  "was": "snap gojo",
+  "owner": "kerupine",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "7374234221": {
+  "new": "7214216646",
+  "was": "slash loop",
+  "owner": "iltria",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "7374246665": {
+  "new": "9125386730",
+  "was": "chain Break",
+  "owner": "iltria",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "7714910991": {
+  "new": "98300619649690",
+  "was": "Audio/DaggerSkill2Slash5",
+  "owner": "Grand Quest Games",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "7714911066": {
+  "new": "443980606",
+  "was": "Audio/DaggerSkill2Slash3",
+  "owner": "Grand Quest Games",
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
+ },
+ "8176492141": {
+  "new": "9113534108",
+  "was": "Heavy Swing",
+  "owner": "iltria",
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
+ },
  "8348697790": {
-  "new": "8595975458",
+  "new": "9105467029",
   "was": "[ Content Deleted ]",
   "owner": "L_9X3",
-  "why": "deleted hit -> hit_kick_l"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
  },
  "8348700441": {
-  "new": "220025741",
+  "new": "621557962",
   "was": "[ Content Deleted ]",
   "owner": "L_9X3",
-  "why": "deleted hit -> Hit 4"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "8379366672": {
+  "new": "17256141274",
+  "was": "spirit_buff",
+  "owner": "Universe Time Studio",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "8573521980": {
+  "new": "9113534108",
+  "was": "mero_basic_1",
+  "owner": "Universe Time Studio",
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
+ },
+ "8573523345": {
+  "new": "9114890978",
+  "was": "mero_basic_4",
+  "owner": "Universe Time Studio",
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
+ },
+ "8804201356": {
+  "new": "6476902954",
+  "was": "Anshen_T-move-hitsound-2_SFX",
+  "owner": "Akira_Blade",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "14119477497": {
+  "new": "9120802168",
+  "was": "DebrisTilesSFX",
+  "owner": "Might_Glitch",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "15335364631": {
+  "new": "608600954",
+  "was": "Audio/tile1 (1) (1)",
+  "owner": "Unlimited Battlegrounds",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "15335365157": {
+  "new": "9120802168",
+  "was": "Audio/tile2 (1) (1)",
+  "owner": "Unlimited Battlegrounds",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
  },
  "17538001669": {
   "new": "1848131944",
   "was": "COOL",
   "owner": "generalprinciple",
-  "why": "Remilia awakening song 1 -> Wheel Of Darkness"
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
  },
  "17733489642": {
-  "new": "9067471663",
+  "new": "8128405702",
   "was": "asukascream",
   "owner": "generalprinciple",
-  "why": "Remilia scream -> demonic laugh"
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
  },
  "17837850125": {
-  "new": "7441098525",
+  "new": "8128405702",
   "was": "blade slash01",
   "owner": "Lord_Gabe06",
-  "why": "blade slash 1 -> sword slash 2"
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "17839662770": {
-  "new": "7441097182",
+  "new": "9113822618",
   "was": "blade slash06",
   "owner": "Lord_Gabe06",
-  "why": "blade slash 6 -> sword slash 3"
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "17853814781": {
-  "new": "6155969862",
+  "new": "7171591581",
   "was": "blade spin01",
   "owner": "Lord_Gabe06",
-  "why": "blade spin 1 -> Whipping Spin"
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "17853829958": {
-  "new": "5334567730",
+  "new": "6903182307",
   "was": "blade spin03",
   "owner": "Lord_Gabe06",
-  "why": "blade spin 3 -> Rotaion"
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
  },
  "17853839467": {
-  "new": "6155969862",
+  "new": "17524153633",
   "was": "blade spin04",
   "owner": "Lord_Gabe06",
-  "why": "blade spin 4 -> Whipping Spin"
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
  },
  "17853845325": {
-  "new": "7441128032",
+  "new": "9125386815",
   "was": "blade stab01",
   "owner": "Lord_Gabe06",
-  "why": "blade stab 1 -> spear stab 2"
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
  },
  "17853854020": {
-  "new": "7441143109",
+  "new": "5754301788",
   "was": "blade stab02",
   "owner": "Lord_Gabe06",
-  "why": "blade stab 2 -> machete stab 2"
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
  },
  "18399714161": {
-  "new": "6155969862",
+  "new": "16898133698",
   "was": "Audio/sword crokuran deepwoken reimu yes",
   "owner": "generalprinciple",
-  "why": "spinning blade -> Whipping Spin"
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
  },
  "18509588973": {
-  "new": "6128977275",
+  "new": "133568880103936",
   "was": "Audio/15",
   "owner": "generalprinciple",
-  "why": "Remilia blood dash -> dash8"
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
  },
  "18511857150": {
-  "new": "4747078972",
+  "new": "7837536770",
   "was": "Audio/spearshine",
   "owner": "generalprinciple",
-  "why": "spear shine -> Touhou Graze"
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
  },
  "18628144419": {
-  "new": "5560680723",
+  "new": "1848125982",
   "was": "Audio/0719",
   "owner": "generalprinciple",
-  "why": "Mokou awaken sfx (unused) -> flame_engulf"
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
  },
  "18708158894": {
-  "new": "7119100776",
+  "new": "9117969717",
   "was": "Audio/mokou hit 1",
   "owner": "generalprinciple",
-  "why": "Mokou M1 hit 1 -> combo hit 1"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
  },
  "18708159984": {
-  "new": "7119101332",
+  "new": "17256141274",
   "was": "Audio/mokou hit 2",
   "owner": "generalprinciple",
-  "why": "Mokou M1 hit 2 -> combo hit 2"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
  },
  "18708161597": {
-  "new": "7119101555",
+  "new": "7441132956",
   "was": "Audio/mokou hit 3",
   "owner": "generalprinciple",
-  "why": "Mokou M1 hit 3 -> combo hit 3"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
  },
  "18708163148": {
-  "new": "9117969717",
+  "new": "2227417121",
   "was": "Audio/mokou hit 4",
   "owner": "generalprinciple",
-  "why": "Mokou M1 hit 4 -> Punch Kit Beefy Hit 3"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
  },
  "18708288317": {
-  "new": "7655466603",
+  "new": "8128405702",
   "was": "Audio/mokou swing 1 v2",
   "owner": "generalprinciple",
-  "why": "Mokou swing 1 -> punch whoosh"
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "18708288881": {
-  "new": "8573523345",
+  "new": "9117203557",
   "was": "Audio/mokou swing 4 v2",
   "owner": "generalprinciple",
-  "why": "Mokou swing 4 -> mero_basic_4"
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "18708289230": {
-  "new": "6706981173",
+  "new": "6636232274",
   "was": "Audio/mokou swing 3 v2",
   "owner": "generalprinciple",
-  "why": "Mokou swing 3 -> stand swing"
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "18708289627": {
-  "new": "8573521980",
+  "new": "9113534108",
   "was": "Audio/mokou swing 2 v2",
   "owner": "generalprinciple",
-  "why": "Mokou swing 2 -> mero_basic_1"
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "18904107800": {
-  "new": "9118613187",
+  "new": "9118612324",
   "was": "Audio/mokou move slam v1",
   "owner": "generalprinciple",
-  "why": "Mokou move slam -> Rock Impact 12"
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
  },
  "18904139414": {
-  "new": "9085333927",
+  "new": "8956218288",
   "was": "Audio/mokou move jump v1",
   "owner": "generalprinciple",
-  "why": "Mokou move jump -> Surge Jump"
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
  },
  "18904140422": {
-  "new": "9114890978",
+  "new": "3518146972",
   "was": "Audio/mokou move whoosh v1",
   "owner": "generalprinciple",
-  "why": "Mokou move whoosh -> Jump Swish 1"
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
  },
  "18921185746": {
-  "new": "8701825353",
+  "new": "9063842075",
   "was": "Audio/mokou move 2 barrage v2",
   "owner": "generalprinciple",
-  "why": "Mokou move 2 barrage -> TW kick/punch"
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
  },
  "18921186069": {
-  "new": "3518146972",
+  "new": "120293120466328",
   "was": "Audio/mokou move 2 cast v1",
   "owner": "generalprinciple",
-  "why": "Mokou move 2 cast -> Flame1stSkill"
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
+ },
+ "70544025865622": {
+  "new": "7214256592",
+  "was": "NightmareSfx",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "70843721652818": {
+  "new": "9113534108",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (13)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "70878271270129": {
+  "new": "2239424601",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (16)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "72368579924299": {
+  "new": "7837536401",
+  "was": "Spear Start Up Ground",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "74318698139584": {
+  "new": "9113823993",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (11)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "74450598327801": {
+  "new": "743521549",
+  "was": "lolz",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "74621068711436": {
+  "new": "9113823264",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (4)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "75152639792585": {
+  "new": "9113822618",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (5)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "77264810342177": {
+  "new": "8128407082",
+  "was": "WingsLoopSfx (2)",
+  "owner": "Ivory Boat",
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "77583881434727": {
-  "new": "5334567730",
+  "new": "127881542100169",
   "was": "Audio/windmill",
   "owner": "generalprinciple",
-  "why": "spear windmill loop -> Rotaion"
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "78713247191018": {
+  "new": "7441140898",
+  "was": "Slash 2",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "79009688458315": {
+  "new": "7545764969",
+  "was": "Slash 3",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "79592637822825": {
+  "new": "9119294320",
+  "was": "Fire Ouch",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "81161906830054": {
+  "new": "6653554097",
+  "was": "FireGuyWScrape",
+  "owner": "Ivory Boat",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "82833529557806": {
+  "new": "8128398192",
+  "was": "HeartbreakVariantStartupSfx (1)",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
  },
  "83208864085323": {
-  "new": "9114890978",
+  "new": "1388740053",
   "was": "miss",
   "owner": "generalprinciple",
-  "why": "miss -> Jump Swish 1"
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "83441284464591": {
+  "new": "9118612306",
+  "was": "Spear Finisher",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "83726469416071": {
+  "new": "1388740053",
+  "was": "Fire Kick Loop (1)",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "84288357070246": {
+  "new": "9113464190",
+  "was": "Fire Kick Explode",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "84788145657633": {
+  "new": "7128851174",
+  "was": "MokouVictimSlam (1)",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "85008523996659": {
+  "new": "9119294320",
+  "was": "CutsceneWScrape",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "85264084292514": {
+  "new": "7441099960",
+  "was": "HeartbreakExplosionSfx (2)",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "87518608742739": {
+  "new": "3518146972",
+  "was": "MokouMoveMiss (2)",
+  "owner": "Ivory Boat",
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
+ },
+ "88026161225909": {
+  "new": "9067471663",
+  "was": "Spear Air Attack W Ex (1)",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "89021987158224": {
+  "new": "220025741",
+  "was": "FireGuyW_OScrape",
+  "owner": "Ivory Boat",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "89090943302785": {
+  "new": "3802269741",
+  "was": "Spear Extra WO Explode",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "89849119321803": {
+  "new": "621557962",
+  "was": "MokouDash",
+  "owner": "Ivory Boat",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "90411865428269": {
+  "new": "9113534108",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (10)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "91210276253427": {
+  "new": "1388740053",
+  "was": "CutsceneWOScrape",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "91303824150663": {
+  "new": "7171591581",
+  "was": "Spear Grab Loop",
+  "owner": "Ivory Boat",
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
  },
  "92250017598166": {
-  "new": "5560680723",
+  "new": "180204586",
   "was": "Audio/2024-11-24 13-04-40",
   "owner": "generalprinciple",
-  "why": "Mokou tornado -> flame_engulf"
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
+ },
+ "92859054691403": {
+  "new": "7214216646",
+  "was": "sanji-wall-combo",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "95306801492087": {
+  "new": "8128405702",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (7)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "96007461406628": {
+  "new": "3743744465",
+  "was": "Spear Ground Attack",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "96990589479767": {
+  "new": "2239424601",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (3)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "97498723009409": {
+  "new": "9117203557",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (8)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "99049609146781": {
+  "new": "9067471663",
+  "was": "Fire Kick Miss",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "99439377262478": {
+  "new": "7699333859",
+  "was": "RemiMoveSPin (1)",
+  "owner": "Ivory Boat",
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
+ },
+ "100069473257998": {
+  "new": "16898133698",
+  "was": "HeartbreakThrowSfx (1)",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "100323235846349": {
+  "new": "7837536401",
+  "was": "Spear Air Attack WO Ex",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
  },
  "100668643508929": {
   "new": "1848131944",
   "was": "Audio/12x3",
   "owner": "generalprinciple",
-  "why": "Remilia awakening song -> Wheel Of Darkness (the ult-music fallback)"
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "100893262250084": {
+  "new": "3802269741",
+  "was": "Fire Kick Hit",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "102806323024644": {
+  "new": "3518146972",
+  "was": "0126(2)",
+  "owner": "Ivory Boat",
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
+ },
+ "102960997922295": {
+  "new": "7441099960",
+  "was": "Spear Extra Grab Explode Gore",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "103172876264934": {
+  "new": "5754301788",
+  "was": "Slash 1",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "103580204062268": {
+  "new": "7441141577",
+  "was": "MokouAirbeatdown",
+  "owner": "Ivory Boat",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
  },
  "104115141569517": {
-  "new": "6313897471",
+  "new": "743521549",
   "was": "Audio/Katanari",
   "owner": "generalprinciple",
-  "why": "Remilia M1 finisher sfx -> Touhou Heart Break / Gungnir"
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "105522324133528": {
+  "new": "5754301788",
+  "was": "Spin",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "107296179467135": {
+  "new": "9117203557",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (14)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "109729509207586": {
+  "new": "443980606",
+  "was": "Fire Kick Loop",
+  "owner": "Ivory Boat",
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
+ },
+ "110344618511757": {
+  "new": "2239424601",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (15)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
  },
  "114899115974479": {
   "new": "1848125982",
   "was": "Audio/Bamboo Forest in Flames",
   "owner": "generalprinciple",
-  "why": "Mokou awakening song -> Judgment Day C (the ult-music fallback)"
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "115019419243828": {
+  "new": "9120802168",
+  "was": "Red Mist",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "115166880441831": {
+  "new": "9117203557",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (6)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "115828545374625": {
+  "new": "8128405702",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "116333745883592": {
+  "new": "7441128032",
+  "was": "RemiMoveUppercut (1)",
+  "owner": "Ivory Boat",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "118841091348065": {
+  "new": "17524153633",
+  "was": "Spear Start Up",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "119119632450745": {
+  "new": "4474833664",
+  "was": "Fire Awakening",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "119516089698238": {
+  "new": "7214216646",
+  "was": "mistr00s",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
  },
  "119963367394670": {
   "new": "1848131944",
   "was": "Audio/412",
   "owner": "generalprinciple",
-  "why": "Remilia awakening song 2 -> Wheel Of Darkness"
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
  },
  "120157240722066": {
-  "new": "3929467229",
+  "new": "632919727",
   "was": "Audio/backdash",
   "owner": "generalprinciple",
-  "why": "back dash -> cloth shuffle (the dash sound)"
+  "cat": "swing",
+  "why": "private/deleted -> public (swing)"
+ },
+ "120371006058971": {
+  "new": "543280386",
+  "was": "Fire Dropkick",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "120618932365957": {
+  "new": "543280386",
+  "was": "Enraged+",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "121349843717051": {
+  "new": "9113823264",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (2)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "121433451659503": {
+  "new": "9113463638",
+  "was": "Spear Extra Grab Explode",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "121762248225725": {
+  "new": "2974753896",
+  "was": "aura loop",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "123263862021547": {
+  "new": "262562442",
+  "was": "00118 [1]",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "124363255229259": {
+  "new": "7441099960",
+  "was": "Spear Big Move Exp",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
  },
  "125186329151865": {
-  "new": "1358454187",
+  "new": "131228548",
   "was": "Audio/17873732848",
   "owner": "generalprinciple",
-  "why": "black flash hit -> guass (its sibling)"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
  },
  "126121671708832": {
-  "new": "75152639792585",
+  "new": "9113823993",
   "was": "Audio/0725(2) (1)",
   "owner": "generalprinciple",
-  "why": "Remilia voice line -> her Giggle1"
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "126329746083493": {
+  "new": "262562442",
+  "was": "47c1632c27946bf71341b3567c7fc290",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
+ },
+ "126693181803958": {
+  "new": "2275292812",
+  "was": "Fire Throw",
+  "owner": "Ivory Boat",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "126868982350911": {
+  "new": "7441099960",
+  "was": "Spear Big Move WO Exp",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "127655618901083": {
+  "new": "608600954",
+  "was": "Fire Counter Slide",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
  },
  "129095297809850": {
-  "new": "8176492141",
+  "new": "6636232274",
   "was": "Audio/17839561113",
   "owner": "generalprinciple",
-  "why": "spear swing -> Heavy Swing"
+  "cat": "cloth",
+  "why": "private/deleted -> public (cloth)"
+ },
+ "129241641151674": {
+  "new": "7837536401",
+  "was": "Spear Grab End",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "129882093232326": {
+  "new": "16898133698",
+  "was": "Spear Grab",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "130717891740391": {
+  "new": "9113534108",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (9)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "131250987457635": {
+  "new": "129252516034384",
+  "was": "Cutscene 1",
+  "owner": "Ivory Boat",
+  "cat": "explode",
+  "why": "private/deleted -> public (explode)"
+ },
+ "131369317438838": {
+  "new": "9118617342",
+  "was": "FireGuyStartUp",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
  },
  "131861167964896": {
-  "new": "2227417262",
+  "new": "1358454187",
   "was": "Audio/lol1",
   "owner": "generalprinciple",
-  "why": "spin kick hit -> charger_punch4"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "134328973073184": {
+  "new": "7441143109",
+  "was": "Spear Return",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "136140219198977": {
+  "new": "9113822618",
+  "was": "criatura",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
+ },
+ "137235867611784": {
+  "new": "3518168170",
+  "was": "Spear Finisher Finale",
+  "owner": "Ivory Boat",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
  },
  "137378160319690": {
-  "new": "9118612324",
+  "new": "7441129853",
   "was": "Audio/10273-_1_",
   "owner": "generalprinciple",
-  "why": "Mokou beatdown -> Rock Impact 4"
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "137688761941343": {
+  "new": "7655466603",
+  "was": "0BC61F89-7AC6-29001-114EF86C91E8 (1)",
+  "owner": "Ivory Boat",
+  "cat": "voice",
+  "why": "private/deleted -> public (voice)"
  },
  "138402299613793": {
-  "new": "7441141577",
+  "new": "5334567730",
   "was": "Audio/18511965048",
   "owner": "generalprinciple",
-  "why": "Remilia big slash -> greatsword slash 1"
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "139502179573489": {
+  "new": "7441143109",
+  "was": "SpinS",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "139731475547429": {
+  "new": "6903182307",
+  "was": "Spear Grab Start",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "139878534297844": {
+  "new": "7837536401",
+  "was": "HeartbreakThrowSfx",
+  "owner": "Ivory Boat",
+  "cat": "stab",
+  "why": "private/deleted -> public (stab)"
+ },
+ "140016356294499": {
+  "new": "7441129469",
+  "was": "Fire Counter",
+  "owner": "Ivory Boat",
+  "cat": "hit",
+  "why": "private/deleted -> public (hit)"
+ },
+ "140661198604140": {
+  "new": "4474833664",
+  "was": "Spear Wall",
+  "owner": "Ivory Boat",
+  "cat": "misc",
+  "why": "private/deleted -> public (misc)"
  }
 }
