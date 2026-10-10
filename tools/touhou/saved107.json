@@ -1,0 +1,191 @@
+{
+ "17373814145": {
+  "name": "startup",
+  "path": "ReplicatedStorage.Assets.Animations.Characters.Ice Fairy.Skill1.startup",
+  "keyframes": 74,
+  "length": 1.217,
+  "check": true
+ },
+ "18145472727": {
+  "name": "Remilia Hit 1",
+  "path": "ReplicatedStorage.Assets.Animations.ReactionsFlyingREAL.Remilia Hit 1",
+  "keyframes": 21,
+  "length": 0.333,
+  "check": false
+ },
+ "18145475842": {
+  "name": "Remi Hit 2",
+  "path": "ReplicatedStorage.Assets.Animations.ReactionsFlyingREAL.Remi Hit 2",
+  "keyframes": 21,
+  "length": 0.333,
+  "check": false
+ },
+ "18145477841": {
+  "name": "Remi Hit 3",
+  "path": "ReplicatedStorage.Assets.Animations.ReactionsFlyingREAL.Remi Hit 3",
+  "keyframes": 21,
+  "length": 0.333,
+  "check": false
+ },
+ "18145480060": {
+  "name": "Remi Hit 4",
+  "path": "ReplicatedStorage.Assets.Animations.ReactionsFlyingREAL.Remi Hit 4",
+  "keyframes": 21,
+  "length": 0.333,
+  "check": false
+ },
+ "18810371910": {
+  "name": "kick",
+  "path": "ReplicatedStorage.Assets.Animations.Characters.Ice Fairy.Skill1.kick",
+  "keyframes": 38,
+  "length": 0.617,
+  "check": true
+ },
+ "81165337623816": {
+  "name": "Downslam",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.Downslam",
+  "keyframes": 61,
+  "length": 1,
+  "check": false
+ },
+ "88128088729866": {
+  "name": "PBCAM",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.MJokUltCam1.AnimSaves.PBCAM",
+  "keyframes": 401,
+  "length": 6.667,
+  "check": false
+ },
+ "91696202815496": {
+  "name": "R: Special",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.R: Special",
+  "keyframes": 79,
+  "length": 1.322,
+  "check": false
+ },
+ "92360162228187": {
+  "name": "Dash",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.Dash",
+  "keyframes": 51,
+  "length": 0.847,
+  "check": false
+ },
+ "95601120048515": {
+  "name": "PBV",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Reallwyuu.AnimSaves.PBV",
+  "keyframes": 401,
+  "length": 6.667,
+  "check": false
+ },
+ "95954856512475": {
+  "name": "Mango",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.Mango",
+  "keyframes": 121,
+  "length": 2.034,
+  "check": false
+ },
+ "98639356796203": {
+  "name": "Sky Soaring Kick",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.Sky Soaring Kick",
+  "keyframes": 97,
+  "length": 1.627,
+  "check": false
+ },
+ "99415271075232": {
+  "name": "Uppercut",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.Uppercut",
+  "keyframes": 61,
+  "length": 1.1,
+  "check": false
+ },
+ "105290718623603": {
+  "name": "BOOOO THIS SUCKS_1",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.BOOOO THIS SUCKS_1",
+  "keyframes": 127,
+  "length": 2.136,
+  "check": false
+ },
+ "108217279087207": {
+  "name": "Up the cut",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.Up the cut",
+  "keyframes": 67,
+  "length": 1.119,
+  "check": false
+ },
+ "110475242863679": {
+  "name": "Blocking",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.Blocking",
+  "keyframes": 121,
+  "length": 2.034,
+  "check": false
+ },
+ "114680013127948": {
+  "name": "South Wind: Clear Sky",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.South Wind: Clear Sky",
+  "keyframes": 228,
+  "length": 3.847,
+  "check": true
+ },
+ "116528496998535": {
+  "name": "Mokou Awakening ",
+  "path": "ServerStorage.RBX_ANIMSAVES.Rig.Mokou Awakening ",
+  "keyframes": 920,
+  "length": 15.317,
+  "check": false
+ },
+ "116677254193558": {
+  "name": "2 startup",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.2 startup",
+  "keyframes": 63,
+  "length": 1.051,
+  "check": false
+ },
+ "120674619121800": {
+  "name": "oopssss",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.oopssss",
+  "keyframes": 129,
+  "length": 2.169,
+  "check": false
+ },
+ "128675044478123": {
+  "name": "3",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.3",
+  "keyframes": 47,
+  "length": 0.783,
+  "check": true
+ },
+ "128875824406345": {
+  "name": "South Wind: Clear Sky",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.South Wind: Clear Sky",
+  "keyframes": 228,
+  "length": 3.847,
+  "check": true
+ },
+ "129760642655211": {
+  "name": "blocking",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.Blocking",
+  "keyframes": 121,
+  "length": 2.034,
+  "check": false
+ },
+ "130198022684545": {
+  "name": "remi ult cutscene cam",
+  "path": "StarterPlayer.StarterPlayerScripts.Game.Combats.Scarlet Empress.Blitzo.remi ult cutscene cam",
+  "keyframes": 91,
+  "length": 1.5,
+  "check": false
+ },
+ "137701041431404": {
+  "name": "1",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.1",
+  "keyframes": 47,
+  "length": 0.783,
+  "check": true
+ },
+ "138941292691749": {
+  "name": "4",
+  "path": "ReplicatedStorage.Assets.VFX.Immortal Blaze.Combat.diablejambelol.Kinnie here u go.Ivan_Moves.AnimSaves.4",
+  "keyframes": 47,
+  "length": 0.783,
+  "check": true
+ }
+}

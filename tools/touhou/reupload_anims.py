@@ -24,7 +24,8 @@
 # a stop part-way (a rate limit, a lost connection) just picks up where it was.
 #
 #   python reupload_anims.py --download-only   (just step 1, old key only)
-#   python reupload_anims.py --upload-only     (just step 2, new key only)
+#   python reupload_anims.py --upload-only     (just step 2, new key only: the
+#                                               .rbxm files already in reupload107/)
 import argparse
 import getpass
 import gzip
@@ -379,9 +380,14 @@ def wait_for(key, operation):
     raise ApiError(0, 'Roblox is still working on it after 90 s (operation %s) - run again later' % path)
 
 
-def upload(key, creator, ids):
+def upload(key, creator, ids, only_present=False):
     m = load_map()
-    done, failed = 0, {}
+    done, failed, skipped = 0, {}, 0
+    if only_present:  # (--upload-only: just the files that are there)
+        have = [i for i in ids if os.path.exists(os.path.join(OUT, '%s.rbxm' % i))]
+        skipped = len(ids) - len(have)
+        ids = have
+        print('%d animation files to upload (%d of the %d have none here).' % (len(ids), skipped, len(ids) + skipped))
     todo = [i for i in ids if i not in m]
     for n, old in enumerate(ids, 1):
         if old in m:
@@ -503,8 +509,9 @@ def main():
     if not a.download_only:
         creator = ask_creator()
         key = ask_key('NEW', 'the account that owns Quirk Battlegrounds; API system "assets", Read and Write')
-        done, failed_up = upload(key, creator, ids)
-        print('\nUploaded %d of %d.' % (done, len(ids)))
+        done, failed_up = upload(key, creator, ids, only_present=a.upload_only)
+        here = len([i for i in ids if os.path.exists(os.path.join(OUT, '%s.rbxm' % i))]) if a.upload_only else len(ids)
+        print('\nUploaded %d of %d.' % (done, here))
         print('Old id -> new id: %s' % MAP)
         print('Paste into Studio\'s command bar: %s' % SNIPPET)
     bad = dict(failed_up)
