@@ -8,7 +8,27 @@ A sound you uploaded yourself plays in a game it is shared with: either give Qui
 permission to use it from the old account (Creator Dashboard, the sound, Permissions) or upload it again.
 Sounds from Roblox's own library play anywhere and need nothing.
 
-## How
+## The quick way: `reupload_anims.py`
+
+It moves all of them with Roblox's own Open Cloud API: it downloads each one with the old account's
+key and uploads it with the new account's, then writes the Studio snippet that swaps the ids.
+
+1. Make two API keys at create.roblox.com/dashboard/credentials (Creator Dashboard, API Keys):
+   - signed in to the **old** account: add the API system **legacy-asset**, operation **manage**;
+   - signed in to the **new** account (or under the group, if a group owns the game): add the API
+     system **assets**, operations **Read** and **Write**.
+   Both: Accepted IP Addresses `0.0.0.0/0` (or your own IP), and an expiry date you like.
+2. Install Python 3 (python.org; tick "Add Python to PATH"), put `reupload_anims.py` in a folder,
+   and run `python reupload_anims.py` (or `py reupload_anims.py`) there.
+3. Paste each key when it asks (it won't show; it's never saved), and the new account's user id
+   (or the group's id).
+4. When it's done, open `reupload107/swap_animations.lua`, paste all of it into Studio's command bar
+   with Quirk Battlegrounds open, press Enter, and publish. (Or send `reupload107/map.json` - it has no
+   keys in it - and `tools/touhou/swap107.py` puts the new ids into the place file.)
+
+Stopped part-way, or some failed? Run it again: what's already done is skipped.
+
+## By hand in Studio (if the script can't)
 
 1. In Studio signed in to the **old** account, open the Touhou place and paste this into the command bar.
    It fetches every animation as a KeyframeSequence into `ServerStorage.Reupload107`, named by its old id:

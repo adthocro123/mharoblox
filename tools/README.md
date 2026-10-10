@@ -10,7 +10,7 @@ of truth**. This folder holds what was used to build it outside Studio:
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts. `uniqueids.py` (Round 106) finds UniqueIds two instances share: Studio won't open such a place |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
 | `jjba/` | Round 104: the tools that grafted the JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview). Round 106: `assets106.py` (the graft of the Stand arrows, the Rokakaka, the props in the hand and their two clips) and `spots_check.luau` (where the items go, worked out offline) |
-| `touhou/` | Round 107: Mokou and Remilia from the owner's Touhou place. `graft107.json` (what comes over), `kit107.luau` (the new folders, the Knit stand-in, `Bridge`), `assets107.py` (the graft), `port107.py` (their scripts into `src/`, paths patched, footer stripped), `paths107.luau` (every path their scripts name is in the place), `ids107.py` and `reupload107.md` (the animations and sounds to upload again) |
+| `touhou/` | Round 107: Mokou and Remilia from the owner's Touhou place. `graft107.json` (what comes over), `kit107.luau` (the new folders, the Knit stand-in, `Bridge`), `assets107.py` (the graft), `port107.py` (their scripts into `src/`, paths patched, footer stripped), `paths107.luau` (every path their scripts name is in the place), `ids107.py` and `reupload107.md` (the animations and sounds to upload again), `reupload_anims.py` (moves the 185 animations to the new account with Roblox's Open Cloud API and writes the Studio snippet that swaps the ids; run on your own computer), `swap107.py` (puts its `map.json` into a place file) |
 
 You need Python 3 with `numpy pillow lz4 zstandard` (and `ffmpeg` for preview
 videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tools.
@@ -30,10 +30,13 @@ Knit stand-in and `Bridge`). Not playtested in Studio yet.
 
 **The animations need uploading again.** Quirk Battlegrounds is on a new
 account, and Roblox only plays an animation in a game owned by whoever owns
-the animation. `touhou/reupload107.md` lists all 185 animations and 275
-sounds with where each one sits. It also has the two command-bar snippets:
-one fetches the animations on the old account, the other swaps in the new
-ids. Until then the moves still work (hits, effects, sounds you own or
+the animation. `touhou/reupload_anims.py` moves all 185 with Roblox's Open
+Cloud API (downloaded with an old-account key, uploaded with a new-account
+key; tested against a stand-in for the API, not yet against Roblox's).
+`touhou/reupload107.md` lists all 185 animations and 275 sounds with where
+each one sits, with the steps, and two command-bar snippets for doing it by
+hand instead: one fetches the animations on the old account, the other swaps
+in the new ids. Until then the moves still work (hits, effects, sounds you own or
 Roblox's), but the bodies don't animate. The two awakening songs fall back to
 Roblox-library tracks if theirs won't load.
 
