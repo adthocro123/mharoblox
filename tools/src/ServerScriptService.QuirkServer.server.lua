@@ -569,7 +569,15 @@ local function damage(attacker, model, amount, opts)
 	if Reactions.RK and hum.Health - amount < 1 and Reactions.RK.downs(attacker, model) then
 		amount = math.max(0, math.floor(hum.Health) - 1)
 	end
+	-- (round 107) Mokou with her ult meter full: the blow that would knock
+	-- her out lays her down instead (Kit.TH.undying - awaken and she rises)
+	if Reactions.TH and hum.Health - amount <= 0 and Reactions.TH.undying(attacker, model, amount) then
+		return true
+	end
 	hum:TakeDamage(amount)
+	if Reactions.TH then
+		Reactions.TH.struck(attacker, model) -- (round 107: a Touhou fighter's move stops, as there)
+	end
 	if hum.Health <= 0 then
 		Reactions.ko(attacker, model, opts)
 	else
@@ -7775,6 +7783,9 @@ local function handleM1(player, char, root, clientCF, variant)
 	end
 
 	broadcast("Punch", char, { Count = st.Count, Finisher = finisher, Variant = variant }, player)
+	if Kit.TH then
+		Kit.TH.m1(player, char, nil, st.Count) -- (round 107: a Touhou fighter's swing - that place's)
+	end
 
 	local origin0, f = swingOrigin(root, clientCF)
 	-- a downslam reaches down to whoever is under you
@@ -7842,7 +7853,15 @@ local function handleM1(player, char, root, clientCF, variant)
 				-- the clients which hit it was (the victim's reaction clip)
 				local opts = finisher and { GuardDamage = GUARD.FinisherGuardDamage or 30, Hitstop = hitstop, Heavy = true, Downslam = variant == "Down" or nil, Unblockable = variant == "Down" or nil, M1 = variant or 4 }
 					or { Hitstop = Config.M1.Hitstop, M1 = juggle and "Air" or count }
+				-- (round 107) a Touhou fighter's M1: that place's hit sound instead
+				local touhou = Kit.TH and Kit.TH.combatOf(char)
+				if touhou then
+					opts.Quiet = true
+				end
 				if damage(player, model, dmg, opts) then
+					if touhou then
+						Kit.TH.m1(player, char, model, count, variant)
+					end
 					-- (round 103) Pucci: every C-MOON fist is a touch - a second one
 					-- flips an inverted body back, the 4th inverts (Kit.CM.touched)
 					if Kit.CM then
@@ -10948,6 +10967,9 @@ local function endUlt(player, char, silent)
 	if char then
 		endKaiju(char) -- the kaiju comes apart with the ult
 		Kit.awakenOff(char) -- ((round 101 review) and an awakening still going, its lock)
+		if Kit.TH then
+			Kit.TH.unawaken(player, char) -- (round 107: a Touhou fighter's awakening off her)
+		end
 	end
 	ultTokens[player] = (ultTokens[player] or 0) + 1
 	player:SetAttribute("UltActive", false)
@@ -11009,9 +11031,17 @@ local function activateUlt(player, char, root)
 	char:SetAttribute("AwakeningUntil", nowS + (AW.Release or 1.6))
 	char:SetAttribute("CombatActionUntil", math.max(char:GetAttribute("CombatActionUntil") or 0, nowS + (AW.Release or 1.6)))
 	iFrames[char] = math.max(iFrames[char] or 0, os.clock() + (ULT.ActivationArmor or AW.Armor or 1.75))
-	broadcast("UltActivate", char, { Quirk = quirkName }, player)
+	-- (round 107) Mokou and Remilia: the Touhou place's own awakening (its
+	-- Awaken script, its cutscene) instead of the game's blast (Kit.TH.awaken)
+	local touhou = Kit.TH and Kit.TH.awaken(player, char, quirkName)
+	if not touhou then
+		broadcast("UltActivate", char, { Quirk = quirkName }, player)
+	end
 	local row = (AW.Heroes or {})[quirkName] or {}
 	task.delay(tonumber(row.HitAt) or AW.HitAt or 0.3, function()
+		if touhou then
+			return
+		end
 		if ultTokens[player] ~= token or player.Character ~= char or not alive(char) or not root.Parent
 			or player:GetAttribute("UltActive") ~= true or player:GetAttribute("Quirk") ~= quirkName then
 			return
@@ -35054,6 +35084,13 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 		or char:GetAttribute("PlayingUno") or char:GetAttribute("Clashing") then
 		return
 	end
+	-- (round 107) Mokou lying dead (Kit.TH.undying): only her awakening raises her
+	if Kit.TH and Kit.TH.dead[char] then
+		if index == Config.ULT_INDEX then
+			activateUlt(player, char, root)
+		end
+		return
+	end
 	-- (parkour is movement, not a combat action: the lock doesn't hold it -
 	-- the vault already happened on the player's screen, this only shows it)
 	if index == Config.PARKOUR_INDEX then
@@ -35228,7 +35265,7 @@ end)
 
 ---------------------------------------------------------------------------
 -- (round 106) THE STAND ARROWS AND THE ROKAKAKA (Config.JJBA.Items; Kit.JI):
--- the owner's JJBA place's, lying about the city. An arrow: a Stand awakens
+-- the JJBA place's, lying about the city. An arrow: a Stand awakens
 -- in whoever stabs himself with it (one of Pool, by weight) - his from then
 -- on. A Rokakaka: a Stand user eats it and his Stand leaves him. Each one
 -- taken comes back Respawn s later wherever's free. Everyone's screen plays
@@ -35591,6 +35628,1586 @@ end, function(err)
 	warn("[JJBA items] " .. tostring(err) .. "\n" .. debug.traceback())
 end)
 
+
+---------------------------------------------------------------------------
+-- (round 107) TOUHOU (Config.Touhou; Kit.TH): Mokou (IMMORTAL BLAZE) and
+-- Remilia (SCARLET EMPRESS) from the owner's Touhou place, run by that
+-- place's own move scripts (ServerStorage.Touhou.Attacks.<its name>).
+-- - TH.wrap gives each one what that place's AttackWrapper did (.new,
+--   bindClassToAttack, listenForCancel, AddFor, Destroy), and TH.use drives
+--   it the way its AttackService did (a press: :Release(InAir, Torso); a
+--   held move: :Hold, then :Release when the key comes up).
+-- - TH.S are the services those scripts call, built on the game's own:
+--   hits are the game's damage (guard, parry, i-frames, KOs, the ult meter),
+--   its stuns, ragdolls, knockback and cooldowns.
+-- - That place kept a body's state in its Values folder (Stunned, Cant,
+--   IFrames, ULTIFrames, AutoRotate, Speed / Jump caps): TH.sync turns
+--   what's there into the game's own (Stunned, CombatActionUntil, i-frames,
+--   SlowedTo, JumpPower, BodyLocked) every few frames.
+-- - Its effects on every screen: CombatService:FireAllClients -> VFX "TH"
+--   (its effect modules, ReplicatedStorage.Touhou.Combats).
+-- (Its own function: the main chunk's at its local limit.)
+---------------------------------------------------------------------------
+xpcall(function()
+	local TC = Config.Touhou
+	if not (TC and TC.Enabled ~= false) then
+		return
+	end
+	local RS = game:GetService("ReplicatedStorage")
+	local SS = game:GetService("ServerStorage")
+	local PhysicsService = game:GetService("PhysicsService")
+	local TH = {
+		profiles = setmetatable({}, { __mode = "k" }), -- [char] = { Attacks = {}, States = {} }
+		aim = setmetatable({}, { __mode = "k" }), -- [player] = { Dir, Pos } (the last press)
+		tracked = setmetatable({}, { __mode = "k" }), -- [body] = true: has a Values folder to keep in step
+		wrote = setmetatable({}, { __mode = "k" }), -- [body] = what TH.sync last set on it
+		tracks = setmetatable({}, { __mode = "k" }), -- [body] = { [Animation] = AnimationTrack }
+		waits = setmetatable({}, { __mode = "k" }), -- [char] = { [slot] = thread } (cooldowns)
+		mods = {}, -- ["<its name>/<Module>"] = the wrapped module
+		dead = setmetatable({}, { __mode = "k" }), -- [char] = { Until, By } (Mokou's immortality)
+		awake = setmetatable({}, { __mode = "k" }), -- [char] = what an awakening put on
+		ids = {}, -- [ability Id] = true
+		errors = {}, -- (the tests)
+	}
+	-- (Kit.TH, Reactions.TH: set at the end, once all of it is there - the
+	-- game's hooks into it are skipped while they're nil)
+	Destruction.Touhou = TH -- (the tests)
+	local home = SS:FindFirstChild("Touhou")
+	local bridgeModule = home and home:FindFirstChild("Bridge")
+	local attacks = home and home:FindFirstChild("Attacks")
+	if not (bridgeModule and attacks) then
+		warn("[Touhou] ServerStorage.Touhou (its move scripts) is missing: Mokou and Remilia can't move")
+		return
+	end
+	local B = require(bridgeModule)
+	local SCALE = TC.DamageScale or 3
+	local SLOT_INDEX = { Skill1 = 1, Skill2 = 2, Skill3 = 3, Skill4 = Config.EXTRA_INDEX, Special = Config.SPECIAL_INDEX }
+
+	-- the place's own folders its scripts put things in
+	local ignore = workspace:FindFirstChild("Ignore")
+	if not ignore then
+		ignore = Instance.new("Folder")
+		ignore.Name = "Ignore"
+		ignore.Parent = workspace
+	end
+	for _, name in { "Effects", "Rocks", "Entities" } do
+		if not ignore:FindFirstChild(name) then
+			local f = Instance.new("Folder")
+			f.Name = name
+			f.Parent = ignore
+		end
+	end
+	-- (what's in it never stops a ray or a query of the game's: the parts
+	-- that don't collide are left out of them)
+	ignore.DescendantAdded:Connect(function(d)
+		if d:IsA("BasePart") and not d.CanCollide then
+			d.CanQuery = false
+		end
+	end)
+	-- its collision groups (its effects pass through bodies); its "Character"
+	-- is the game's "Characters" (port107.py)
+	pcall(function()
+		for _, g in { "Visuals", "Visuals2" } do
+			if not PhysicsService:IsCollisionGroupRegistered(g) then
+				PhysicsService:RegisterCollisionGroup(g)
+			end
+		end
+		for _, other in { "Characters", "Ragdoll", "Visuals" } do
+			PhysicsService:CollisionGroupSetCollidable("Visuals", other, false)
+			PhysicsService:CollisionGroupSetCollidable("Visuals2", other, false)
+		end
+		PhysicsService:CollisionGroupSetCollidable("Visuals", "Default", false)
+		PhysicsService:CollisionGroupSetCollidable("Visuals2", "Visuals2", false)
+	end)
+
+	-- whose Touhou fighter this body is: its name there ("Immortal Blaze"), or nil
+	function TH.combatOf(char)
+		local plr = char and Players:GetPlayerFromCharacter(char)
+		local q = plr and Config.Quirks[plr:GetAttribute("Quirk") or ""]
+		return q and q.Touhou or nil
+	end
+	local function ownerOf(char)
+		return char and Players:GetPlayerFromCharacter(char)
+	end
+
+	---------------------------------------------------------------------
+	-- the Values folder (that place's state on a body)
+	---------------------------------------------------------------------
+	function TH.values(model)
+		if not (model and model.Parent) then
+			return nil
+		end
+		local V = model:FindFirstChild("Values")
+		if not V then
+			V = Instance.new("Folder")
+			V.Name = "Values"
+			V.Parent = model
+		end
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		for name, base in { Speed = model:GetAttribute("BaseWalkSpeed") or Config.BaseWalkSpeed or 16, Jump = model:GetAttribute("BaseJumpPower") or Config.BaseJumpPower or 50 } do
+			local f = V:FindFirstChild(name)
+			if not f then
+				f = Instance.new("Folder")
+				f.Name = name
+				f.Parent = V
+			end
+			local d = f:FindFirstChild("Default")
+			if not d then
+				d = Instance.new("NumberValue")
+				d.Name = "Default"
+				d.Value = base
+				d.Parent = f
+			end
+		end
+		TH.tracked[model] = true
+		if hum and not model:GetAttribute("Combat") then
+			model:SetAttribute("Combat", TH.combatOf(model))
+		end
+		return V
+	end
+	local function newValue(model, name, folder)
+		local V = TH.values(model)
+		if not V then
+			return nil
+		end
+		local v = Instance.new("NumberValue")
+		v.Name = name
+		v.Parent = folder and V:FindFirstChild(folder) or V
+		return v
+	end
+	local function has(model, name)
+		local V = model and model:FindFirstChild("Values")
+		return V ~= nil and V:FindFirstChild(name) ~= nil
+	end
+	local function lowest(folder)
+		local m = nil
+		for _, v in folder and folder:GetChildren() or {} do
+			if v:IsA("NumberValue") and v.Name ~= "Default" then
+				m = m and math.min(m, v.Value) or v.Value
+			end
+		end
+		return m
+	end
+
+	-- what's in a body's Values, into the game's own state
+	function TH.sync(model)
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		local V = model:FindFirstChild("Values")
+		if not (hum and V and hum.Health > 0) then
+			return
+		end
+		local w = TH.wrote[model]
+		if not w then
+			w = {}
+			TH.wrote[model] = w
+		end
+		local now = workspace:GetServerTimeNow()
+		if V:FindFirstChild("ULTIFrames") or V:FindFirstChild("IFrames") or model:GetAttribute("ULTIFrames") or model:GetAttribute("IFrames") then
+			iFrames[model] = math.max(iFrames[model] or 0, os.clock() + 0.2)
+		end
+		local speedCap = lowest(V:FindFirstChild("Speed"))
+		if V:FindFirstChild("Stunned") then
+			stun(model, 0.25, speedCap or 0)
+		end
+		if V:FindFirstChild("Cant") then
+			model:SetAttribute("CombatActionUntil", math.max(model:GetAttribute("CombatActionUntil") or 0, now + 0.25))
+		end
+		-- the Speed / Jump caps: the lowest one, while there is one
+		if speedCap then
+			if model:GetAttribute("SlowedTo") ~= speedCap then
+				model:SetAttribute("SlowedTo", speedCap)
+			end
+			w.slow = speedCap
+			if not ownerOf(model) and not model:GetAttribute("Stunned") then
+				hum.WalkSpeed = math.min(hum.WalkSpeed, speedCap)
+			end
+		elseif w.slow then
+			if model:GetAttribute("SlowedTo") == w.slow then
+				model:SetAttribute("SlowedTo", nil)
+				if not ownerOf(model) and not model:GetAttribute("Stunned") then
+					hum.WalkSpeed = model:GetAttribute("BaseWalkSpeed") or Config.BaseWalkSpeed
+				end
+			end
+			w.slow = nil
+		end
+		local jumpCap = lowest(V:FindFirstChild("Jump"))
+		if jumpCap then
+			hum.UseJumpPower = true
+			hum.JumpPower = math.min(hum.JumpPower, jumpCap)
+			w.jump = true
+		elseif w.jump then
+			w.jump = nil
+			if not model:GetAttribute("Stunned") then
+				hum.JumpPower = model:GetAttribute("BaseJumpPower") or Config.BaseJumpPower
+			end
+		end
+		if V:FindFirstChild("AutoRotate") then
+			if not w.turn then
+				w.turn = true
+				hum.AutoRotate = false
+				model:SetAttribute("BodyLocked", true)
+			end
+		elseif w.turn then
+			w.turn = nil
+			hum.AutoRotate = true
+			if model:GetAttribute("BodyLocked") == true then
+				model:SetAttribute("BodyLocked", nil)
+			end
+		end
+		-- its scripts read "Ragdoll" (the game's is "Ragdolled")
+		local limp = model:GetAttribute("Ragdolled") == true or nil
+		if model:GetAttribute("Ragdoll") ~= limp then
+			model:SetAttribute("Ragdoll", limp)
+		end
+	end
+	task.spawn(function()
+		while true do
+			task.wait(0.1)
+			for model in TH.tracked do
+				if not model.Parent then
+					TH.tracked[model] = nil
+				else
+					local ok, err = pcall(TH.sync, model)
+					if not ok then
+						TH.tracked[model] = nil
+						warn("[Touhou] sync: " .. tostring(err))
+					end
+				end
+			end
+		end
+	end)
+
+	---------------------------------------------------------------------
+	-- its services
+	---------------------------------------------------------------------
+	local S = {}
+	TH.S = S
+	-- (a body that can be hit at all: alive, not untouchable, not a dev's
+	-- parked body, not a ranked duel's other world)
+	function TH.hittable(caster, model)
+		if not (model and model ~= caster and alive(model)) or untouchable(model) then
+			return false
+		end
+		if Reactions.parked and Reactions.parked[model] then
+			return false
+		end
+		if model:IsDescendantOf(ignore) then
+			return false
+		end
+		local plr = ownerOf(caster)
+		if plr and Reactions.RK and Reactions.RK.apart(plr, model, nil) then
+			return false
+		end
+		local victim = ownerOf(model)
+		return not (victim and victim:GetAttribute("GodMode"))
+	end
+	function TH.immune(model, ignoresIFrames)
+		if (iFrames[model] or 0) > os.clock() and not (ignoresIFrames and not has(model, "ULTIFrames")) then
+			return true
+		end
+		return has(model, "ULTIFrames") or (has(model, "IFrames") and not ignoresIFrames)
+	end
+
+	-- AnimationService: its Animation objects (ReplicatedStorage.Assets.
+	-- Animations), played through the body's own Animator (they show once
+	-- they're uploaded to this game's account)
+	local DUMMY_TRACK = setmetatable({ TimePosition = 0, Length = 0, IsPlaying = false, Speed = 1 }, {
+		__index = function(_, k)
+			if k == "Stopped" or k == "Ended" or k == "DidLoop" or k == "KeyframeReached" then
+				return Instance.new("BindableEvent").Event
+			end
+			return function()
+				return nil
+			end
+		end,
+	})
+	function TH.track(model, anim)
+		if not (model and typeof(anim) == "Instance" and anim:IsA("Animation")) then
+			return nil
+		end
+		local list = TH.tracks[model]
+		if not list then
+			list = {}
+			TH.tracks[model] = list
+		end
+		local t = list[anim]
+		if t == nil then
+			local holder = model:FindFirstChildOfClass("Humanoid") or model:FindFirstChildOfClass("AnimationController")
+			local animator = holder and (holder:FindFirstChildOfClass("Animator") or Instance.new("Animator", holder))
+			local ok, tr = pcall(function()
+				return animator:LoadAnimation(anim)
+			end)
+			t = ok and tr or false
+			list[anim] = t
+		end
+		return t or nil
+	end
+	S.AnimationService = {
+		playAnimation = function(_, model, anim, speed, _sloppy, fade, timePos)
+			local t = TH.track(model, anim)
+			if not t then
+				return DUMMY_TRACK
+			end
+			t:Play(fade)
+			local adj = anim:GetAttribute("SpeedAdjustment")
+			if speed or adj then
+				t:AdjustSpeed(speed or adj)
+			end
+			if timePos then
+				t.TimePosition = timePos
+			end
+			if anim:GetAttribute("AdjustSpeedZero") then
+				local c
+				c = t:GetMarkerReachedSignal("AdjustSpeed"):Connect(function(v)
+					c:Disconnect()
+					t:AdjustSpeed(tonumber(v) or 1)
+				end)
+			end
+			return t
+		end,
+		stopAnimation = function(_, model, anim, fade)
+			local list = TH.tracks[model]
+			local t = list and typeof(anim) == "Instance" and list[anim]
+			if t and t.IsPlaying then
+				t:Stop(fade)
+			end
+		end,
+		adjustSpeed = function(_, model, anim, speed, truefrom)
+			local t = TH.track(model, anim)
+			if not t then
+				return
+			end
+			-- (that place's: Mokou's kick start-up from 61 frames in)
+			if truefrom == nil and anim.Name == "Startup" and anim.Parent and anim.Parent.Name == "Skill1" and anim.Parent.Parent and anim.Parent.Parent.Name == "Immortal Blaze" then
+				t.TimePosition = 61 / 60
+			end
+			t:AdjustSpeed(speed)
+		end,
+		getTimePos = function(_, model, anim)
+			local t = TH.track(model, anim)
+			return t and t.TimePosition or 0
+		end,
+		setTimePos = function(_, model, anim, pos)
+			local t = TH.track(model, anim)
+			if t then
+				t.TimePosition = pos
+			end
+		end,
+		stopAll = function(_, model)
+			for _, t in TH.tracks[model] or {} do
+				if t and t.IsPlaying then
+					t:Stop()
+				end
+			end
+		end,
+	}
+
+	-- CombatService: its effect modules on every screen near enough
+	-- (FireAllClients(body, range, combat, module, function, args...)), or
+	-- on one player's (FireClient(body, theirBody, ...))
+	local function pack(...)
+		local data = { n = select("#", ...) }
+		for i = 1, data.n do
+			local v = select(i, ...)
+			if v ~= nil then
+				data["a" .. i] = v
+			end
+		end
+		return data
+	end
+	function TH.fire(plr, char, combat, module, fn, ...)
+		local data = pack(...)
+		data.C, data.M, data.F = combat, module, fn
+		PlayVFX:FireClient(plr, "TH", char, data)
+	end
+	S.CombatService = {
+		FireAllClients = function(_, char, range, combat, module, fn, ...)
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			range = math.min(tonumber(range) or 100, TC.MaxRange or 1200)
+			for _, plr in Players:GetPlayers() do
+				local pr = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+				if pr and root and (pr.Position - root.Position).Magnitude <= range then
+					TH.fire(plr, char, combat, module, fn, ...)
+				end
+			end
+		end,
+		FireClient = function(_, char, who, combat, module, fn, ...)
+			local plr = typeof(who) == "Instance" and (who:IsA("Player") and who or ownerOf(who) or Players:FindFirstChild(who.Name))
+			if plr and plr:IsA("Player") then
+				TH.fire(plr, char, combat, module, fn, ...)
+			end
+		end,
+		changeCombat = function(_, char, combat)
+			char:SetAttribute("Combat", combat)
+		end,
+	}
+
+	-- CooldownService: the move's script sets its own; the HUD's slot shows it
+	function TH.clearCooldowns(char)
+		for slot, thread in TH.waits[char] or {} do
+			pcall(task.cancel, thread)
+			char:SetAttribute(slot .. "Cooldown", nil)
+		end
+		TH.waits[char] = {}
+		for _, slot in { "Skill1", "Skill2", "Skill3", "Skill4", "Special" } do
+			char:SetAttribute(slot .. "Cooldown", nil)
+		end
+	end
+	S.CooldownService = {
+		createCooldown = function(_, char, slot, length)
+			local plr = ownerOf(char)
+			if not plr or type(slot) ~= "string" then
+				return
+			end
+			if plr:GetAttribute("NoCooldowns") then
+				length = 0
+			end
+			length = tonumber(length) or 0
+			char:SetAttribute(slot .. "Cooldown", true)
+			local waits = TH.waits[char] or {}
+			TH.waits[char] = waits
+			if waits[slot] then
+				pcall(task.cancel, waits[slot])
+			end
+			waits[slot] = task.delay(length, function()
+				waits[slot] = nil
+				if char.Parent then
+					char:SetAttribute(slot .. "Cooldown", nil)
+				end
+			end)
+			local index = SLOT_INDEX[slot]
+			local q = plr:GetAttribute("Quirk")
+			if index and length > 0 then
+				local key = Config.CooldownKey(q, index, false, plr:GetAttribute("UltActive") == true)
+				PlayVFX:FireClient(plr, "Reload", char, { Key = key, Time = length })
+			end
+		end,
+		removeCooldown = function(_, char, slot)
+			local w = TH.waits[char]
+			if w and w[slot] then
+				pcall(task.cancel, w[slot])
+				w[slot] = nil
+			end
+			char:SetAttribute(slot .. "Cooldown", nil)
+		end,
+		Waits = TH.waits,
+	}
+
+	-- StateService / MovementService: values in Values (TH.sync reads them)
+	S.StateService = {
+		CreateStun = function(_, m) return newValue(m, "Stunned") end,
+		CreateCant = function(_, m) return newValue(m, "Cant") end,
+		CreateIFrames = function(_, m) return newValue(m, "IFrames") end,
+		CreateULTIFrames = function(_, m) return newValue(m, "ULTIFrames") end,
+		CreateAutoRotate = function(_, m) return newValue(m, "AutoRotate") end,
+		CreateRagdollSuperArmor = function(_, m) return newValue(m, "RagdollSuperArmor") end,
+		CreatePlatformStand = function(_, m) return newValue(m, "PlatformStand") end,
+		AddStates = function(_, m, states, time)
+			local p = TH.profile(m)
+			for _, st in states or {} do
+				if st == "AutoRotate" then
+					if time then
+						local v = newValue(m, "AutoRotate")
+						task.delay(time, function()
+							if v then
+								v:Destroy()
+							end
+						end)
+					end
+				else
+					p.States[st] = (p.States[st] or 0) + 1
+					m:SetAttribute(st, true)
+				end
+			end
+			if time then
+				task.delay(time, function()
+					S.StateService:RemoveStates(m, states)
+				end)
+			end
+		end,
+		RemoveStates = function(_, m, states)
+			local p = TH.profile(m)
+			for _, st in states or {} do
+				if st ~= "AutoRotate" then
+					p.States[st] = (p.States[st] or 1) - 1
+					if p.States[st] <= 0 then
+						p.States[st] = nil
+						m:SetAttribute(st, nil)
+					end
+				end
+			end
+		end,
+		ClearStates = function(_, m, states)
+			local p = TH.profile(m)
+			for _, st in states or {} do
+				p.States[st] = nil
+				m:SetAttribute(st, nil)
+			end
+		end,
+	}
+	S.MovementService = {
+		CreateSpeed = function(_, m, v)
+			local val = newValue(m, "SpeedVal", "Speed")
+			if val then
+				val.Value = v == "Default" and (m:GetAttribute("BaseWalkSpeed") or Config.BaseWalkSpeed) or tonumber(v) or 0
+			end
+			return val
+		end,
+		CreateJump = function(_, m, v)
+			local val = newValue(m, "JumpVal", "Jump")
+			if val then
+				val.Value = v == "Default" and (m:GetAttribute("BaseJumpPower") or Config.BaseJumpPower) or tonumber(v) or 0
+			end
+			return val
+		end,
+		ClearMovements = function() end,
+		ChangeDefaultWalkSpeed = function() end,
+	}
+
+	-- RagdollService / BodymoverService: the game's ragdoll and knockback
+	function TH.unragdoll(model)
+		ragdollTokens[model] = (ragdollTokens[model] or 0) + 1
+		if model:GetAttribute("Ragdolled") then
+			setRagdoll(model, false)
+		end
+	end
+	S.RagdollService = {
+		ragdoll = function(_, m, t) ragdoll(m, tonumber(t) or 1.3) end,
+		unragdoll = function(_, m) TH.unragdoll(m) end,
+		Setup = function() end,
+	}
+	-- a push of theirs (BodyVelocity: only the axes it had force on)
+	function TH.push(model, kb, noRagdoll)
+		if type(kb) ~= "table" then
+			return
+		end
+		local root = model:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		if kb.KnockbackType == "ShortKnockback" then
+			-- (a hop back, away from VelocityOrigin)
+			local from = typeof(kb.VelocityOrigin) == "Instance" and kb.VelocityOrigin:IsA("BasePart") and kb.VelocityOrigin.Position or root.Position
+			local away = Vector3.new(root.Position.X - from.X, 0, root.Position.Z - from.Z)
+			away = away.Magnitude > 0.1 and away.Unit or -root.CFrame.LookVector
+			knockback(model, away * (tonumber(kb.Velocity) or 5) * 4 + UP * (tonumber(kb.VelocityUp) or 0) * 4, 0.2, true, true)
+			return
+		end
+		local v = kb.Velocity
+		if typeof(v) ~= "Vector3" then
+			if typeof(kb.Position) == "Vector3" then
+				v = (kb.Position - root.Position) / math.max(tonumber(kb.Time) or 0.3, 0.1)
+			else
+				return
+			end
+		end
+		local f = typeof(kb.MaxForce) == "Vector3" and kb.MaxForce or Vector3.one
+		local cur = root.AssemblyLinearVelocity
+		v = Vector3.new(f.X > 0 and v.X or cur.X, f.Y > 0 and v.Y or cur.Y, f.Z > 0 and v.Z or cur.Z)
+		local t = tonumber(kb.Time) or tonumber(kb.TweenLength) or 0.2
+		knockback(model, v, math.clamp(t, 0.05, 1.5), true, noRagdoll)
+	end
+	S.BodymoverService = {
+		Knockback = function(_, m, kb) TH.push(m, kb, true) end,
+		DestroyBodymovers = function(_, m, kind)
+			local root = m and m:FindFirstChild("HumanoidRootPart")
+			for _, d in root and root:GetDescendants() or {} do
+				if d.Name ~= "GrabWeld" and ((kind and d:IsA(kind)) or (not kind and d:IsA("BodyMover"))) then
+					d:Destroy()
+				end
+			end
+			-- (the ones his own machine made: there, its BodymoverController)
+			local owner = m and ownerOf(m)
+			if owner then
+				TH.fire(owner, m, "Stuff", "downslamupthing", "DestroyBodyMovers", kind)
+			end
+			-- (and the game's own push)
+			if not kind and root then
+				for _, d in root:GetChildren() do
+					if d.Name == "Knockback" or d.Name == "KnockbackAttachment" then
+						d:Destroy()
+					end
+				end
+			end
+		end,
+		DestroyLinears = function() end,
+		makeEnemyFaceCharacter = function(_, enemy, char)
+			TH.face(enemy, char)
+		end,
+	}
+	function TH.face(model, toward)
+		local r, t = model and model:FindFirstChild("HumanoidRootPart"), toward and toward:FindFirstChild("HumanoidRootPart")
+		if not (r and t) or model:GetAttribute("Ragdolled") or r.Anchored then
+			return
+		end
+		local p = Vector3.new(t.Position.X, r.Position.Y, t.Position.Z)
+		if (p - r.Position).Magnitude > 0.1 then
+			r.CFrame = CFrame.lookAt(r.Position, p)
+		end
+	end
+
+	-- DamageService: the game's damage, with that place's follow-ups (its
+	-- stun, its slow, its ragdoll, its push) - and "Hit" / "Block" back
+	function TH.hit(char, enemy, amount, opts, ignoresIFrames)
+		local plr = ownerOf(char)
+		if not (plr and enemy and TH.hittable(char, enemy)) then
+			return false
+		end
+		-- (a grabbed body, or its own scripts' i-frames it ignores: the game's i-frames step aside for this one hit)
+		local saved = iFrames[enemy]
+		local through = ignoresIFrames or enemy:FindFirstChild("BeingGrabbed") ~= nil
+		if through then
+			iFrames[enemy] = nil
+		end
+		local landed = damage(plr, enemy, amount, opts)
+		if through then
+			iFrames[enemy] = saved
+		end
+		return landed
+	end
+	local function scaled(char, d, buffs)
+		d = (tonumber(d) or 0) * SCALE
+		if buffs and char:FindFirstChild("MilleniumVampire") then
+			d *= TC.VampireDamage or 1.9
+		end
+		return d
+	end
+	local function healBy(char, d)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local share = char:FindFirstChild("MilleniumVampire") and (TC.VampireHeal or 0.5) or (TC.Lifesteal or 0)
+		if hum and hum.Health > 0 and share > 0 then
+			hum.Health = math.min(hum.MaxHealth, hum.Health + d * share)
+		end
+	end
+	S.DamageService = {
+		Damage = function(_, Data, callback)
+			callback = type(callback) == "function" and callback or function() end
+			local char, enemy = Data.Character, Data.Enemy
+			if not (char and enemy) or not TH.hittable(char, enemy) then
+				return
+			end
+			TH.values(enemy)
+			if TH.immune(enemy, Data.IgnoresIFrames) and not enemy:FindFirstChild("BeingGrabbed") then
+				return
+			end
+			local amount = scaled(char, Data.Damage, not Data.NoDMGBuffs)
+			local origin = Data.BlockData and typeof(Data.BlockData.HitterOrigin) == "CFrame" and Data.BlockData.HitterOrigin.Position or nil
+			local root = char:FindFirstChild("HumanoidRootPart")
+			local opts = {
+				From = origin or (root and root.Position),
+				Unblockable = Data.BlockData == nil or nil,
+				Quiet = true,
+				NoKnockdown = true,
+				HitsDowned = true,
+				Heavy = (Data.RagdollData ~= nil) or nil,
+			}
+			local guarded = enemy:GetAttribute("Blocking") == true
+			local landed = TH.hit(char, enemy, amount, opts, Data.IgnoresIFrames)
+			if not landed then
+				if guarded and not opts.Unblockable then
+					TH.call(callback, "Block")
+				end
+				return
+			end
+			healBy(char, amount)
+			local SD, MD, RD, KB = Data.StateData, Data.MovementData, Data.RagdollData, Data.KnockbackData
+			local rag = RD and tonumber(RD.Time)
+			-- (that place: a super-armoured body isn't stunned by a throw)
+			local armoured = has(enemy, "RagdollSuperArmor") or enemy:FindFirstChild("MilleniumVampire") ~= nil
+			local flung = rag == nil and KB ~= nil and KB.KnockbackType ~= "ShortKnockback"
+			if type(SD) == "table" then
+				for st, t in SD do
+					t = tonumber(t)
+					if st == "Stunned" and t then
+						if not (flung and armoured) then
+							local v = S.StateService:CreateStun(enemy)
+							if v then
+								game:GetService("Debris"):AddItem(v, t)
+							end
+						end
+					elseif t then
+						S.StateService:AddStates(enemy, { st }, t)
+					end
+				end
+			end
+			if type(MD) == "table" then
+				local sp, jp = S.MovementService:CreateSpeed(enemy, MD.WalkSpeed or 0), S.MovementService:CreateJump(enemy, MD.JumpPower or 0)
+				task.delay(tonumber(MD.Time) or 0.5, function()
+					if sp then sp:Destroy() end
+					if jp then jp:Destroy() end
+				end)
+			end
+			if rag then
+				ragdoll(enemy, rag)
+			end
+			if KB then
+				TH.push(enemy, KB, rag == nil)
+			end
+			if type(Data.CharacterKnockbackData) == "table" then
+				TH.push(char, Data.CharacterKnockbackData, true)
+			end
+			if Data.EnemyFacesCharacter and not rag then
+				TH.face(enemy, char)
+			end
+			if Data.CharacterFacesEnemy then
+				TH.face(char, enemy)
+			end
+			if typeof(Data.ReactionAnim) == "Instance" and not (flung and armoured) then
+				S.AnimationService:playAnimation(enemy, Data.ReactionAnim, 1, nil, 0)
+			end
+			TH.highlight(char, enemy)
+			TH.call(callback, "Hit")
+		end,
+		JustDamage = function(_, char, enemy, d)
+			if not (char and enemy and TH.hittable(char, enemy)) then
+				return
+			end
+			TH.values(enemy)
+			local amount = scaled(char, d, true)
+			if TH.hit(char, enemy, amount, { Unblockable = true, Quiet = true, NoKnockdown = true, HitsDowned = true }, true) then
+				healBy(char, amount)
+				TH.highlight(char, enemy)
+			end
+		end,
+	}
+	function TH.highlight(char, enemy)
+		local combat = TH.combatOf(char)
+		local plr = ownerOf(char)
+		if plr and combat then
+			TH.fire(plr, char, "Stuff", "downslamupthing", "HITHIGHLIGHT", char, enemy, (TC.Highlight or {})[combat])
+		end
+	end
+
+	-- HitboxService: a box (Origin.CFrame * Offset, Size - or ABSOLUTECFRAME)
+	-- checked every frame from DelayTime for Debris s; each body in it once
+	-- (OneHit) or every TickInterval (Tick)
+	local Hitbox = {}
+	Hitbox.__index = Hitbox
+	function Hitbox:AddFor(t)
+		task.delay(t, function()
+			self:Destroy()
+		end)
+	end
+	function Hitbox:Destroy()
+		if self.Destroyed then
+			return
+		end
+		self.Destroyed = true
+		if self.Connection then
+			self.Connection:Disconnect()
+		end
+		if self.DestroyedCallback then
+			self.DestroyedCallback()
+		end
+	end
+	S.HitboxService = {
+		createHitbox = function(_, Data, callback)
+			local box = setmetatable({}, Hitbox)
+			local caster = Data.Caster
+			task.delay(Data.DelayTime or 0, function()
+				if box.Destroyed then
+					return
+				end
+				if Data.Debris then
+					box:AddFor(Data.Debris)
+				end
+				local seen = {}
+				box.Connection = RunService.Heartbeat:Connect(function()
+					if box.Destroyed or not (caster and caster.Parent) then
+						return
+					end
+					local origin = Data.Origin
+					local cf = typeof(Data.ABSOLUTECFRAME) == "CFrame" and Data.ABSOLUTECFRAME
+						or (typeof(origin) == "CFrame" and origin)
+						or (typeof(origin) == "Instance" and origin:IsA("BasePart") and origin.CFrame * (typeof(Data.Offset) == "CFrame" and Data.Offset or CFrame.new()))
+					if not cf or typeof(Data.Size) ~= "Vector3" then
+						return
+					end
+					for _, model in queryBox(caster, cf, Data.Size) do
+						if not seen[model] and TH.hittable(caster, model) and not TH.immune(model, Data.IgnoresIFrames or Data.IgnoreIFrames) then
+							local er = model:FindFirstChild("HumanoidRootPart")
+							local blocking = model:GetAttribute("Blocking") == true
+							-- (caught from behind, or a move that ignores the guard: it drops)
+							if blocking and er and (Data.IgnoresBlock or not inFront(er, (typeof(origin) == "CFrame" and origin or cf).Position)) then
+								setBlocking(model, false)
+							end
+							if not model:GetAttribute("Ragdolled") or Data.IgnoresRagdoll then
+								seen[model] = true
+								if Data.HitType == "Tick" then
+									task.delay(tonumber(Data.TickInterval) or 0.2, function()
+										seen[model] = nil
+									end)
+								end
+								TH.values(model)
+								task.spawn(function()
+									local ok, err = pcall(callback, model)
+									if not ok then
+										TH.fault("hitbox", err)
+									end
+								end)
+							end
+						end
+					end
+				end)
+			end)
+			return box
+		end,
+	}
+
+	-- GrabService: held at C0 off his root (align constraints, as there),
+	-- stunned, unable to move, until the GrabWeld goes
+	local Grab = {}
+	Grab.__index = Grab
+	function Grab:Destroy()
+		if self.Destroyed then
+			return
+		end
+		self.Destroyed = true
+		for _, x in { self.Weld, self.Weld2, self.Stun, self.Cant, self.Turn, self.Speed, self.Jump, self.Mark } do
+			if x and x.Parent then
+				x:Destroy()
+			end
+		end
+		local e = self.Enemy
+		if e and e.Parent then
+			e:SetAttribute("Grabbed", nil)
+			local er = e:FindFirstChild("HumanoidRootPart")
+			if er then
+				er.CanCollide = true
+			end
+		end
+	end
+	function Grab:AddFor(t)
+		task.delay(t, function()
+			self:Destroy()
+		end)
+	end
+	S.GrabService = {
+		grabEnemy = function(_, char, enemy, part0, part1, c0, time)
+			local cr = char and char:FindFirstChild(part0 or "HumanoidRootPart")
+			local er = enemy and enemy:FindFirstChild(part1 or "HumanoidRootPart")
+			if not (cr and er) then
+				return nil
+			end
+			if enemy:GetAttribute("Ragdolled") then
+				TH.unragdoll(enemy)
+			end
+			TH.values(enemy)
+			local g = setmetatable({ Character = char, Enemy = enemy, C0 = c0 }, Grab)
+			g.Stun = S.StateService:CreateStun(enemy)
+			g.Cant = S.StateService:CreateCant(enemy)
+			g.Turn = S.StateService:CreateAutoRotate(enemy)
+			g.Speed = S.MovementService:CreateSpeed(enemy, 0)
+			g.Jump = S.MovementService:CreateJump(enemy, 0)
+			g.Mark = Instance.new("BoolValue")
+			g.Mark.Name = "BeingGrabbed"
+			g.Mark.Value = true
+			g.Mark.Parent = enemy
+			enemy:SetAttribute("Grabbed", true)
+			er.CanCollide = false
+			-- (that place's Align: the held body's root to the grabber's at C0 -
+			-- and every screen pins it there, its own too: REPLICATEPOS1)
+			local c = typeof(c0) == "CFrame" and c0 or CFrame.new()
+			local function align(kind)
+				local a = Instance.new("Align" .. kind)
+				a.RigidityEnabled = false
+				local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+				a0.Parent, a1.Parent = er, cr
+				a1.CFrame = c
+				a.Attachment0, a.Attachment1 = a0, a1
+				a.Name = "GrabWeld"
+				a.Destroying:Connect(function()
+					a0:Destroy()
+					a1:Destroy()
+				end)
+				a.Parent = cr
+				return a
+			end
+			g.Weld, g.Weld2 = align("Position"), align("Orientation")
+			local ap, ao = g.Weld, g.Weld2
+			S.CombatService:FireAllClients(char, 1e6, "Stuff", "downslamupthing", "REPLICATEPOS1", enemy, er, c, true, cr, 0.4, 0.2)
+			-- gone when its weld goes (their scripts destroy GrabWeld), or with either body
+			task.spawn(function()
+				while not g.Destroyed and ap.Parent and ao.Parent and alive(char) and enemy.Parent do
+					task.wait(0.05)
+				end
+				g:Destroy()
+				S.CombatService:FireAllClients(char, 1e6, "Stuff", "downslamupthing", "REPLICATEPOS1", enemy, er, CFrame.new(), false, cr, 0, 0)
+				if er.Parent and cr.Parent then
+					er.CFrame = cr.CFrame * c
+				end
+			end)
+			if time then
+				g:AddFor(time)
+			end
+			return g
+		end,
+	}
+
+	-- CounterService: a counter stance's own function, if the one it hits is in one
+	S.CounterService = {
+		Counters = {},
+		counter = function(self, char, enemy)
+			local f = self.Counters[enemy]
+			if f then
+				task.spawn(f, char)
+				return true
+			end
+			return false
+		end,
+	}
+
+	-- AttackService: its "face the mouse while you hold it" (the holder's own
+	-- screen turns him - BodyLocked off, AutoRotate off)
+	S.AttackService = {
+		createBodyGyroHold = function(_, char)
+			char:SetAttribute("TouhouFaceAim", true)
+		end,
+		destroyBodyGyroHold = function(_, char)
+			char:SetAttribute("TouhouFaceAim", nil)
+		end,
+	}
+
+	S.CharacterService = {
+		GetProfile = function(_, char)
+			return TH.profile(char)
+		end,
+	}
+	function TH.profile(char)
+		local p = TH.profiles[char]
+		if not p then
+			p = { Attacks = {}, Combats = {}, States = {}, Movement = { WalkSpeed = {}, JumpPower = {} } }
+			TH.profiles[char] = p
+		end
+		return p
+	end
+
+	TH.Knit = {
+		GetService = function(name)
+			local s = S[name]
+			if not s then
+				error("[Touhou] no stand-in for its " .. tostring(name))
+			end
+			return s
+		end,
+	}
+
+	-- the bridge: what its scripts asked the mover's own machine
+	B.GetLocalCharPosition = {
+		InvokeClient = function(_, plr, body)
+			local m = typeof(body) == "Instance" and body or (plr and plr.Character)
+			local r = m and m:FindFirstChild("HumanoidRootPart")
+			return r and r.CFrame or CFrame.new()
+		end,
+	}
+	B.GetMouseHit = {
+		InvokeClient = function(_, plr)
+			local a = TH.aim[plr]
+			local r = plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+			local pos = (a and a.Pos) or (r and r.Position + r.CFrame.LookVector * 50) or Vector3.zero
+			local from = r and r.Position or pos
+			return (pos - from).Magnitude > 0.1 and CFrame.lookAt(pos, pos + (pos - from).Unit) or CFrame.new(pos)
+		end,
+	}
+	function B.isEntity(part)
+		local m = part and part.Parent
+		while m and m ~= workspace do
+			if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") then
+				return not m:IsDescendantOf(ignore)
+			end
+			m = m.Parent
+		end
+		return false
+	end
+
+	---------------------------------------------------------------------
+	-- its AttackWrapper and AttackService: the moves
+	---------------------------------------------------------------------
+	local warned = {}
+	function TH.fault(where, err)
+		local msg = "[Touhou] " .. where .. ": " .. tostring(err)
+		table.insert(TH.errors, msg)
+		if #TH.errors > 50 then
+			table.remove(TH.errors, 1)
+		end
+		-- (once each: a move's broken hit sound shouldn't fill the output)
+		if not warned[msg] then
+			warned[msg] = true
+			warn(msg)
+		end
+	end
+	-- a move's own hit callback: its errors stay its own (Mokou's Skill1 plays
+	-- a kick11 sound that its place never had)
+	function TH.call(fn, ...)
+		local ok, err = pcall(fn, ...)
+		if not ok then
+			TH.fault("callback", err)
+		end
+	end
+	function TH.wrap(Attack, isSkill, key)
+		Attack.__index = Attack
+		function Attack.new(char)
+			local self = setmetatable({ Character = char, Initiation = os.clock(), Knit = TH.Knit, Classes = {}, _conns = {} }, Attack)
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				table.insert(self._conns, hum.Died:Connect(function()
+					self:Destroy()
+				end))
+			end
+			local moved = char.AncestryChanged
+			if moved then
+				table.insert(self._conns, moved:Connect(function()
+					self:Destroy()
+				end))
+			end
+			return self
+		end
+		function Attack:bindClassToAttack(class)
+			table.insert(self.Classes, class)
+			return class
+		end
+		function Attack:listenForCancel(f)
+			table.insert(self._conns, self.Character:GetAttributeChangedSignal("Cancel"):Connect(function()
+				local ok, err = pcall(f)
+				if not ok then
+					TH.fault(key .. " cancel", err)
+				end
+			end))
+		end
+		function Attack:AddFor(t, f)
+			task.delay(t, function()
+				if self.Destroyed then
+					return
+				end
+				self:Destroy()
+				if f then
+					f()
+				end
+			end)
+		end
+		function Attack:changeBackCombat()
+			self.Character:SetAttribute("Combat", self.Character:GetAttribute("Character"))
+		end
+		function Attack:getNearestEnemy()
+			return TH.nearest(self.Character, math.huge)
+		end
+		function Attack:Destroy()
+			self.Destroyed = true
+			for _, c in self._conns do
+				c:Disconnect()
+			end
+			table.clear(self._conns)
+			for _, c in self.Classes do
+				pcall(function()
+					c:Destroy()
+				end)
+			end
+			local p = TH.profiles[self.Character]
+			if isSkill and p and p.Attacks[key] == self then
+				p.Attacks[key] = nil
+			end
+		end
+		return Attack
+	end
+	-- "Immortal Blaze", "Awakening/Skill1" -> its module, wrapped (once)
+	function TH.module(combat, path)
+		local id = combat .. "/" .. path
+		local m = TH.mods[id]
+		if m then
+			return m
+		end
+		local node = attacks:FindFirstChild(combat)
+		for name in string.gmatch(path, "[^/]+") do
+			node = node and node:FindFirstChild(name)
+		end
+		if not (node and node:IsA("ModuleScript")) then
+			error("no move script " .. id)
+		end
+		local leaf = node.Name
+		local inAwakening = node.Parent and node.Parent.Name == "Awakening"
+		m = TH.wrap(require(node), leaf ~= "Awaken", (inAwakening and "Awakening" or "") .. leaf)
+		TH.mods[id] = m
+		return m
+	end
+	-- the body its scripts call Torso: the nearest one in reach (that place's
+	-- client sent its HumanoidRootPart)
+	function TH.nearest(char, range)
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return nil
+		end
+		local best, bestD = nil, range or TC.TorsoRange or 13
+		for _, model in queryRadius(char, root.Position, math.min(bestD, 400)) do
+			local r = model:FindFirstChild("HumanoidRootPart")
+			local d = r and (r.Position - root.Position).Magnitude
+			if d and d < bestD and TH.hittable(char, model) and not model:GetAttribute("ShortKnockbackAir") then
+				best, bestD = model, d
+			end
+		end
+		return best
+	end
+	local function torsoOf(char)
+		local m = TH.nearest(char)
+		return m and m:FindFirstChild("HumanoidRootPart")
+	end
+
+	-- one press of a move (Handlers.<Id>): its AttackService's, for this body
+	function TH.use(player, char, _root, ability, dir, pos, cast)
+		local spec = ability.Touhou
+		local combat = TH.combatOf(char)
+		if not (spec and combat) then
+			return
+		end
+		local slot = spec.Slot
+		local V = TH.values(char)
+		if char:GetAttribute(slot .. "Cooldown") and not player:GetAttribute("NoCooldowns") then
+			return
+		end
+		if V and (V:FindFirstChild("Stunned") or V:FindFirstChild("CANTMOKOUDEATH") or (V:FindFirstChild("Cant") and not ability.Hold)) then
+			return
+		end
+		TH.aim[player] = { Dir = dir, Pos = pos }
+		local key = (string.find(spec.Module, "Awakening/", 1, true) and "Awakening" or "") .. slot
+		local ok, Attack = pcall(TH.module, combat, spec.Module)
+		if not ok then
+			TH.fault(spec.Module, Attack)
+			return
+		end
+		local profile = TH.profile(char)
+		local inAir = cast and cast.Air == true
+		local atk = Attack.new(char)
+		profile.Attacks[key] = atk
+		if ability.Hold then
+			atk.Initiation = os.clock()
+			atk.Holding = true
+			char:SetAttribute(slot .. "Cooldown", "Holding")
+			task.spawn(function()
+				local okH, err = pcall(atk.Hold, atk, inAir, torsoOf(char))
+				if not okH then
+					TH.fault(spec.Module .. ":Hold", err)
+				end
+			end)
+			local held = HoldMoves.wait(player, char, ability)
+			local min = (ability.Hold and ability.Hold.Min) or 0
+			while held and not atk.Destroyed and os.clock() - atk.Initiation < min do
+				task.wait()
+			end
+			if char:GetAttribute(slot .. "Cooldown") == "Holding" then
+				char:SetAttribute(slot .. "Cooldown", nil)
+			end
+			if not held or atk.Destroyed or atk.Released or has(char, "CantReleaseHold") then
+				return
+			end
+			atk.Holding = false
+			atk.Released = true
+			local okR, err = pcall(atk.Release, atk, inAir, torsoOf(char))
+			if not okR then
+				TH.fault(spec.Module .. ":Release", err)
+			end
+			local v = newValue(char, "CantReleaseHold")
+			game:GetService("Debris"):AddItem(v, 0.05)
+		else
+			local okR, err = pcall(atk.Release, atk, inAir, torsoOf(char))
+			if not okR then
+				TH.fault(spec.Module .. ":Release", err)
+			end
+		end
+	end
+	for _, q in Config.Quirks do
+		if q.Touhou then
+			local list = { q.Special, q.Extra }
+			for _, a in q.Abilities or {} do
+				table.insert(list, a)
+			end
+			if q.Ult then
+				table.insert(list, q.Ult.Special)
+				table.insert(list, q.Ult.Extra)
+				for _, a in q.Ult.Abilities or {} do
+					table.insert(list, a)
+				end
+			end
+			for _, a in list do
+				if a and a.Touhou and a.Id then
+					TH.ids[a.Id] = true
+					Handlers[a.Id] = TH.use
+				end
+			end
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- on her: who she is to its scripts, her wings, her spear
+	---------------------------------------------------------------------
+	local function models()
+		return SS:FindFirstChild("ModelStorage")
+	end
+	local function strip(char)
+		for _, name in { "featherchargelevel", "gunganire", "RemiliaWings", "MokouWings", "MilleniumVampire", "MilleniumFakepire", "canusetwice" } do
+			local x = char:FindFirstChild(name)
+			if x then
+				x:Destroy()
+			end
+		end
+		local arm = char:FindFirstChild("Right Arm")
+		local spear = arm and arm:FindFirstChild("remiliaspear")
+		if spear then
+			spear:Destroy()
+		end
+	end
+	-- Remilia's spear in her right hand (her awakening's, awakened)
+	function TH.spear(char, awakened)
+		local arm = char:FindFirstChild("Right Arm")
+		local M = models()
+		local src = M and M:FindFirstChild(awakened and "remiliaspearult" or "remiliaspear")
+		if not (arm and src) then
+			return nil
+		end
+		local old = arm:FindFirstChild("remiliaspear")
+		if old then
+			old:Destroy()
+		end
+		local s = src:Clone()
+		s.Name = "remiliaspear"
+		-- (its joint, the same name as the spear: onto her arm)
+		local w = s:FindFirstChild("remiliaspear")
+		if w and not w:IsA("BasePart") then
+			pcall(function()
+				w.Part0 = arm
+			end)
+		end
+		s.Parent = arm
+		return s
+	end
+	function TH.dress(player)
+		local char = player.Character
+		if not (char and char.Parent) then
+			return
+		end
+		local q = Config.Quirks[player:GetAttribute("Quirk") or ""]
+		local combat = q and q.Touhou
+		if char:GetAttribute("Character") == combat and combat then
+			return
+		end
+		strip(char)
+		TH.clearCooldowns(char)
+		char:SetAttribute("Awakened", nil)
+		if not combat then
+			char:SetAttribute("Character", nil)
+			if char:GetAttribute("Combat") then
+				char:SetAttribute("Combat", nil)
+			end
+			return
+		end
+		char:SetAttribute("Character", combat)
+		char:SetAttribute("Combat", combat)
+		TH.values(char)
+		if combat == "Immortal Blaze" then
+			local v = Instance.new("NumberValue")
+			v.Name = "featherchargelevel"
+			v.Value = 3
+			v.Parent = char
+		elseif combat == "Scarlet Empress" then
+			local v = Instance.new("BoolValue")
+			v.Name = "gunganire"
+			v.Value = true
+			v.Parent = char
+			TH.spear(char, false)
+			local M = models()
+			local wings = M and M:FindFirstChild("RemiliaWings")
+			local torso = char:FindFirstChild("Torso")
+			if wings and torso then
+				local w = wings:Clone()
+				local rp = w:FindFirstChild("RootPart")
+				local j = rp and rp:FindFirstChild("RootPart")
+				if j and not j:IsA("BasePart") then
+					pcall(function()
+						j.Part0 = torso
+					end)
+				end
+				w.Parent = char
+			end
+		end
+	end
+	-- its effect scripts read their settings off Player.Data.Settings
+	local function settingsFor(player)
+		if player:FindFirstChild("Data") then
+			return
+		end
+		local data = Instance.new("Folder")
+		data.Name = "Data"
+		local settings = Instance.new("Folder")
+		settings.Name = "Settings"
+		settings.Parent = data
+		for name, value in TC.Settings or {} do
+			local v = Instance.new("BoolValue")
+			v.Name = name
+			v.Value = value == true
+			v.Parent = settings
+		end
+		data.Parent = player
+	end
+	local function onPlayer(player)
+		settingsFor(player)
+		player:GetAttributeChangedSignal("Quirk"):Connect(function()
+			task.defer(TH.dress, player)
+		end)
+		player.CharacterAdded:Connect(function(char)
+			char:SetAttribute("Character", nil) -- (a new body: dressed afresh)
+			task.delay(0.2, TH.dress, player)
+		end)
+		if player.Character then
+			task.defer(TH.dress, player)
+		end
+	end
+	Players.PlayerAdded:Connect(onPlayer)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayer, player)
+	end
+
+	---------------------------------------------------------------------
+	-- hits on them: a move of theirs stops (its DamageService's "Cancel")
+	---------------------------------------------------------------------
+	function TH.struck(attacker, model)
+		if model:GetAttribute("Character") and TH.combatOf(model) then
+			model:SetAttribute("Cancel", os.clock())
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- the M1s (the game's): that place's effects on them
+	---------------------------------------------------------------------
+	function TH.m1(player, char, model, count, variant, landed)
+		local combat = TC.M1Effects ~= false and TH.combatOf(char)
+		if not combat then
+			return
+		end
+		local cc = S.CombatService
+		if model == nil then
+			cc:FireAllClients(char, 70, combat, "M1", "Swing", char, math.clamp(tonumber(count) or 1, 1, 4))
+		elseif landed == "Block" then
+			cc:FireAllClients(char, 40, combat, "M1", "Block", char, model, count)
+		elseif variant == "Down" then
+			cc:FireAllClients(char, 70, combat, "M1", "DownSlam", char, model)
+			cc:FireAllClients(char, 70, combat, "M1", "Hit", char, model, 4)
+		else
+			cc:FireAllClients(char, 40, combat, "M1", "Hit", char, model, math.clamp(tonumber(count) or 1, 1, 4))
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- the ult: its awakening (its Awaken script, then what its
+	-- AttackService put on: the smoke, her wings, her spear)
+	---------------------------------------------------------------------
+	function TH.awaken(player, char, quirkName)
+		local q = Config.Quirks[quirkName or ""]
+		local combat = q and q.Touhou
+		if not combat or TH.combatOf(char) ~= combat then
+			return false
+		end
+		local ok, Awaken = pcall(TH.module, combat, "Awakening/Awaken")
+		if not ok then
+			TH.fault("Awaken", Awaken)
+			return false
+		end
+		TH.clearCooldowns(char)
+		char:SetAttribute("Awakened", true)
+		-- (the meter runs from the end of its own cutscene)
+		local len = (TC.AwakenLength or {})[combat] or 0
+		player:SetAttribute("UltEnds", (player:GetAttribute("UltEnds") or workspace:GetServerTimeNow()) + len)
+		-- (back from the dead: the window's over)
+		local dead = TH.dead[char]
+		if dead then
+			dead.Saved = true
+		end
+		local a = Awaken.new(char)
+		task.spawn(function()
+			local okR, err = pcall(a.Release, a)
+			if not okR then
+				TH.fault("Awaken:Release", err)
+			end
+		end)
+		local fx = {}
+		TH.awake[char] = fx
+		local VFXS = RS:FindFirstChild("Assets") and RS.Assets:FindFirstChild("VFX")
+		local function smoke(at)
+			task.delay(at, function()
+				if TH.awake[char] ~= fx or not char.Parent then
+					return
+				end
+				local torso = char:FindFirstChild("Torso")
+				local src = VFXS and VFXS:FindFirstChild(combat) and VFXS[combat]:FindFirstChild("MilleniumSmoke")
+				for _, n in { "Attachment", "Attachment1" } do
+					local x = src and src:FindFirstChild(n)
+					if x and torso then
+						local c = x:Clone()
+						c.Parent = torso
+						table.insert(fx, c)
+					end
+				end
+			end)
+		end
+		if combat == "Immortal Blaze" then
+			smoke(329 / 60)
+			task.delay(329 / 60, function()
+				if TH.awake[char] ~= fx or not char.Parent then
+					return
+				end
+				local M = models()
+				local src = M and M:FindFirstChild("MokouWings")
+				local torso = char:FindFirstChild("Torso")
+				if src and torso then
+					local w = src:Clone()
+					local rp = w:FindFirstChild("RootPart")
+					local j = rp and rp:FindFirstChild("RootPart")
+					if j and not j:IsA("BasePart") then
+						pcall(function()
+							j.Part0 = torso
+						end)
+					end
+					w.Parent = char
+					fx.wings = w
+					local burn = rp and rp:FindFirstChild("sfxburn")
+					if burn then
+						burn:Play()
+					end
+				end
+			end)
+		elseif combat == "Scarlet Empress" then
+			smoke(225 / 60)
+			task.delay(501 / 60, function()
+				if TH.awake[char] ~= fx or not char.Parent then
+					return
+				end
+				local v = Instance.new("BoolValue")
+				v.Name = "MilleniumFakepire"
+				v.Value = true
+				v.Parent = char
+				fx.fake = v
+				S.CombatService:FireAllClients(char, 1000, combat, "M1", "MILLVAMP2", char)
+			end)
+			task.delay(738 / 60, function()
+				if TH.awake[char] ~= fx or not char.Parent then
+					return
+				end
+				TH.spear(char, true)
+				S.CombatService:FireAllClients(char, 70, combat, "M1", "speartween1", char)
+			end)
+		end
+		return true
+	end
+	function TH.unawaken(player, char)
+		local fx = char and TH.awake[char]
+		if not fx then
+			return
+		end
+		TH.awake[char] = nil
+		char:SetAttribute("Awakened", nil)
+		TH.clearCooldowns(char)
+		for _, x in fx do
+			if typeof(x) == "Instance" and x:IsA("Attachment") then
+				for _, e in x:GetChildren() do
+					if e:IsA("ParticleEmitter") then
+						e.Enabled = false
+					end
+				end
+				game:GetService("Debris"):AddItem(x, 2)
+			end
+		end
+		if fx.wings then
+			game:GetService("Debris"):AddItem(fx.wings, 0.6)
+			for _, d in fx.wings:GetDescendants() do
+				if d:IsA("ParticleEmitter") then
+					d.Enabled = false
+				elseif d:IsA("BasePart") then
+					d.Transparency = 1
+				end
+			end
+		end
+		if fx.fake then
+			fx.fake:Destroy()
+		end
+		if char.Parent and TH.combatOf(char) == "Scarlet Empress" then
+			TH.spear(char, false)
+			S.CombatService:FireAllClients(char, 70, "Scarlet Empress", "M1", "speartween1", char)
+		end
+	end
+
+	---------------------------------------------------------------------
+	-- MOKOU'S IMMORTALITY (Config.Touhou.Immortal): a blow that would knock
+	-- her out, with her ult meter full and her not awakened, doesn't - she
+	-- lies dead DeathWindow s (its DeathAnim, untouchable, held); awaken in
+	-- that time and she rises. (damage() asks before the blow lands.)
+	---------------------------------------------------------------------
+	function TH.undying(attacker, model, amount)
+		local IM = TC.Immortal or {}
+		local plr = ownerOf(model)
+		if IM.Enabled == false or not plr or TH.combatOf(model) ~= "Immortal Blaze" then
+			return false
+		end
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if TH.dead[model] then
+			return true -- (already lying there)
+		end
+		if not hum or plr:GetAttribute("UltActive") or (plr:GetAttribute("Ult") or 0) < 100 then
+			return false
+		end
+		local window = IM.DeathWindow or 5
+		local d = { Until = os.clock() + window, By = attacker }
+		TH.dead[model] = d
+		model:SetAttribute("Cancel", os.clock())
+		hum.Health = 1
+		if model:GetAttribute("Ragdolled") then
+			TH.unragdoll(model)
+		end
+		local V = TH.values(model)
+		local marks = {}
+		local mark = Instance.new("BoolValue")
+		mark.Name = "CANTMOKOUDEATH"
+		mark.Value = true
+		mark.Parent = V
+		table.insert(marks, mark)
+		table.insert(marks, S.StateService:CreateULTIFrames(model))
+		table.insert(marks, S.StateService:CreateAutoRotate(model))
+		table.insert(marks, S.MovementService:CreateSpeed(model, 0))
+		table.insert(marks, S.MovementService:CreateJump(model, 0))
+		local anims = RS:FindFirstChild("Assets") and RS.Assets:FindFirstChild("Animations")
+		local chars = anims and anims:FindFirstChild("Characters")
+		local ib = chars and chars:FindFirstChild("Immortal Blaze")
+		local aw = ib and ib:FindFirstChild("Awakening")
+		local death = aw and aw:FindFirstChild("DeathAnim")
+		if death then
+			S.AnimationService:playAnimation(model, death, 1, nil, 0)
+		end
+		task.spawn(function()
+			while os.clock() < d.Until and not d.Saved and model.Parent and hum.Health > 0 do
+				task.wait(0.05)
+			end
+			for _, m in marks do
+				if m and m.Parent then
+					m:Destroy()
+				end
+			end
+			if death then
+				S.AnimationService:stopAnimation(model, death, 0.2)
+			end
+			TH.dead[model] = nil
+			if not d.Saved and model.Parent and hum.Health > 0 then
+				-- (not awakened in time: out, to whoever put her down)
+				iFrames[model] = nil
+				hum.Health = 0
+				Reactions.ko(d.By, model, {})
+			end
+		end)
+		return true
+	end
+
+	-- all there: the game's hooks (M1s, damage, the ult, moves) call it now
+	Kit.TH = TH
+	Reactions.TH = TH
+end, function(err)
+	-- (a fault while it loads: the hooks stay off - Kit.TH is still nil)
+	warn("[Touhou] " .. tostring(err) .. "\n" .. debug.traceback())
+end)
 
 local lastSwitch = {} -- [player] = os.clock() of the last quirk switch
 local SWITCH_COOLDOWN = 2.5

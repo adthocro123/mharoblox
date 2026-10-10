@@ -211,7 +211,7 @@ def graft(target_path, out_path, source_path, items, exclude=(), rbxl_dir=None, 
         index = {r: i for i, r in enumerate(S.classes[cid]['refs'])}
         by_class[cid].sort(key=lambda r: index[r])
 
-    # (round 107) every UniqueId already in the target: Studio won't open a
+    # (round 106 fix) every UniqueId already in the target: Studio won't open a
     # place where two instances share one ("DM contains duplicate Unique
     # ids"), and a source instance grafted in before (or the same one twice)
     # carries the same id. A copied id that's taken gets a fresh one: the
@@ -338,7 +338,7 @@ def graft(target_path, out_path, source_path, items, exclude=(), rbxl_dir=None, 
             out.extend(new_inst_chunks)
     open(out_path, 'wb').write(b''.join(out))
     report['count'] = M
-    report['reminted'] = reminted  # (round 107) copied UniqueIds that were taken: (old, new)
+    report['reminted'] = reminted  # (round 106 fix) copied UniqueIds that were taken: (old, new)
     report['sstr_added'] = len(sstr_map)
     report['new_ref_of_root'] = {S.path(r): new_ref[r] for r in root_of}
     return report

@@ -378,6 +378,92 @@ do
 		back.Parent = chair
 	end
 end
+-- (round 107) the Touhou place's move scripts, where the server looks for
+-- them (ServerStorage.Touhou): stand-ins that do what its own do - a hitbox,
+-- a hit with its stun and slow, an effect on every screen, a cooldown, its
+-- Cant - and write down what they were asked (Touhou.log)
+Touhou = { log = {} }
+do
+	local SS = service("ServerStorage")
+	local th = M.new("Folder", "Touhou")
+	th.Parent = SS
+	loadModule(SRC .. "/ServerStorage.Touhou.Bridge.lua", "Bridge", th)
+	local attacks = M.new("Folder", "Attacks")
+	attacks.Parent = th
+	local function folder(parent, name)
+		local f = M.new("Folder", name)
+		f.Parent = parent
+		return f
+	end
+	local function fake(parent, name, tbl)
+		local m = M.new("ModuleScript", name)
+		m.Parent = parent
+		rawset(m, "_exports", tbl)
+		return m
+	end
+	local L = Touhou.log
+	local ib = folder(attacks, "Immortal Blaze")
+	local kick = {}
+	function kick:Release(InAir, Torso)
+		L.releases = (L.releases or 0) + 1
+		L.inAir, L.torso = InAir, Torso
+		local K = self.Knit
+		local root = self.Character:FindFirstChild("HumanoidRootPart")
+		self:listenForCancel(function()
+			L.cancelled = true
+		end)
+		self:bindClassToAttack(K.GetService("HitboxService"):createHitbox({
+			Caster = self.Character, Origin = root, Offset = CFrame.new(0, 0, -3), Size = Vector3.new(8, 8, 8),
+			HitboxType = "Box", HitType = "OneHit", Debris = 0.3,
+		}, function(Enemy)
+			L.hitbox = Enemy
+			K.GetService("DamageService"):Damage({
+				Character = self.Character, Enemy = Enemy, Damage = 5,
+				StateData = { Stunned = 1 }, MovementData = { WalkSpeed = 0, JumpPower = 0, Time = 1 },
+				BlockData = { HitterOrigin = root.CFrame },
+			}, function(state)
+				L.state = state
+			end)
+		end))
+		K.GetService("CombatService"):FireAllClients(self.Character, 50, "Immortal Blaze", "M1", "Test", self.Character, nil, 3)
+		K.GetService("CooldownService"):createCooldown(self.Character, "Skill1", 20)
+		local cant = K.GetService("StateService"):CreateCant(self.Character)
+		task.delay(0.5, function()
+			cant:Destroy()
+		end)
+	end
+	fake(ib, "Skill1", kick)
+	local ibAw = folder(ib, "Awakening")
+	fake(ibAw, "Awaken", { Release = function(self)
+		L.awakened = (L.awakened or 0) + 1
+		L.awakenedBy = self.Character
+	end })
+	local se = folder(attacks, "Scarlet Empress")
+	fake(se, "Skill2", {
+		Hold = function(self, InAir)
+			L.heldAt = os.clock()
+			L.holdInAir = InAir
+		end,
+		Release = function(self)
+			L.releasedAt = os.clock()
+			self.Knit.GetService("CooldownService"):createCooldown(self.Character, "Skill2", 28)
+		end,
+	})
+	-- her spear and her wings (ModelStorage, as there)
+	local ms = folder(SS, "ModelStorage")
+	for _, n in { "remiliaspear", "remiliaspearult" } do
+		local spear = M.new("Part", n)
+		local j = M.new("Motor6D", "remiliaspear")
+		j.Parent = spear
+		spear.Parent = ms
+	end
+	local wings = M.new("Model", "RemiliaWings")
+	local rp = M.new("Part", "RootPart")
+	local wj = M.new("Motor6D", "RootPart")
+	wj.Parent = rp
+	rp.Parent = wings
+	wings.Parent = ms
+end
 local serverScript = M.new("Script", "QuirkServer")
 serverScript.Parent = ServerScriptService
 local serverFn = luau.load(fs.readFile(SRC .. "/ServerScriptService.QuirkServer.server.lua"), { debugName = "QuirkServer", environment = env(serverScript) })
@@ -9879,6 +9965,7 @@ end)
 	local cRoot = C.Character:FindFirstChild("HumanoidRootPart")
 	cRoot.CFrame = CFrame.new(X + 30, 3, 0)
 	C:SetAttribute("Item_Soda", nil)
+	A:SetAttribute("Item_Soda", nil) -- (round 107: a soda an earlier section left in his bag isn't this one)
 	local cash = C:GetAttribute("Bucks") or 0
 	clearSent()
 	fire(CR, A, "Run", "drop soda viewer66")
@@ -14337,7 +14424,7 @@ end)
 -- place's) and CRAZY DIAMOND on the owner's Star Platinum model
 ---------------------------------------------------------------------------
 ;M.section(function()
-	print("== round 105: C-MOON's cinematic on the pick; Crazy Diamond on the owner's model")
+	print("== round 105: C-MOON's cinematic on the pick; Crazy Diamond on the JJBA place's model")
 	local spec = Config.JJBA.Cinematic and Config.JJBA.Cinematic.CMoon
 	check(spec ~= nil and spec.Enabled ~= false and spec.Effect == "Cmoon" and spec.Earth < spec.Reach and spec.Reach < spec.Warp and spec.Warp < spec.White and spec.White < spec.Back,
 		"Config.JJBA.Cinematic.CMoon: the JJBA place's timeline")
@@ -14393,7 +14480,7 @@ end)
 end)
 
 ---------------------------------------------------------------------------
--- Round 106: THE STAND ARROWS AND THE ROKAKAKA (the owner's JJBA place's,
+-- Round 106: THE STAND ARROWS AND THE ROKAKAKA (the JJBA place's,
 -- lying about the city): an arrow gives a Stand - his, past the DEV ONLY
 -- lock -, a Rokakaka takes it back off him
 ---------------------------------------------------------------------------
@@ -14585,6 +14672,195 @@ end)
 	stand(Vector3.new(0, 3, 4))
 	fire(SelectQuirk, B, "Explosion")
 	task.wait(0.2)
+end)
+
+
+---------------------------------------------------------------------------
+-- Round 107: TOUHOU - Mokou and Remilia, run by the owner's Touhou place's
+-- own move scripts (stand-ins here, writing down what they're asked:
+-- Touhou.log) through the server's stand-ins for its services (Kit.TH)
+---------------------------------------------------------------------------
+;M.section(function()
+	print("== round 107: Mokou and Remilia (the Touhou place's move scripts, through Kit.TH)")
+	local TH = dx.Touhou
+	local TC = Config.Touhou
+	check(TH ~= nil and type(TH.use) == "function" and TH.S ~= nil and TC ~= nil, "the server has its stand-ins (Kit.TH)")
+	if not TH then
+		return
+	end
+	local L = Touhou.log
+	local ids = 0
+	for _ in TH.ids do
+		ids += 1
+	end
+	check(ids == 18, "every move of theirs is one of its scripts: " .. ids .. " (9 each - R is the same awakened)")
+	check(Config.Quirks.Mokou.DevOnly == true and Config.Quirks.Remilia.DevOnly == true and Config.Quirks.Mokou.Touhou == "Immortal Blaze"
+		and Config.Quirks.Remilia.Touhou == "Scarlet Empress", "both DEV ONLY, each with its name there")
+	check(Config.Quirks.Remilia.Abilities[2].Hold ~= nil and math.abs(Config.Quirks.Remilia.Abilities[2].Hold.Min - 39 / 60) < 1e-6
+		and math.abs(Config.Quirks.Remilia.Abilities[2].Hold.Max - 143 / 60) < 1e-6, "HEARTBREAK is held (its MinHoldTime / MaxHoldTime)")
+	check(workspace:FindFirstChild("Ignore") ~= nil and workspace:FindFirstChild("Ignore"):FindFirstChild("Effects") ~= nil and workspace:FindFirstChild("Ignore"):FindFirstChild("Entities") ~= nil,
+		"its effects folder (workspace.Ignore: Effects, Rocks, Entities)")
+	local data = A:FindFirstChild("Data")
+	local settings = data and data:FindFirstChild("Settings")
+	check(settings ~= nil and settings:FindFirstChild("Reduced Visuals") ~= nil and settings:FindFirstChild("Cutscenes") ~= nil and settings:FindFirstChild("Cutscenes").Value == true,
+		"the settings its effect scripts read (Player.Data.Settings)")
+
+	studioMode = true
+	game.CreatorId = 0
+	task.wait(2.6)
+	fire(SelectQuirk, A, "Mokou")
+	task.wait(0.1)
+	check(A:GetAttribute("Quirk") == "Mokou", "A picks IMMORTAL BLAZE (dev, in Studio)")
+	local X = 107000
+	local function limbs(model)
+		for _, n in { "Torso", "Right Arm", "Left Arm", "Right Leg", "Left Leg", "Head" } do
+			local p = M.new("Part", n)
+			p.Parent = model
+		end
+	end
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 4)))
+	limbs(aChar)
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 4), Vector3.new(X, 3, 0)))
+	limbs(bChar)
+	task.wait(0.4)
+	check(aChar:GetAttribute("Character") == "Immortal Blaze" and aChar:GetAttribute("Combat") == "Immortal Blaze" and aChar:FindFirstChild("Values") ~= nil
+		and aChar:FindFirstChild("featherchargelevel") ~= nil and aChar:FindFirstChild("featherchargelevel").Value == 3,
+		"Mokou's dressed as there: who she is to its scripts, her Values, her three feathers")
+	check(bChar:GetAttribute("Character") == nil, "...B isn't")
+
+	-- 1: SOARING SKY KICK (the stand-in: a hitbox, a hit with a stun and a slow, an effect, a cooldown, its Cant)
+	clearSent()
+	local before = bHum.Health
+	fire(UseAbility, A, 1, Vector3.new(0, 0, 1), Vector3.new(X, 3, 20), 7, aRoot.Position, false)
+	task.wait(0.2)
+	check(L.releases == 1 and L.inAir == false and L.torso == bRoot, "1 runs its script: :Release(InAir, Torso) - Torso the nearest body in reach")
+	check(L.hitbox == bChar and L.state == "Hit", "...its hitbox finds B and its hit lands (\"Hit\" back)")
+	check(math.abs((before - bHum.Health) - 5 * TC.DamageScale) < 0.01, "...for its damage x DamageScale: " .. tostring(before - bHum.Health))
+	check(bChar:GetAttribute("Stunned") == true and bChar:GetAttribute("SlowedTo") == 0, "...its stun and its slow are the game's (Stunned, SlowedTo 0)")
+	check(aChar:GetAttribute("Skill1Cooldown") == true, "its cooldown is its own (Skill1Cooldown)")
+	local reload = sentTo(A, "Reload")
+	check(#reload >= 1 and reload[#reload].Key == Config.CooldownKey("Mokou", 1, false, false) and reload[#reload].Time == 20, "...and her slot shows it (Reload: 20 s)")
+	local fx = sentTo(B, "TH")
+	local found = nil
+	for _, d in fx do
+		if d.F == "Test" then
+			found = d
+		end
+	end
+	check(found ~= nil and found.C == "Immortal Blaze" and found.M == "M1" and found.a1 == aChar and found.a2 == nil and found.a3 == 3 and found.n == 3,
+		"its effect goes to every screen near (TH: module, function, its arguments - a nil kept in its place)")
+	check((tonumber(aChar:GetAttribute("CombatActionUntil")) or 0) > workspace:GetServerTimeNow(), "its Cant holds her (CombatActionUntil)")
+	task.wait(0.6)
+	fire(UseAbility, A, 1, Vector3.new(0, 0, 1), Vector3.new(X, 3, 20), 7, aRoot.Position, false)
+	task.wait(0.1)
+	check(L.releases == 1, "on its cooldown, 1 does nothing")
+	-- a hit on her stops her move (its DamageService's Cancel)
+	L.cancelled = nil
+	TH.hit(bChar, aChar, 6, {})
+	task.wait()
+	check(L.cancelled == true, "a hit on her: her move hears Cancel")
+	task.wait(1.1)
+	check(bChar:GetAttribute("Stunned") ~= true and bChar:GetAttribute("SlowedTo") == nil, "B's free when its values go")
+
+	-- REMILIA: her spear, her wings; HEARTBREAK held
+	task.wait(2.6)
+	fire(SelectQuirk, A, "Remilia")
+	task.wait(0.1)
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 4)))
+	limbs(aChar)
+	task.wait(0.4)
+	local arm = aChar:FindFirstChild("Right Arm")
+	local spear = arm and arm:FindFirstChild("remiliaspear")
+	local wings = aChar:FindFirstChild("RemiliaWings")
+	check(aChar:GetAttribute("Character") == "Scarlet Empress" and aChar:FindFirstChild("gunganire") ~= nil and aChar:FindFirstChild("gunganire").Value == true,
+		"Remilia: her Gungnir out (gunganire)")
+	check(spear ~= nil and spear:FindFirstChild("remiliaspear") ~= nil and spear:FindFirstChild("remiliaspear").Part0 == arm, "...her spear in her right hand")
+	check(wings ~= nil and wings:FindFirstChild("RootPart"):FindFirstChild("RootPart").Part0 == aChar:FindFirstChild("Torso"), "...her wings on her back")
+	L.heldAt, L.releasedAt = nil, nil
+	fire(UseAbility, A, 2, Vector3.new(0, 0, 1), Vector3.new(X, 3, 20), 7, aRoot.Position, true)
+	task.wait(0.1)
+	check(L.heldAt ~= nil and L.holdInAir == true and aChar:GetAttribute("Skill2Cooldown") == "Holding", "2 down: its :Hold (in the air) - Holding")
+	fire(UseAbility, A, Config.RELEASE_INDEX, Vector3.new(0, 0, 1), Vector3.new(X, 3, 20))
+	task.wait(0.15)
+	check(L.releasedAt == nil, "let go early: it waits out its MinHoldTime")
+	task.wait(0.7)
+	check(L.releasedAt ~= nil and L.releasedAt - L.heldAt >= 39 / 60 - 0.05 and aChar:GetAttribute("Skill2Cooldown") == true,
+		"...then its :Release (" .. string.format("%.2f", (L.releasedAt or 0) - (L.heldAt or 0)) .. " s held), and its cooldown")
+
+	-- MOKOU'S IMMORTALITY, and her awakening
+	task.wait(2.6)
+	fire(SelectQuirk, A, "Mokou")
+	task.wait(0.1)
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 4)))
+	limbs(aChar)
+	task.wait(0.4)
+	TC.Immortal.DeathWindow = 0.6
+	A:SetAttribute("Ult", 100)
+	aHum.Health = 10
+	TH.hit(bChar, aChar, 50, {})
+	task.wait()
+	check(aHum.Health == 1 and TH.dead[aChar] ~= nil and aChar:FindFirstChild("Values"):FindFirstChild("CANTMOKOUDEATH") ~= nil,
+		"a knockout with her meter full: she lies dead instead (1 health, held)")
+	TH.hit(bChar, aChar, 50, {})
+	check(aHum.Health == 1, "...nothing hurts her there")
+	fire(UseAbility, A, 1, Vector3.new(0, 0, 1), Vector3.new(X, 3, 20), 7, aRoot.Position, false)
+	check(L.releases == 1, "...nothing of hers goes but her awakening")
+	clearSent()
+	local ends0 = workspace:GetServerTimeNow() + Config.Quirks.Mokou.Ult.Duration
+	fire(UseAbility, A, Config.ULT_INDEX)
+	task.wait(0.05)
+	check(L.awakened == 1 and L.awakenedBy == aChar and aChar:GetAttribute("Awakened") == true and A:GetAttribute("UltActive") == true,
+		"she awakens: its Awaken script runs, Awakened")
+	check((A:GetAttribute("UltEnds") or 0) >= ends0 + TC.AwakenLength["Immortal Blaze"] - 0.5, "...the meter runs from the end of its cutscene")
+	check(#sentTo(A, "UltActivate") == 0, "...instead of the game's own awakening")
+	task.wait(0.8)
+	check(aHum.Health > 0 and TH.dead[aChar] == nil and aChar:FindFirstChild("Values"):FindFirstChild("CANTMOKOUDEATH") == nil, "...and rises")
+	-- the ult over: her awakening's off her
+	A:SetAttribute("UltActive", false)
+	TH.unawaken(A, aChar)
+	check(aChar:GetAttribute("Awakened") == nil, "the ult over: not Awakened")
+	-- not awakened in time: out (past the awakening's armour)
+	task.wait(1.5)
+	A:SetAttribute("Ult", 100)
+	aHum.Health = 5
+	TH.hit(bChar, aChar, 50, {})
+	task.wait()
+	check(TH.dead[aChar] ~= nil, "down again...")
+	task.wait(0.9)
+	check(aHum.Health <= 0, "...not awakened in time: she's out")
+	-- her meter not full: no second life
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 4)))
+	limbs(aChar)
+	task.wait(0.4)
+	A:SetAttribute("Ult", 40)
+	aHum.Health = 5
+	TH.hit(bChar, aChar, 50, {})
+	task.wait()
+	check(aHum.Health <= 0 and TH.dead[aChar] == nil, "meter not full: a knockout's a knockout")
+
+	-- the game's M1s on her: that place's swing and hit
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 4)))
+	limbs(aChar)
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 3), Vector3.new(X, 3, 0)))
+	task.wait(0.4)
+	clearSent()
+	fire(UseAbility, A, 0, aRoot.CFrame, nil)
+	task.wait(0.35)
+	local swing, hit = false, false
+	for _, d in sentTo(B, "TH") do
+		swing = swing or (d.M == "M1" and d.F == "Swing" and d.a1 == aChar)
+		hit = hit or (d.M == "M1" and d.F == "Hit" and d.a2 == bChar)
+	end
+	check(swing and hit, "her M1 (the game's): that place's swing and hit on every screen")
+
+	-- back as it was
+	TC.Immortal.DeathWindow = 5
+	task.wait(2.6)
+	fire(SelectQuirk, A, "Explosion")
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(0, 3, 0), Vector3.new(0, 3, 4)))
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(0, 3, 4), Vector3.new(0, 3, 0)))
+	task.wait(0.4)
+	check(aChar:GetAttribute("Character") == nil, "off Mokou: none of it on her")
 end)
 
 

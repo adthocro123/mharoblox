@@ -5,18 +5,172 @@ of truth**. This folder holds what was used to build it outside Studio:
 
 | Folder | What's in it |
 |---|---|
-| `src/` | Every script in the place as of Round 106, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
+| `src/` | Every script in the place as of Round 107, one file per script, named by its full path (`.server.lua` = Script, `.client.lua` = LocalScript, `.lua` = ModuleScript) |
 | `anim/` | The R6 keyframe toolkit: a pose language, a box-figure preview renderer, and the builders that turn clips into KeyframeSequences |
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts. `uniqueids.py` (Round 106) finds UniqueIds two instances share: Studio won't open such a place |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
-| `jjba/` | Round 104: the tools that grafted the owner's JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview). Round 106: `assets106.py` (the graft of the Stand arrows, the Rokakaka, the props in the hand and their two clips) and `spots_check.luau` (where the items go, worked out offline) |
+| `jjba/` | Round 104: the tools that grafted the JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview). Round 106: `assets106.py` (the graft of the Stand arrows, the Rokakaka, the props in the hand and their two clips) and `spots_check.luau` (where the items go, worked out offline) |
+| `touhou/` | Round 107: Mokou and Remilia from the owner's Touhou place. `graft107.json` (what comes over), `kit107.luau` (the new folders, the Knit stand-in, `Bridge`), `assets107.py` (the graft), `port107.py` (their scripts into `src/`, paths patched, footer stripped), `paths107.luau` (every path their scripts name is in the place), `ids107.py` and `reupload107.md` (the animations and sounds to upload again) |
 
 You need Python 3 with `numpy pillow lz4 zstandard` (and `ffmpeg` for preview
 videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tools.
 
 ---
 
-## Where things stand (Round 106)
+## Where things stand (Round 107)
+
+Round 107 builds on Round 106. The owner sent their own Touhou place
+(free to edit in Studio; they made its assets) and asked for two of its
+fighters: "lets do 1 and 2". **Mokou (IMMORTAL BLAZE)** and **Remilia
+(SCARLET EMPRESS)** are now in the hero list, both DEV ONLY. They run that
+place's own move scripts and effect scripts, unchanged apart from a few
+paths, on top of the game's systems. Three of the game's scripts changed
+(`QuirkConfig`, `VFX`, `QuirkServer`) and two small ones were added (the
+Knit stand-in and `Bridge`). Not playtested in Studio yet.
+
+**The animations need uploading again.** Quirk Battlegrounds is on a new
+account, and Roblox only plays an animation in a game owned by whoever owns
+the animation. `touhou/reupload107.md` lists all 185 animations and 275
+sounds with where each one sits. It also has the two command-bar snippets:
+one fetches the animations on the old account, the other swaps in the new
+ids. Until then the moves still work (hits, effects, sounds you own or
+Roblox's), but the bodies don't animate. The two awakening songs fall back to
+Roblox-library tracks if theirs won't load.
+
+**How it's done: their scripts, our systems.**
+- That place is built on Knit (services and controllers). Its moves are
+  ModuleScripts, one per move (`Skill1`...`Skill4`, `Special`, and an
+  `Awakening` folder with the awakened set and `Awaken`). Each is a class
+  with `Release` (and `Hold` for held moves) that calls the place's
+  services: AnimationService, CombatService, HitboxService, DamageService,
+  StateService, MovementService, BodymoverService, GrabService,
+  CooldownService, CounterService, RagdollService.
+- `QuirkServer`'s `Kit.TH` is a stand-in for each of those services, made
+  from the game's own systems:
+  - **Damage** goes through the game's `damage()` (guard, i-frames,
+    knockdown rules, ult meter, KOs), times `DamageScale` (3: its fighters
+    have 100 health, ours 300).
+  - **Hitboxes** are the game's box queries, with that place's hit-once and
+    tick rules. As there, a hit from behind (or from a move that ignores
+    guard) gets through a guard.
+  - **Stun, slow, can't-act, auto-rotate, i-frames**: that place keeps
+    these as values in a `Values` folder on the body. `Kit.TH` watches them
+    and maps each onto the game's own (stun, `SlowedTo`,
+    `CombatActionUntil`, `BodyLocked`, i-frames), every 0.1 s.
+  - **Animations** play on the body's Animator. **Effects** go to every
+    screen in range as one `TH` effect (module, function, arguments), and
+    each client calls that place's effect module with them.
+  - **Cooldowns** are that place's own (each move sets its own). The HUD
+    slot shows each one.
+  - **Grabs** use that place's own constraint grab, with its
+    `REPLICATEPOS1` pinning on the client.
+  - A hit on someone mid-move sets `Cancel`, which that place's moves
+    listen for.
+- `ReplicatedStorage.Packages.Knit` is a small Knit stand-in for the effect
+  scripts. It provides the animation controller they call, and `Hud`, which
+  hides the game's screens through their cutscenes.
+- If `ServerStorage.Touhou` is missing, or the layer fails while it
+  loads, `Kit.TH` is never set and the game's hooks skip it. Mokou and
+  Remilia can't move then; nothing else changes.
+- `port107.py` copied their scripts (88) and patched only what pointed
+  outside the moves: the collision group's name, `workspace.YukarinStation`,
+  `PlayerGui.AwakeningBar` (now the Knit stand-in's `Hud`), the mouse and
+  position remotes (now `Bridge`), and where `SimJump` lives. It also
+  strips the "Powered by RoxzyFX" footer (and its Discord invite) from
+  each one.
+
+**The keys.** 1, 2, 3 are its Skill1 to Skill3; R is its Special; 4 is its
+Skill4; G awakens (its `Awaken`, with its cutscene). In the awakening, 1 to
+4 are its awakened set, and R stays the same. M1s, dashes and guard are the
+game's own. Their M1s play that place's swing and hit sounds and sparks
+(`M1Effects`).
+
+**Mokou** (`Config.Quirks.Mokou`): SOARING SKY KICK, FIRE TALON ASSAULT,
+FUJIYAMA VOLCANO BEATDOWN, PHOENIX FEATHER (R), BAMBOO BOMB (4). Awakened:
+BAMBOO FOREST IN FLAMES, with BLAZE SIGN: BREAKNECK FIRE TALON ASSAULT,
+FLAMING BLITZ TABLETOP DROPKICK, SOUTH WIND: CLEAR SKY and FLAMING SUGARY
+DESSERT. Her wings come out when she awakens.
+- **Immortal** (that place's rule, `Immortal`): knocked out with a full ult
+  meter and not awakened, she lies dead for 5 s instead. Nothing can hurt
+  her and she can't act, except to awaken. Awakening in that time raises
+  her (the cutscene heals her). If she doesn't awaken, she's out. With the
+  meter not full, a KO is a KO.
+
+**Remilia** (`Config.Quirks.Remilia`): VAMPIRIC KISS, HEARTBREAK (hold to
+aim the Gungnir, let go to throw), SCARLET STINGER, MILLENIUM VAMPIRE (R:
+her hits do 1.9x and heal her half of each), MIDNIGHT KING (4). Awakened:
+BLOODTHIRSTY NIGHTMARE LULLABY, with NIGHTLESS CASTLE, SCARLET PIERCE,
+SCARLET IRON SEPULCHRE and MISERABLE MULTITUDE.
+- Her spear is in her right hand and her wings are on her back, as that
+  place dresses her. The awakened spear swaps in on its cue.
+
+**The ult.** Each awakening is that place's: its cutscene, its song, its
+extras (Mokou's smoke and wings; Remilia's smoke, its MilleniumFakepire
+model and the spear swap). The meter's 60 s run starts after the cutscene
+(`AwakenLength`). The game's own ult shout and blast are skipped for them.
+
+**What came over** (`touhou/graft107.json`, `touhou/assets107.py`; 35,074
+instances; the round 106 place's own are unchanged):
+- `ReplicatedStorage.Assets`: their VFX for both, the shared combat
+  effects, their animations (characters, M1s, reactions) and the camera
+  rigs and models the moves use.
+- `ReplicatedStorage.Modules`: shaker, RockScript, baseassets,
+  TweenModule and the Gungnir throwables. `ReplicatedStorage.Voicelines`:
+  Remilia's.
+- `ReplicatedStorage.Touhou.Combats`: their effect modules (the client).
+- `ServerStorage.Touhou.Attacks`: their move modules (the server), plus
+  `SimJump`. `ServerStorage.ModelStorage`: the wings and spears.
+- `Lighting`: their impact frames and colour corrections.
+- Not brought over: their framework itself (Knit and its services and
+  controllers), their HUD, their M1 / dash / block, the other fighters and
+  their old or unused move scripts.
+- Gaps their own place has too. `paths107.luau` checks every
+  `game.X.Y` path their scripts spell out against the built place. 292 are
+  there. 7 aren't in their place either, and nothing reaches them or the
+  failure is caught (listed in `KNOWN`). For example, Mokou's SOARING SKY KICK
+  plays a `kick11` hit sound that was never in their place.
+
+**Settings** (`Config.Touhou`): `DamageScale`, `VampireDamage` /
+`VampireHeal`, `Lifesteal` (their 0.2 heal-per-hit; 0 here), `Immortal`,
+`M1Effects`, the `Settings` their effect scripts read (cutscenes on,
+reduced visuals off...), the hit highlight colours, `TorsoRange` and
+`MaxRange`. `Enabled = false` turns the layer off.
+
+**Tests (round 107).**
+- Server: 39 checks.
+  - Both are DEV ONLY, all 18 moves are their scripts, and HEARTBREAK is
+    held.
+  - Dressing: Mokou's values and feathers; Remilia's spear and wings.
+  - A move: Mokou's 1 runs its script, its hitbox finds the dummy, and it
+    hits for its damage x3. Its stun and slow are the game's. Its cooldown
+    shows in her slot, and its effect goes out with its arguments (a nil
+    kept). Then 1 on cooldown does nothing, and a hit on her cancels her
+    move.
+  - Remilia's held throw waits out its minimum hold.
+  - Mokou's immortality: she lies dead, can't be hurt, can only awaken,
+    awakening raises her, and the meter runs after the cutscene. Not
+    awakened in time: she's out. Meter not full: a KO.
+  - Their M1s play that place's swing and hit effects. Other heroes are
+    left alone.
+- Client: `VFX.TH` calls the module's function with the server's
+  arguments. A missing module or function does nothing. A broken effect is
+  caught and warned about once. The face-your-aim turn works. The Knit
+  stand-in hides and brings back only the screens it hid, and plays and
+  stops tracks.
+- Full suites:
+  - Server: 2067 passed, 57 failed (round 106: 2029 passed, 56 failed).
+    The 38 more passes are this round's 39 less one, the support drop's
+    "nobody else can take it". That check failed because A still had a
+    soda an earlier section gave him at random. The test now clears it,
+    and that section passes on its own (41/41). The other failures are
+    round 106's.
+  - Client: stops at the same round 34 HUD error as before, with 91
+    problems printed before it, as in round 106. One is this round's
+    broken-effect check, which warns on purpose (it's taken back off the
+    count). A few timing checks differ from run to run; the rest are round
+    106's.
+
+### Round 106
 
 Round 106 builds on Round 105. The owner asked: "Also add the stand arrows
 and fruit". The JJBA place's Stand Arrow and Rokakaka now lie about the
@@ -185,9 +339,9 @@ and its `Startcutscenecmoon` track.
   sounds play at the beats instead (`CMoonCineRise / Earth / Wind / White`).
 - `Enabled = false` turns it off.
 
-**Crazy Diamond drawn from the owner's model**
+**Crazy Diamond drawn from the JJBA place's model**
 (`Config.JJBA.Stands.CrazyDiamond`; `JS.paint`).
-- **Which model.** The owner's STAR PLATINUM model (the closest build to
+- **Which model.** The JJBA place's STAR PLATINUM model (the closest build to
   Crazy Diamond in the JJBA place), painted in Crazy Diamond's colours.
   `Paint.Parts` sets each part's colour by name. `false` hides a part: the
   hair and the loincloth flaps.
@@ -241,7 +395,7 @@ and its `Startcutscenecmoon` track.
 ### Round 104
 
 Round 104 is built on the owner's uploaded `final.rbxl` (Round 103 plus
-the other session's Mob, Tokoyami and Pucci). The owner's JJBA place
+the other session's Mob, Tokoyami and Pucci). The JJBA place
 (`jjba.rbxl`) is ported into it: "take my version of JJBA stands and
 moves, and combine it with the current stand available in the final
 version of quirk battlegrounds". Three scripts changed (`QuirkConfig`,

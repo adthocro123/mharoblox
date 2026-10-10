@@ -60792,6 +60792,10 @@ local TARGET_OWNED = { Hit = true, Guard = true, Parry = true, GuardBreak = true
 local COMBAT_FX = { Punch = true, Hit = true, Guard = true, Block = true, Parry = true, GuardBreak = true }
 
 function VFX.Play(effectId, char, data, isLocal)
+	-- (round 107) the Touhou place's effects: straight to its own modules (VFX.TH)
+	if effectId == "TH" and VFX.TH then
+		return VFX.TH.play(char, data)
+	end
 	local fn = Effects[effectId]
 	if not fn then
 		return
@@ -110375,13 +110379,13 @@ end)()
 end)()
 
 ---------------------------------------------------------------------------
--- (round 105) C-MOON'S CINEMATIC, the owner's JJBA place's (VFX.JSC;
+-- (round 105) C-MOON'S CINEMATIC, the JJBA place's (VFX.JSC;
 -- Config.JJBA.Cinematic): its scene (JJBA.Effects.Cmoon.StartScene) cloned
 -- high over the street and played on Pucci's own screen on its own
 -- timeline. The camera takes the game's cutscene lock (VFX.Cinematic: his
 -- inputs held, his camera given back however it ends); everything else is
 -- worked out from one clock each frame - the JJBA place's tweens, as the
--- curves they draw. And CRAZY DIAMOND on the owner's STAR PLATINUM model,
+-- curves they draw. And CRAZY DIAMOND on the JJBA place's STAR PLATINUM model,
 -- painted (JS.paint: Config.JJBA.Stands.CrazyDiamond.Paint).
 -- (Its own function: the main chunk's locals stay as they are.)
 ---------------------------------------------------------------------------
@@ -111396,6 +111400,130 @@ end)()
 						* CFrame.Angles(0, math.rad(((IT.Spin or 50) * t) % 360), 0) * b.Rotation
 				end
 			end
+		end
+	end)
+end)()
+
+---------------------------------------------------------------------------
+-- (round 107) TOUHOU on screen (VFX.TH; Config.Touhou): Mokou's and
+-- Remilia's effects are the owner's Touhou place's own effect modules
+-- (ReplicatedStorage.Touhou.Combats.<its name>.<module>), called as its
+-- CombatController called them: the server's "TH" carries the module and
+-- the function (C, M, F) and its arguments (a1..an). Each module is
+-- required the first time it's needed. Its scripts' effects go in
+-- workspace.Ignore (as there); what doesn't collide there takes no ray or
+-- query of the game's. A move that has him face his aim while he holds it
+-- (TouhouFaceAim) turns him on his own screen.
+-- (Its own function: the main chunk's locals stay as they are.)
+---------------------------------------------------------------------------
+;(function()
+	local TC = Config.Touhou
+	if not (TC and TC.Enabled ~= false) then
+		return
+	end
+	local RS = game:GetService("ReplicatedStorage")
+	local TH = { mods = {}, failed = {}, calls = 0, errors = {} }
+	VFX.TH = TH
+
+	local function home()
+		local t = RS:FindFirstChild("Touhou")
+		return t and t:FindFirstChild("Combats")
+	end
+	-- its module, required once (false: it isn't there / wouldn't load)
+	function TH.module(combat, name)
+		local key = tostring(combat) .. "/" .. tostring(name)
+		local m = TH.mods[key]
+		if m ~= nil then
+			return m or nil
+		end
+		local folder = home()
+		local c = folder and folder:FindFirstChild(tostring(combat))
+		local ms = c and c:FindFirstChild(tostring(name))
+		if not (ms and ms:IsA("ModuleScript")) then
+			TH.mods[key] = false
+			return nil
+		end
+		local ok, res = pcall(require, ms)
+		if not ok or type(res) ~= "table" then
+			TH.mods[key] = false
+			TH.fault(key, res)
+			return nil
+		end
+		TH.mods[key] = res
+		return res
+	end
+	function TH.fault(where, err)
+		local msg = "[Touhou] " .. tostring(where) .. ": " .. tostring(err)
+		if #TH.errors < 50 then
+			table.insert(TH.errors, msg)
+		end
+		if not TH.failed[where] then
+			TH.failed[where] = true
+			warn(msg)
+		end
+	end
+	function TH.play(_char, data)
+		if type(data) ~= "table" then
+			return
+		end
+		local m = TH.module(data.C, data.M)
+		local fn = m and m[data.F]
+		if type(fn) ~= "function" then
+			return -- (that place's controller said so and went on: "attempted to get called but nil")
+		end
+		local n = tonumber(data.n) or 0
+		local args = table.create(n)
+		for i = 1, n do
+			args[i] = data["a" .. i]
+		end
+		TH.calls += 1
+		task.spawn(function()
+			local ok, err = pcall(fn, table.unpack(args, 1, n))
+			if not ok then
+				TH.fault(tostring(data.C) .. "." .. tostring(data.M) .. "." .. tostring(data.F), err)
+			end
+		end)
+	end
+	Effects.TH = function(char, data)
+		TH.play(char, data)
+	end
+
+	-- its effects folder; its scripts' parts take no ray or query of the game's
+	task.spawn(function()
+		local ignore = workspace:WaitForChild("Ignore", 30)
+		if not ignore then
+			return
+		end
+		ignore.DescendantAdded:Connect(function(d)
+			if d:IsA("BasePart") and not d.CanCollide then
+				d.CanQuery = false
+			end
+		end)
+		-- (its replicated tweens: TweenModule's listener)
+		local mods = RS:FindFirstChild("Modules")
+		local tm = mods and mods:FindFirstChild("TweenModule")
+		if tm then
+			pcall(require, tm)
+		end
+	end)
+
+	-- facing his aim while he holds a move that asks (its BodyGyroHold "FullMouse")
+	local Players = game:GetService("Players")
+	RunService.RenderStepped:Connect(function()
+		local me = Players.LocalPlayer
+		local char = me and me.Character
+		if not (char and char:GetAttribute("TouhouFaceAim")) then
+			return
+		end
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local cam = workspace.CurrentCamera
+		if not (root and cam) then
+			return
+		end
+		local look = cam.CFrame.LookVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		if flat.Magnitude > 0.05 then
+			root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
 		end
 	end)
 end)()

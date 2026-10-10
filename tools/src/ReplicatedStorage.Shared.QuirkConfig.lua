@@ -4616,7 +4616,7 @@ Config.POM = {
 	Colors = { void = Color3.fromRGB(14, 14, 18), cyan = Color3.fromRGB(0, 250, 255), deep = Color3.fromRGB(0, 120, 160) },
 }
 
--- (round 105) C-MOON'S CINEMATIC: the owner's JJBA place's ("Cmoon_StartScene"
+-- (round 105) C-MOON'S CINEMATIC: the JJBA place's ("Cmoon_StartScene"
 -- in its ModEffects; its scene is JJBA.Effects.Cmoon - the Earth, its sky
 -- in five shells and its clouds, a camera with a hand on it, the wind),
 -- ported (VFX.JSC). The JJBA place plays it when you get C-MOON; here it
@@ -4685,7 +4685,7 @@ Config.JJBA.Cinematic = {
 	},
 }
 
--- (round 105) CRAZY DIAMOND is drawn from the owner's own JJBA model too:
+-- (round 105) CRAZY DIAMOND is drawn from one of the JJBA place's models too:
 -- his STAR PLATINUM (the two are the same build of Stand), painted Crazy
 -- Diamond's colours - Paint.Parts: each part's colour by name (false: hidden
 -- - its hair; Crazy Diamond has none), Hearts: its hearts put on (each { the
@@ -4728,7 +4728,7 @@ Config.JJBA.Stands.CrazyDiamond = {
 }
 Config.JJBA.Users.CrazyDiamond = "CrazyDiamond"
 
--- (round 106) THE STAND ARROWS AND THE ROKAKAKA, the owner's JJBA place's:
+-- (round 106) THE STAND ARROWS AND THE ROKAKAKA, the JJBA place's:
 -- its Tools (JJBA.Items) lying about the city, its AnimParts (JJBA.Held) in
 -- the hand, its UseArrow and RokakakaEat clips (Animations.MoveStandArrow /
 -- MoveRokakakaEat). Walk up to one and press E (D-pad right; a tap on a
@@ -7933,6 +7933,11 @@ Config.UltMusic = {
 		Overhaul = { Id = "rbxassetid://1848125982", Start = 25 }, -- Judgment Day C (Gregor F Narholz)
 		Limitless = { Id = "rbxassetid://1848131944", Start = 12 }, -- Wheel Of Darkness (Gregor F Narholz)
 		Compress = { Id = "rbxassetid://117498563506482", Start = 12 }, -- The Great Illusion (A Villains Neverland)
+		-- (round 107) the owner's Touhou place's awakening songs (its Awaken
+		-- scripts' AwakeningScarySong): its own uploads - until they're on this
+		-- game's account (tools/touhou/reupload107.md) the Fallback plays
+		Mokou = { Id = "rbxassetid://114899115974479", Start = 0, Fallback = { Id = "rbxassetid://1848125982", Start = 25 } },
+		Remilia = { Id = "rbxassetid://100668643508929", Start = 0, Fallback = { Id = "rbxassetid://1848131944", Start = 12 } },
 		Double = { Id = "rbxassetid://1848128971", Start = 40 }, -- Anarchy B again, further in (round 69: Twice)
 		-- (round 74)
 		PrimeDeku = { Id = "rbxassetid://9047148335", Start = 60 }, -- Epic Hybrid Rock A, further in
@@ -15644,7 +15649,7 @@ Config.Quirks = {
 		},
 	},
 
-	-- (round 104) JOTARO KUJO and STAR PLATINUM (the owner's JJBA place's
+	-- (round 104) JOTARO KUJO and STAR PLATINUM (the JJBA place's
 	-- Stand, ported: its model, its clips, its sounds, its moves - Star Finger,
 	-- the heavy punch, the barrage, the stopped time - and a 4th from the
 	-- manga). A Stand fights beside him (Config.JJBA.Stands.StarPlatinum);
@@ -15706,7 +15711,7 @@ Config.Quirks = {
 		},
 	},
 
-	-- (round 104) POM (the owner's JJBA place's fighter, ported: no Stand -
+	-- (round 104) POM (the JJBA place's fighter, ported: no Stand -
 	-- his own body, two anti-physical void balls on his fists, a black-and-
 	-- cyan aura; Config.POM). His moves are the JJBA place's - the lunging
 	-- fist, the double attack, the charged blow - with the void ball it never
@@ -15766,9 +15771,100 @@ Config.Quirks = {
 			Extra = { Id = "POMLastWord", Name = "LAST WORD", Cooldown = 40, Windup = 1.1, Speed = 55, Range = 140, Radius = 9, Damage = 40, Push = 140, Lift = 70, Ragdoll = 2.4, Carve = 7, Cinematic = true, CinematicArmor = 2.2, EndsUlt = true, ActionTime = 1.6, CutIn = true },
 		},
 	},
+
+	-- (round 107) FUJIWARA NO MOKOU - IMMORTAL BLAZE, from the owner's Touhou
+	-- place: its own move scripts run as they did there (Config.Touhou, the
+	-- server's Kit.TH), with its effects on every screen. Her moves and her
+	-- awakening (the ult) are that place's; the M1s, the dashes and the guard
+	-- are the game's.
+	Mokou = {
+		DisplayName = "IMMORTAL BLAZE",
+		Description = "Dev: Fujiwara no Mokou, the immortal phoenix. 1 SOARING SKY KICK (off the ground: its air kick - and when the ground one lands, press it again in the air to follow up). 2 FIRE TALON ASSAULT. 3 FUJIYAMA VOLCANO BEATDOWN. R PHOENIX FEATHER. 4 BAMBOO BOMB. Ult: BAMBOO FOREST IN FLAMES. Knocked out with the ult meter full: she lies dead for 5 s - awaken and she rises.",
+		ShortDescription = "The immortal phoenix. She doesn't stay dead.",
+		Color = Color3.fromRGB(255, 150, 44),
+		AccentColor = Color3.fromRGB(255, 226, 150),
+		ModeName = "BAMBOO FOREST IN FLAMES",
+		CutInCorner = "TopLeft",
+		CutInImage = "",
+		DevOnly = true,
+		Touhou = "Immortal Blaze", -- (the Touhou place's name for her: its scripts' folder)
+		WalkSpeed = 18,
+		JumpPower = 55,
+		-- (each move is the Touhou place's script: Module, under
+		-- ServerStorage.Touhou.Attacks["Immortal Blaze"]; its cooldowns are its
+		-- own - Cooldown here only keeps a double press from going twice)
+		Abilities = {
+			{ Id = "THMokou1", Name = "SOARING SKY KICK", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Skill1", Slot = "Skill1" }, CutIn = false },
+			{ Id = "THMokou2", Name = "FIRE TALON ASSAULT", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Skill2", Slot = "Skill2" }, CutIn = false },
+			{ Id = "THMokou3", Name = "FUJIYAMA VOLCANO BEATDOWN", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Skill3", Slot = "Skill3" }, CutIn = false },
+		},
+		Special = { Id = "THMokouR", Name = "PHOENIX FEATHER", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Special", Slot = "Special" }, CutIn = false },
+		Extra = { Id = "THMokou4", Name = "BAMBOO BOMB", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Skill4", Slot = "Skill4" }, CutIn = false },
+		Ult = {
+			Name = "BAMBOO FOREST IN FLAMES",
+			Shout = "BAMBOO FOREST IN FLAMES!",
+			Color = Color3.fromRGB(255, 110, 20),
+			AccentColor = Color3.fromRGB(255, 220, 120),
+			-- (the Touhou place's: the meter drains 100 over 60 s, from the end
+			-- of the awakening's own cutscene - Config.Touhou.AwakenLength)
+			Duration = 60,
+			WalkSpeed = 20,
+			JumpPower = 58,
+			Abilities = {
+				{ Id = "THMokouU1", Name = "BLAZE SIGN: BREAKNECK FIRE TALON ASSAULT", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill1", Slot = "Skill1" }, CutIn = false },
+				{ Id = "THMokouU2", Name = "FLAMING BLITZ TABLETOP DROPKICK", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill2", Slot = "Skill2" }, CutIn = false },
+				{ Id = "THMokouU3", Name = "SOUTH WIND: CLEAR SKY", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill3", Slot = "Skill3" }, CutIn = false },
+			},
+			-- (there, R stays PHOENIX FEATHER through the awakening)
+			Special = { Id = "THMokouR", Name = "PHOENIX FEATHER", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Special", Slot = "Special" }, CutIn = false },
+			Extra = { Id = "THMokouU4", Name = "FLAMING SUGARY DESSERT", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill4", Slot = "Skill4" }, CutIn = false },
+		},
+	},
+
+	-- (round 107) REMILIA SCARLET - SCARLET EMPRESS, from the owner's Touhou
+	-- place, the same way as Mokou. Her spear (the Gungnir) in her right hand
+	-- and her wings, as that place put them on her.
+	Remilia = {
+		DisplayName = "SCARLET EMPRESS",
+		Description = "Dev: Remilia Scarlet, the scarlet devil. 1 VAMPIRIC KISS. 2 HEARTBREAK (hold to aim the Gungnir, let go to throw). 3 SCARLET STINGER (again: the follow-up). R MILLENIUM VAMPIRE: harder hits that heal her. 4 MIDNIGHT KING. Ult: BLOODTHIRSTY NIGHTMARE LULLABY.",
+		ShortDescription = "The scarlet devil and her spear, the Gungnir.",
+		Color = Color3.fromRGB(255, 20, 20),
+		AccentColor = Color3.fromRGB(255, 120, 140),
+		ModeName = "BLOODTHIRSTY NIGHTMARE LULLABY",
+		CutInCorner = "TopRight",
+		CutInImage = "",
+		DevOnly = true,
+		Touhou = "Scarlet Empress",
+		WalkSpeed = 18,
+		JumpPower = 55,
+		Abilities = {
+			{ Id = "THRemilia1", Name = "VAMPIRIC KISS", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Skill1", Slot = "Skill1" }, CutIn = false },
+			-- HEARTBREAK: held (the Touhou place's MinHoldTime / MaxHoldTime)
+			{ Id = "THRemilia2", Name = "HEARTBREAK", Cooldown = 0.4, ActionTime = 0.3, Hold = { Min = 39 / 60, Max = 143 / 60 }, Touhou = { Module = "Skill2", Slot = "Skill2" }, CutIn = false },
+			{ Id = "THRemilia3", Name = "SCARLET STINGER", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Skill3", Slot = "Skill3" }, CutIn = false },
+		},
+		Special = { Id = "THRemiliaR", Name = "MILLENIUM VAMPIRE", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Special", Slot = "Special" }, CutIn = false },
+		Extra = { Id = "THRemilia4", Name = "MIDNIGHT KING", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Skill4", Slot = "Skill4" }, CutIn = false },
+		Ult = {
+			Name = "BLOODTHIRSTY NIGHTMARE LULLABY",
+			Shout = "BLOODTHIRSTY NIGHTMARE LULLABY!",
+			Color = Color3.fromRGB(200, 0, 20),
+			AccentColor = Color3.fromRGB(255, 90, 110),
+			Duration = 60,
+			WalkSpeed = 20,
+			JumpPower = 58,
+			Abilities = {
+				{ Id = "THRemiliaU1", Name = "NIGHTLESS CASTLE", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill1", Slot = "Skill1" }, CutIn = false },
+				{ Id = "THRemiliaU2", Name = "SCARLET PIERCE", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill2", Slot = "Skill2" }, CutIn = false },
+				{ Id = "THRemiliaU3", Name = "SCARLET IRON SEPULCHRE", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill3", Slot = "Skill3" }, CutIn = false },
+			},
+			Special = { Id = "THRemiliaR", Name = "MILLENIUM VAMPIRE", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Special", Slot = "Special" }, CutIn = false },
+			Extra = { Id = "THRemiliaU4", Name = "MISERABLE MULTITUDE", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill4", Slot = "Skill4" }, CutIn = false },
+		},
+	},
 }
 
-Config.QuirkOrder = { "Explosion", "OneForAll", "FullCowl", "HalfCold", "Engine", "Creation", "Lemillion", "Manifest", "Arbor", "Electrification", "Overhaul", "Decay", "Compress", "Double", "Limitless", "CrazyDiamond", "PlusUltra", "Hellflame", "Blueflame", "PrimeDeku", "PrimeMight", "TheWorld", "FierceWings", "Saitama", "Whirlwind", "Mob", "DarkShadow", "CMoon", "StarPlatinum", "POM" }
+Config.QuirkOrder = { "Explosion", "OneForAll", "FullCowl", "HalfCold", "Engine", "Creation", "Lemillion", "Manifest", "Arbor", "Electrification", "Overhaul", "Decay", "Compress", "Double", "Limitless", "CrazyDiamond", "PlusUltra", "Hellflame", "Blueflame", "PrimeDeku", "PrimeMight", "TheWorld", "FierceWings", "Saitama", "Whirlwind", "Mob", "DarkShadow", "CMoon", "StarPlatinum", "POM", "Mokou", "Remilia" }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -16928,5 +17024,52 @@ do
 		return plan
 	end
 end
+
+-- (round 107) TOUHOU: Mokou (IMMORTAL BLAZE) and Remilia (SCARLET EMPRESS),
+-- from the owner's Touhou place. Its own scripts run them: each move is its
+-- ModuleScript (ServerStorage.Touhou.Attacks.<its name>), driven the way its
+-- AttackService drove it (.new, :Hold, :Release), and every service it calls
+-- is the server's stand-in (Kit.TH) on the game's own damage, guard, stun,
+-- ragdoll, knockback, i-frames and cooldowns. Its effect modules
+-- (ReplicatedStorage.Touhou.Combats) play on every screen (VFX "TH"), as its
+-- CombatController played them. Its animations and sounds are the Animation
+-- and Sound objects it had, at the same paths (ReplicatedStorage.Assets...):
+-- they play only once they're uploaded to the account that owns this game
+-- (tools/touhou/reupload107.md lists every one).
+Config.Touhou = {
+	Enabled = true,
+	-- its hits are for 100-health fighters; here everyone has
+	-- Config.PlayerMaxHealth (300): each one is worth this many times as much
+	DamageScale = 3,
+	-- MILLENIUM VAMPIRE (Remilia's R): her hits x VampireDamage, and she
+	-- heals VampireHeal of each (that place's 1.9 and a half)
+	VampireDamage = 1.9,
+	VampireHeal = 0.5,
+	-- every hit there healed whoever landed it a fifth of it: off here
+	-- (the game has its own regen); 0.2 is that place's
+	Lifesteal = 0,
+	-- how long each awakening's own cutscene runs (its Awaken script's
+	-- AttackLength): the ult's Duration starts after it
+	AwakenLength = { ["Immortal Blaze"] = 919 / 60, ["Scarlet Empress"] = 844 / 60 },
+	-- MOKOU'S IMMORTALITY (that place's): knocked out with the ult meter
+	-- full and not awakened, she doesn't die - she lies there DeathWindow s
+	-- (untouchable, held), and awakening in that time raises her (its
+	-- cutscene heals her to full). Not awakened by the end: she's out.
+	Immortal = { Enabled = true, DeathWindow = 5 },
+	-- (the M1s are the game's; these are that place's sounds and sparks on
+	-- them - its M1 effect module's Swing / Hit / Block)
+	M1Effects = true,
+	-- the "Settings" its effect scripts read (Player.Data.Settings there)
+	Settings = { ["Reduced Visuals"] = false, Cutscenes = true, ["Visible Hitboxes"] = false, ["Spawn Flicker"] = false, ["Hit Indicator"] = true, ["Death P Buttons"] = false, ["Vanity Accessories"] = true },
+	-- its hit highlight colour on whoever's hit (SkillsData HighlightColor)
+	Highlight = { ["Immortal Blaze"] = Color3.fromRGB(255, 150, 44), ["Scarlet Empress"] = Color3.fromRGB(255, 64, 64) },
+	-- the bodies it calls Torso (the nearest one in front, for the moves
+	-- that home in): this far
+	TorsoRange = 13,
+	-- the bodies its scripts hit and the effects they draw are judged by how
+	-- far off they are (its FireAllClients' own ranges): everyone further
+	-- than this is never sent one
+	MaxRange = 1200,
+}
 
 return Config

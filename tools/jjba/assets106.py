@@ -3,7 +3,7 @@
 # character clips, grafted into the round 105 place -> SP/r106/assets106.rbxl
 # (every old instance untouched). TARGET: the round 105 place
 # (git show 7a40325:QuirkBattlegrounds_City.rbxl > round105.rbxl).
-# (round 107) AnimParts.MetalPart is left out: Round 104 grafted it already
+# (round 106 fix) AnimParts.MetalPart is left out: Round 104 grafted it already
 # (ReplicatedStorage.JJBA.MetalPart), and the second copy carried the same
 # UniqueIds - Studio wouldn't open the place ("DM contains duplicate Unique
 # ids"). The output is checked for any shared UniqueId before it's used.

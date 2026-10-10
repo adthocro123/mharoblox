@@ -13429,6 +13429,196 @@ print("== round 106: THE STAND ARROWS AND THE ROKAKAKA (VFX.JI: the JJBA place's
 end)()
 
 
+print("== round 107: MOKOU and REMILIA's effects (VFX.TH: the Touhou place's own effect modules) and its Knit stand-in")
+-- (in a function of its own: the main chunk is at its register limit here)
+;(function()
+	local TH = VFX.TH
+	local CFrame = r.CFrame
+	if not (TH and Config.Touhou) then
+		problem("TOUHOU 107: VFX.TH / Config.Touhou")
+		return
+	end
+	-- its Combats folder, with a module of our own in place of one of its
+	local oldT = ReplicatedStorage:FindFirstChild("Touhou")
+	if oldT then
+		oldT.Parent = nil
+	end
+	local th = Instance.new("Folder")
+	th.Name = "Touhou"
+	local combats = Instance.new("Folder")
+	combats.Name = "Combats"
+	combats.Parent = th
+	local ib = Instance.new("Folder")
+	ib.Name = "Immortal Blaze"
+	ib.Parent = combats
+	local fake = Instance.new("ModuleScript")
+	fake.Name = "Fake"
+	fake.Parent = ib
+	local notModule = Instance.new("Folder")
+	notModule.Name = "NotAModule"
+	notModule.Parent = ib
+	th.Parent = ReplicatedStorage
+	local got, boomed = nil, 0
+	moduleCache[fake] = {
+		Go = function(...)
+			got = table.pack(...)
+		end,
+		Boom = function()
+			boomed += 1
+			error("its effect broke")
+		end,
+	}
+
+	-- the server's "TH": its module, its function and its arguments (a nil in the middle kept)
+	VFX.Play("TH", myChar, { C = "Immortal Blaze", M = "Fake", F = "Go", n = 3, a1 = myChar, a3 = 5 })
+	task.wait(0.05)
+	if not (got and got.n == 3 and got[1] == myChar and got[2] == nil and got[3] == 5) then
+		problem("TOUHOU 107: its function should get the server's arguments as sent (" .. tostring(got and got.n) .. ")")
+	end
+	-- no arguments at all
+	got = nil
+	VFX.Play("TH", myChar, { C = "Immortal Blaze", M = "Fake", F = "Go" })
+	task.wait(0.05)
+	if not (got and got.n == 0) then
+		problem("TOUHOU 107: ...or none")
+	end
+	-- what its place doesn't have is passed over without a word (its controller did the same)
+	local before = #problems
+	local calls = TH.calls
+	for _, data in {
+		{ C = "Immortal Blaze", M = "Missing", F = "Go" },
+		{ C = "Nobody", M = "Fake", F = "Go" },
+		{ C = "Immortal Blaze", M = "Fake", F = "Missing" },
+		{ C = "Immortal Blaze", M = "NotAModule", F = "Go" },
+		{ C = "Immortal Blaze", M = "Fake", F = "Go", n = "x" },
+		"not a table",
+	} do
+		VFX.Play("TH", myChar, data)
+	end
+	task.wait(0.05)
+	if #problems ~= before then
+		problem("TOUHOU 107: a missing module / function shouldn't warn")
+	end
+	if TH.calls ~= calls + 1 then
+		problem("TOUHOU 107: only the one that's there should run (" .. (TH.calls - calls) .. ")")
+	end
+	-- its broken effect stays its own: caught, kept, said once
+	VFX.Play("TH", myChar, { C = "Immortal Blaze", M = "Fake", F = "Boom" })
+	VFX.Play("TH", myChar, { C = "Immortal Blaze", M = "Fake", F = "Boom" })
+	task.wait(0.05)
+	local said = 0
+	for i = #problems, before + 1, -1 do
+		if problems[i]:find("[Touhou]", 1, true) and problems[i]:find("its effect broke", 1, true) then
+			said += 1
+			table.remove(problems, i)
+		end
+	end
+	if boomed ~= 2 or said ~= 1 or #TH.errors == 0 then
+		problem("TOUHOU 107: a broken effect should be caught and warned about once (" .. boomed .. " ran, " .. said .. " said)")
+	end
+	-- (its module is required once)
+	if TH.mods["Immortal Blaze/Fake"] ~= moduleCache[fake] then
+		problem("TOUHOU 107: its module should be kept once required")
+	end
+
+	-- a move that has him face his aim turns him to the camera's look
+	local cam = workspace.CurrentCamera
+	local camWas = cam.CFrame
+	cam.CFrame = CFrame.lookAt(Vector3.new(0, 10, 0), Vector3.new(30, 4, 0))
+	myRoot.CFrame = CFrame.new(myRoot.Position) -- (looking down -Z)
+	setAttr(myChar, "TouhouFaceAim", true)
+	signalOf(game:GetService("RunService"), "RenderStepped"):Fire(1 / 60)
+	local look = myRoot.CFrame.LookVector
+	if not (look.X > 0.99 and math.abs(look.Y) < 1e-3) then
+		problem("TOUHOU 107: TouhouFaceAim should face him (level) where the camera looks (" .. tostring(look) .. ")")
+	end
+	setAttr(myChar, "TouhouFaceAim", nil)
+	myRoot.CFrame = CFrame.new(myRoot.Position) -- (looking down -Z)
+	signalOf(game:GetService("RunService"), "RenderStepped"):Fire(1 / 60)
+	if myRoot.CFrame.LookVector.Z > -0.99 then
+		problem("TOUHOU 107: ...and leave him be otherwise")
+	end
+	cam.CFrame = camWas
+
+	-- its Knit stand-in: the animation controller and the HUD it hides through a cutscene
+	local packages = Instance.new("Folder")
+	packages.Name = "Packages"
+	packages.Parent = ReplicatedStorage
+	local okK, Knit = pcall(loadModule, SRC .. "/ReplicatedStorage.Packages.Knit.lua", (function()
+		local m = Instance.new("ModuleScript")
+		m.Name = "Knit"
+		m.Parent = packages
+		return m
+	end)())
+	if not (okK and type(Knit) == "table" and Knit.Loaded) then
+		problem("TOUHOU 107: Knit stand-in: " .. tostring(Knit))
+	else
+		local pg = localPlayer:FindFirstChildOfClass("PlayerGui")
+		local shown, hidden = Instance.new("ScreenGui"), Instance.new("ScreenGui")
+		shown.Name, hidden.Name = "TH107Shown", "TH107Hidden"
+		shown.Enabled, hidden.Enabled = true, false
+		shown.Parent, hidden.Parent = pg, pg
+		local wasOn = {}
+		for _, g in pg:GetChildren() do
+			if g:IsA("ScreenGui") then
+				wasOn[g] = g.Enabled
+			end
+		end
+		Knit.Hud.Enabled = false
+		if shown.Enabled or hidden.Enabled then
+			problem("TOUHOU 107: Hud.Enabled = false should hide the screens")
+		end
+		Knit.Hud.Enabled = true
+		if not shown.Enabled or hidden.Enabled then
+			problem("TOUHOU 107: ...and true bring back only the ones it hid")
+		end
+		for g, on in wasOn do
+			if g.Enabled ~= on or g:GetAttribute("TouhouHid") ~= nil then
+				problem("TOUHOU 107: " .. g.Name .. " should be as it was")
+			end
+		end
+		shown:Destroy()
+		hidden:Destroy()
+		local ac = Knit.GetController("AnimationController")
+		if type(ac.stopAnimation) ~= "function" or type(ac.playAnimationRINNOSUKE) ~= "function" then
+			problem("TOUHOU 107: Knit's AnimationController")
+		end
+		-- (the engine's Animator:GetPlayingAnimationTracks, as round 45 has it:
+		-- put in here when this runs on its own - it can only be put in once)
+		pcall(r.implementMethod, "Animator", "GetPlayingAnimationTracks", function()
+			local out = {}
+			for _, t in tracks do
+				if t.Track.IsPlaying then
+					table.insert(out, t.Track)
+				end
+			end
+			return out
+		end)
+		local anim = Instance.new("Animation")
+		anim.AnimationId = "rbxassetid://107107"
+		local track = ac.playAnimationRINNOSUKE(ac, myChar, anim, 1.5, true, 0.1)
+		if not (track and track.IsPlaying and track.Looped) then
+			problem("TOUHOU 107: playAnimationRINNOSUKE should play it, looped")
+		end
+		local okS, errS = pcall(ac.stopAnimation, ac, anim, 0.1)
+		if not okS then
+			problem("TOUHOU 107: stopAnimation: " .. tostring(errS))
+		elseif track and track.IsPlaying then
+			problem("TOUHOU 107: stopAnimation should stop his track with that id")
+		end
+		if type(Knit.GetService("CombatService")) ~= "table" then
+			problem("TOUHOU 107: Knit.GetService")
+		end
+	end
+	packages:Destroy()
+
+	th:Destroy()
+	if oldT then
+		oldT.Parent = ReplicatedStorage
+	end
+	TH.mods["Immortal Blaze/Fake"] = nil
+end)()
+
 print("== round 34: the controller legend, the wings going back in, emotes on a pad")
 do
 	local hud = playerGui:FindFirstChild("QuirkHUD")
