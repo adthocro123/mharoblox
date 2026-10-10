@@ -17,7 +17,9 @@ key and uploads it with the new account's, then writes the Studio snippet that s
    - signed in to the **old** account: add the API system **legacy-asset**, operation **manage**;
    - signed in to the **new** account (or under the group, if a group owns the game): add the API
      system **assets**, operations **Read** and **Write**.
-   Both: Accepted IP Addresses `0.0.0.0/0` (or your own IP), and an expiry date you like.
+   Both: leave **Restrict IP addresses** off (Roblox's default), and an expiry date if you like.
+   The script asks Roblox about each key before using it and says what's wrong, if anything
+   (pasted in part, switched off, expired, missing a permission).
 2. Put `reupload_anims.py` in a folder and run it there with Python 3:
    - Mac: open Terminal, `cd` to the folder, `python3 reupload_anims.py` (if Python isn't there, macOS
      offers to install it; with Python from python.org, run its "Install Certificates.command" once first);

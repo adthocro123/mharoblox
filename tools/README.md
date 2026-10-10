@@ -33,6 +33,11 @@ account, and Roblox only plays an animation in a game owned by whoever owns
 the animation. `touhou/reupload_anims.py` moves all 185 with Roblox's Open
 Cloud API (downloaded with an old-account key, uploaded with a new-account
 key; tested against a stand-in for the API, not yet against Roblox's).
+Before using a key it asks Roblox about it (`POST /api-keys/v1/introspect`)
+and says what's wrong, if anything: pasted in part, switched off, expired,
+missing a permission, or a user id that isn't the key's own. It reads the
+key a keystroke at a time, because Python's `getpass` keeps only one
+terminal line of it (1024 characters on a Mac).
 `touhou/reupload107.md` lists all 185 animations and 275 sounds with where
 each one sits, with the steps, and two command-bar snippets for doing it by
 hand instead: one fetches the animations on the old account, the other swaps

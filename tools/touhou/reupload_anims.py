@@ -12,7 +12,10 @@
 #   2. the NEW account's key, with the API system "assets" and its Read and
 #      Write operations - to upload each one again (POST
 #      apis.roblox.com/assets/v1/assets, assetType Animation).
-# and the new account's user id (or the group's id, if a group owns the game).
+# and, for the upload, whether it goes on your account (the key's own) or a
+# group's. Before using a key it asks Roblox what that key can do (POST
+# apis.roblox.com/api-keys/v1/introspect) and says what's wrong with it, if
+# anything: pasted in part, turned off, expired, missing a permission.
 #
 # What it writes, next to itself:
 #   reupload107/<old id>.rbxm      each animation as downloaded
@@ -32,6 +35,7 @@ import gzip
 import json
 import os
 import random
+import re
 import string
 import sys
 import time
@@ -245,6 +249,10 @@ CERT_HINT = ('Python can\'t check Roblox\'s HTTPS certificate. On a Mac with Pyt
              'Applications > Python 3.x and double-click "Install Certificates.command", then run this again.')
 
 
+class KeyProblem(Exception):
+    """A key Roblox has already said won't work."""
+
+
 class ApiError(Exception):
     def __init__(self, status, body):
         super().__init__('HTTP %s: %s' % (status, body[:300]))
@@ -289,21 +297,39 @@ def request(method, url, key=None, data=None, headers=None, tries=6):
     raise ApiError(0, 'gave up')
 
 
+def roblox_says(body):
+    """Roblox's own message out of an error body (it comes in a few shapes)."""
+    try:
+        d = json.loads(body)
+    except ValueError:
+        return (body or '').strip()[:200]
+    if isinstance(d, dict):
+        errs = d.get('errors')
+        if isinstance(errs, list) and errs and isinstance(errs[0], dict) and errs[0].get('message'):
+            return str(errs[0]['message'])
+        if d.get('message'):
+            return str(d['message'])
+    return json.dumps(d)[:200]
+
+
 def hint(err, step):
     s = err.status
-    if s in (401, 403):
+    said = '(HTTP %s: %s)' % (s, roblox_says(err.body).rstrip('.')) if s else ''
+    if s == 401:
+        who = 'OLD' if step == 'download' else 'NEW'
+        return ('Roblox doesn\'t accept the %s account\'s key %s - it didn\'t paste whole, it was deleted or '
+                'regenerated, it expired, or its "Restrict IP addresses" list leaves this computer out.' % (who, said))
+    if s == 403:
         if step == 'download':
-            return ('the OLD account\'s key was refused. It needs the API system "legacy-asset" with the '
-                    '"manage" operation, and the key must belong to the account that owns the animations '
-                    '(make it on that account itself - a group\'s key may not be able to).')
-        return ('the NEW account\'s key was refused. It needs the API system "assets" with Read and Write, '
-                'and the user id (or group id) you gave must be the key\'s own account (or a group it can '
-                'upload to).')
+            return ('the OLD account\'s key works but isn\'t allowed to download this %s. It needs the API '
+                    'system "legacy-asset" with "manage", made on the account that owns the animation.' % said)
+        return ('the NEW account\'s key works but isn\'t allowed to upload %s. It needs the API system "assets" '
+                'with Read and Write, and it can only upload to its own account (or a group it may upload to).' % said)
     if s == 404:
-        return 'Roblox says there is no such asset (or this key can\'t see it).'
+        return 'Roblox says there is no such asset (or this key can\'t see it) %s.' % said
     if s == 400:
-        return 'Roblox refused the request: ' + err.body[:300]
-    return err.body[:300]
+        return 'Roblox refused the request %s' % said
+    return said or err.body[:300]
 
 
 # --- step 1: download -------------------------------------------------------
@@ -458,39 +484,173 @@ def write_snippet(m):
 
 # --- the run ----------------------------------------------------------------
 
+def read_secret(prompt):
+    """A hidden line from the keyboard. getpass reads in the terminal's line mode, which on a Mac
+    keeps only the first 1024 characters of a line - so a long API key pasted there would arrive
+    cut short. This reads it a key at a time instead (Windows' getpass has no such limit)."""
+    try:
+        import termios
+        fd = os.open('/dev/tty', os.O_RDWR | getattr(os, 'O_NOCTTY', 0))
+    except (ImportError, OSError):
+        return getpass.getpass(prompt)
+    try:
+        old = termios.tcgetattr(fd)
+    except termios.error:
+        os.close(fd)
+        return getpass.getpass(prompt)
+    new = termios.tcgetattr(fd)
+    new[3] &= ~(termios.ECHO | termios.ICANON)
+    new[6][termios.VMIN] = 1
+    new[6][termios.VTIME] = 0
+    os.write(fd, prompt.encode('utf-8'))
+    got = bytearray()
+    try:
+        termios.tcsetattr(fd, termios.TCSADRAIN, new)
+        done = False
+        while not done:
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                break
+            for b in chunk:
+                if b in (10, 13):                # Enter
+                    done = True
+                    break
+                if b in (8, 127):                # Backspace
+                    del got[-1:]
+                elif b == 21:                    # Ctrl+U: start again
+                    got.clear()
+                elif b == 4 and not got:         # Ctrl+D on nothing
+                    done = True
+                    break
+                else:
+                    got.append(b)
+    finally:
+        termios.tcsetattr(fd, termios.TCSAFLUSH, old)
+        os.write(fd, b'\n')
+        os.close(fd)
+    text = got.decode('utf-8', 'replace')
+    text = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]', '', text)   # a terminal's paste markers, arrow keys
+    return ''.join(c for c in text if '!' <= c <= '~')       # a key has no spaces or line breaks
+
+
+NEEDS = {'OLD': ('legacy-asset', {'manage'}, 'the API system "legacy-asset" with the operation "manage"'),
+         'NEW': ('asset', {'read', 'write'}, 'the API system "assets" with the operations Read and Write')}
+
+
+def check_key(key, who):
+    """Ask Roblox what this key is and can do. Returns (what Roblox said, [(it won't work, why)])."""
+    try:
+        info = json.loads(request('POST', '%s/api-keys/v1/introspect' % API, data=json.dumps({'apiKey': key}).encode(),
+                                  headers={'Content-Type': 'application/json'}, tries=3))
+    except ApiError as e:
+        said = roblox_says(e.body)
+        if e.status == 400 and 'format' in said.lower():
+            fix = ('Copy it again (the copy button next to the key, right after making it) and paste it in one go.')
+            if sys.platform == 'darwin':
+                fix += ('\n      Or copy it, then start this with it straight from the clipboard:\n'
+                        '        ROBLOX_%s_KEY="$(pbpaste)" python3 reupload_anims.py%s'
+                        % (who, ' --upload-only' if who == 'NEW' else ''))
+            return None, [(True, 'Roblox says that isn\'t a whole API key ("%s"; %d characters came through). %s'
+                           % (said.rstrip('.'), len(key), fix))]
+        if e.status in (401, 403, 404):
+            return None, [(True, 'Roblox doesn\'t accept this key (HTTP %s: %s). It may have been deleted or '
+                           'regenerated (a regenerated key has a new secret), or its "Restrict IP addresses" list '
+                           'leaves this computer out.' % (e.status, said.rstrip('.')))]
+        print('    (couldn\'t check the key first: %s - trying it anyway)' % e)
+        return None, []
+    except (urllib.error.URLError, ValueError) as e:
+        print('    (couldn\'t check the key first: %s - trying it anyway)' % e)
+        return None, []
+    if not isinstance(info, dict):
+        return None, []
+    problems = []
+    if info.get('enabled') is False:
+        problems.append((True, 'the key is switched off (Disabled) - turn it on in Creator Dashboard > API Keys.'))
+    if info.get('expired'):
+        problems.append((True, 'the key has expired (%s; an unused key also expires after 60 days) - set a '
+                         'later expiry date on it, or make a new one.' % (info.get('expirationTimeUtc') or 'no date given')))
+    name, ops_needed, words = NEEDS[who]
+    has, ops = [], set()
+    for sc in info.get('scopes') or []:
+        if not isinstance(sc, dict):
+            continue
+        sops = [str(o).lower() for o in sc.get('operations') or []]
+        has.append('%s (%s)' % (sc.get('name'), ', '.join(sops)))
+        if str(sc.get('name', '')).lower() in (name, name + 's'):
+            ops |= set(sops)
+    if not ops_needed <= ops:
+        problems.append((False, 'the key is missing %s (it has: %s). Edit the key in Creator Dashboard > API '
+                         'Keys, add that, and Save Changes - the key itself stays the same.'
+                         % (words, '; '.join(has) or 'nothing')))
+    return info, problems
+
+
 def ask_key(who, what):
     env = os.environ.get('ROBLOX_%s_KEY' % who)
     if env:
-        return env.strip()
+        key = re.sub(r'\s', '', env)
+        info, problems = check_key(key, who)
+        for _, p in problems:
+            print('  ! ' + p)
+        if any(hard for hard, _ in problems):
+            raise KeyProblem('That key (ROBLOX_%s_KEY) won\'t work - fix it and run again.' % who)
+        return key, info
     print('\nPaste the %s account\'s API key (%s). It won\'t show as you type or paste;' % (who.lower(), what))
     print('press Enter after.')
+    tried = None
     while True:
-        k = getpass.getpass('%s key: ' % who.title()).strip()
-        if len(k) > 20:
-            return k
-        print('That looks too short for a key - try again.')
+        k = read_secret('%s key: ' % who.title())
+        if not k and tried:
+            print('Trying that key anyway.')
+            return tried
+        if len(k) <= 20:
+            print('That looks too short for a key (%d characters) - try again.' % len(k))
+            continue
+        info, problems = check_key(k, who)
+        if not problems:
+            if info and info.get('authorizedUserId'):
+                print('    Key OK: "%s", account %s.' % (info.get('name') or '', info['authorizedUserId']))
+            return k, info
+        print('That key won\'t work yet:')
+        for _, p in problems:
+            print('  ! ' + p)
+        print('Fix it and paste the key again - or press Enter on an empty line to try this one anyway.')
+        tried = (k, info)
 
 
-def ask_creator():
+def ask_creator(info):
+    owner = str((info or {}).get('authorizedUserId') or '')
+    groups = []
+    for sc in (info or {}).get('scopes') or []:
+        if isinstance(sc, dict) and str(sc.get('name', '')).lower() in ('asset', 'assets'):
+            groups += [str(g) for g in sc.get('groupIds') or []]
     env_user, env_group = os.environ.get('ROBLOX_NEW_USER_ID'), os.environ.get('ROBLOX_NEW_GROUP_ID')
     if env_group:
-        return {'groupId': env_group.strip()}
-    if env_user:
-        return {'userId': env_user.strip()}
-    print('\nWho owns Quirk Battlegrounds?')
-    print('  1  my new account')
-    print('  2  a group')
-    while True:
-        c = input('1 or 2: ').strip()
-        if c in ('1', '2'):
-            break
-    label = 'Your new account\'s user id (the number in its profile link, roblox.com/users/<id>/profile)' if c == '1' \
-        else 'The group\'s id (the number in its link, roblox.com/communities/<id>/...)'
-    while True:
-        v = input(label + ': ').strip()
-        if v.isdigit():
-            return {'userId': v} if c == '1' else {'groupId': v}
-        print('Just the number, please.')
+        c, v = '2', env_group.strip()
+    elif env_user:
+        c, v = '1', env_user.strip()
+    else:
+        print('\nWho owns Quirk Battlegrounds?')
+        print('  1  my new account%s' % (' (user %s, the key\'s own)' % owner if owner else ''))
+        print('  2  a group')
+        while True:
+            c = input('1 or 2: ').strip()
+            if c in ('1', '2'):
+                break
+        v = None
+    if c == '1':
+        if owner:  # (a key can only upload to its own account)
+            if v and v != owner:
+                print('  ! User %s isn\'t this key\'s account - uploading to the key\'s own, user %s.' % (v, owner))
+            return {'userId': owner}
+        while not (v and v.isdigit()):
+            v = input('Your new account\'s user id (the number in its profile link, roblox.com/users/<id>/profile): ').strip()
+        return {'userId': v}
+    while not (v and v.isdigit()):
+        v = input('The group\'s id (the number in its link, roblox.com/communities/<id>/...): ').strip()
+    if groups and '*' not in groups and v not in groups:
+        print('  ! This key may only upload to group(s) %s, not %s.' % (', '.join(groups), v))
+    return {'groupId': v}
 
 
 def main():
@@ -503,12 +663,12 @@ def main():
 
     failed_dl, failed_up = {}, {}
     if not a.upload_only:
-        key = ask_key('OLD', 'the account that made the animations; API system "legacy-asset", operation "manage"')
+        key, _ = ask_key('OLD', 'the account that made the animations; API system "legacy-asset", operation "manage"')
         got, failed_dl = download(key, ids)
         print('\nDownloaded %d of %d.' % (got, len(ids)))
     if not a.download_only:
-        creator = ask_creator()
-        key = ask_key('NEW', 'the account that owns Quirk Battlegrounds; API system "assets", Read and Write')
+        key, info = ask_key('NEW', 'the account that owns Quirk Battlegrounds; API system "assets", Read and Write')
+        creator = ask_creator(info)
         done, failed_up = upload(key, creator, ids, only_present=a.upload_only)
         here = len([i for i in ids if os.path.exists(os.path.join(OUT, '%s.rbxm' % i))]) if a.upload_only else len(ids)
         print('\nUploaded %d of %d.' % (done, here))
@@ -530,6 +690,9 @@ if __name__ == '__main__':
         code = main()
     except CertError:
         print('\n' + CERT_HINT)
+        code = 1
+    except KeyProblem as e:
+        print(str(e))
         code = 1
     except KeyboardInterrupt:
         print('\nStopped. Run it again to carry on where it left off.')
