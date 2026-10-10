@@ -7936,8 +7936,8 @@ Config.UltMusic = {
 		-- (round 107) the owner's Touhou place's awakening songs (its Awaken
 		-- scripts' AwakeningScarySong): its own uploads - until they're on this
 		-- game's account (tools/touhou/reupload107.md) the Fallback plays
-		Mokou = { Id = "rbxassetid://114899115974479", Start = 0, Fallback = { Id = "rbxassetid://1848125982", Start = 25 } },
-		Remilia = { Id = "rbxassetid://100668643508929", Start = 0, Fallback = { Id = "rbxassetid://1848131944", Start = 12 } },
+		Mokou = { Id = "rbxassetid://1848125982", Start = 25, Fallback = { Id = "rbxassetid://1848125982", Start = 25 } }, -- round 108: the real song is private to the old account; the Roblox-library track that was its fallback is now the track
+		Remilia = { Id = "rbxassetid://1848131944", Start = 12, Fallback = { Id = "rbxassetid://1848131944", Start = 12 } }, -- round 108: as Mokou above
 		Double = { Id = "rbxassetid://1848128971", Start = 40 }, -- Anarchy B again, further in (round 69: Twice)
 		-- (round 74)
 		PrimeDeku = { Id = "rbxassetid://9047148335", Start = 60 }, -- Epic Hybrid Rock A, further in
