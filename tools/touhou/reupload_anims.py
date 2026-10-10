@@ -3,7 +3,7 @@
 # API, nothing else. Run it on your own computer (Python 3.8 or newer, no
 # extra packages):
 #
-#   python reupload_anims.py
+#   python reupload_anims.py      (on a Mac: python3 reupload_anims.py)
 #
 # It asks for two API keys (typed hidden, never saved anywhere):
 #   1. the OLD account's key, with the API system "legacy-asset" and its
@@ -236,6 +236,14 @@ ANIMATIONS = {
 }
 
 
+class CertError(Exception):
+    """HTTPS can't be checked - a python.org Python on a Mac before its certificates are installed."""
+
+
+CERT_HINT = ('Python can\'t check Roblox\'s HTTPS certificate. On a Mac with Python from python.org, open\n'
+             'Applications > Python 3.x and double-click "Install Certificates.command", then run this again.')
+
+
 class ApiError(Exception):
     def __init__(self, status, body):
         super().__init__('HTTP %s: %s' % (status, body[:300]))
@@ -269,6 +277,8 @@ def request(method, url, key=None, data=None, headers=None, tries=6):
                 continue
             raise ApiError(e.code, body)
         except urllib.error.URLError as e:
+            if 'CERTIFICATE_VERIFY_FAILED' in str(e.reason):
+                raise CertError(str(e.reason))
             if attempt < tries - 1:
                 print('    (connection problem: %s - trying again in %.0f s)' % (e.reason, wait))
                 time.sleep(wait)
@@ -511,6 +521,9 @@ def main():
 if __name__ == '__main__':
     try:
         code = main()
+    except CertError:
+        print('\n' + CERT_HINT)
+        code = 1
     except KeyboardInterrupt:
         print('\nStopped. Run it again to carry on where it left off.')
         code = 1
