@@ -20,15 +20,17 @@
 # What it writes, next to itself:
 #   reupload107/<old id>.rbxm      each animation as downloaded
 #   reupload107/map.json           old id -> new id, saved after every upload
-#   reupload107/swap_animations.lua  paste into Studio's command bar (in
-#                                  Quirk Battlegrounds) to swap every old id
-#                                  for its new one
+#   reupload107/swap_animations.lua  one line for Studio's command bar (in
+#                                  Quirk Battlegrounds) that swaps every old
+#                                  id for its new one - on a Mac (or Windows)
+#                                  it's also put on the clipboard at the end
 # Run it again any time: what's already downloaded or uploaded is skipped, so
 # a stop part-way (a rate limit, a lost connection) just picks up where it was.
 #
 #   python reupload_anims.py --download-only   (just step 1, old key only)
 #   python reupload_anims.py --upload-only     (just step 2, new key only: the
-#                                               .rbxm files already in reupload107/)
+#                                               .rbxm files already in reupload107/ -
+#                                               e.g. round 108's new animations)
 import argparse
 import getpass
 import gzip
@@ -37,6 +39,7 @@ import os
 import random
 import re
 import string
+import subprocess
 import sys
 import time
 import urllib.error
@@ -459,27 +462,31 @@ def upload(key, creator, ids, only_present=False):
     return done, failed
 
 
+def snippet(m):
+    """One line for Studio's command bar (a line pastes there whole): every
+    Animation in the game on an old id moved to its new one."""
+    return ('local MAP={' + ','.join('[%s]=%s' % (old, m[old]) for old in sorted(m, key=int)) + '} local n=0 '
+            'for _,d in game:GetDescendants() do if d:IsA("Animation") then '
+            'local old=tonumber(string.match(d.AnimationId,"%d+$")) '
+            'if old and MAP[old] then d.AnimationId="rbxassetid://"..MAP[old] n+=1 end end end '
+            'print(n,"animations swapped to the new account\'s")')
+
+
 def write_snippet(m):
-    lines = ['-- Quirk Battlegrounds: Mokou\'s and Remilia\'s animations, old id -> new id.',
-             '-- Paste all of this into Studio\'s command bar (View > Command Bar) with the',
-             '-- game open, press Enter, then save / publish.',
-             'local MAP = {']
-    for old in sorted(m, key=int):
-        lines.append('\t[%s] = %s,' % (old, m[old]))
-    lines += ['}',
-              'local n = 0',
-              'for _, d in game:GetDescendants() do',
-              '\tif d:IsA("Animation") then',
-              '\t\tlocal old = tonumber(string.match(d.AnimationId, "%d+$"))',
-              '\t\tif old and MAP[old] then',
-              '\t\t\td.AnimationId = "rbxassetid://" .. MAP[old]',
-              '\t\t\tn += 1',
-              '\t\tend',
-              '\tend',
-              'end',
-              'print(n, "animations swapped to the new account\'s")']
     with open(SNIPPET, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines) + '\n')
+        f.write(snippet(m) + '\n')
+
+
+def to_clipboard(text):
+    """Onto the clipboard (Mac: pbcopy, Windows: clip), so it can go straight into Studio."""
+    cmd = ['pbcopy'] if sys.platform == 'darwin' else (['clip'] if os.name == 'nt' else None)
+    if not cmd:
+        return False
+    try:
+        subprocess.run(cmd, input=text.encode('utf-8'), check=True, timeout=15)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 # --- the run ----------------------------------------------------------------
@@ -673,7 +680,13 @@ def main():
         here = len([i for i in ids if os.path.exists(os.path.join(OUT, '%s.rbxm' % i))]) if a.upload_only else len(ids)
         print('\nUploaded %d of %d.' % (done, here))
         print('Old id -> new id: %s' % MAP)
-        print('Paste into Studio\'s command bar: %s' % SNIPPET)
+        m = load_map()
+        if m and to_clipboard(snippet(m)):
+            print('\nThe Studio line is on your clipboard. In Studio, with Quirk Battlegrounds open: View >')
+            print('Command Bar, click in it, paste, press Enter (it prints how many it swapped), then publish.')
+            print('(It\'s also in %s.)' % SNIPPET)
+        elif m:
+            print('Open %s, copy its one line into Studio\'s command bar, press Enter, then publish.' % SNIPPET)
     bad = dict(failed_up)
     bad.update(failed_dl)  # (why it wasn't downloaded says more)
     if bad:

@@ -10,12 +10,43 @@ of truth**. This folder holds what was used to build it outside Studio:
 | `place/` | Python tools that edit the binary `.rbxl` directly (swap script sources or the animation folder, leaving everything else byte-identical), plus Lune dump scripts. `uniqueids.py` (Round 106) finds UniqueIds two instances share: Studio won't open such a place |
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
 | `jjba/` | Round 104: the tools that grafted the JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview). Round 106: `assets106.py` (the graft of the Stand arrows, the Rokakaka, the props in the hand and their two clips) and `spots_check.luau` (where the items go, worked out offline) |
-| `touhou/` | Round 107: Mokou and Remilia from the owner's Touhou place. `graft107.json` (what comes over), `kit107.luau` (the new folders, the Knit stand-in, `Bridge`), `assets107.py` (the graft), `port107.py` (their scripts into `src/`, paths patched, footer stripped), `paths107.luau` (every path their scripts name is in the place), `ids107.py` and `reupload107.md` (the animations and sounds to upload again), `reupload_anims.py` (moves the 185 animations to the new account with Roblox's Open Cloud API and writes the Studio snippet that swaps the ids; run on your own computer), `swap107.py` (puts its `map.json` into a place file), `owners107.py` and `owners107.md` (who owns each animation on Roblox - 129 the group Ivory Boat, 51 the user generalprinciple, 5 others - and how an owner lets Quirk Battlegrounds use them without uploading again), `saved107.luau` and `saved107.json` (the 27 animations whose keyframes the Touhou place still has, matched by name, written out for `reupload_anims.py --upload-only`), `reupload107_map.json` (old id -> new id for those 27, uploaded to the new account; `swap107.py` puts them in a place: 29 Animations), `sounds107_map.json` (stand-ins for the 42 sounds that won't load in the new account's game - 33 private to generalprinciple, 7 to Lord_Gabe06, 2 deleted - each a sound this pack already uses that does load; `swap107.py` swaps Sounds too: 135 of them) |
+| `touhou/` | Round 107: Mokou and Remilia from the owner's Touhou place. `graft107.json` (what comes over), `kit107.luau` (the new folders, the Knit stand-in, `Bridge`), `assets107.py` (the graft), `port107.py` (their scripts into `src/`, paths patched, footer stripped), `paths107.luau` (every path their scripts name is in the place), `ids107.py` and `reupload107.md` (the animations and sounds to upload again), `reupload_anims.py` (moves the 185 animations to the new account with Roblox's Open Cloud API and writes the Studio snippet that swaps the ids; run on your own computer), `swap107.py` (puts its `map.json` into a place file), `owners107.py` and `owners107.md` (who owns each animation on Roblox - 129 the group Ivory Boat, 51 the user generalprinciple, 5 others - and how an owner lets Quirk Battlegrounds use them without uploading again), `saved107.luau` and `saved107.json` (the 27 animations whose keyframes the Touhou place still has, matched by name, written out for `reupload_anims.py --upload-only`), `standin108.py` + `standin108.luau` (Round 108: 80 new R6 animations for the slots whose originals can't be used, built as KeyframeSequences), `reupload107_map.json` (old id -> new id for those 27, uploaded to the new account; `swap107.py` puts them in a place: 29 Animations), `sounds107_map.json` (stand-ins for the 42 sounds that won't load in the new account's game - 33 private to generalprinciple, 7 to Lord_Gabe06, 2 deleted - each a sound this pack already uses that does load; `swap107.py` swaps Sounds too: 135 of them) |
 
 You need Python 3 with `numpy pillow lz4 zstandard` (and `ffmpeg` for preview
 videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tools.
 
 ---
+
+## Round 108: new animations for the Touhou slots that can't come back
+
+On the new account Mokou's and Remilia's animations don't play: Roblox
+plays an animation only for its owner, and 158 of the 185 belong to the
+group Ivory Boat (111), the account generalprinciple (42) and others (5).
+27 came back from keyframes the Touhou place still had (Round 107). For
+the rest, `touhou/standin108.py` makes NEW R6 animations on `anim/`'s pose
+language, one for each slot the game actually plays - 80 of them:
+
+- the moves' attacker and victim clips (Mokou kicks, stomps, flying kicks,
+  fire palms; Remilia's spear stabs, sweeps and throws, the bite, the dive,
+  the rising spin, her 14 s awakening), each beatdown as long as its
+  script's `AttackLength`, the victim's flinches landing on the attacker's
+  hits and ending knocked down, flung or lifted as the move does;
+- the reactions their hits play on whoever they hit (`Reactions`,
+  `ReactionsCrazy` 1-4) and the four afterimage poses (`BLSRAFTERIMAGES`).
+
+Left out, on purpose: their M1s, dashes, blocks, idle and run (the game's
+own M1 system runs those; the Touhou scripts only ever stop them), the
+knock-back reactions their scripts have commented out, the slots only old
+versions of moves used (50 in all), and the 8 that aren't R6 bodies (three
+wing rigs, the spinning spear, the cutscene cameras).
+
+`standin108.luau` builds them as KeyframeSequences - `reupload107/<old
+id>.rbxm` for `reupload_anims.py --upload-only`, and one
+`touhou_new_anims.rbxm` to look at in Studio. All 80 read back with every
+key in place. `reupload_anims.py` now writes the swap as one line and puts
+it on the clipboard (Mac `pbcopy`, Windows `clip`) when it's done; tested
+against a stand-in for Roblox's API (80 of 80 uploaded, 107 in the map),
+not yet against Roblox, and not playtested in Studio.
 
 ## Where things stand (Round 107)
 
