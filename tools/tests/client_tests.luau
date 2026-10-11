@@ -16955,6 +16955,8 @@ print("== round 109: the ARCANIST's effects (VFX.GR), his mana line and the GRIM
 	local tip = Instance.new("Part")
 	tip.Name = "Tip"
 	tip.Size = Vector3.new(0.24, 0.24, 0.24)
+	tip.CFrame = r.CFrame.new(60, 4.2, -1.2)
+	tip.Position = Vector3.new(60, 4.2, -1.2)
 	tip.Parent = wand
 	wand.Parent = wiz
 	wiz:SetAttribute("WandOut", false)
@@ -17002,7 +17004,7 @@ print("== round 109: the ARCANIST's effects (VFX.GR), his mana line and the GRIM
 		problem("ARCANIST 109: the ward's shell should go when it ends")
 	end
 	-- the wand's M1s: his own body, his quirk the Arcanist, the wand out
-	localPlayer:SetAttribute("Quirk", "Arcanist")
+	setAttr(localPlayer, "Quirk", "Arcanist")
 	myChar:SetAttribute("WandOut", true)
 	if not GRv.m1(myChar, { Count = 1 }, true) then
 		problem("ARCANIST 109: wand out, an M1 should be a bolt (VFX.GR.m1)")
@@ -17079,8 +17081,8 @@ print("== round 109: the ARCANIST's effects (VFX.GR), his mana line and the GRIM
 	-- the server's answer: the book changes, then the reveal
 	b.Pages.Tempest = 1
 	b.FreeAt = os.time() + 900
-	localPlayer:SetAttribute("Grimoire", GC.EncodeBook(b))
-	task.wait()
+	setAttr(localPlayer, "Grimoire", GC.EncodeBook(b))
+	task.wait(0.1)
 	if B.cards.Tempest.Name.Text ~= "TEMPEST" or not string.find(B.free.Text, "FREE PAGE IN", 1, true) then
 		problem("ARCANIST 109: the book follows the attribute (" .. B.cards.Tempest.Name.Text .. ", " .. B.free.Text .. ")")
 	end
@@ -17100,13 +17102,13 @@ print("== round 109: the ARCANIST's effects (VFX.GR), his mana line and the GRIM
 		problem("ARCANIST 109: Y again closes it")
 	end
 	-- not the Arcanist: no book
-	localPlayer:SetAttribute("Quirk", "Explosion")
-	task.wait()
+	setAttr(localPlayer, "Quirk", "Explosion")
+	task.wait(0.1)
 	HUD.ToggleGrimoire(true)
 	if B.open then
 		problem("ARCANIST 109: only the Arcanist opens a grimoire")
 	end
-	localPlayer:SetAttribute("Quirk", nil)
+	setAttr(localPlayer, "Quirk", nil)
 	print("  arcanist: " .. #kinds .. " ArcFx kinds, " .. n .. " cards, the reveal (" .. cells .. ")")
 end)()
 

@@ -20550,9 +20550,10 @@ end)()
 -- pages turn over one by one on the right page. Reads the player's
 -- "Grimoire" attribute (Config.Grimoire's book string); does things through
 -- HUD.GrimoireHooks (the client sets them: Inscribe, Equip, Opened, Sound).
+-- (Set up by HUD.Init: this module has no Config until then.)
 ---------------------------------------------------------------------------
-;(function()
-	local GC = Config.Grimoire
+function HUD.SetupGrimoire()
+	local GC = Config and Config.Grimoire
 	if not GC then
 		return
 	end
@@ -20989,6 +20990,19 @@ end)()
 	task.defer(chipShown)
 	HUD.GrimoireChipRefresh = chipShown
 	HUD.Grimoire = B
-end)()
+end
+do
+	local init = HUD.Init
+	function HUD.Init(...)
+		local out = table.pack(init(...))
+		if not HUD.Grimoire and Config and Config.Grimoire then
+			local ok, err = pcall(HUD.SetupGrimoire)
+			if not ok then
+				warn("[HUD] grimoire: " .. tostring(err)) -- (never the whole HUD)
+			end
+		end
+		return table.unpack(out, 1, out.n)
+	end
+end
 
 return HUD
