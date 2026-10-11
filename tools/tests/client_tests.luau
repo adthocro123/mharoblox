@@ -16927,6 +16927,189 @@ if not okCam then
 	problem("camera scenario crashed: " .. tostring(errCam))
 end
 
+print("== round 109: the ARCANIST's effects (VFX.GR), his mana line and the GRIMOIRE (HUD)")
+;(function()
+	local GC = Config.Grimoire
+	local GRv = VFX.GR
+	if not (GC and GRv and HUD.ToggleGrimoire and HUD.SetMana and HUD.GrimoireReveal) then
+		problem("ARCANIST 109: Config.Grimoire / VFX.GR / HUD.ToggleGrimoire / HUD.SetMana / HUD.GrimoireReveal")
+		return
+	end
+	-- every spell's cast, R's draw and the shared ArcFx are effects
+	local missing = {}
+	for _, cue in { "ArcDraw", "ArcSheathe", "ArcCharge", "ArcBolt", "ArcBoltHit", "ArcFire", "ArcFireHit", "ArcIce", "ArcIceHit", "ArcWind", "ArcStorm",
+		"ArcThunder", "ArcArcane", "ArcVoid", "ArcVoidPop", "ArcHeal", "ArcMeteorFall", "ArcMeteor", "ArcTempest", "ArcFreeze", "ArcStar", "ArcBlink",
+		"ArcWard", "ArcWardHit", "ArcWardBreak", "GrimoireOpen", "GrimoirePage", "GrimoireInscribe", "GrimoireReveal", "GrimoireLegend" } do
+		if not Config.Sounds[cue] then
+			table.insert(missing, cue)
+		end
+	end
+	if #missing > 0 then
+		problem("ARCANIST 109: sound cues missing: " .. table.concat(missing, ", "))
+	end
+	-- an Arcanist on an R6 body, wand in hand (the server's model, made here)
+	local wiz, wizHum, wizRoot = makeR6("Arc109", Vector3.new(60, 3, 0))
+	local wand = Instance.new("Model")
+	wand.Name = "ArcanistWand"
+	wand:SetAttribute("Out", false)
+	local tip = Instance.new("Part")
+	tip.Name = "Tip"
+	tip.Size = Vector3.new(0.24, 0.24, 0.24)
+	tip.Parent = wand
+	wand.Parent = wiz
+	wiz:SetAttribute("WandOut", false)
+	VFX.Play("ArcWand", wiz, {}, false)
+	wiz:SetAttribute("WandOut", true)
+	wand:SetAttribute("Out", true)
+	VFX.Play("ArcWand", wiz, {}, false)
+	local aim = { Dir = Vector3.new(0, 0, -1), Pos = Vector3.new(60, 3, -30), Seed = 7, Origin = wizRoot.Position }
+	for id in GC.Spells do
+		VFX.Play("Arc" .. id, wiz, aim, false)
+	end
+	local from, to = Vector3.new(60, 4, -1), Vector3.new(60, 4, -20)
+	local kinds = {
+		{ Kind = "Bolt", Spell = "EmberDart", From = from, To = to, Time = 0.1 },
+		{ Kind = "Bolt", Spell = "Fireball", From = from, To = to, Time = 0.1 },
+		{ Kind = "Fan", Spell = "FrostShard", Shots = { { From = from, To = to, Time = 0.1 }, { From = from, To = to + Vector3.new(3, 0, 0), Time = 0.1 } } },
+		{ Kind = "Impact", Spell = "EmberDart", Pos = to },
+		{ Kind = "Impact", Spell = "Fireball", Pos = to, Radius = 9 },
+		{ Kind = "Impact", Spell = "FrostShard", Pos = to },
+		{ Kind = "Cone", Spell = "Gust", From = from, Dir = Vector3.new(0, 0, -1), Range = 22, Cone = 50 },
+		{ Kind = "Heal", Spell = "Mend", Time = 0.6 },
+		{ Kind = "Chain", Spell = "ChainSpark", Points = { from, to, to + Vector3.new(6, 0, 0) } },
+		{ Kind = "Blink", Spell = "Blink", From = from, To = to },
+		{ Kind = "Rune", Spell = "ShadeSnare", Pos = to, Radius = 8, Time = 0.3 },
+		{ Kind = "Strike", Spell = "ShadeSnare", Pos = to, Radius = 8 },
+		{ Kind = "Rune", Spell = "Thundercall", Pos = to, Radius = 9, Time = 0.3 },
+		{ Kind = "Strike", Spell = "Thundercall", Pos = to, Radius = 9 },
+		{ Kind = "Rune", Spell = "Meteor", Pos = to, Radius = 14, Time = 0.3 },
+		{ Kind = "Strike", Spell = "Meteor", Pos = to, Radius = 14 },
+		{ Kind = "Line", Spell = "GlacialLance", From = from, To = to, Width = 5 },
+		{ Kind = "Ward", Spell = "Ward", Time = 0.5 },
+		{ Kind = "WardHit", Spell = "Ward", Left = 20 },
+		{ Kind = "WardEnd", Spell = "Ward", Broke = true },
+		{ Kind = "Orb", Spell = "VoidOrb", From = from, Dir = Vector3.new(0, 0, -1), Far = 30, Speed = 26, Time = 0.5 },
+		{ Kind = "OrbStop", Spell = "VoidOrb", Pos = to },
+		{ Kind = "Pop", Spell = "VoidOrb", Pos = to, Radius = 10 },
+		{ Kind = "Tornado", Spell = "Tempest", From = from, To = to, Time = 0.4, Radius = 8 },
+		{ Kind = "Nova", Spell = "AbsoluteZero", Pos = from, Radius = 18 },
+		{ Kind = "Star", Spell = "Starfall", Pos = to, Index = 1 },
+	}
+	for _, d in kinds do
+		VFX.Play("ArcFx", wiz, d, false)
+	end
+	if wiz:FindFirstChild("ArcWard") then
+		problem("ARCANIST 109: the ward's shell should go when it ends")
+	end
+	-- the wand's M1s: his own body, his quirk the Arcanist, the wand out
+	localPlayer:SetAttribute("Quirk", "Arcanist")
+	myChar:SetAttribute("WandOut", true)
+	if not GRv.m1(myChar, { Count = 1 }, true) then
+		problem("ARCANIST 109: wand out, an M1 should be a bolt (VFX.GR.m1)")
+	end
+	for c = 1, 4 do
+		VFX.Play("Punch", myChar, { Count = c, Finisher = c == 4 }, true)
+	end
+	myChar:SetAttribute("WandOut", false)
+	if GRv.m1(myChar, { Count = 1 }, true) then
+		problem("ARCANIST 109: wand away, an M1 is a punch")
+	end
+	-- the mana line
+	HUD.SetMana(64, 100, false)
+	HUD.SetMana(5, 100, false)
+	HUD.SetMana(30, 100, true)
+	HUD.SetMana(nil)
+	-- THE GRIMOIRE: the book, its pages, EQUIP, INSCRIBE, the reveal
+	local b = GC.NewBook()
+	b.Pages.Meteor, b.Pages.Blink, b.Pages.EmberDart = 2, 1, 3
+	b.FreeAt = 0
+	localPlayer:SetAttribute("Grimoire", GC.EncodeBook(b))
+	localPlayer:SetAttribute("Bucks", 60)
+	HUD.ToggleGrimoire(true)
+	local B = HUD.Grimoire
+	if not (B and B.open and B.gui and B.gui.Enabled) then
+		problem("ARCANIST 109: Y opens the grimoire")
+		return
+	end
+	local n = 0
+	for _ in B.cards do
+		n += 1
+	end
+	if n ~= #GC.Order then
+		problem("ARCANIST 109: a card for every spell (" .. n .. ")")
+	end
+	if B.cards.Meteor.Level.Text ~= "II" or B.cards.Tempest.Name.Text ~= "? ? ?" or B.cards.EmberDart.Slot.Text ~= "1" then
+		problem("ARCANIST 109: the cards say what you have (" .. B.cards.Meteor.Level.Text .. ", " .. B.cards.Tempest.Name.Text .. ", slot " .. B.cards.EmberDart.Slot.Text .. ")")
+	end
+	if B.free.Text ~= "FREE PAGE - INSCRIBE NOW" then
+		problem("ARCANIST 109: the free page is ready (" .. B.free.Text .. ")")
+	end
+	local saw = {}
+	local hooks = HUD.GrimoireHooks
+	local oldEquip, oldIns = hooks.Equip, hooks.Inscribe
+	hooks.Equip = function(slot, id)
+		saw.equip = { slot, id }
+	end
+	hooks.Inscribe = function(how)
+		saw.inscribe = how
+	end
+	signalOf(B.cards.Meteor.Button, "MouseButton1Click"):Fire()
+	task.wait()
+	if B.sel ~= "Meteor" or B.dTitle.Text ~= "METEOR II" then
+		problem("ARCANIST 109: a card picks the page (" .. tostring(B.sel) .. ", " .. B.dTitle.Text .. ")")
+	end
+	signalOf(B.equipButtons[2].Button, "MouseButton1Click"):Fire()
+	signalOf(B.free, "MouseButton1Click"):Fire()
+	task.wait()
+	if not (saw.equip and saw.equip[1] == 2 and saw.equip[2] == "Meteor") then
+		problem("ARCANIST 109: EQUIP 2 asks for METEOR in slot 2")
+	end
+	if saw.inscribe ~= "Free" then
+		problem("ARCANIST 109: the free page's button asks for it")
+	end
+	-- a page you haven't got: no equipping it
+	saw.equip = nil
+	signalOf(B.cards.Tempest.Button, "MouseButton1Click"):Fire()
+	signalOf(B.equipButtons[1].Button, "MouseButton1Click"):Fire()
+	task.wait()
+	if saw.equip ~= nil or B.dTitle.Text ~= "AN EMPTY PAGE" then
+		problem("ARCANIST 109: an empty page can't be equipped")
+	end
+	hooks.Equip, hooks.Inscribe = oldEquip, oldIns
+	-- the server's answer: the book changes, then the reveal
+	b.Pages.Tempest = 1
+	b.FreeAt = os.time() + 900
+	localPlayer:SetAttribute("Grimoire", GC.EncodeBook(b))
+	task.wait()
+	if B.cards.Tempest.Name.Text ~= "TEMPEST" or not string.find(B.free.Text, "FREE PAGE IN", 1, true) then
+		problem("ARCANIST 109: the book follows the attribute (" .. B.cards.Tempest.Name.Text .. ", " .. B.free.Text .. ")")
+	end
+	PlayVFX.OnClientEvent:Fire("GrimoireRoll", nil, { Got = { { Id = "Tempest", Rarity = "Legendary", Level = 1, New = true }, { Id = "Gust", Rarity = "Common", Level = 4, Refund = 5 } } })
+	task.wait(1)
+	local cells = 0
+	for _, c in B.revealRow:GetChildren() do
+		if c:IsA("Frame") then
+			cells += 1
+		end
+	end
+	if not B.reveal.Visible or cells ~= 2 then
+		problem("ARCANIST 109: INSCRIBE's pages turn over in the book (" .. cells .. ")")
+	end
+	HUD.ToggleGrimoire(false)
+	if B.gui.Enabled then
+		problem("ARCANIST 109: Y again closes it")
+	end
+	-- not the Arcanist: no book
+	localPlayer:SetAttribute("Quirk", "Explosion")
+	task.wait()
+	HUD.ToggleGrimoire(true)
+	if B.open then
+		problem("ARCANIST 109: only the Arcanist opens a grimoire")
+	end
+	localPlayer:SetAttribute("Quirk", nil)
+	print("  arcanist: " .. #kinds .. " ArcFx kinds, " .. n .. " cards, the reveal (" .. cells .. ")")
+end)()
+
 -- let every delayed effect finish so late errors surface
 task.wait(3)
 print(string.format("\n%d problem(s)", #problems))

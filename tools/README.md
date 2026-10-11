@@ -11,11 +11,66 @@ of truth**. This folder holds what was used to build it outside Studio:
 | `tests/` | The headless test harnesses (Lune) for the server and the client, with the animation folder they load |
 | `jjba/` | Round 104: the tools that grafted the JJBA place into the game (a binary-format codec and grafter, the Moon Animator converter, the graft list, the checks). Round 105: `cd_check.luau` (Crazy Diamond on the Star Platinum model, checked and posed) and `render_parts.py` (its box-figure preview). Round 106: `assets106.py` (the graft of the Stand arrows, the Rokakaka, the props in the hand and their two clips) and `spots_check.luau` (where the items go, worked out offline) |
 | `touhou/` | Round 107: Mokou and Remilia from the owner's Touhou place. `graft107.json` (what comes over), `kit107.luau` (the new folders, the Knit stand-in, `Bridge`), `assets107.py` (the graft), `port107.py` (their scripts into `src/`, paths patched, footer stripped), `paths107.luau` (every path their scripts name is in the place), `ids107.py` and `reupload107.md` (the animations and sounds to upload again), `reupload_anims.py` (moves the 185 animations to the new account with Roblox's Open Cloud API and writes the Studio snippet that swaps the ids; run on your own computer), `swap107.py` (puts its `map.json` into a place file), `owners107.py` and `owners107.md` (who owns each animation on Roblox - 129 the group Ivory Boat, 51 the user generalprinciple, 5 others - and how an owner lets Quirk Battlegrounds use them without uploading again), `saved107.luau` and `saved107.json` (the 27 animations whose keyframes the Touhou place still has, matched by name, written out for `reupload_anims.py --upload-only`), `standin108.py` + `standin108.luau` (Round 108: 80 new R6 animations for the slots whose originals can't be used, built as KeyframeSequences), `reupload107_map.json` (old id -> new id for those 27, uploaded to the new account; `swap107.py` puts them in a place: 29 Animations), `sounds107_map.json` (stand-ins for every sound that won't load in the new account's game - all 145 that are private to their uploader, Ivory Boat's 78 included, plus 2 deleted - each mapped by what it does to a PUBLIC sound that loads anywhere; `swap107.py` swaps Sounds too: 296 of them) |
+| `arcanist/` | Round 109: `clips109.luau` (the Arcanist's 16 clips as KeyframeSequences in a place to graft from) and `build109.py` (grafts them into `ReplicatedStorage.Animations`, writes every script from `src/`, checks the place). The clips themselves are `anim/moves_arc.py` |
 
 You need Python 3 with `numpy pillow lz4 zstandard` (and `ffmpeg` for preview
 videos), and [Lune](https://github.com/lune-org/lune) 0.10+ for the `.luau` tools.
 
 ---
+
+## Round 109: THE ARCANIST and his GRIMOIRE (dev only)
+
+A magic fighter: "R pulls out your wand and we could have tiers of spells,
+and you could roll for them" - and a grimoire. Not playtested in Studio.
+
+**Playing him** (`Config.Quirks.Arcanist`, DEV ONLY):
+- **R** draws the wand (or puts it away; away he's 2 studs/s quicker, and
+  any spell draws it). It's a part-built wand (`Kit.GR.WAND`): in his right
+  fist as an extension of the arm, or down his left side in his belt.
+- **1 2 3 4** are the four pages he has equipped. Each costs **mana** (the
+  line under his health: 100, back 14 a second 0.8 s after a spell).
+- **M1** with the wand out is a wand bolt down where he faces (4 damage,
+  the 4th 9 and a knock-back); wand away, his M1s are punches.
+- **G: ARCHMAGE** (25 s) - no mana, every spell a level higher (up to V),
+  cooldowns halved.
+
+**The grimoire** (`Config.Grimoire`; **Y**, or the GRIMOIRE button):
+- 16 spells, four of each rarity - Common, Rare, Epic, Legendary - across
+  seven schools (pyromancy, cryomancy, storm, wind, arcana, shadow, healing).
+  Each is a Shape the server runs (`Kit.GR.SHAPES`): a bolt, a fan, a cone,
+  a heal, chain lightning, a blink, a rune that goes off, a lance, a ward,
+  a pulling orb, a moving storm, a nova, a rain of stars.
+- **INSCRIBE** rolls a page: one free every 15 minutes, or 25 Bucks (five
+  for 110). Odds 58 / 28 / 11 / 3 %. Pity: an Epic or better by the 10th
+  page since the last one, a Legendary by the 50th. A page you have
+  already goes up a level (to IV: x1.32 damage, cheaper and quicker, a
+  bigger blast); past IV it pays 5-50 Bucks back.
+- **EQUIP** a page into 1-4 (one already in another slot swaps with it).
+  Each slot keeps its own cooldown, so swapping pages doesn't reset it.
+- Everyone starts with the four Commons, equipped. The book is the
+  player's `Grimoire` attribute (one string) and is saved with their Bucks.
+- No spell kills from full health: the most any can do, a level V Starfall
+  with every star landing, is 65 of 300.
+
+**How it fits the game's systems:**
+- What's equipped travels in `QuirkPick` (`"W1;Meteor:4;Blink:2;..."`), so
+  `Config.GetAbility` / `CooldownKey` / `GetView` give the same four spells
+  on the server, his screen and the HUD.
+- The server gates mana in the dispatcher (`Kit.GR.refuse` / `used`); each
+  spell's handler is `Handlers["Arc" .. id]`. What everyone sees comes as
+  `ArcFx` (Kind: Bolt, Impact, Rune, Strike, Orb...), drawn in
+  `VFX.GR` from parts and GUI rings - no asset ids, no uploads.
+- Sounds are cues from the game's licensed library (`Config.Sounds.Arc*`).
+- The 16 clips (`anim/moves_arc.py`: draw, sheathe, three bolt flicks and a
+  4th, cast, fan, sweep, self, blink, point, lance, sky, channel, slam,
+  book) are KeyframeSequences in `ReplicatedStorage.Animations`. They play
+  through `VFX.Clip`, so there's nothing to upload and nobody's permission
+  is needed. Each "Hit" key lands on its spell's Windup.
+
+Build: `SP=<scratch> TARGET=QuirkBattlegrounds_City.rbxl python3 -I
+arcanist/build109.py`. `rbxl_replace.py` can't add clips any more: since
+round 107, KeyframeSequences also live outside the Animations folder.
+The 16 new clips are added to `tests/Animations.rbxm` too (the client tests' clip folder).
 
 ## Round 108: new animations for the Touhou slots that can't come back
 

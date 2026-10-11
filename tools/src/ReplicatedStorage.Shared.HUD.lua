@@ -2638,6 +2638,24 @@ function HUD.SetHeat(value, overheated)
 	end
 end
 
+-- (round 109) the ARCANIST's mana (nil hides it): out of max, the number
+-- beside it; RED when it's nearly gone. In ARCHMAGE (his ult) it's full and
+-- says so - his spells cost nothing then.
+function HUD.SetMana(value, max, ult)
+	local FH = HUD.FH
+	if value == nil or not vitals then
+		FH.setRes("Mana", nil)
+		return
+	end
+	max = math.max(tonumber(max) or 100, 1)
+	value = math.clamp(value, 0, max)
+	if ult then
+		FH.setRes("Mana", 1, "MANA: ARCHMAGE", false, 0.15)
+		return
+	end
+	FH.setRes("Mana", value / max, "MANA " .. math.floor(value), value < max * 0.15, 0.12)
+end
+
 -- (round 86) HAWKS' feathers (nil hides it): his wings ARE his ammo. Out of
 -- max (150 in the ult); what he just spent stays ash a moment, then drains;
 -- the word: FEATHERS, PLUCKED at 0, ALL OUT in the storm, OVERGROWTH over 100;
@@ -20520,6 +20538,457 @@ end)()
 			pcall(MO.skinOne, d)
 		end
 	end
+end)()
+
+---------------------------------------------------------------------------
+-- (round 109) THE GRIMOIRE (Y, or its button while you're the Arcanist):
+-- an open book. The left page is every spell in it, a card each - rarity
+-- round its edge, school in its colour strip, its level (I-IV), or a blank
+-- page for one you haven't inscribed. The right page is the one you picked:
+-- what it does, its numbers at your level, EQUIP into 1-4 - and INSCRIBE: a
+-- free page on a timer, or Bucks, and the pity counting down. A roll's
+-- pages turn over one by one on the right page. Reads the player's
+-- "Grimoire" attribute (Config.Grimoire's book string); does things through
+-- HUD.GrimoireHooks (the client sets them: Inscribe, Equip, Opened, Sound).
+---------------------------------------------------------------------------
+;(function()
+	local GC = Config.Grimoire
+	if not GC then
+		return
+	end
+	local Players = game:GetService("Players")
+	local UIS = game:GetService("UserInputService")
+	local TweenService = game:GetService("TweenService")
+	local me = Players.LocalPlayer
+	local B = { open = false, sel = nil }
+	HUD.GrimoireHooks = HUD.GrimoireHooks or {}
+	local function hook(name, ...)
+		local f = HUD.GrimoireHooks[name]
+		if f then
+			task.spawn(f, ...)
+		end
+	end
+
+	local PAPER = Color3.fromRGB(236, 226, 200)
+	local PAPER_DARK = Color3.fromRGB(214, 200, 168)
+	local INK = Color3.fromRGB(52, 38, 30)
+	local INK_SOFT = Color3.fromRGB(110, 90, 72)
+	local LEATHER = Color3.fromRGB(70, 36, 30)
+	local GOLD = Color3.fromRGB(214, 176, 80)
+	local TITLE = Enum.Font.Fantasy
+	local BODY = Enum.Font.Garamond
+	local NUM = Enum.Font.GothamBold
+
+	local function tw(obj, t, props, style)
+		local x = TweenService:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+		x:Play()
+		return x
+	end
+	local function corner(parent, r)
+		make("UICorner", { CornerRadius = UDim.new(0, r or 6), Parent = parent })
+	end
+	local function edge(parent, color, thick)
+		return make("UIStroke", { Color = color, Thickness = thick or 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = parent })
+	end
+	local function text(props)
+		local t = make("TextLabel", {
+			BackgroundTransparency = 1, Font = props.Font or BODY, TextColor3 = props.Color or INK, TextSize = props.Size or 18,
+			Text = props.Text or "", TextWrapped = props.Wrap == true, TextXAlignment = props.AlignX or Enum.TextXAlignment.Left,
+			TextYAlignment = props.AlignY or Enum.TextYAlignment.Center, Size = props.Box or UDim2.fromOffset(200, 24),
+			Position = props.Pos or UDim2.new(), AnchorPoint = props.Anchor or Vector2.zero, ZIndex = props.Z or 3,
+			Name = props.Name or "Text", RichText = props.Rich == true, Parent = props.Parent,
+		})
+		return t
+	end
+	local function button(props)
+		local b = make("TextButton", {
+			AutoButtonColor = false, BackgroundColor3 = props.Color or LEATHER, Text = props.Text or "", Font = props.Font or NUM,
+			TextColor3 = props.TextColor or PAPER, TextSize = props.Size or 15, Size = props.Box or UDim2.fromOffset(120, 34),
+			Position = props.Pos or UDim2.new(), AnchorPoint = props.Anchor or Vector2.zero, ZIndex = props.Z or 4,
+			Name = props.Name or "Button", Parent = props.Parent,
+		})
+		corner(b, 6)
+		edge(b, props.Edge or GOLD, 1.5)
+		b.MouseEnter:Connect(function()
+			if b.Active then
+				tw(b, 0.1, { BackgroundColor3 = (props.Color or LEATHER):Lerp(Color3.new(1, 1, 1), 0.15) })
+			end
+		end)
+		b.MouseLeave:Connect(function()
+			tw(b, 0.1, { BackgroundColor3 = props.Color or LEATHER })
+		end)
+		return b
+	end
+
+	function B.book()
+		return GC.DecodeBook(me:GetAttribute("Grimoire"))
+	end
+	local function rarityOf(id)
+		local s = GC.Spells[id]
+		return GC.RARITY[s and s.Rarity or "Common"] or GC.Rarities[1]
+	end
+
+	function B.build()
+		if B.gui and B.gui.Parent then
+			return
+		end
+		local gui, root = HUD.ST.screen("Grimoire", 40)
+		B.gui, B.root = gui, root
+		gui.Enabled = false
+		-- (the mouse is free while it's open)
+		make("TextButton", { Name = "Modal", Size = UDim2.fromOffset(1, 1), BackgroundTransparency = 1, Text = "", Modal = true, Parent = root })
+		local dim = make("Frame", { Name = "Dim", BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, Size = UDim2.fromScale(1, 1), ZIndex = 1, Parent = root })
+		B.dim = dim
+		-- the book: its leather cover, two pages, the spine
+		local book = make("Frame", { Name = "Book", BackgroundColor3 = LEATHER, Size = UDim2.fromOffset(900, 540), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.52), ZIndex = 2, Parent = root })
+		corner(book, 14)
+		edge(book, GOLD, 3)
+		B.bookFrame = book
+		B.scale = make("UIScale", { Scale = 1, Parent = book })
+		local function page(x, name)
+			local p = make("Frame", { Name = name, BackgroundColor3 = PAPER, Size = UDim2.new(0.5, -22, 1, -28), Position = UDim2.new(x, x == 0 and 14 or 8, 0, 14), ZIndex = 2, Parent = book })
+			corner(p, 8)
+			make("UIGradient", {
+				Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, x == 0 and PAPER_DARK or PAPER),
+					ColorSequenceKeypoint.new(0.12, PAPER), ColorSequenceKeypoint.new(0.88, PAPER),
+					ColorSequenceKeypoint.new(1, x == 0 and PAPER or PAPER_DARK),
+				}),
+				Rotation = 0, Parent = p,
+			})
+			return p
+		end
+		local left, right = page(0, "Left"), page(0.5, "Right")
+		B.left, B.right = left, right
+		make("Frame", { Name = "Spine", BackgroundColor3 = Color3.fromRGB(40, 20, 16), Size = UDim2.new(0, 6, 1, -20), Position = UDim2.new(0.5, -3, 0, 10), ZIndex = 3, Parent = book })
+		-- the left page: its title, the bookmark-like tabs, the cards
+		text({ Text = "GRIMOIRE", Font = TITLE, Size = 30, Box = UDim2.new(1, -20, 0, 36), Pos = UDim2.fromOffset(16, 8), Color = INK, Parent = left })
+		B.count = text({ Name = "Count", Text = "", Size = 15, Box = UDim2.new(1, -24, 0, 20), Pos = UDim2.fromOffset(16, 42), Color = INK_SOFT, Parent = left })
+		local grid = make("Frame", { Name = "Cards", BackgroundTransparency = 1, Size = UDim2.new(1, -24, 1, -78), Position = UDim2.fromOffset(12, 68), ZIndex = 3, Parent = left })
+		make("UIGridLayout", { CellSize = UDim2.fromOffset(98, 100), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = grid })
+		B.cards = {}
+		for i, id in GC.Order do
+			local s = GC.Spells[id]
+			local sch = GC.Schools[s.School]
+			local r = rarityOf(id)
+			local c = make("TextButton", { Name = id, LayoutOrder = i, AutoButtonColor = false, Text = "", BackgroundColor3 = r.Paper, ZIndex = 4, Parent = grid })
+			corner(c, 6)
+			local stroke = edge(c, r.Color, 2.5)
+			make("Frame", { Name = "School", BackgroundColor3 = sch.Color, BorderSizePixel = 0, Size = UDim2.new(1, -12, 0, 5), Position = UDim2.fromOffset(6, 6), ZIndex = 5, Parent = c })
+			local name = text({ Name = "SpellName", Text = s.Name, Font = TITLE, Size = 15, Wrap = true, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, -8, 0, 44), Pos = UDim2.fromOffset(4, 14), Z = 5, Parent = c })
+			local lv = text({ Name = "Level", Text = "", Font = TITLE, Size = 24, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, 0, 0, 26), Pos = UDim2.fromOffset(0, 56), Z = 5, Parent = c })
+			local tag = text({ Name = "Rarity", Text = r.Name, Font = NUM, Size = 9, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, 0, 0, 12), Pos = UDim2.new(0, 0, 1, -15), Color = r.Color:Lerp(INK, 0.35), Z = 5, Parent = c })
+			local slot = text({ Name = "Slot", Text = "", Font = NUM, Size = 12, AlignX = Enum.TextXAlignment.Center, Box = UDim2.fromOffset(20, 20), Pos = UDim2.new(1, -24, 0, 12), Color = PAPER, Z = 6, Parent = c })
+			slot.BackgroundColor3 = LEATHER
+			corner(slot, 10)
+			B.cards[id] = { Button = c, Stroke = stroke, Name = name, Level = lv, Tag = tag, Slot = slot }
+			c.MouseButton1Click:Connect(function()
+				B.select(id)
+				hook("Sound", "GrimoirePage")
+			end)
+		end
+		-- the right page: the spell, then the loadout, then INSCRIBE
+		local detail = make("Frame", { Name = "Detail", BackgroundTransparency = 1, Size = UDim2.new(1, -28, 0, 250), Position = UDim2.fromOffset(14, 10), ZIndex = 3, Parent = right })
+		B.dTitle = text({ Name = "Title", Text = "", Font = TITLE, Size = 30, Box = UDim2.new(1, 0, 0, 36), Parent = detail })
+		B.dSub = text({ Name = "Sub", Text = "", Font = NUM, Size = 13, Box = UDim2.new(1, 0, 0, 18), Pos = UDim2.fromOffset(0, 38), Color = INK_SOFT, Parent = detail })
+		B.dText = text({ Name = "Body", Text = "", Size = 19, Wrap = true, AlignY = Enum.TextYAlignment.Top, Box = UDim2.new(1, 0, 0, 64), Pos = UDim2.fromOffset(0, 62), Parent = detail })
+		B.dStats = text({ Name = "Stats", Text = "", Font = NUM, Size = 13, Rich = true, Wrap = true, AlignY = Enum.TextYAlignment.Top, Box = UDim2.new(1, 0, 0, 40), Pos = UDim2.fromOffset(0, 128), Color = INK, Parent = detail })
+		text({ Text = "EQUIP INTO", Font = NUM, Size = 12, Box = UDim2.new(1, 0, 0, 16), Pos = UDim2.fromOffset(0, 172), Color = INK_SOFT, Parent = detail })
+		B.equipButtons = {}
+		for i = 1, 4 do
+			local b = button({ Name = "Equip" .. i, Text = tostring(i), Size = 18, Box = UDim2.fromOffset(92, 46), Pos = UDim2.fromOffset((i - 1) * 100, 190), Parent = detail })
+			local under = text({ Name = "Holds", Text = "", Font = NUM, Size = 9, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, 0, 0, 12), Pos = UDim2.new(0, 0, 1, -13), Color = PAPER_DARK, Z = 5, Parent = b })
+			b.TextYAlignment = Enum.TextYAlignment.Top
+			b.MouseButton1Click:Connect(function()
+				if B.sel and B.owned(B.sel) then
+					hook("Equip", i, B.sel)
+					hook("Sound", "GrimoirePage")
+				end
+			end)
+			B.equipButtons[i] = { Button = b, Holds = under }
+		end
+		-- INSCRIBE
+		local ins = make("Frame", { Name = "Inscribe", BackgroundColor3 = PAPER_DARK, Size = UDim2.new(1, -28, 0, 196), Position = UDim2.new(0, 14, 1, -206), ZIndex = 3, Parent = right })
+		corner(ins, 8)
+		edge(ins, INK_SOFT, 1)
+		text({ Text = "INSCRIBE A PAGE", Font = TITLE, Size = 22, Box = UDim2.new(1, -20, 0, 28), Pos = UDim2.fromOffset(10, 6), Parent = ins })
+		B.odds = text({ Name = "Odds", Text = "", Font = NUM, Size = 11, Rich = true, Box = UDim2.new(1, -20, 0, 16), Pos = UDim2.fromOffset(10, 36), Color = INK_SOFT, Parent = ins })
+		B.pity = text({ Name = "Pity", Text = "", Font = NUM, Size = 12, Box = UDim2.new(1, -20, 0, 16), Pos = UDim2.fromOffset(10, 54), Color = INK, Parent = ins })
+		B.free = button({ Name = "Free", Text = "FREE PAGE", Color = Color3.fromRGB(46, 110, 60), Box = UDim2.new(1, -20, 0, 40), Pos = UDim2.fromOffset(10, 78), Parent = ins })
+		B.one = button({ Name = "One", Text = "1 PAGE  ·  " .. GC.Price .. " BUCKS", Box = UDim2.new(0.5, -15, 0, 40), Pos = UDim2.fromOffset(10, 126), Parent = ins })
+		B.five = button({ Name = "Five", Text = "5 PAGES  ·  " .. GC.Five, Box = UDim2.new(0.5, -15, 0, 40), Pos = UDim2.new(0.5, 5, 0, 126), Parent = ins })
+		B.bucks = text({ Name = "Bucks", Text = "", Font = NUM, Size = 11, AlignX = Enum.TextXAlignment.Right, Box = UDim2.new(1, -20, 0, 14), Pos = UDim2.new(0, 10, 1, -18), Color = INK_SOFT, Parent = ins })
+		B.free.MouseButton1Click:Connect(function()
+			if B.free.Active then
+				hook("Inscribe", "Free")
+			end
+		end)
+		B.one.MouseButton1Click:Connect(function()
+			hook("Inscribe", 1)
+		end)
+		B.five.MouseButton1Click:Connect(function()
+			hook("Inscribe", 5)
+		end)
+		local odds = {}
+		local total = 0
+		for _, r in GC.Rarities do
+			total += r.Weight
+		end
+		for _, r in GC.Rarities do
+			table.insert(odds, string.format('<font color="#%s">%s %d%%</font>', r.Color:ToHex(), r.Name, math.floor(r.Weight / total * 100 + 0.5)))
+		end
+		B.odds.Text = table.concat(odds, "   ")
+		-- close
+		local x = button({ Name = "Close", Text = "X", Size = 16, Box = UDim2.fromOffset(34, 34), Anchor = Vector2.new(1, 0), Pos = UDim2.new(1, 14, 0, -14), Z = 6, Parent = book })
+		x.MouseButton1Click:Connect(function()
+			B.toggle(false)
+		end)
+		-- the reveal (over the right page)
+		local reveal = make("Frame", { Name = "Reveal", BackgroundColor3 = PAPER, Visible = false, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = right })
+		corner(reveal, 8)
+		B.reveal = reveal
+		B.revealTitle = text({ Text = "INSCRIBED", Font = TITLE, Size = 30, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, 0, 0, 40), Pos = UDim2.fromOffset(0, 16), Z = 21, Parent = reveal })
+		local row = make("Frame", { Name = "Row", BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 300), Position = UDim2.fromOffset(10, 80), ZIndex = 21, Parent = reveal })
+		make("UIGridLayout", { CellSize = UDim2.fromOffset(122, 140), CellPadding = UDim2.fromOffset(8, 10), HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Parent = row })
+		B.revealRow = row
+		local ok = button({ Name = "Ok", Text = "INTO THE BOOK", Box = UDim2.fromOffset(200, 42), Anchor = Vector2.new(0.5, 1), Pos = UDim2.new(0.5, 0, 1, -18), Z = 22, Parent = reveal })
+		ok.MouseButton1Click:Connect(function()
+			reveal.Visible = false
+		end)
+		-- fits the screen
+		local cam = workspace.CurrentCamera
+		local function fit()
+			local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+			local s = HUD.ST.scale and HUD.ST.scale() or 1
+			B.scale.Scale = math.min(1, (vp.X / s - 24) / 900, (vp.Y / s - 24) / 560)
+		end
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
+		end
+		fit()
+	end
+
+	function B.owned(id)
+		return B.cache and B.cache.Pages[id] ~= nil
+	end
+
+	-- the book's state onto its pages
+	function B.refresh()
+		if not B.gui then
+			return
+		end
+		local b = B.book()
+		B.cache = b
+		local n = 0
+		for id, card in B.cards do
+			local lv = b.Pages[id]
+			local s = GC.Spells[id]
+			local r = rarityOf(id)
+			if lv then
+				n += 1
+			end
+			card.Button.BackgroundColor3 = lv and r.Paper or PAPER_DARK
+			card.Name.Text = lv and s.Name or "? ? ?"
+			card.Name.TextColor3 = lv and INK or INK_SOFT
+			card.Level.Text = lv and GC.Numeral(lv) or ""
+			card.Stroke.Color = lv and r.Color or INK_SOFT
+			card.Stroke.Thickness = (B.sel == id) and 4 or 2.5
+			local slot = table.find(b.Equip, id)
+			card.Slot.Text = slot and tostring(slot) or ""
+			card.Slot.BackgroundTransparency = slot and 0 or 1
+		end
+		B.count.Text = n .. " OF " .. #GC.Order .. " PAGES  ·  " .. b.Rolls .. " INSCRIBED"
+		for i, e in B.equipButtons do
+			local id = b.Equip[i]
+			e.Holds.Text = id and GC.Spells[id] and GC.Spells[id].Name or ""
+		end
+		local toEpic = math.max(1, (GC.Pity.Epic or 10) - b.Epic)
+		local toLeg = math.max(1, (GC.Pity.Legendary or 50) - b.Leg)
+		B.pity.Text = string.format("EPIC OR BETTER IN %d  ·  LEGENDARY IN %d", toEpic, toLeg)
+		B.bucks.Text = "YOU HAVE " .. tostring(me:GetAttribute("Bucks") or 0) .. " BUCKS"
+		B.tick()
+		B.select(B.sel or b.Equip[1] or GC.Order[1], true)
+	end
+	-- the free page's timer
+	function B.tick()
+		if not B.cache then
+			return
+		end
+		local left = (B.cache.FreeAt or 0) - workspace:GetServerTimeNow()
+		if left <= 0 then
+			B.free.Text = "FREE PAGE - INSCRIBE NOW"
+			B.free.Active = true
+			B.free.BackgroundTransparency = 0
+		else
+			B.free.Text = string.format("FREE PAGE IN %d:%02d", math.floor(left / 60), math.floor(left % 60))
+			B.free.Active = false
+			B.free.BackgroundTransparency = 0.45
+		end
+	end
+
+	function B.select(id, quiet)
+		if not GC.Spells[id] then
+			return
+		end
+		B.sel = id
+		local s = GC.Spells[id]
+		local sch = GC.Schools[s.School]
+		local r = rarityOf(id)
+		local lv = B.cache and B.cache.Pages[id]
+		for cid, card in B.cards do
+			card.Stroke.Thickness = cid == id and 4 or 2.5
+		end
+		if not lv then
+			B.dTitle.Text = "AN EMPTY PAGE"
+			B.dSub.Text = r.Name .. "  ·  " .. sch.Name
+			B.dText.Text = "Not yet written. INSCRIBE pages to find it."
+			B.dStats.Text = ""
+		else
+			B.dTitle.Text = s.Name .. " " .. GC.Numeral(lv)
+			B.dSub.Text = r.Name .. "  ·  " .. sch.Name .. (lv < GC.MaxLevel and ("  ·  ANOTHER COPY: " .. GC.Numeral(lv + 1)) or "  ·  MASTERED")
+			B.dText.Text = s.Text or ""
+			local st = GC.Stats(id, lv, false)
+			local bits = {}
+			if s.Damage then
+				local hits = ((s.Shape == "Fan" or s.Shape == "Rain") and s.Count) or s.Ticks
+				table.insert(bits, "DAMAGE " .. math.floor(s.Damage * st.Damage + 0.5) .. (hits and (" x" .. hits) or ""))
+			end
+			if s.Heal then
+				table.insert(bits, "HEALS " .. math.floor(s.Heal * st.Damage + 0.5))
+			end
+			if s.Absorb then
+				table.insert(bits, "BLOCKS " .. math.floor(s.Absorb * st.Damage + 0.5))
+			end
+			table.insert(bits, '<font color="#3a6fd0">MANA ' .. st.Mana .. "</font>")
+			table.insert(bits, "COOLDOWN " .. string.format("%.1f", st.Cooldown) .. "s")
+			if s.Range then
+				table.insert(bits, "RANGE " .. s.Range)
+			end
+			B.dStats.Text = table.concat(bits, "   ")
+		end
+		B.dTitle.TextColor3 = lv and sch.Color:Lerp(INK, 0.45) or INK_SOFT
+		for _, e in B.equipButtons do
+			e.Button.Active = lv ~= nil
+			e.Button.BackgroundTransparency = lv and 0 or 0.5
+		end
+	end
+
+	function B.toggle(open)
+		if open == nil then
+			open = not B.open
+		end
+		if open and me:GetAttribute("Quirk") ~= "Arcanist" then
+			if HUD.Callout then
+				HUD.Callout("ONLY THE ARCANIST CARRIES A GRIMOIRE", Color3.fromRGB(190, 170, 255))
+			end
+			return
+		end
+		B.build()
+		B.open = open
+		B.gui.Enabled = open
+		if open then
+			B.refresh()
+			B.bookFrame.Position = UDim2.fromScale(0.5, 0.6)
+			tw(B.bookFrame, 0.22, { Position = UDim2.fromScale(0.5, 0.52) }, Enum.EasingStyle.Back)
+			hook("Sound", "GrimoireOpen")
+			B.ticker = B.ticker or task.spawn(function()
+				while true do
+					task.wait(1)
+					if B.open then
+						B.tick()
+					end
+				end
+			end)
+		else
+			B.reveal.Visible = false
+		end
+		hook("Opened", open)
+	end
+	HUD.ToggleGrimoire = B.toggle
+	function HUD.GrimoireOpen()
+		return B.open
+	end
+
+	-- what INSCRIBE gave: the pages turned over one at a time
+	function HUD.GrimoireReveal(got)
+		B.build()
+		if not B.open then
+			B.toggle(true)
+		end
+		for _, c in B.revealRow:GetChildren() do
+			if c:IsA("GuiObject") then
+				c:Destroy()
+			end
+		end
+		B.reveal.Visible = true
+		local best = 0
+		for i, g in got do
+			local s = GC.Spells[g.Id]
+			if s then
+				local r = rarityOf(g.Id)
+				best = math.max(best, r.Rank or 1)
+				local cell = make("Frame", { Name = "Page" .. i, LayoutOrder = i, BackgroundColor3 = PAPER_DARK, ZIndex = 22, Parent = B.revealRow })
+				corner(cell, 6)
+				local st = edge(cell, INK_SOFT, 2)
+				local q = text({ Text = "?", Font = TITLE, Size = 54, AlignX = Enum.TextXAlignment.Center, Box = UDim2.fromScale(1, 1), Color = INK_SOFT, Z = 23, Parent = cell })
+				task.delay(0.25 + (i - 1) * 0.3, function()
+					if not cell.Parent then
+						return
+					end
+					q:Destroy()
+					cell.BackgroundColor3 = r.Paper
+					st.Color = r.Color
+					st.Thickness = 3
+					local sch = GC.Schools[s.School]
+					make("Frame", { BackgroundColor3 = sch.Color, BorderSizePixel = 0, Size = UDim2.new(1, -12, 0, 5), Position = UDim2.fromOffset(6, 6), ZIndex = 23, Parent = cell })
+					text({ Text = s.Name, Font = TITLE, Size = 17, Wrap = true, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, -8, 0, 46), Pos = UDim2.fromOffset(4, 16), Z = 23, Parent = cell })
+					text({ Text = GC.Numeral(g.Level or 1), Font = TITLE, Size = 28, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, 0, 0, 30), Pos = UDim2.fromOffset(0, 62), Z = 23, Parent = cell })
+					local note = g.New and "NEW!" or (g.Refund and ("+" .. g.Refund .. " BUCKS") or "LEVEL UP")
+					text({ Text = note, Font = NUM, Size = 12, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, 0, 0, 16), Pos = UDim2.new(0, 0, 1, -38), Color = g.New and Color3.fromRGB(40, 140, 60) or INK, Z = 23, Parent = cell })
+					text({ Text = r.Name, Font = NUM, Size = 10, AlignX = Enum.TextXAlignment.Center, Box = UDim2.new(1, 0, 0, 14), Pos = UDim2.new(0, 0, 1, -20), Color = r.Color:Lerp(INK, 0.3), Z = 23, Parent = cell })
+					local sc = make("UIScale", { Scale = 1.25, Parent = cell })
+					tw(sc, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+					hook("Sound", (r.Rank or 1) >= 4 and "GrimoireLegend" or "GrimoireReveal")
+				end)
+			end
+		end
+		B.revealTitle.Text = #got > 1 and ("INSCRIBED " .. #got .. " PAGES") or "INSCRIBED"
+		hook("Sound", "GrimoireInscribe")
+	end
+
+	-- the book changes (a roll, an equip, the save coming in): its pages too
+	me:GetAttributeChangedSignal("Grimoire"):Connect(function()
+		if B.open then
+			B.refresh()
+		end
+	end)
+	me:GetAttributeChangedSignal("Bucks"):Connect(function()
+		if B.open and B.bucks then
+			B.bucks.Text = "YOU HAVE " .. tostring(me:GetAttribute("Bucks") or 0) .. " BUCKS"
+		end
+	end)
+	-- the GRIMOIRE button (playing the Arcanist), and the book shut when you're not
+	local chip
+	local function chipShown()
+		local on = me:GetAttribute("Quirk") == "Arcanist"
+		if on and not chip and HUD.ST and HUD.ST.playerGui then
+			local _, root = HUD.ST.screen("GrimoireChip", 3)
+			chip = button({ Name = "GrimoireChip", Text = "GRIMOIRE  [Y]", Font = TITLE, Size = 18, Box = UDim2.fromOffset(150, 38), Anchor = Vector2.new(0, 0.5), Pos = UDim2.new(0, 16, 0.62, 0), Parent = root })
+			chip.MouseButton1Click:Connect(function()
+				B.toggle()
+			end)
+		end
+		if chip then
+			chip.Visible = on
+		end
+		if not on and B.open then
+			B.toggle(false)
+		end
+	end
+	me:GetAttributeChangedSignal("Quirk"):Connect(chipShown)
+	task.defer(chipShown)
+	HUD.GrimoireChipRefresh = chipShown
+	HUD.Grimoire = B
 end)()
 
 return HUD

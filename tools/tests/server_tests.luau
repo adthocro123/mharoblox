@@ -14864,6 +14864,374 @@ end)
 end)
 
 
+---------------------------------------------------------------------------
+-- Round 109: THE ARCANIST - a wand (R), four spells from his grimoire
+-- (1 2 3 4, paid in mana), the wand's M1 bolts, and the grimoire itself:
+-- INSCRIBE (the roll: free on a timer, or Bucks; pity), EQUIP, saved
+---------------------------------------------------------------------------
+;M.section(function()
+	print("== round 109: the Arcanist and his grimoire (Kit.GR)")
+	local GR = dx.Grimoire
+	local GC = Config.Grimoire
+	local AR = Config.Quirks.Arcanist
+	check(GR ~= nil and GC ~= nil and AR ~= nil and AR.DevOnly == true and AR.Grimoire == true, "the server has it (Kit.GR); the ARCANIST is DEV ONLY")
+	if not (GR and GC and AR) then
+		return
+	end
+	local ShopRemote = remotes:FindFirstChild("Shop")
+	-- the config: 16 spells, four of each rarity, every one with a runner
+	local per, shapes, n = {}, true, 0
+	for id, s in GC.Spells do
+		n += 1
+		per[s.Rarity] = (per[s.Rarity] or 0) + 1
+		shapes = shapes and GR.SHAPES[s.Shape] ~= nil and table.find(GC.Order, id) ~= nil and GC.Schools[s.School] ~= nil
+	end
+	check(n == 16 and per.Common == 4 and per.Rare == 4 and per.Epic == 4 and per.Legendary == 4 and #GC.Order == 16 and shapes,
+		"16 spells, four Common / Rare / Epic / Legendary, each a Shape the server runs, a school, in the book's order")
+	-- no spell takes a full-health player out, at its biggest (V, every hit landing)
+	local worst, worstId = 0, nil
+	for id, s in GC.Spells do
+		local per1 = (s.Damage or 0) * GC.Levels[#GC.Levels].Damage
+		local hits = (s.Shape == "Fan" and s.Count) or (s.Shape == "Rain" and s.Count) or (s.Shape == "Tornado" and s.Ticks) or 1
+		local burn = s.Burn and s.Burn.Ticks * s.Burn.Per or 0
+		if per1 * hits + burn > worst then
+			worst, worstId = per1 * hits + burn, id
+		end
+	end
+	check(worst < Config.PlayerMaxHealth / 3, "no spell is a one-shot: the most any can do at V is " .. math.floor(worst) .. " (" .. tostring(worstId) .. ") of " .. Config.PlayerMaxHealth)
+	-- the loadout in QuirkPick: there and back
+	local slots = { { Id = "Meteor", Level = 4 }, { Id = "Blink", Level = 2 }, { Id = "Ward", Level = 1 }, { Id = "Gust", Level = 3 } }
+	local pick = GC.Encode(true, slots)
+	local back = GC.Parse(pick)
+	check(pick == "W1;Meteor:4;Blink:2;Ward:1;Gust:3" and back.Wand == true and back.Slots[1].Id == "Meteor" and back.Slots[1].Level == 4 and back.Slots[4].Id == "Gust",
+		"what's equipped travels as QuirkPick (" .. pick .. ") and reads back the same")
+	local a1 = Config.GetAbility("Arcanist", 1, false, false, pick)
+	local a4 = Config.GetAbility("Arcanist", Config.EXTRA_INDEX, false, false, pick)
+	local u1 = Config.GetAbility("Arcanist", 1, false, true, pick)
+	check(a1 and a1.Id == "ArcMeteor" and a1.Name == "METEOR IV" and a1.Mana == math.floor(60 * 0.85 + 0.5) and math.abs(a1.Cooldown - 22 * 0.85) < 1e-6,
+		"slot 1 is the page in it: METEOR IV - its mana and cooldown at IV")
+	check(a4 and a4.Id == "ArcGust" and a4.Name == "GUST III", "4 is the fourth page (GUST III)")
+	check(u1 and u1.Name == "METEOR V" and u1.Mana == 0 and math.abs(u1.Cooldown - 22 * 0.8 * 0.5) < 1e-6, "in ARCHMAGE: a level up (V), no mana, half the cooldown")
+	check(Config.CooldownKey("Arcanist", 1, false, false, pick) == "Arcanist:1" and Config.CooldownKey("Arcanist", 1, false, true, pick) == "Arcanist:1"
+		and Config.CooldownKey("Arcanist", Config.EXTRA_INDEX, false, false, pick) == "Arcanist:4", "a cooldown per slot, the ult's too (swapping pages or ulting doesn't refresh it)")
+	local view = Config.GetView("Arcanist", false, false, pick)
+	check(view.Abilities[2].Name == "BLINK II" and view.Extra.Name == "GUST III" and view.Special.Name == "PUT AWAY WAND"
+		and Config.GetView("Arcanist", false, false, GC.Encode(false, slots)).Special.Name == "DRAW WAND", "the HUD's view: the four pages; R says DRAW / PUT AWAY")
+	check(Config.GetAbility("Arcanist", 1, false, false, 1).Id == "ArcEmberDart", "before his own pages come: the starter four")
+	-- the book: there and back
+	local b = GC.NewBook()
+	b.Pages.Meteor, b.Pages.Blink = 3, 1
+	b.Equip = { "Meteor", "Blink", "Gust", "Mend" }
+	b.Epic, b.Leg, b.FreeAt, b.Rolls = 4, 17, 1234567890, 21
+	local s = GC.EncodeBook(b)
+	local b2 = GC.DecodeBook(s)
+	check(b2.Pages.Meteor == 3 and b2.Pages.Blink == 1 and b2.Pages.EmberDart == 1 and b2.Equip[1] == "Meteor" and b2.Equip[4] == "Mend"
+		and b2.Epic == 4 and b2.Leg == 17 and b2.FreeAt == 1234567890 and b2.Rolls == 21, "the book string reads back the same: " .. s)
+	local bad = GC.DecodeBook("P=Meteor:9,Nope:2|E=Meteor,Meteor,,Nope|N=-3")
+	check(bad.Pages.Meteor == 4 and bad.Pages.Nope == nil and bad.Equip[1] == "Meteor" and bad.Equip[2] ~= "Meteor" and bad.Equip[2] ~= nil
+		and bad.Equip[3] ~= nil and bad.Equip[4] ~= nil and bad.Epic == 0, "a bad one is mended: levels to IV, no unknown pages, no page twice, no empty slot")
+
+	-- in the game
+	studioMode = true
+	game.CreatorId = 0
+	task.wait(2.6)
+	fire(SelectQuirk, A, "Arcanist")
+	task.wait(0.1)
+	check(A:GetAttribute("Quirk") == "Arcanist", "A picks the ARCANIST (dev, in Studio)")
+	local X = 109000
+	A:SetAttribute("NoCooldowns", nil)
+	local function limbs(model)
+		for _, n in { "Torso", "Right Arm", "Left Arm", "Right Leg", "Left Leg", "Head" } do
+			if not model:FindFirstChild(n) then
+				local p = M.new("Part", n)
+				p.Size = Vector3.new(1, 2, 1)
+				p.Parent = model
+			end
+		end
+	end
+	local aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 4)))
+	limbs(aChar)
+	GR.placeWand(aChar)
+	local bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 14), Vector3.new(X, 3, 0)))
+	task.wait(0.2)
+	check(aChar:GetAttribute("Mana") == GC.Mana.Max and aChar:GetAttribute("ManaMax") == GC.Mana.Max and aChar:GetAttribute("WandOut") == false,
+		"a new body: mana full (" .. tostring(aChar:GetAttribute("Mana")) .. "), the wand away")
+	check(string.sub(tostring(A:GetAttribute("QuirkPick")), 1, 3) == "W0;" and Config.GetAbility("Arcanist", 1, false, false, A:GetAttribute("QuirkPick")).Spell == GR.book(A).Equip[1],
+		"QuirkPick carries his book's four (" .. tostring(A:GetAttribute("QuirkPick")) .. ")")
+	local wand = aChar:FindFirstChild("ArcanistWand")
+	check(wand ~= nil and wand:GetAttribute("Out") == false, "his wand's on his belt")
+	local walkAway = aChar:GetAttribute("BaseWalkSpeed")
+	-- R: the wand out
+	clearSent()
+	fire(UseAbility, A, Config.SPECIAL_INDEX)
+	task.wait(0.1)
+	wand = aChar:FindFirstChild("ArcanistWand")
+	check(aChar:GetAttribute("WandOut") == true and wand ~= nil and wand:GetAttribute("Out") == true and string.sub(A:GetAttribute("QuirkPick"), 1, 3) == "W1;",
+		"R: the wand's in his hand (QuirkPick W1)")
+	check(#sentTo(B, "ArcWand") == 1, "...and everyone else sees him draw it")
+	check((aChar:GetAttribute("BaseWalkSpeed") or 0) < (walkAway or 0), "...a touch slower with it out (" .. tostring(walkAway) .. " -> " .. tostring(aChar:GetAttribute("BaseWalkSpeed")) .. ")")
+
+	-- equip: EMBER DART in slot 1 (the starter's there already)
+	local book = GR.book(A)
+	check(book.Equip[1] == "EmberDart", "slot 1: EMBER DART")
+	-- 1: EMBER DART at B (14 studs ahead)
+	local before = bHum.Health
+	clearSent()
+	fire(UseAbility, A, 1, Vector3.new(0, 0, 1), Vector3.new(X, 3, 14), 7, aRoot.Position, false)
+	task.wait(0.45) -- (R's action lock holds it back a moment first)
+	check(math.abs(aChar:GetAttribute("Mana") - (GC.Mana.Max - 12)) < 0.6, "it costs its mana (" .. tostring(aChar:GetAttribute("Mana")) .. ")")
+	check(before - bHum.Health >= 9 - 0.01, "EMBER DART lands on B: " .. tostring(before - bHum.Health))
+	local bolt, impact = false, false
+	for _, d in sentTo(B, "ArcFx") do
+		bolt = bolt or (d.Kind == "Bolt" and d.Spell == "EmberDart")
+		impact = impact or (d.Kind == "Impact" and d.Spell == "EmberDart")
+	end
+	check(bolt and impact, "every screen draws it (ArcFx: the bolt, then where it hits)")
+	-- not enough mana: nothing
+	task.wait(4.2)
+	aChar:SetAttribute("Mana", 5)
+	before = bHum.Health
+	fire(UseAbility, A, 1, Vector3.new(0, 0, 1), Vector3.new(X, 3, 14), 7, aRoot.Position, false)
+	task.wait(0.4)
+	check(bHum.Health == before and aChar:GetAttribute("Mana") >= 5, "without the mana for it: nothing goes, nothing's paid (" .. tostring(aChar:GetAttribute("Mana")) .. ")")
+	-- it comes back
+	task.wait(1.2)
+	check(aChar:GetAttribute("Mana") > 8, "mana comes back after a moment (" .. tostring(aChar:GetAttribute("Mana")) .. ")")
+	aChar:SetAttribute("Mana", GC.Mana.Max)
+
+	-- the wand's M1s: a bolt at B, well out of a punch's reach
+	before = bHum.Health
+	task.wait(1.2)
+	fire(UseAbility, A, 0, aRoot.CFrame, nil)
+	task.wait(0.3)
+	check(before - bHum.Health >= GC.Bolt.Damage - 0.01, "wand out, M1 is a bolt: B's hit 14 studs off (" .. tostring(before - bHum.Health) .. ")")
+	-- wand away: a punch (B's too far)
+	fire(UseAbility, A, Config.SPECIAL_INDEX)
+	task.wait(0.6)
+	check(aChar:GetAttribute("WandOut") == false, "R again: put away")
+	before = bHum.Health
+	task.wait(1.2)
+	fire(UseAbility, A, 0, aRoot.CFrame, nil)
+	task.wait(0.3)
+	check(bHum.Health == before, "...and M1s are punches again (B's out of reach)")
+	-- a spell with it away draws it
+	aChar:SetAttribute("Mana", GC.Mana.Max)
+	task.wait(1.2)
+	fire(UseAbility, A, 2, Vector3.new(0, 0, 1), Vector3.new(X, 3, 14), 7, aRoot.Position, false)
+	task.wait(0.05)
+	check(aChar:GetAttribute("WandOut") == true, "a spell with the wand away: it comes out for it")
+	task.wait(0.5)
+
+	-- INSCRIBE: the free page, then Bucks
+	book = GR.book(A)
+	book.FreeAt = 0
+	clearSent()
+	local rolls = book.Rolls
+	fire(ShopRemote, A, "GrInscribe", "Free")
+	local roll = sentTo(A, "GrimoireRoll")[1]
+	book = GR.book(A)
+	check(roll and #roll.Got == 1 and book.Rolls == rolls + 1 and book.FreeAt > os.time() + GC.FreeEvery - 5, "the free page: one roll, and the next free one's " .. GC.FreeEvery .. " s off")
+	local got = roll and roll.Got[1]
+	check(got and book.Pages[got.Id] == got.Level and GC.Spells[got.Id].Rarity == got.Rarity, "it's in the book (" .. tostring(got and got.Id) .. " " .. tostring(got and got.Level) .. ")")
+	task.wait(0.5)
+	clearSent()
+	fire(ShopRemote, A, "GrInscribe", "Free")
+	check(#sentTo(A, "GrimoireRoll") == 0, "not free again yet")
+	task.wait(0.5)
+	A:SetAttribute("Bucks", 0)
+	fire(ShopRemote, A, "GrInscribe", 1)
+	check(#sentTo(A, "GrimoireRoll") == 0, "no Bucks: no page")
+	task.wait(0.5)
+	A:SetAttribute("Bucks", GC.Five + 3)
+	fire(ShopRemote, A, "GrInscribe", 5)
+	roll = sentTo(A, "GrimoireRoll")[1]
+	check(roll and #roll.Got == 5 and A:GetAttribute("Bucks") == 3, "five pages for " .. GC.Five .. " Bucks")
+	-- the pity: the 10th since an Epic is one
+	task.wait(0.5)
+	book = GR.book(A)
+	book.Epic = GC.Pity.Epic - 1
+	book.Leg = 0
+	clearSent()
+	A:SetAttribute("Bucks", GC.Price)
+	fire(ShopRemote, A, "GrInscribe", 1)
+	roll = sentTo(A, "GrimoireRoll")[1]
+	check(roll and GC.RARITY[roll.Got[1].Rarity].Rank >= 3 and GR.book(A).Epic == 0, "the pity: the " .. GC.Pity.Epic .. "th page since an Epic is Epic or better (" .. tostring(roll and roll.Got[1].Rarity) .. ")")
+	task.wait(0.5)
+	book = GR.book(A)
+	book.Leg = GC.Pity.Legendary - 1
+	clearSent()
+	A:SetAttribute("Bucks", GC.Price)
+	fire(ShopRemote, A, "GrInscribe", 1)
+	roll = sentTo(A, "GrimoireRoll")[1]
+	check(roll and roll.Got[1].Rarity == "Legendary" and GR.book(A).Leg == 0, "...and the " .. GC.Pity.Legendary .. "th since a Legendary is one (" .. tostring(roll and roll.Got[1].Id) .. ")")
+	-- a page past IV: Bucks back
+	task.wait(0.5)
+	book = GR.book(A)
+	for id in GC.Spells do
+		book.Pages[id] = GC.MaxLevel
+	end
+	clearSent()
+	A:SetAttribute("Bucks", GC.Price)
+	fire(ShopRemote, A, "GrInscribe", 1)
+	roll = sentTo(A, "GrimoireRoll")[1]
+	check(roll and roll.Got[1].Refund == GC.Refund[roll.Got[1].Rarity] and A:GetAttribute("Bucks") == roll.Got[1].Refund, "a page already at IV pays back Bucks (" .. tostring(roll and roll.Got[1].Refund) .. ")")
+
+	-- EQUIP
+	task.wait(0.4)
+	fire(ShopRemote, A, "GrEquip", 1, "Meteor")
+	book = GR.book(A)
+	check(book.Equip[1] == "Meteor" and Config.GetAbility("Arcanist", 1, false, false, A:GetAttribute("QuirkPick")).Id == "ArcMeteor", "EQUIP: METEOR into slot 1 (QuirkPick says so)")
+	fire(ShopRemote, A, "GrEquip", 2, "Meteor")
+	book = GR.book(A)
+	check(book.Equip[2] == "Meteor" and book.Equip[1] ~= "Meteor" and book.Equip[1] ~= nil, "a page in another slot: the two swap")
+	fire(ShopRemote, A, "GrEquip", 7, "Ward")
+	fire(ShopRemote, A, "GrEquip", 1, "Nope")
+	check(GR.book(A).Equip[2] == "Meteor", "no slot 7, no page that isn't one")
+	check(GR.toSave(A) == A:GetAttribute("Grimoire") and string.find(A:GetAttribute("Grimoire"), "Meteor:4", 1, true) ~= nil, "it's saved as the book string")
+
+	-- the spells, each on B
+	local function equip(id)
+		fire(ShopRemote, A, "GrEquip", 3, id)
+		task.wait(0.05)
+	end
+	local function cast3(at)
+		aChar:SetAttribute("Mana", GC.Mana.Max)
+		aChar:SetAttribute("CombatActionUntil", 0)
+		A:SetAttribute("NoCooldowns", true)
+		clearSent()
+		fire(UseAbility, A, 3, Vector3.new(0, 0, 1), at or bRoot.Position, 7, aRoot.Position, false)
+	end
+	local function fresh()
+		task.wait(1.7) -- (a stun / freeze wears off)
+		bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(X, 3, 14), Vector3.new(X, 3, 0)))
+		aRoot.CFrame = CFrame.lookAt(Vector3.new(X, 3, 0), Vector3.new(X, 3, 4))
+		task.wait(0.1)
+	end
+	-- GUST: B's in the cone
+	equip("Gust")
+	fresh()
+	before = bHum.Health
+	cast3()
+	task.wait(0.4)
+	check(before - bHum.Health >= GC.Spells.Gust.Damage - 0.01, "GUST: the blast in front of him lands (" .. tostring(before - bHum.Health) .. ")")
+	-- THUNDERCALL: a rune, then the strike
+	equip("Thundercall")
+	fresh()
+	before = bHum.Health
+	cast3()
+	task.wait(0.4)
+	check(bHum.Health == before, "THUNDERCALL: the rune first - nothing yet")
+	task.wait(0.7)
+	check(before - bHum.Health >= GC.Spells.Thundercall.Damage - 0.01, "...then the lightning (" .. tostring(before - bHum.Health) .. ")")
+	-- GLACIAL LANCE: through B, frozen
+	equip("GlacialLance")
+	fresh()
+	before = bHum.Health
+	cast3()
+	task.wait(0.5)
+	check(before - bHum.Health >= GC.Spells.GlacialLance.Damage - 0.01 and bChar:GetAttribute("Frozen") == true, "GLACIAL LANCE: through B, frozen")
+	-- ABSOLUTE ZERO: everyone round him
+	equip("AbsoluteZero")
+	fresh()
+	before = bHum.Health
+	cast3()
+	task.wait(0.6)
+	check(before - bHum.Health >= GC.Spells.AbsoluteZero.Damage - 0.01 and bChar:GetAttribute("Frozen") == true, "ABSOLUTE ZERO: B 14 studs off, frozen")
+	-- CHAIN SPARK: B, and on to C beside him
+	local C3 = addPlayer("Charlie109", 31)
+	fire(SelectQuirk, C3, "Explosion")
+	equip("ChainSpark")
+	fresh()
+	local cChar, cHum = spawnChar(C3, CFrame.new(X + 8, 3, 16))
+	task.wait(0.1)
+	before = bHum.Health
+	local cBefore = cHum.Health
+	cast3()
+	task.wait(0.4)
+	check(before - bHum.Health >= GC.Spells.ChainSpark.Damage - 0.01 and cBefore - cHum.Health > 0 and cBefore - cHum.Health < before - bHum.Health,
+		"CHAIN SPARK: B, then on to C beside him, less (" .. tostring(before - bHum.Health) .. ", " .. tostring(cBefore - cHum.Health) .. ")")
+	cChar:Destroy()
+	-- BLINK: he's further along
+	equip("Blink")
+	fresh()
+	bChar:Destroy()
+	local z0 = aRoot.Position.Z
+	cast3(Vector3.new(X, 3, 40))
+	task.wait(0.3)
+	check(aRoot.Position.Z - z0 > 20, "BLINK: he steps " .. math.floor(aRoot.Position.Z - z0) .. " studs along his aim")
+	-- WARD: B's hit on him lands on the runes
+	equip("Ward")
+	fresh()
+	cast3()
+	task.wait(0.3)
+	check(aChar:GetAttribute("Warded") == true, "WARD: the runes are up")
+	local aBefore = aHum.Health
+	fire(UseAbility, B, 0, bRoot.CFrame, nil)
+	bRoot.CFrame = CFrame.lookAt(aRoot.Position + Vector3.new(0, 0, 3), aRoot.Position)
+	task.wait(0.05)
+	local hits = 0
+	for _ = 1, 4 do
+		task.wait(0.35)
+		fire(UseAbility, B, 0, bRoot.CFrame, nil)
+		hits += 1
+	end
+	task.wait(0.2)
+	check(aHum.Health == aBefore, "...B's punches don't touch him (" .. tostring(aBefore - aHum.Health) .. ")")
+	-- MEND: health back
+	equip("Mend")
+	aHum.Health = 200
+	cast3()
+	task.wait(3.6)
+	check(aHum.Health >= 200 + GC.Spells.Mend.Heal - 1, "MEND: health back over three seconds (" .. tostring(aHum.Health) .. ")")
+	-- METEOR: a while, then it comes down
+	equip("Meteor")
+	fresh()
+	before = bHum.Health
+	cast3()
+	task.wait(0.9)
+	check(bHum.Health == before, "METEOR: the rune, a while...")
+	task.wait(0.8)
+	check(before - bHum.Health >= GC.Spells.Meteor.Damage, "...then it lands (" .. tostring(before - bHum.Health) .. ")")
+	-- VOID ORB: it drags them, then bursts
+	equip("VoidOrb")
+	fresh()
+	before = bHum.Health
+	cast3()
+	task.wait(2.6)
+	check(before - bHum.Health >= GC.Spells.VoidOrb.Damage - 0.01, "VOID ORB: it bursts on B (" .. tostring(before - bHum.Health) .. ")")
+	-- TEMPEST and STARFALL: they land, more than once
+	equip("Tempest")
+	fresh()
+	before = bHum.Health
+	cast3()
+	task.wait(2.8)
+	check(before - bHum.Health >= GC.Spells.Tempest.Damage * 2, "TEMPEST: it batters B as it rolls over him (" .. tostring(before - bHum.Health) .. ")")
+	equip("Starfall")
+	fresh()
+	cast3()
+	task.wait(2.6)
+	local stars = 0
+	for _, d in sentTo(B, "ArcFx") do
+		if d.Kind == "Star" then
+			stars += 1
+		end
+	end
+	check(stars == GC.Spells.Starfall.Count, "STARFALL: " .. stars .. " stars come down")
+	A:SetAttribute("NoCooldowns", nil)
+
+	-- off the Arcanist: none of it on him
+	task.wait(2.6)
+	fire(SelectQuirk, A, "Explosion")
+	task.wait(0.1)
+	check(aChar:FindFirstChild("ArcanistWand") == nil and aChar:GetAttribute("Mana") == nil, "off the Arcanist: no wand, no mana")
+	check(A:GetAttribute("Grimoire") ~= nil, "...his grimoire's kept")
+	aChar, aHum, aRoot = spawnChar(A, CFrame.lookAt(Vector3.new(0, 3, 0), Vector3.new(0, 3, 4)))
+	bChar, bHum, bRoot = spawnChar(B, CFrame.lookAt(Vector3.new(0, 3, 4), Vector3.new(0, 3, 0)))
+	task.wait(0.3)
+end)
+
+
+
 -- every profile the server asked for exists in the Destruction module
 local destructionSrc = fs.readFile(SRC .. "/ServerScriptService.Destruction.lua")
 local missing = {}

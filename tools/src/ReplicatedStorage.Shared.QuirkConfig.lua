@@ -15862,9 +15862,524 @@ Config.Quirks = {
 			Extra = { Id = "THRemiliaU4", Name = "MISERABLE MULTITUDE", Cooldown = 0.4, ActionTime = 0.3, Touhou = { Module = "Awakening/Skill4", Slot = "Skill4" }, CutIn = false },
 		},
 	},
+
+	-- (round 109) THE ARCANIST: a wand and a grimoire. R draws the wand (or
+	-- puts it away: sheathed he's a touch quicker on his feet, and a spell
+	-- draws it on its own). 1 2 3 4 are the four pages he's equipped from his
+	-- grimoire (Config.Grimoire), each paid for in mana (the blue line under
+	-- his health); with the wand out his M1s are wand bolts. Y opens the
+	-- grimoire: equip pages, and INSCRIBE new ones - a roll for a spell, for
+	-- Bucks or free every so often. What's equipped travels in QuirkPick
+	-- (Config.Grimoire.Encode), so the HUD, the cooldowns and the server all
+	-- read the same four spells.
+	Arcanist = {
+		DisplayName = "ARCANIST",
+		Description = "Dev: a wizard and his grimoire. R draws the wand (or puts it away). 1 2 3 4: the four spells you've equipped, each paid in mana (the blue line). Wand out, your M1s are wand bolts. Y opens the grimoire: equip pages and INSCRIBE new spells (Bucks, or one free every 15 minutes) - Common, Rare, Epic or Legendary; a page you already have levels up, to IV. Ult: ARCHMAGE - no mana, every spell a level higher, cooldowns halved.",
+		ShortDescription = "A wand, a grimoire, and whatever spells you roll.",
+		Color = Color3.fromRGB(76, 64, 168), -- (the robe)
+		AccentColor = Color3.fromRGB(150, 222, 255), -- (the wand's light)
+		ModeName = "GRIMOIRE",
+		CutInCorner = "TopRight",
+		CutInImage = "",
+		DevOnly = true,
+		Grimoire = true, -- (1-4 come from his grimoire: Config.Grimoire.SlotAbility)
+		WalkSpeed = 19,
+		JumpPower = 55,
+		SheathedSpeed = 2, -- (studs/s quicker with the wand away)
+		-- (filled in from Config.Grimoire.Starter below: what the HUD and any
+		-- list of moves show before his own pages come in)
+		Abilities = {},
+		Special = { Id = "ArcWand", Name = "DRAW WAND", Cycle = true, Cooldown = 0.45, ActionTime = 0.25, CutIn = false },
+		Ult = {
+			Name = "ARCHMAGE",
+			Shout = "ARCHMAGE!",
+			Color = Color3.fromRGB(255, 196, 80),
+			AccentColor = Color3.fromRGB(255, 244, 200),
+			Duration = 25,
+			WalkSpeed = 22,
+			JumpPower = 60,
+			Abilities = {},
+		},
+	},
 }
 
-Config.QuirkOrder = { "Explosion", "OneForAll", "FullCowl", "HalfCold", "Engine", "Creation", "Lemillion", "Manifest", "Arbor", "Electrification", "Overhaul", "Decay", "Compress", "Double", "Limitless", "CrazyDiamond", "PlusUltra", "Hellflame", "Blueflame", "PrimeDeku", "PrimeMight", "TheWorld", "FierceWings", "Saitama", "Whirlwind", "Mob", "DarkShadow", "CMoon", "StarPlatinum", "POM", "Mokou", "Remilia" }
+Config.QuirkOrder = { "Explosion", "OneForAll", "FullCowl", "HalfCold", "Engine", "Creation", "Lemillion", "Manifest", "Arbor", "Electrification", "Overhaul", "Decay", "Compress", "Double", "Limitless", "CrazyDiamond", "PlusUltra", "Hellflame", "Blueflame", "PrimeDeku", "PrimeMight", "TheWorld", "FierceWings", "Saitama", "Whirlwind", "Mob", "DarkShadow", "CMoon", "StarPlatinum", "POM", "Mokou", "Remilia", "Arcanist" }
+
+---------------------------------------------------------------------------
+-- (round 109) THE GRIMOIRE: the Arcanist's spells. Every player has one
+-- (saved with their Bucks): the pages they've inscribed, each at a level
+-- (I-IV), and the four equipped in slots 1-4. INSCRIBE is the roll: a
+-- rarity by its Weight, then one of that rarity's spells; a page you have
+-- already goes up a level (past IV it pays Refund Bucks back). Pity: an
+-- Epic or better at the latest on the Pity.Epic-th roll since the last one,
+-- a Legendary on the Pity.Legendary-th. One roll is free every FreeEvery
+-- seconds; the rest cost Price Bucks (Five: five at once).
+--
+-- A spell: Name, School, Rarity, Shape (how the server runs it: Kit.GR),
+-- Mana, Cooldown, ActionTime, Windup (seconds from the press to the cast:
+-- the wand coming up), Clip (the caster's animation in
+-- ReplicatedStorage.Animations), Text (the page), and its own numbers.
+-- Damage is at level I; a level multiplies Damage, Cooldown and Mana by
+-- Levels[n] (V is only reached in the ult: ARCHMAGE's +1). No spell kills
+-- from full health: the biggest, a level V Meteor, is 44 of 300.
+---------------------------------------------------------------------------
+Config.Grimoire = {
+	Keys = { Enum.KeyCode.Y }, -- open / close the book (the HUD's GRIMOIRE button too)
+	Price = 25, -- Bucks a page (an emote roll's price)
+	Five = 110, -- five pages at once
+	FreeEvery = 900, -- one free page every 15 minutes
+	Pity = { Epic = 10, Legendary = 50 },
+	MaxLevel = 4,
+	Levels = {
+		{ Damage = 1, Cooldown = 1, Mana = 1 },
+		{ Damage = 1.1, Cooldown = 0.95, Mana = 0.95 },
+		{ Damage = 1.2, Cooldown = 0.9, Mana = 0.9 },
+		{ Damage = 1.32, Cooldown = 0.85, Mana = 0.85, Radius = 1.15 }, -- (IV: a bigger blast too)
+		{ Damage = 1.45, Cooldown = 0.8, Mana = 0.8, Radius = 1.2 }, -- (V: ARCHMAGE's IV)
+	},
+	Numerals = { "I", "II", "III", "IV", "V" },
+	Refund = { Common = 5, Rare = 10, Epic = 20, Legendary = 50 },
+	Rarities = {
+		{ Id = "Common", Name = "COMMON", Weight = 58, Color = Color3.fromRGB(214, 206, 186), Paper = Color3.fromRGB(236, 226, 200) },
+		{ Id = "Rare", Name = "RARE", Weight = 28, Color = Color3.fromRGB(96, 170, 255), Paper = Color3.fromRGB(206, 224, 246) },
+		{ Id = "Epic", Name = "EPIC", Weight = 11, Color = Color3.fromRGB(190, 110, 255), Paper = Color3.fromRGB(228, 210, 248) },
+		{ Id = "Legendary", Name = "LEGENDARY", Weight = 3, Color = Color3.fromRGB(255, 200, 60), Paper = Color3.fromRGB(252, 232, 176) },
+	},
+	Schools = {
+		Pyro = { Name = "PYROMANCY", Color = Color3.fromRGB(255, 120, 40), Hot = Color3.fromRGB(255, 228, 140) },
+		Cryo = { Name = "CRYOMANCY", Color = Color3.fromRGB(110, 210, 255), Hot = Color3.fromRGB(230, 250, 255) },
+		Storm = { Name = "STORMCALLING", Color = Color3.fromRGB(150, 160, 255), Hot = Color3.fromRGB(240, 244, 255) },
+		Aero = { Name = "AEROMANCY", Color = Color3.fromRGB(190, 255, 220), Hot = Color3.fromRGB(250, 255, 252) },
+		Arcane = { Name = "ARCANA", Color = Color3.fromRGB(200, 120, 255), Hot = Color3.fromRGB(250, 220, 255) },
+		Umbra = { Name = "UMBRAMANCY", Color = Color3.fromRGB(120, 60, 170), Hot = Color3.fromRGB(220, 160, 255) },
+		Verdant = { Name = "VERDANCY", Color = Color3.fromRGB(110, 230, 120), Hot = Color3.fromRGB(230, 255, 210) },
+	},
+	-- (every new grimoire starts with these four Commons, equipped)
+	Starter = { "EmberDart", "FrostShard", "Gust", "Mend" },
+	-- MANA: Max, back Regen a second once Delay seconds have passed since the
+	-- last spell; full on a new body
+	Mana = { Max = 100, Regen = 14, Delay = 0.8, Color = Color3.fromRGB(90, 170, 255) },
+	-- the wand's M1s: a bolt down the aim (Range, Speed studs/s, Width), the
+	-- 4th a heavier one that knocks them back (no mana)
+	Bolt = { Damage = 4, FinisherDamage = 9, Range = 70, Speed = 170, Width = 3, Knockback = 55, Clips = { "MoveArcBolt", "MoveArcBoltL", "MoveArcBolt", "MoveArcBoltFin" } },
+	-- ARCHMAGE (the ult): no mana, every spell a level higher, cooldowns x Cooldown
+	Ult = { LevelBonus = 1, Cooldown = 0.5 },
+	-- the book's order: by rarity, then school
+	Order = {
+		"EmberDart", "FrostShard", "Gust", "Mend",
+		"Fireball", "ChainSpark", "Blink", "ShadeSnare",
+		"GlacialLance", "Thundercall", "Ward", "VoidOrb",
+		"Meteor", "Tempest", "AbsoluteZero", "Starfall",
+	},
+	Spells = {
+		-- COMMON ------------------------------------------------------------
+		EmberDart = {
+			Name = "EMBER DART", School = "Pyro", Rarity = "Common", Shape = "Bolt", Clip = "MoveArcCast",
+			Mana = 12, Cooldown = 4, ActionTime = 0.3, Windup = 0.12,
+			Damage = 9, Speed = 150, Range = 90, Width = 3, Burn = { Ticks = 3, Per = 2 },
+			Text = "A quick dart of flame down your aim. It sets them burning.",
+		},
+		FrostShard = {
+			Name = "FROST SHARD", School = "Cryo", Rarity = "Common", Shape = "Fan", Clip = "MoveArcFan",
+			Mana = 14, Cooldown = 6, ActionTime = 0.35, Windup = 0.14,
+			Damage = 5, Count = 3, Spread = 9, Speed = 125, Range = 70, Width = 3, Slow = { Time = 1.5, Speed = 10 },
+			Text = "Three shards of ice in a fan. Each one that lands chills them.",
+		},
+		Gust = {
+			Name = "GUST", School = "Aero", Rarity = "Common", Shape = "Cone", Clip = "MoveArcSweep",
+			Mana = 14, Cooldown = 7, ActionTime = 0.35, Windup = 0.16,
+			Damage = 7, Range = 22, Cone = 50, Knockback = 75, Lift = 18,
+			Text = "A blast of wind in front of you that throws them back.",
+		},
+		Mend = {
+			Name = "MEND", School = "Verdant", Rarity = "Common", Shape = "Heal", Clip = "MoveArcSelf",
+			Mana = 22, Cooldown = 14, ActionTime = 0.4, Windup = 0.2,
+			Heal = 24, Over = 3,
+			Text = "Green light knits you back together: health back over three seconds.",
+		},
+		-- RARE --------------------------------------------------------------
+		Fireball = {
+			Name = "FIREBALL", School = "Pyro", Rarity = "Rare", Shape = "Bolt", Clip = "MoveArcCast",
+			Mana = 26, Cooldown = 8, ActionTime = 0.4, Windup = 0.22,
+			Damage = 14, Speed = 85, Range = 100, Width = 4, Radius = 9, Burn = { Ticks = 4, Per = 2 }, Knockback = 45,
+			Text = "A slow ball of fire that bursts where it lands, burning everyone around.",
+		},
+		ChainSpark = {
+			Name = "CHAIN SPARK", School = "Storm", Rarity = "Rare", Shape = "Chain", Clip = "MoveArcCast",
+			Mana = 26, Cooldown = 9, ActionTime = 0.35, Windup = 0.15,
+			Damage = 11, Range = 45, Width = 6, Jumps = 2, JumpRange = 16, Falloff = 0.72, Stun = 0.45,
+			Text = "Lightning to the first one in your aim, then on to two more beside them.",
+		},
+		Blink = {
+			Name = "BLINK", School = "Arcane", Rarity = "Rare", Shape = "Blink", Clip = "MoveArcBlink",
+			Mana = 18, Cooldown = 7, ActionTime = 0.18, Windup = 0.08,
+			Range = 32,
+			Text = "Step through the air to where you're aiming - short of any wall.",
+		},
+		ShadeSnare = {
+			Name = "SHADE SNARE", School = "Umbra", Rarity = "Rare", Shape = "Zone", Clip = "MoveArcPoint",
+			Mana = 28, Cooldown = 11, ActionTime = 0.4, Windup = 0.18,
+			Damage = 8, Range = 60, Delay = 0.45, Radius = 8, Root = 1.4,
+			Text = "Shadows rise where you point and hold whoever's standing there.",
+		},
+		-- EPIC --------------------------------------------------------------
+		GlacialLance = {
+			Name = "GLACIAL LANCE", School = "Cryo", Rarity = "Epic", Shape = "Line", Clip = "MoveArcThrust",
+			Mana = 36, Cooldown = 12, ActionTime = 0.5, Windup = 0.3,
+			Damage = 17, Range = 70, Width = 5, Freeze = 1,
+			Text = "A lance of ice straight through everyone in a line. It freezes them.",
+		},
+		Thundercall = {
+			Name = "THUNDERCALL", School = "Storm", Rarity = "Epic", Shape = "Zone", Clip = "MoveArcSky",
+			Mana = 38, Cooldown = 13, ActionTime = 0.5, Windup = 0.2,
+			Damage = 22, Range = 80, Delay = 0.6, Radius = 9, Knockback = 40, Lift = 60,
+			Text = "A rune where you point - then the lightning comes down on it.",
+		},
+		Ward = {
+			Name = "WARD", School = "Arcane", Rarity = "Epic", Shape = "Ward", Clip = "MoveArcSelf",
+			Mana = 30, Cooldown = 16, ActionTime = 0.35, Windup = 0.12,
+			Absorb = 45, Time = 5,
+			Text = "A shell of runes around you that takes the next 45 damage for you.",
+		},
+		VoidOrb = {
+			Name = "VOID ORB", School = "Umbra", Rarity = "Epic", Shape = "Orb", Clip = "MoveArcChannel",
+			Mana = 40, Cooldown = 15, ActionTime = 0.5, Windup = 0.25,
+			Damage = 18, Speed = 26, Range = 45, Pull = 14, PullSpeed = 16, Time = 2, Radius = 10,
+			Text = "A slow orb of nothing that drags everyone near it in - then bursts.",
+		},
+		-- LEGENDARY ---------------------------------------------------------
+		Meteor = {
+			Name = "METEOR", School = "Pyro", Rarity = "Legendary", Shape = "Zone", Clip = "MoveArcSky",
+			Mana = 60, Cooldown = 22, ActionTime = 0.6, Windup = 0.3,
+			Damage = 30, Range = 90, Delay = 1.1, Radius = 14, Knockback = 70, Lift = 55, Burn = { Ticks = 4, Per = 2 },
+			Text = "Call a burning rock down out of the sky onto where you point.",
+		},
+		Tempest = {
+			Name = "TEMPEST", School = "Storm", Rarity = "Legendary", Shape = "Tornado", Clip = "MoveArcChannel",
+			Mana = 55, Cooldown = 20, ActionTime = 0.55, Windup = 0.25,
+			Damage = 4, Ticks = 7, Range = 48, Time = 2.2, Radius = 8, Lift = 26,
+			Text = "A storm that rolls out along your aim, lifting and battering whoever it catches.",
+		},
+		AbsoluteZero = {
+			Name = "ABSOLUTE ZERO", School = "Cryo", Rarity = "Legendary", Shape = "Nova", Clip = "MoveArcSlam",
+			Mana = 60, Cooldown = 22, ActionTime = 0.6, Windup = 0.35,
+			Damage = 18, Radius = 18, Freeze = 1.6,
+			Text = "The air around you freezes solid - and everyone in it.",
+		},
+		Starfall = {
+			Name = "STARFALL", School = "Arcane", Rarity = "Legendary", Shape = "Rain", Clip = "MoveArcSky",
+			Mana = 58, Cooldown = 20, ActionTime = 0.55, Windup = 0.25,
+			Damage = 5, Count = 9, Range = 80, Area = 12, Time = 1.8, Radius = 5,
+			Text = "Stars rain down around where you point for two seconds.",
+		},
+	},
+}
+
+do
+	local G = Config.Grimoire
+	G.RARITY = {}
+	for i, r in G.Rarities do
+		r.Rank = i
+		G.RARITY[r.Id] = r
+	end
+	for id, s in G.Spells do
+		s.Id = id
+	end
+
+	-- the level a spell is cast at: its page's, +1 in ARCHMAGE (V at most)
+	function G.Level(level, ult)
+		level = math.clamp(math.floor(tonumber(level) or 1), 1, G.MaxLevel)
+		if ult then
+			level += (G.Ult.LevelBonus or 0)
+		end
+		return math.clamp(level, 1, #G.Levels)
+	end
+	function G.Numeral(level)
+		return G.Numerals[level] or tostring(level)
+	end
+	-- a spell's numbers at a level: Damage x, Cooldown s, Mana, Radius x
+	function G.Stats(id, level, ult)
+		local s = G.Spells[id]
+		if not s then
+			return nil
+		end
+		local lv = G.Level(level, ult)
+		local L = G.Levels[lv]
+		return {
+			Level = lv,
+			Damage = L.Damage,
+			Radius = L.Radius or 1,
+			Cooldown = s.Cooldown * L.Cooldown * (ult and (G.Ult.Cooldown or 1) or 1),
+			Mana = ult and 0 or math.floor(s.Mana * L.Mana + 0.5),
+		}
+	end
+
+	-- what's equipped, carried in QuirkPick: "W1;EmberDart:1;FrostShard:2;..."
+	-- (W1: the wand's out, W0: away; then the four slots' spell:level)
+	function G.Encode(wand, slots)
+		local parts = { wand and "W1" or "W0" }
+		for i = 1, 4 do
+			local s = slots[i]
+			table.insert(parts, s and G.Spells[s.Id] and (s.Id .. ":" .. math.clamp(math.floor(s.Level or 1), 1, G.MaxLevel)) or "")
+		end
+		return table.concat(parts, ";")
+	end
+	local parsed = {}
+	local function starter()
+		local slots = {}
+		for i, id in G.Starter do
+			slots[i] = { Id = id, Level = 1 }
+		end
+		return { Wand = false, Slots = slots }
+	end
+	G.Default = starter()
+	function G.Parse(pick)
+		if type(pick) ~= "string" or string.sub(pick, 1, 1) ~= "W" then
+			return G.Default
+		end
+		local hit = parsed[pick]
+		if hit then
+			return hit
+		end
+		local out = { Wand = string.sub(pick, 2, 2) == "1", Slots = {} }
+		local i = 0
+		for part in string.gmatch(string.sub(pick, 4) .. ";", "([^;]*);") do
+			i += 1
+			if i > 4 then
+				break
+			end
+			local id, lv = string.match(part, "^(%w+):(%d+)$")
+			if id and G.Spells[id] then
+				out.Slots[i] = { Id = id, Level = math.clamp(tonumber(lv) or 1, 1, G.MaxLevel) }
+			end
+		end
+		parsed[pick] = out
+		return out
+	end
+
+	-- the move in slot n (1-4) for what's equipped (cached: the same table
+	-- for the same spell, level, slot and ult)
+	local cache = {}
+	function G.Ability(slot, id, level, ult)
+		local s = G.Spells[id]
+		if not s then
+			return nil
+		end
+		local key = slot .. ":" .. id .. ":" .. tostring(level) .. (ult and ":U" or "")
+		if cache[key] then
+			return cache[key]
+		end
+		local st = G.Stats(id, level, ult)
+		local school = G.Schools[s.School] or {}
+		local a = {
+			Id = "Arc" .. id, Name = s.Name .. " " .. G.Numeral(st.Level), Spell = id, Level = st.Level, Page = level, Ult = ult and true or nil, Slot = slot,
+			Cooldown = st.Cooldown, ActionTime = s.ActionTime, Mana = st.Mana, Range = s.Range,
+			School = s.School, Color = school.Color, Rarity = s.Rarity, CutIn = false,
+		}
+		cache[key] = a
+		return a
+	end
+	function G.SlotAbility(slot, pick, ult)
+		local eq = G.Parse(pick)
+		local s = eq.Slots[slot]
+		if not s then
+			return nil
+		end
+		return G.Ability(slot, s.Id, s.Level, ult)
+	end
+
+	local SPECIALS = {}
+	function G.View(quirk, ult, pick)
+		local eq = G.Parse(pick)
+		local view = {
+			Abilities = { G.SlotAbility(1, pick, ult), G.SlotAbility(2, pick, ult), G.SlotAbility(3, pick, ult) },
+			Extra = G.SlotAbility(4, pick, ult) or false,
+			NextExtra = nil,
+			IsUlt = ult and true or nil,
+		}
+		local name = eq.Wand and "PUT AWAY WAND" or "DRAW WAND"
+		SPECIALS[name] = SPECIALS[name] or setmetatable({ Name = name }, { __index = quirk.Special })
+		view.Special = SPECIALS[name]
+		if ult and quirk.Ult then
+			view.ModeName = quirk.Ult.Name
+			view.Color = quirk.Ult.Color
+			view.AccentColor = quirk.Ult.AccentColor
+		end
+		return setmetatable(view, { __index = quirk })
+	end
+
+	-- the roll: a rarity by Weight (pity: at least minRank), then a spell of it
+	function G.Draw(rng, minRank)
+		rng = rng or Random.new()
+		local total = 0
+		for _, r in G.Rarities do
+			if r.Rank >= (minRank or 1) then
+				total += r.Weight
+			end
+		end
+		local roll = rng:NextNumber() * total
+		local pick = G.Rarities[#G.Rarities]
+		for _, r in G.Rarities do
+			if r.Rank >= (minRank or 1) then
+				roll -= r.Weight
+				if roll <= 0 then
+					pick = r
+					break
+				end
+			end
+		end
+		local list = {}
+		for _, id in G.Order do
+			if G.Spells[id].Rarity == pick.Id then
+				table.insert(list, id)
+			end
+		end
+		return list[rng:NextInteger(1, #list)], pick.Id
+	end
+
+	-- THE BOOK (the player's "Grimoire" attribute, saved as it is):
+	-- "P=EmberDart:1,FrostShard:2|E=EmberDart,FrostShard,Gust,Mend|N=3|L=12|F=1700000000|R=40"
+	-- P its pages (spell:level), E the four equipped, N / L the rolls since an
+	-- Epic or better / a Legendary (the pity), F when the next free page is
+	-- (unix seconds), R every page ever inscribed
+	function G.NewBook()
+		local b = { Pages = {}, Equip = {}, Epic = 0, Leg = 0, FreeAt = 0, Rolls = 0 }
+		for i, id in G.Starter do
+			b.Pages[id] = 1
+			b.Equip[i] = id
+		end
+		return b
+	end
+	function G.EncodeBook(b)
+		local pages = {}
+		for _, id in G.Order do
+			if b.Pages[id] then
+				table.insert(pages, id .. ":" .. b.Pages[id])
+			end
+		end
+		local equip = {}
+		for i = 1, 4 do
+			equip[i] = b.Equip[i] or ""
+		end
+		return string.format("P=%s|E=%s|N=%d|L=%d|F=%d|R=%d", table.concat(pages, ","), table.concat(equip, ","),
+			b.Epic or 0, b.Leg or 0, b.FreeAt or 0, b.Rolls or 0)
+	end
+	function G.DecodeBook(s)
+		local b = G.NewBook()
+		if type(s) ~= "string" or s == "" then
+			return b
+		end
+		local f = {}
+		for k, v in string.gmatch(s, "(%a)=([^|]*)") do
+			f[k] = v
+		end
+		if f.P then
+			b.Pages = {}
+			for id, lv in string.gmatch(f.P, "(%w+):(%d+)") do
+				if G.Spells[id] then
+					b.Pages[id] = math.clamp(tonumber(lv) or 1, 1, G.MaxLevel)
+				end
+			end
+			for _, id in G.Starter do
+				b.Pages[id] = b.Pages[id] or 1 -- (the four you start with are never lost)
+			end
+		end
+		if f.E then
+			local i = 0
+			for id in string.gmatch(f.E .. ",", "([^,]*),") do
+				i += 1
+				if i <= 4 and b.Pages[id] then
+					b.Equip[i] = id
+				end
+			end
+		end
+		-- (a slot left empty, or a page in two slots: the starter's back in it)
+		local seen = {}
+		for i = 1, 4 do
+			local id = b.Equip[i]
+			if not id or seen[id] then
+				id = nil
+				for _, s0 in G.Starter do
+					local free = true
+					for j = 1, 4 do
+						if j ~= i and b.Equip[j] == s0 then
+							free = false
+						end
+					end
+					if free and not seen[s0] then
+						id = s0
+						break
+					end
+				end
+				b.Equip[i] = id
+			end
+			if id then
+				seen[id] = true
+			end
+		end
+		b.Epic = math.max(0, math.floor(tonumber(f.N) or 0))
+		b.Leg = math.max(0, math.floor(tonumber(f.L) or 0))
+		b.FreeAt = math.max(0, math.floor(tonumber(f.F) or 0))
+		b.Rolls = math.max(0, math.floor(tonumber(f.R) or 0))
+		return b
+	end
+	-- the four equipped, as slots { Id, Level }
+	function G.BookSlots(b)
+		local slots = {}
+		for i = 1, 4 do
+			local id = b.Equip[i]
+			if id and b.Pages[id] then
+				slots[i] = { Id = id, Level = b.Pages[id] }
+			end
+		end
+		return slots
+	end
+
+	-- his sounds (the game's licensed library, L)
+	local S = Config.Sounds
+	S.ArcDraw = { { Id = L.SwordDraw, Volume = 0.55, Speed = 1.4, Length = 0.5 }, { Id = L.MagicFlutter, Volume = 0.7, Speed = 1.2, Length = 0.6 } }
+	S.ArcSheathe = { { Id = L.ClothBloom, Volume = 0.6, Speed = 1.3, Length = 0.4 } }
+	S.ArcCharge = { Gap = 0.05, { Id = L.PowerUp, Volume = 0.5, Speed = 1.6, Length = 0.5 }, { Id = L.MagicFlutter, Volume = 0.45, Speed = 1, Length = 0.5 } }
+	S.ArcBolt = { Gap = 0.04, { Id = L.EnergySnap, Volume = 0.75, Speed = { 1.2, 1.35 }, Length = 0.4 }, { Id = L.AirySlice, Volume = 0.55, Speed = 1.4 } }
+	S.ArcBoltHit = { Gap = 0.04, { Id = L.Zap, Volume = 0.6, Speed = { 1.3, 1.5 }, Length = 0.3 } }
+	S.ArcFire = { { Id = L.FireWhoosh, Volume = 1, Speed = { 1.1, 1.25 }, Length = 0.7 } }
+	S.ArcFireHit = { { Id = L.FireBurst, Volume = 1.1, Speed = { 1, 1.1 }, Length = 0.9 }, { Id = L.BoomThump, Volume = 0.6, Length = 0.6 } }
+	S.ArcIce = { { Id = L.IceFreezeCrackle, Volume = 0.9, Speed = 1.2, Length = 0.7 } }
+	S.ArcIceHit = { Gap = 0.04, { Id = L.IceCrunch, Volume = 1, Speed = { 1, 1.15 }, Length = 0.6 }, { Id = L.GlassBreak, Volume = 0.45, Speed = 1.2, Length = 0.5 } }
+	S.ArcWind = { { Id = L.WindBlast, Volume = 1, Speed = 1.1, Length = 0.9 }, { Id = L.AiryWind, Volume = 0.6, Speed = 1.2, Length = 0.8 } }
+	S.ArcStorm = { Gap = 0.05, { Id = L.Static, Volume = 0.8, Speed = 1.1, Length = 0.6 }, { Id = L.Zap, Volume = 0.9, Length = 0.5 } }
+	S.ArcThunder = { Range = 800, { Id = L.ThunderBlast, Volume = 1.6, Length = 2.2 }, { Id = L.SubBoom, Volume = 1, Length = 1.2 } }
+	S.ArcArcane = { Gap = 0.05, { Id = L.MagicFlutter, Volume = 0.9, Speed = 1.1, Length = 0.8 }, { Id = L.EnergySnap, Volume = 0.5, Speed = 0.9, Length = 0.5 } }
+	S.ArcVoid = { { Id = L.SuckIn, Volume = 1, Speed = 0.8, Length = 1.6 } }
+	S.ArcVoidPop = { { Id = L.DeepBlast, Volume = 1, Speed = 1.2, Length = 1.2 }, { Id = L.SuckShort, Volume = 0.7, Speed = 0.8 } }
+	S.ArcHeal = { { Id = L.MagicFlutter, Volume = 0.8, Speed = 0.8, Length = 1.2 }, { Id = L.PowerUp, Volume = 0.4, Speed = 1.2, Length = 1 } }
+	S.ArcMeteorFall = { { Id = L.FireballSizzle, Volume = 1, Speed = 0.8, Length = 1.2 }, { Id = L.AscendWhoosh, Volume = 0.8, Speed = 0.6, Length = 1.1 } }
+	S.ArcMeteor = { Range = 900, { Id = L.Explosions, Volume = 1.5, Length = 2.5 }, { Id = L.PowerBoom, Volume = 1.2, Length = 2 }, { Id = L.DebrisImpact, Volume = 1, Delay = 0.2, Length = 1.5 } }
+	S.ArcTempest = { { Id = L.HowlingWind, Volume = 1.2, Length = 2.4 }, { Id = L.VortexBlast, Volume = 0.8, Length = 1.5 } }
+	S.ArcFreeze = { Range = 600, { Id = L.IceHammer, Volume = 1.3, Length = 1.2 }, { Id = L.IceFreezeCrackle, Volume = 1, Length = 1.4 }, { Id = L.GlassSmash, Volume = 0.6, Delay = 0.1, Length = 0.8 } }
+	S.ArcStar = { Gap = 0.05, { Id = L.EnergySnap, Volume = 0.8, Speed = { 0.8, 1 }, Length = 0.6 }, { Id = L.BoomThump, Volume = 0.5, Speed = 1.3, Length = 0.5 } }
+	S.ArcBlink = { { Id = L.WhooshBurst, Volume = 0.8, Speed = 1.4, Length = 0.5 }, { Id = L.MagicFlutter, Volume = 0.6, Speed = 1.5, Length = 0.4 } }
+	S.ArcWard = { { Id = L.PowerUp, Volume = 0.8, Speed = 0.9, Length = 1 }, { Id = L.BladeRing, Volume = 0.4, Speed = 1.6, Length = 0.8 } }
+	S.ArcWardHit = { Gap = 0.06, { Id = L.BladeRing, Volume = 0.7, Speed = { 1.4, 1.6 }, Length = 0.5 } }
+	S.ArcWardBreak = { { Id = L.GlassSmash, Volume = 1, Speed = 1.1, Length = 0.9 } }
+	S.GrimoireOpen = { { Id = L.FeatherRustle, Volume = 0.8, Speed = 1.2, Length = 0.6 } }
+	S.GrimoirePage = { Gap = 0.05, { Id = L.FeatherSwish, Volume = 0.6, Speed = { 1.3, 1.5 }, Length = 0.4 } }
+	S.GrimoireInscribe = { { Id = L.MagicFlutter, Volume = 0.9, Speed = 0.9, Length = 1.2 }, { Id = L.PowerUp, Volume = 0.5, Speed = 1.3, Length = 0.9 } }
+	S.GrimoireReveal = { Gap = 0.08, { Id = L.EnergySnap, Volume = 0.8, Speed = 1.1, Length = 0.5 } }
+	S.GrimoireLegend = { { Id = L.PowerBoom, Volume = 0.7, Speed = 1.2, Length = 1.6 }, { Id = L.MagicFlutter, Volume = 1, Speed = 0.8, Length = 1.4 } }
+
+	-- the Arcanist's move lists (the HUD before his own pages arrive, any
+	-- list of moves): the starter four
+	local A = Config.Quirks.Arcanist
+	if A then
+		for i = 1, 3 do
+			A.Abilities[i] = G.Ability(i, G.Starter[i], 1, false)
+			A.Ult.Abilities[i] = G.Ability(i, G.Starter[i], 1, true)
+		end
+		A.Extra = G.Ability(4, G.Starter[4], 1, false)
+		A.Ult.Extra = G.Ability(4, G.Starter[4], 1, true)
+	end
+end
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -15876,6 +16391,10 @@ function Config.GetAbility(quirkName, index, alt, ult, pick)
 	local quirk = quirkName and Config.Quirks[quirkName]
 	if not quirk then
 		return nil
+	end
+	-- (round 109) the Arcanist: 1-4 are what his grimoire has equipped
+	if quirk.Grimoire and Config.Grimoire and (index == 1 or index == 2 or index == 3 or index == Config.EXTRA_INDEX) then
+		return Config.Grimoire.SlotAbility(index == Config.EXTRA_INDEX and 4 or index, pick, ult)
 	end
 	if index == Config.SPECIAL_INDEX then
 		if ult and quirk.Ult and quirk.Ult.Special then
@@ -15914,6 +16433,9 @@ end
 -- the alt form's, else the base quirk's - a quirk with a list of Extras
 -- uses whichever one is picked
 function Config.GetExtra(quirk, alt, ult, pick)
+	if quirk.Grimoire and Config.Grimoire then
+		return Config.Grimoire.SlotAbility(4, pick, ult) -- (round 109: the Arcanist's 4th page)
+	end
 	local base = Config.PickedExtra(quirk, pick) or quirk.Extra
 	if ult and quirk.Ult then
 		return quirk.Ult.Extra or ((quirk.Ult.ForceAlt or alt) and quirk.Alt and quirk.Alt.Extra) or base
@@ -15926,6 +16448,12 @@ end
 
 -- Key used for cooldown bookkeeping (client HUD and server validation agree on it)
 function Config.CooldownKey(quirkName, index, alt, ult, pick)
+	-- (round 109) the Arcanist: one cooldown a slot, whichever page is in it
+	-- (and in the ult too: ARCHMAGE halves them, it doesn't refresh them)
+	local gq = Config.Quirks[quirkName or ""]
+	if gq and gq.Grimoire and (index == 1 or index == 2 or index == 3 or index == Config.EXTRA_INDEX) then
+		return quirkName .. ":" .. (index == Config.EXTRA_INDEX and 4 or index)
+	end
 	if index == Config.SPECIAL_INDEX then
 		local quirk = Config.Quirks[quirkName or ""]
 		if ult and quirk and quirk.Ult and quirk.Ult.Special then
@@ -15950,6 +16478,9 @@ function Config.GetView(quirkName, alt, ult, pick)
 	local quirk = quirkName and Config.Quirks[quirkName]
 	if not quirk then
 		return nil
+	end
+	if quirk.Grimoire and Config.Grimoire then
+		return Config.Grimoire.View(quirk, ult, pick) -- (round 109: his four pages)
 	end
 	local nextExtra = quirk.Extras and Config.PickedExtra(quirk, (tonumber(pick) or 1) + 1) or nil
 	if ult and quirk.Ult then

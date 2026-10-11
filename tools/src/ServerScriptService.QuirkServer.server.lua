@@ -7786,6 +7786,10 @@ local function handleM1(player, char, root, clientCF, variant)
 	if Kit.TH then
 		Kit.TH.m1(player, char, nil, st.Count) -- (round 107: a Touhou fighter's swing - that place's)
 	end
+	-- (round 109) the Arcanist, wand out: a bolt instead of a punch (Kit.GR.m1)
+	if Kit.GR and Kit.GR.m1(player, char, root, st.Count, finisher, clientCF) then
+		return
+	end
 
 	local origin0, f = swingOrigin(root, clientCF)
 	-- a downslam reaches down to whoever is under you
@@ -10746,6 +10750,9 @@ local function applyPassives(player, char, fresh)
 	elseif gear then
 		char:SetAttribute("Gearshift", nil)
 	end
+	if Kit.GR then
+		walkSpeed = Kit.GR.speed(player, char, walkSpeed) -- (round 109: the Arcanist, wand away)
+	end
 	-- (server settings)
 	walkSpeed *= tonumber(workspace:GetAttribute("SpeedMult")) or 1
 	jumpPower *= tonumber(workspace:GetAttribute("JumpMult")) or 1
@@ -12027,6 +12034,9 @@ local function applyQuirk(player, quirkName)
 	end
 	if Kit.JJ and Kit.JJ.arrive then
 		Kit.JJ.arrive(player, quirkName) -- (round 105: Pucci picked - C-MOON's cinematic on his screen, the JJBA place's)
+	end
+	if Kit.GR then
+		Kit.GR.arrive(player, quirkName) -- (round 109: the Arcanist's wand, mana and pages - or none of it)
 	end
 end
 
@@ -21245,6 +21255,7 @@ local function setupStore()
 			Receipts = receipts[player] or {}, -- (round 72) Robux purchases handed over
 			EmoteWipe = ES.Wipe or 0, -- (round 72) the emote wipe they've had
 			Outfit = player:GetAttribute("AwakenOutfit") or 0,
+			Grimoire = Kit.GR and Kit.GR.toSave(player) or nil, -- (round 109) the Arcanist's pages
 			Settings = { WearCosmetics = player:GetAttribute("WearCosmetics") ~= false, ShowCosmetics = player:GetAttribute("ShowCosmetics") ~= false, Music = player:GetAttribute("Music") ~= false, Blood = player:GetAttribute("Blood") ~= false, AutoRun = player:GetAttribute("AutoRun") == true,
 				RobloxCamera = player:GetAttribute("RobloxCamera") == true, PadSensitivity = tonumber(player:GetAttribute("PadSensitivity")) or 1,
 				HideMyWings = player:GetAttribute("HideMyWings") == true }, -- (round 86)
@@ -21350,6 +21361,9 @@ local function setupStore()
 			end
 			if type(data.Outfit) == "number" and data.Outfit > 0 then
 				Store.PickOutfit(player, data.Outfit, true)
+			end
+			if Kit.GR and type(data.Grimoire) == "string" then
+				Kit.GR.fromSave(player, data.Grimoire) -- (round 109)
 			end
 			if type(data.Picks) == "number" and data.Picks > 0 and not wiped then
 				player:SetAttribute("EmotePicks", math.floor(data.Picks))
@@ -22462,10 +22476,728 @@ local function setupStore()
 			Store.EquipEmote(player, a, b)
 		elseif action == "AwakenOutfit" and type(a) == "number" then
 			Store.PickOutfit(player, a) -- (round 59: 0 = none)
+		elseif action == "GrInscribe" and Kit.GR and (a == "Free" or a == 1 or a == 5) then
+			Kit.GR.inscribe(player, a) -- (round 109: a page of the grimoire)
+		elseif action == "GrEquip" and Kit.GR and type(a) == "number" and type(b) == "string" then
+			Kit.GR.equip(player, a, b)
 		end
 	end)
 end
 setupStore()
+
+---------------------------------------------------------------------------
+-- (round 109) THE ARCANIST and his GRIMOIRE (Config.Grimoire)
+---------------------------------------------------------------------------
+-- Every player's grimoire is their "Grimoire" attribute (Config.Grimoire's
+-- book string: its pages and levels, the four equipped, the pity, the free
+-- page's timer), saved with their Bucks. Playing the Arcanist, what's
+-- equipped (and whether the wand's out) is his QuirkPick, so
+-- Config.GetAbility / CooldownKey / GetView on every machine read the same
+-- four spells. Here: the book (INSCRIBE: the roll, EQUIP), the wand (R, in
+-- his hand or on his belt: "ArcanistWand"), his mana ("Mana" / "ManaMax" on
+-- his body), the wand's M1 bolts, and the spells, one runner per Shape.
+-- What every screen draws comes as "ArcFx" (Kind: what to draw).
+-- (In a function of its own: the main chunk is near Luau's local limit.)
+Kit.setupGrimoire = function()
+	local GC = Config.Grimoire
+	if not GC then
+		return
+	end
+	local GR = {
+		books = setmetatable({}, { __mode = "k" }), -- [player] = book (the attribute's, decoded)
+		lastSpend = setmetatable({}, { __mode = "k" }), -- [char] = os.clock() of the last spell
+		wards = setmetatable({}, { __mode = "k" }), -- [char] = { Left, Until, Token }
+		lastShop = setmetatable({}, { __mode = "k" }),
+		rng = Random.new(),
+	}
+	Kit.GR = GR
+	Destruction.Grimoire = GR -- (the tests)
+	local ARC = "Arcanist"
+
+	local function isArcanist(player)
+		return player and player:GetAttribute("Quirk") == ARC
+	end
+	function GR.wandOut(char)
+		return char ~= nil and char:GetAttribute("WandOut") == true
+	end
+
+	-- THE BOOK ---------------------------------------------------------------
+	function GR.book(player)
+		local b = GR.books[player]
+		if not b then
+			b = GC.DecodeBook(player:GetAttribute("Grimoire"))
+			GR.books[player] = b
+		end
+		return b
+	end
+	-- (round 109) the loadout everyone reads: QuirkPick
+	function GR.syncPick(player)
+		if not isArcanist(player) then
+			return
+		end
+		local char = player.Character
+		player:SetAttribute("QuirkPick", GC.Encode(GR.wandOut(char), GC.BookSlots(GR.book(player))))
+	end
+	function GR.store(player, b)
+		GR.books[player] = b
+		player:SetAttribute("Grimoire", GC.EncodeBook(b))
+		if Store.MarkDirty then
+			Store.MarkDirty(player)
+		end
+		GR.syncPick(player)
+	end
+	-- the save: the attribute as it is (loadData hands it back)
+	function GR.toSave(player)
+		local s = player:GetAttribute("Grimoire")
+		return type(s) == "string" and s or nil
+	end
+	function GR.fromSave(player, s)
+		if type(s) ~= "string" or #s > 2000 then
+			return
+		end
+		GR.store(player, GC.DecodeBook(s))
+	end
+
+	local function notice(player, text, color)
+		PlayVFX:FireClient(player, "Notice", nil, { Text = text, Color = color or Color3.fromRGB(255, 200, 140) })
+	end
+
+	-- INSCRIBE: how = "Free" (the timer's), 1 or 5 (Bucks). Each page: a
+	-- rarity by weight - or the pity's floor - then a spell of it.
+	function GR.inscribe(player, how)
+		local now = os.clock()
+		if now - (GR.lastShop[player] or -1) < 0.4 then
+			return 0
+		end
+		GR.lastShop[player] = now
+		local b = GR.book(player)
+		local n
+		if how == "Free" then
+			if os.time() < (b.FreeAt or 0) then
+				return 0
+			end
+			b.FreeAt = os.time() + (GC.FreeEvery or 900)
+			n = 1
+		elseif how == 1 or how == 5 then
+			local price = how == 5 and (GC.Five or GC.Price * 5) or GC.Price
+			if not Store.Spend(player, price) then
+				notice(player, "NOT ENOUGH BUCKS: " .. price .. " FOR " .. (how == 5 and "FIVE PAGES" or "A PAGE"))
+				return 0
+			end
+			n = how
+		else
+			return 0
+		end
+		local got = {}
+		for _ = 1, n do
+			b.Rolls += 1
+			b.Epic += 1
+			b.Leg += 1
+			local floor = 1
+			if b.Leg >= (GC.Pity.Legendary or 50) then
+				floor = 4
+			elseif b.Epic >= (GC.Pity.Epic or 10) then
+				floor = 3
+			end
+			local id, rarity = GC.Draw(GR.rng, floor)
+			local rank = GC.RARITY[rarity].Rank
+			if rank >= 3 then
+				b.Epic = 0
+			end
+			if rank >= 4 then
+				b.Leg = 0
+			end
+			local had = b.Pages[id]
+			local entry = { Id = id, Rarity = rarity }
+			if not had then
+				b.Pages[id] = 1
+				entry.Level, entry.New = 1, true
+			elseif had < GC.MaxLevel then
+				b.Pages[id] = had + 1
+				entry.Level = had + 1
+			else
+				entry.Level = had
+				entry.Refund = (GC.Refund or {})[rarity] or 0
+				Store.AddBucks(player, entry.Refund)
+			end
+			table.insert(got, entry)
+		end
+		GR.store(player, b)
+		PlayVFX:FireClient(player, "GrimoireRoll", nil, { Got = got })
+		return n
+	end
+
+	-- EQUIP: the page id into slot (1-4); if it was in another slot, the two swap
+	function GR.equip(player, slot, id)
+		local b = GR.book(player)
+		if type(slot) ~= "number" or slot ~= math.floor(slot) or slot < 1 or slot > 4 or type(id) ~= "string" or not b.Pages[id] then
+			return false
+		end
+		local char = player.Character
+		if char and isArcanist(player) and (char:GetAttribute("CombatActionUntil") or 0) > workspace:GetServerTimeNow() then
+			return false -- (not mid-cast)
+		end
+		local was = table.find(b.Equip, id)
+		if was == slot then
+			return true
+		end
+		if was then
+			b.Equip[was] = b.Equip[slot]
+		end
+		b.Equip[slot] = id
+		GR.store(player, b)
+		return true
+	end
+
+	-- THE WAND -------------------------------------------------------------
+	-- held as a straight extension of the arm (where the arm points, the wand
+	-- points - the clips aim the arm), tipped Tilt degrees forward out of the
+	-- fist. Part by part: { kind, diameter, length (cylinders), how far down
+	-- the wand from the fist, colour, material }
+	GR.WAND = {
+		{ "cyl", 0.22, 0.62, 0, Color3.fromRGB(30, 24, 22), Enum.Material.Fabric }, -- (the grip)
+		{ "ball", 0.27, 0, -0.34, Color3.fromRGB(214, 176, 80), Enum.Material.Metal }, -- (the pommel)
+		{ "cyl", 0.25, 0.08, 0.33, Color3.fromRGB(214, 176, 80), Enum.Material.Metal },
+		{ "cyl", 0.15, 1.7, 1.17, Color3.fromRGB(64, 40, 28), Enum.Material.Wood }, -- (the shaft)
+		{ "cyl", 0.18, 0.06, 1.55, Color3.fromRGB(214, 176, 80), Enum.Material.Metal },
+		{ "ball", 0.24, 0, 2.04, Color3.fromRGB(150, 222, 255), Enum.Material.Neon }, -- (the tip: "Tip")
+	}
+	GR.TILT = 10
+	local SIDEWAYS = CFrame.Angles(0, 0, math.rad(90)) -- (a cylinder's length is its X: turned onto Y)
+	-- in his hand (out) or down his left side in his belt (away)
+	function GR.placeWand(char)
+		local old = char:FindFirstChild("ArcanistWand")
+		if old then
+			old:Destroy()
+		end
+		if not isArcanist(Players:GetPlayerFromCharacter(char)) then
+			return nil
+		end
+		local out = GR.wandOut(char)
+		local holder = out and findLimb(char, "RightHand", "Right Arm") or findLimb(char, "LowerTorso", "Torso")
+		if not holder then
+			return nil
+		end
+		local m = Instance.new("Model")
+		m.Name = "ArcanistWand"
+		m:SetAttribute("Out", out)
+		m.Parent = char
+		local base
+		if out then
+			local y = holder.Name == "Right Arm" and -holder.Size.Y / 2 + 0.2 or -0.1
+			base = CFrame.new(0, y, 0) * CFrame.Angles(math.rad(GR.TILT), 0, 0)
+		else
+			base = CFrame.new(-1.05, -0.55, 0.25) * CFrame.Angles(math.rad(-12), 0, math.rad(6))
+		end
+		for i, p in GR.WAND do
+			local cyl = p[1] == "cyl"
+			local size = cyl and Vector3.new(p[3], p[2], p[2]) or Vector3.one * p[2]
+			local part = gearPart(m, size, p[5], p[6], cyl and Enum.PartType.Cylinder or Enum.PartType.Ball)
+			part.Name = i == #GR.WAND and "Tip" or "Wand"
+			local cf = base * CFrame.new(0, -p[4], 0)
+			weld(holder, part, cyl and cf * SIDEWAYS or cf)
+		end
+		return m
+	end
+	-- R: out, or away (sheathed he's SheathedSpeed quicker)
+	function GR.setWand(player, char, out)
+		if not char or not char.Parent then
+			return
+		end
+		char:SetAttribute("WandOut", out == true)
+		GR.placeWand(char)
+		GR.syncPick(player)
+		applyPassives(player, char, false)
+	end
+	function Handlers.ArcWand(player, char)
+		GR.setWand(player, char, not GR.wandOut(char))
+	end
+	-- the walk: a touch quicker with the wand away
+	function GR.speed(player, char, walkSpeed)
+		if isArcanist(player) and not GR.wandOut(char) then
+			return walkSpeed + (Config.Quirks.Arcanist.SheathedSpeed or 0)
+		end
+		return walkSpeed
+	end
+
+	-- MANA -----------------------------------------------------------------
+	local M = GC.Mana
+	function GR.mana(char)
+		return tonumber(char:GetAttribute("Mana")) or 0
+	end
+	function GR.fill(char)
+		char:SetAttribute("ManaMax", M.Max)
+		char:SetAttribute("Mana", M.Max)
+	end
+	task.spawn(function()
+		while true do
+			local dt = task.wait(0.1)
+			local now = os.clock()
+			for _, player in Players:GetPlayers() do
+				local char = player.Character
+				if char and isArcanist(player) then
+					local m = tonumber(char:GetAttribute("Mana"))
+					local max = tonumber(char:GetAttribute("ManaMax")) or M.Max
+					if m and m < max and now - (GR.lastSpend[char] or -99) >= M.Delay then
+						char:SetAttribute("Mana", math.min(max, m + M.Regen * (dt or 0.1)))
+					end
+				end
+			end
+		end
+	end)
+
+	-- a new body, or the Arcanist picked (applyQuirk): wand away, mana full
+	function GR.arrive(player, quirkName)
+		local char = player.Character
+		if quirkName == ARC then
+			if char then
+				char:SetAttribute("WandOut", false)
+				GR.fill(char)
+				GR.placeWand(char)
+			end
+			GR.syncPick(player)
+		elseif char then
+			for _, a in { "Mana", "ManaMax", "WandOut", "Warded" } do
+				char:SetAttribute(a, nil)
+			end
+			local w = char:FindFirstChild("ArcanistWand")
+			if w then
+				w:Destroy()
+			end
+		end
+	end
+	local function watch(player)
+		player.CharacterAdded:Connect(function(char)
+			task.defer(function()
+				if player.Character == char then
+					GR.arrive(player, player:GetAttribute("Quirk"))
+				end
+			end)
+		end)
+		if not player:GetAttribute("Grimoire") then
+			player:SetAttribute("Grimoire", GC.EncodeBook(GC.NewBook())) -- (loadData puts theirs over it)
+		end
+	end
+	Players.PlayerAdded:Connect(watch)
+	for _, p in Players:GetPlayers() do
+		watch(p)
+	end
+
+	-- the dispatcher's gate: a spell his mana can't pay for doesn't go
+	function GR.refuse(player, char, quirkName, ability)
+		if quirkName ~= ARC or not ability.Spell then
+			return false
+		end
+		if (ability.Mana or 0) > 0 and not player:GetAttribute("NoCooldowns") and GR.mana(char) + 0.01 < ability.Mana then
+			return true
+		end
+		return false
+	end
+	-- ...and it went: pay, and the wand comes out if it was away
+	function GR.used(player, char, quirkName, ability)
+		if quirkName ~= ARC or not ability.Spell then
+			return
+		end
+		if (ability.Mana or 0) > 0 and not player:GetAttribute("NoCooldowns") then
+			char:SetAttribute("Mana", math.max(0, GR.mana(char) - ability.Mana))
+		end
+		GR.lastSpend[char] = os.clock()
+		if not GR.wandOut(char) then
+			GR.setWand(player, char, true)
+		end
+	end
+
+	-- WARD: hits on him land on the runes first (in damage(): Reactions.shielded)
+	local shielded = Reactions.shielded
+	Reactions.shielded = function(attacker, model, amount, opts)
+		local w = GR.wards[model]
+		if w and os.clock() < w.Until and w.Left > 0 and (amount or 0) > 0 then
+			w.Left -= amount
+			broadcast("ArcFx", model, { Kind = "WardHit", Left = math.max(0, w.Left), From = opts and opts.From })
+			if w.Left <= 0 then
+				GR.unward(model, true)
+			end
+			return true
+		end
+		if shielded then
+			return shielded(attacker, model, amount, opts)
+		end
+		return false
+	end
+	function GR.unward(char, broke)
+		if GR.wards[char] then
+			GR.wards[char] = nil
+			char:SetAttribute("Warded", nil)
+			broadcast("ArcFx", char, { Kind = "WardEnd", Broke = broke == true })
+		end
+	end
+
+	-- THE SPELLS -------------------------------------------------------------
+	local function hand(char, root, d)
+		local arm = findLimb(char, "RightHand", "Right Arm")
+		local at = arm and (arm.Position + d * 1.4) or (root.Position + UP * 1.2 + d * 2)
+		-- (never from inside a wall he's backed into)
+		if (at - root.Position).Magnitude > 6 then
+			at = root.Position + UP * 1.2 + d * 2
+		end
+		return at
+	end
+	local function amount(s, st)
+		return math.floor((s.Damage or 0) * st.Damage + 0.5)
+	end
+	-- what a spell does to whoever it lands on (after the damage went in)
+	local function afflict(model, s, from, d)
+		if s.Burn then
+			burn(model, s.Burn.Ticks, s.Burn.Per)
+		end
+		if s.Slow then
+			slow(model, s.Slow.Time, s.Slow.Speed)
+		end
+		if s.Stun then
+			stun(model, s.Stun)
+		end
+		if s.Root then
+			stun(model, s.Root, 0)
+		end
+		if s.Freeze then
+			freeze(model, s.Freeze)
+		end
+		if s.Knockback or s.Lift then
+			local r = model:FindFirstChild("HumanoidRootPart")
+			local away = d
+			if not away and r then
+				away = Vector3.new(r.Position.X - from.X, 0, r.Position.Z - from.Z)
+				away = away.Magnitude > 0.1 and away.Unit or Vector3.zero
+			end
+			knockback(model, (away or Vector3.zero) * (s.Knockback or 0) + UP * (s.Lift or 0), 0.3)
+		end
+	end
+	local function hit(player, model, s, st, from, d, scale)
+		if damage(player, model, math.max(1, math.floor(amount(s, st) * (scale or 1) + 0.5)), { From = from }) then
+			afflict(model, s, from, d)
+			return true
+		end
+		return false
+	end
+	-- where a pointed spell lands: the aim, no further than Range, on the ground
+	local function pointAt(char, root, pos, range)
+		local off = Vector3.new(pos.X - root.Position.X, 0, pos.Z - root.Position.Z)
+		if off.Magnitude > range then
+			off = off.Unit * range
+		end
+		return groundBelow(Vector3.new(root.Position.X + off.X, math.max(pos.Y, root.Position.Y - 20) + 2, root.Position.Z + off.Z), char)
+	end
+	local function fx(char, spell, lv, data)
+		data.Spell, data.Level = spell, lv
+		broadcast("ArcFx", char, data)
+	end
+
+	local SHAPES = {}
+	GR.SHAPES = SHAPES
+	-- a single bolt to the first one in line (Radius: it bursts there)
+	function SHAPES.Bolt(player, char, root, s, st, lv, dir)
+		local d = Config.AimedDirection(dir, flatten(dir, root), { Up = 35, Down = 35 })
+		local origin = hand(char, root, d)
+		local target, along = firstInLine(char, origin, d, s.Range, s.Width or 3)
+		local wall = wallDistance(char, origin, d, s.Range)
+		local dist = math.min(target and math.max(along or 1, 1) or s.Range, wall)
+		if target and (along or 0) > wall then
+			target = nil
+		end
+		local at = origin + d * math.max(dist - 0.5, 1)
+		local t = dist / (s.Speed or 120)
+		fx(char, s.Id, lv, { Kind = "Bolt", From = origin, To = at, Time = t })
+		task.delay(t, function()
+			fx(char, s.Id, lv, { Kind = "Impact", Pos = at, Radius = s.Radius and s.Radius * st.Radius or nil })
+			if s.Radius then
+				for _, model in queryRadius(char, at, s.Radius * st.Radius) do
+					hit(player, model, s, st, at, nil)
+				end
+			elseif target then
+				hit(player, target, s, st, at, d)
+			end
+		end)
+	end
+	-- Count bolts in a fan, Spread degrees apart (each lands on its own)
+	function SHAPES.Fan(player, char, root, s, st, lv, dir)
+		local d = Config.AimedDirection(dir, flatten(dir, root), { Up = 25, Down = 25 })
+		local origin = hand(char, root, d)
+		local n = s.Count or 3
+		local shots = {}
+		for i = 1, n do
+			local yaw = math.rad(((i - 1) - (n - 1) / 2) * (s.Spread or 10))
+			local di = CFrame.fromAxisAngle(UP, yaw):VectorToWorldSpace(d)
+			local target, along = firstInLine(char, origin, di, s.Range, s.Width or 3)
+			local wall = wallDistance(char, origin, di, s.Range)
+			if target and (along or 0) > wall then
+				target = nil
+			end
+			local dist = math.min(target and math.max(along or 1, 1) or s.Range, wall)
+			local at = origin + di * math.max(dist - 0.5, 1)
+			local t = dist / (s.Speed or 120)
+			table.insert(shots, { From = origin, To = at, Time = t })
+			task.delay(t, function()
+				fx(char, s.Id, lv, { Kind = "Impact", Pos = at })
+				if target then
+					hit(player, target, s, st, at, di)
+				end
+			end)
+		end
+		fx(char, s.Id, lv, { Kind = "Fan", Shots = shots })
+	end
+	-- everyone within Range in front of him, inside the Cone
+	function SHAPES.Cone(player, char, root, s, st, lv, dir)
+		local d = flatten(dir, root)
+		local from = root.Position
+		fx(char, s.Id, lv, { Kind = "Cone", From = from, Dir = d, Range = s.Range, Cone = s.Cone })
+		local cosHalf = math.cos(math.rad((s.Cone or 50) / 2))
+		for _, model in queryRadius(char, from + d * (s.Range / 2), s.Range / 2 + 3) do
+			local r = model:FindFirstChild("HumanoidRootPart")
+			local off = r and Vector3.new(r.Position.X - from.X, 0, r.Position.Z - from.Z)
+			if off and off.Magnitude <= s.Range + 2 and (off.Magnitude < 3 or off.Unit:Dot(d) >= cosHalf) then
+				hit(player, model, s, st, from, d)
+			end
+		end
+	end
+	-- health back, a little at a time, over Over seconds
+	function SHAPES.Heal(player, char, root, s, st, lv)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum then
+			return
+		end
+		local total = (s.Heal or 20) * st.Damage
+		local steps = math.max(1, math.floor((s.Over or 3) / 0.25))
+		fx(char, s.Id, lv, { Kind = "Heal", Time = s.Over or 3 })
+		task.spawn(function()
+			for _ = 1, steps do
+				task.wait(0.25)
+				if not char.Parent or hum.Health <= 0 then
+					return
+				end
+				hum.Health = math.min(hum.MaxHealth, hum.Health + total / steps)
+			end
+		end)
+	end
+	-- lightning to the first in line, then on to the nearest not hit yet
+	function SHAPES.Chain(player, char, root, s, st, lv, dir)
+		local d = Config.AimedDirection(dir, flatten(dir, root), { Up = 30, Down = 30 })
+		local origin = hand(char, root, d)
+		local target, along = firstInLine(char, origin, d, s.Range, s.Width or 5)
+		local wall = wallDistance(char, origin, d, s.Range)
+		if target and (along or 0) > wall then
+			target = nil
+		end
+		local points = { origin }
+		if not target then
+			table.insert(points, origin + d * wall)
+			fx(char, s.Id, lv, { Kind = "Chain", Points = points })
+			return
+		end
+		local done, scale = { [target] = true }, 1
+		local current = target
+		for k = 0, s.Jumps or 2 do
+			local r = current:FindFirstChild("HumanoidRootPart")
+			if not r then
+				break
+			end
+			table.insert(points, r.Position)
+			hit(player, current, s, st, points[#points - 1], nil, scale)
+			if k == (s.Jumps or 2) then
+				break
+			end
+			scale *= s.Falloff or 0.75
+			local best, bestDist
+			for _, m in queryRadius(char, r.Position, s.JumpRange or 16) do
+				local mr = m:FindFirstChild("HumanoidRootPart")
+				if not done[m] and mr then
+					local dd = (mr.Position - r.Position).Magnitude
+					if not bestDist or dd < bestDist then
+						best, bestDist = m, dd
+					end
+				end
+			end
+			if not best then
+				break
+			end
+			done[best] = true
+			current = best
+		end
+		fx(char, s.Id, lv, { Kind = "Chain", Points = points })
+	end
+	-- a step through the air: along the aim (flat), short of any wall
+	function SHAPES.Blink(player, char, root, s, st, lv, dir)
+		local d = flatten(dir, root)
+		local from = root.Position
+		local reach = math.max(0, math.min(s.Range * st.Radius, wallDistance(char, from, d, s.Range * st.Radius) - 2.5))
+		local to = from + d * reach
+		fx(char, s.Id, lv, { Kind = "Blink", From = from, To = to })
+		root.CFrame = CFrame.lookAt(to, to + d)
+		root.AssemblyLinearVelocity = Vector3.zero
+	end
+	-- a rune where he points; Delay later it goes off on everyone in Radius
+	function SHAPES.Zone(player, char, root, s, st, lv, _dir, pos)
+		local at = pointAt(char, root, pos, s.Range)
+		local radius = s.Radius * st.Radius
+		fx(char, s.Id, lv, { Kind = "Rune", Pos = at, Radius = radius, Time = s.Delay })
+		task.wait(s.Delay or 0.5)
+		fx(char, s.Id, lv, { Kind = "Strike", Pos = at, Radius = radius })
+		for _, model in queryRadius(char, at + UP * 2, radius) do
+			hit(player, model, s, st, at, nil)
+		end
+	end
+	-- a lance through everyone in a line (stopped by a wall)
+	function SHAPES.Line(player, char, root, s, st, lv, dir)
+		local d = Config.AimedDirection(dir, flatten(dir, root), { Up = 25, Down = 25 })
+		local origin = hand(char, root, d)
+		local length = wallDistance(char, origin, d, s.Range)
+		fx(char, s.Id, lv, { Kind = "Line", From = origin, To = origin + d * length, Width = s.Width })
+		beamHit(char, origin, d, length, s.Width or 5, function(model)
+			hit(player, model, s, st, origin, d)
+		end)
+	end
+	-- the runes round him take the next Absorb damage (Reactions.shielded)
+	function SHAPES.Ward(player, char, root, s, st, lv)
+		local token = {}
+		GR.wards[char] = { Left = (s.Absorb or 40) * st.Damage, Until = os.clock() + (s.Time or 5), Token = token }
+		char:SetAttribute("Warded", true)
+		fx(char, s.Id, lv, { Kind = "Ward", Time = s.Time or 5 })
+		task.delay(s.Time or 5, function()
+			local w = GR.wards[char]
+			if w and w.Token == token then
+				GR.unward(char, false)
+			end
+		end)
+	end
+	-- a slow orb that drags everyone near it in, then bursts (after Time)
+	function SHAPES.Orb(player, char, root, s, st, lv, dir)
+		local d = Config.AimedDirection(dir, flatten(dir, root), { Up = 20, Down = 20 })
+		local origin = hand(char, root, d)
+		local far = wallDistance(char, origin, d, s.Range) - 1.5
+		local time = s.Time or 2
+		fx(char, s.Id, lv, { Kind = "Orb", From = origin, Dir = d, Far = far, Speed = s.Speed, Time = time })
+		local t0 = os.clock()
+		local p = origin
+		local held = nil -- (where it stopped: on the first body it reached)
+		while os.clock() - t0 < time do
+			task.wait(0.1)
+			if not held then
+				p = origin + d * math.clamp((os.clock() - t0) * (s.Speed or 26), 0, math.max(far, 0))
+				if #queryRadius(char, p, 3.5) > 0 then
+					held = p
+					fx(char, s.Id, lv, { Kind = "OrbStop", Pos = p })
+				end
+			end
+			for _, model in queryRadius(char, p, s.Pull or 14) do
+				local r = model:FindFirstChild("HumanoidRootPart")
+				if r then
+					local to = p - r.Position
+					if to.Magnitude > 2.5 then
+						knockback(model, to.Unit * (s.PullSpeed or 16), 0.15, true, true)
+					end
+				end
+			end
+		end
+		local radius = s.Radius * st.Radius
+		fx(char, s.Id, lv, { Kind = "Pop", Pos = p, Radius = radius })
+		for _, model in queryRadius(char, p, radius) do
+			hit(player, model, s, st, p, nil)
+		end
+	end
+	-- a storm that rolls out along the aim, Ticks times on whoever it's over
+	function SHAPES.Tornado(player, char, root, s, st, lv, dir)
+		local d = flatten(dir, root)
+		local from = groundBelow(root.Position + d * 3, char)
+		local reach = math.max(4, wallDistance(char, root.Position, d, s.Range) - 2)
+		local time = s.Time or 2
+		fx(char, s.Id, lv, { Kind = "Tornado", From = from, To = from + d * reach, Time = time, Radius = s.Radius * st.Radius })
+		local ticks = s.Ticks or 6
+		for i = 1, ticks do
+			task.wait(time / ticks)
+			local at = from + d * reach * (i / ticks)
+			for _, model in queryRadius(char, at + UP * 4, s.Radius * st.Radius) do
+				if damage(player, model, math.max(1, amount(s, st)), { From = at, Quiet = i > 1 }) then
+					local r = model:FindFirstChild("HumanoidRootPart")
+					local inward = r and Vector3.new(at.X - r.Position.X, 0, at.Z - r.Position.Z) or Vector3.zero
+					knockback(model, (inward.Magnitude > 0.5 and inward.Unit * 6 or Vector3.zero) + d * 10 + UP * (s.Lift or 24), 0.2, true, true)
+				end
+			end
+		end
+	end
+	-- everyone within Radius of him
+	function SHAPES.Nova(player, char, root, s, st, lv)
+		local at = root.Position
+		local radius = s.Radius * st.Radius
+		fx(char, s.Id, lv, { Kind = "Nova", Pos = at, Radius = radius })
+		for _, model in queryRadius(char, at, radius) do
+			hit(player, model, s, st, at, nil)
+		end
+	end
+	-- Count stars over Time, each somewhere within Area of where he points
+	function SHAPES.Rain(player, char, root, s, st, lv, _dir, pos)
+		local center = pointAt(char, root, pos, s.Range)
+		local n = s.Count or 8
+		fx(char, s.Id, lv, { Kind = "Rune", Pos = center, Radius = s.Area, Time = s.Time })
+		for i = 1, n do
+			task.wait((s.Time or 1.8) / n)
+			local a = GR.rng:NextNumber() * math.pi * 2
+			local r = math.sqrt(GR.rng:NextNumber()) * (s.Area or 12)
+			local at = groundBelow(center + Vector3.new(math.cos(a) * r, 6, math.sin(a) * r), char)
+			fx(char, s.Id, lv, { Kind = "Star", Pos = at, Index = i })
+			task.delay(0.3, function()
+				for _, model in queryRadius(char, at + UP * 2, (s.Radius or 5) * st.Radius) do
+					hit(player, model, s, st, at, nil)
+				end
+			end)
+		end
+	end
+
+	-- the handler every spell has (Handlers["Arc" .. id]): the wand comes up
+	-- (Windup), then its Shape runs
+	function GR.cast(player, char, root, ability, dir, pos)
+		local s = GC.Spells[ability.Spell]
+		local run = s and SHAPES[s.Shape]
+		if not run then
+			return
+		end
+		local st = GC.Stats(s.Id, ability.Page or ability.Level, ability.Ult == true)
+		task.wait(s.Windup or 0.15)
+		if not alive(char) then
+			return
+		end
+		run(player, char, root, s, st, st.Level, dir, pos)
+	end
+	for id in GC.Spells do
+		Handlers["Arc" .. id] = function(player, char, root, ability, dir, pos)
+			GR.cast(player, char, root, ability, dir, pos)
+		end
+	end
+
+	-- THE WAND'S M1s (handleM1): a bolt down where he's facing - the 4th a
+	-- heavier one that knocks them back. true: it was his (the punch isn't)
+	function GR.m1(player, char, root, count, finisher, clientCF)
+		if not isArcanist(player) or not GR.wandOut(char) then
+			return false
+		end
+		local B = GC.Bolt
+		local look = (typeof(clientCF) == "CFrame" and clientCF.LookVector == clientCF.LookVector) and clientCF.LookVector or root.CFrame.LookVector
+		local d = flatten(look, root)
+		local origin = hand(char, root, d)
+		local target, along = firstInLine(char, origin, d, B.Range, B.Width)
+		local wall = wallDistance(char, origin, d, B.Range)
+		if not target or (along or 0) > wall then
+			return true
+		end
+		local t = math.max(along or 1, 1) / B.Speed
+		task.delay(t, function()
+			local amt = finisher and B.FinisherDamage or B.Damage
+			if damage(player, target, amt, { From = origin, M1 = count }) and finisher then
+				knockback(target, d * B.Knockback + UP * 14, 0.3)
+			end
+		end)
+		return true
+	end
+end
+Kit.setupGrimoire()
 
 ---------------------------------------------------------------------------
 -- UNO at Tony's (Config.Uno). Every table in the pizzeria gets a seat by
@@ -35193,6 +35925,9 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 	if Kit.HK and Kit.HK.refuse(player, char, quirkName, ability) then
 		return -- (round 86: Hawks without the feathers for it)
 	end
+	if Kit.GR and Kit.GR.refuse(player, char, quirkName, ability) then
+		return -- (round 109: the Arcanist without the mana for it)
+	end
 	if not checkCooldown(player, Config.CooldownKey(quirkName, index, alt, ult, pick), ability.Cooldown) then
 		return
 	end
@@ -35201,6 +35936,9 @@ function Kit.onUseAbility(player, index, aimDir, aimPos, seed, origin, air, defe
 	end
 	if Kit.HK then
 		Kit.HK.used(player, char, quirkName, ability)
+	end
+	if Kit.GR then
+		Kit.GR.used(player, char, quirkName, ability) -- (round 109: his mana paid, the wand out)
 	end
 	if ability.ActionTime then
 		char:SetAttribute("CombatActionUntil", workspace:GetServerTimeNow() + ((air == true and ability.AirActionTime) or ability.ActionTime))

@@ -624,6 +624,16 @@ local function useAbility(index)
 			return
 		end
 	end
+	-- (round 109) the Arcanist: a spell his mana can't pay for doesn't go - no
+	-- cooldown, nothing played (the server would refuse it anyway)
+	if ability.Spell and (ability.Mana or 0) > 0 and not player:GetAttribute("NoCooldowns")
+		and (tonumber(char:GetAttribute("Mana")) or 0) + 0.01 < ability.Mana then
+		if os.clock() - (HUD.manaRefusedAt or 0) >= 0.4 then
+			HUD.manaRefusedAt = os.clock()
+			HUD.Callout("NOT ENOUGH MANA", Color3.fromRGB(120, 170, 255))
+		end
+		return
+	end
 	local key = Config.CooldownKey(quirkName, index, altMode, ultMode, pick)
 	if onCooldown(key, ability.Cooldown) then
 		return
@@ -675,7 +685,7 @@ local function useAbility(index)
 			HUD.Tip(((ability.Hold.Names or {})[1] or ability.Name) .. ": PRESS AGAIN", "Again" .. tostring(ability.Id)) -- ((round 100) a TIP toast)
 		end
 	end
-	if ability.Cycle then
+	if ability.Cycle and not Config.Quirks[quirkName].Grimoire then -- ((round 109) the Arcanist's R is his wand: the server says)
 		-- Deku's R: the next quirk into the 4th slot (the server confirms)
 		local list = Config.Quirks[quirkName].Extras or {}
 		player:SetAttribute("QuirkPick", #list > 0 and (pick % #list) + 1 or 1)
@@ -4445,6 +4455,35 @@ ContextActionService:BindAction("QuirkShop", function(_, state)
 	return Enum.ContextActionResult.Sink
 end, false, table.unpack(Config.ShopKeys or { Enum.KeyCode.H }))
 
+-- (round 109) THE GRIMOIRE (Y): the Arcanist's book - what it does goes
+-- through the shop's remote (GrInscribe / GrEquip); open, he holds it
+if Config.Grimoire and HUD.ToggleGrimoire then
+	HUD.GrimoireHooks.Inscribe = function(how)
+		ShopRemote:FireServer("GrInscribe", how)
+	end
+	HUD.GrimoireHooks.Equip = function(slot, id)
+		ShopRemote:FireServer("GrEquip", slot, id)
+	end
+	HUD.GrimoireHooks.Sound = function(name)
+		VFX.PlaySound(name)
+	end
+	HUD.GrimoireHooks.Opened = function(open)
+		if VFX.GR and player.Character then
+			VFX.GR.book(player.Character, open)
+		end
+	end
+	ContextActionService:BindAction("QuirkGrimoire", function(_, state)
+		if state ~= Enum.UserInputState.Begin then
+			return Enum.ContextActionResult.Pass
+		end
+		if player:GetAttribute("Quirk") ~= "Arcanist" and not HUD.GrimoireOpen() then
+			return Enum.ContextActionResult.Pass -- (Y is nobody else's)
+		end
+		HUD.ToggleGrimoire()
+		return Enum.ContextActionResult.Sink
+	end, false, table.unpack(Config.Grimoire.Keys or { Enum.KeyCode.Y }))
+end
+
 -- (round 58) One For All's inner world: its dark, and who's who, on your screen
 if VFX.VR then
 	VFX.VR.watch()
@@ -5351,6 +5390,16 @@ local function onCharacter(char)
 	char:GetAttributeChangedSignal("Heat"):Connect(heatMeter)
 	char:GetAttributeChangedSignal("Overheated"):Connect(heatMeter)
 	heatMeter()
+	-- (round 109) the Arcanist's mana (his ult: no mana - it says so)
+	if HUD.SetMana then
+		local function manaMeter()
+			HUD.SetMana(tonumber(char:GetAttribute("Mana")), tonumber(char:GetAttribute("ManaMax")), player:GetAttribute("UltActive") == true)
+		end
+		char:GetAttributeChangedSignal("Mana"):Connect(manaMeter)
+		char:GetAttributeChangedSignal("ManaMax"):Connect(manaMeter)
+		player:GetAttributeChangedSignal("UltActive"):Connect(manaMeter)
+		manaMeter()
+	end
 	-- (round 86) Hawks' feathers (only while he's the one you're playing):
 	-- out of FeathersMax (150 in the ult); fire burning them flashes it
 	local function featherMeter(burned)
@@ -5681,6 +5730,12 @@ local UI_EVENTS = {
 			HUD.Notice("Your bag was full, so you ate the " .. string.lower(item.Name) .. " right there", Color3.fromRGB(150, 255, 160))
 		elseif data.Ok and item and item.Heal and not table.find(Config.ShopOrder or {}, data.Item) then
 			HUD.Notice(item.Icon .. " " .. item.Name .. " is in your bag", Color3.fromRGB(150, 255, 160))
+		end
+	end,
+	-- (round 109) what INSCRIBE gave: the grimoire's pages, turned over
+	GrimoireRoll = function(data)
+		if HUD.GrimoireReveal and type(data.Got) == "table" then
+			HUD.GrimoireReveal(data.Got)
 		end
 	end,
 	-- (round 63) what an emote roll gave (face-down cards, flipped one by one)

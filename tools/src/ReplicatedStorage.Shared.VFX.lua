@@ -6834,6 +6834,9 @@ function Effects.Punch(char, data, isLocal)
 	if char:GetAttribute("Kaiju") and VFX.KaijuSlam and VFX.KaijuSlam(char, data) then
 		return -- Overhaul's kaiju: a giant arm comes down instead
 	end
+	if VFX.GR and VFX.GR.m1(char, data, isLocal) then
+		return -- (round 109) the Arcanist, wand out: a bolt off the wand instead
+	end
 	local K = VFX.M1Kit
 	local count = math.clamp(data.Count or 1, 1, 4)
 	local finisher = data.Finisher == true
@@ -111526,6 +111529,659 @@ end)()
 			root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
 		end
 	end)
+end)()
+
+---------------------------------------------------------------------------
+-- (round 109) THE ARCANIST (Config.Grimoire, the server's Kit.GR). His
+-- wand's drawn and put away (ArcWand), each spell's cast (Effects["Arc" ..
+-- id]: the clip, the wand tip lighting up in its school's colour, a small
+-- rune at the tip), and what every screen draws of it (ArcFx: Kind says
+-- what - a bolt flying, an impact, a rune on the street and what comes down
+-- on it, a lance, a ward, an orb, a storm...). The wand's M1s are bolts
+-- (VFX.GR.m1, from Effects.Punch). Everything's parts and GUI circles: no
+-- asset ids.
+---------------------------------------------------------------------------
+;(function()
+	local GC = Config.Grimoire
+	if not GC then
+		return
+	end
+	local GR = {}
+	VFX.GR = GR
+	local UP = Vector3.new(0, 1, 0)
+	local WHITE = Color3.new(1, 1, 1)
+
+	local function school(spell)
+		local s = GC.Spells[spell or ""]
+		return (s and GC.Schools[s.School]) or GC.Schools.Arcane, s
+	end
+	-- the wand's tip, or his right hand (wand away / not there yet)
+	function GR.tip(char)
+		local w = char and char:FindFirstChild("ArcanistWand")
+		local tip = w and w:GetAttribute("Out") and w:FindFirstChild("Tip")
+		if tip then
+			return tip.Position
+		end
+		local arm = char and (char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm"))
+		if arm then
+			return (arm.CFrame * CFrame.new(0, -arm.Size.Y / 2 - 0.4, 0)).Position
+		end
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		return root and root.Position or Vector3.zero
+	end
+	-- the tip lights up in a colour, for a moment
+	function GR.glow(char, color, time)
+		local w = char and char:FindFirstChild("ArcanistWand")
+		local tip = w and w:FindFirstChild("Tip")
+		if not tip then
+			return
+		end
+		local light = tip:FindFirstChild("ArcGlow") or Instance.new("PointLight")
+		light.Name = "ArcGlow"
+		light.Color = color
+		light.Range = 10
+		light.Brightness = 3
+		light.Parent = tip
+		local was = tip.Color
+		tip.Color = color
+		local token = (GR.glowToken or 0) + 1
+		GR.glowToken = token
+		task.delay(time or 0.6, function()
+			if tip.Parent then
+				tween(light, 0.3, { Brightness = 0 })
+				task.delay(0.32, function()
+					if GR.glowToken == token and tip.Parent then
+						tip.Color = (Config.Quirks.Arcanist or {}).AccentColor or was
+					end
+				end)
+			end
+		end)
+	end
+	local function playClip(char, name, holdFor)
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local moving = hum ~= nil and hum.MoveDirection.Magnitude > 0.1
+		return VFX.Clip and VFX.Clip(char, name, { legs = not moving, holdFor = holdFor })
+	end
+
+	-- A RUNE: a magic circle as a flat SurfaceGui - two rings, a star of two
+	-- squares turned 45 degrees, a ring of dots - spinning. cf: its centre,
+	-- its look the way the circle faces (GR.flat: up off the street).
+	-- Returns the part (it fades over life).
+	function GR.flat(pos)
+		return CFrame.new(pos) * CFrame.Angles(math.rad(90), 0, 0)
+	end
+	function GR.rune(cf, radius, color, life, spin)
+		local p = newPart(Vector3.new(radius * 2, radius * 2, 0.05), cf, color, Enum.Material.SmoothPlastic)
+		p.Transparency = 1
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = Enum.NormalId.Front
+		gui.LightInfluence = 0
+		gui.Brightness = 2.5
+		gui.AlwaysOnTop = false
+		gui.CanvasSize = Vector2.new(400, 400)
+		gui.Parent = p
+		local root = Instance.new("Frame")
+		root.BackgroundTransparency = 1
+		root.AnchorPoint = Vector2.new(0.5, 0.5)
+		root.Position = UDim2.fromScale(0.5, 0.5)
+		root.Size = UDim2.fromScale(1, 1)
+		root.Parent = gui
+		local strokes = {}
+		local function ring(scale, thick)
+			local f = Instance.new("Frame")
+			f.BackgroundTransparency = 1
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Position = UDim2.fromScale(0.5, 0.5)
+			f.Size = UDim2.fromScale(scale, scale)
+			f.Parent = root
+			local c = Instance.new("UICorner")
+			c.CornerRadius = UDim.new(0.5, 0)
+			c.Parent = f
+			local s = Instance.new("UIStroke")
+			s.Color = color
+			s.Thickness = thick
+			s.Parent = f
+			table.insert(strokes, s)
+			return f
+		end
+		local function square(scale, rot, thick)
+			local f = Instance.new("Frame")
+			f.BackgroundTransparency = 1
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Position = UDim2.fromScale(0.5, 0.5)
+			f.Size = UDim2.fromScale(scale, scale)
+			f.Rotation = rot
+			f.Parent = root
+			local s = Instance.new("UIStroke")
+			s.Color = color
+			s.Thickness = thick
+			s.Parent = f
+			table.insert(strokes, s)
+		end
+		ring(0.98, 9)
+		ring(0.84, 4)
+		ring(0.36, 5)
+		square(0.6, 0, 5)
+		square(0.6, 45, 5)
+		local dots = {}
+		for i = 1, 12 do
+			local a = i / 12 * math.pi * 2
+			local d = Instance.new("Frame")
+			d.BackgroundColor3 = color
+			d.BorderSizePixel = 0
+			d.AnchorPoint = Vector2.new(0.5, 0.5)
+			d.Size = UDim2.fromScale(0.035, 0.035)
+			d.Position = UDim2.fromScale(0.5 + math.cos(a) * 0.455, 0.5 + math.sin(a) * 0.455)
+			d.Parent = root
+			local c = Instance.new("UICorner")
+			c.CornerRadius = UDim.new(0.5, 0)
+			c.Parent = d
+			table.insert(dots, d)
+		end
+		-- in: it opens out from the middle; then it turns; then it fades
+		root.Size = UDim2.fromScale(0.2, 0.2)
+		tween(root, 0.18, { Size = UDim2.fromScale(1, 1) }, Enum.EasingStyle.Back)
+		tween(root, life, { Rotation = (spin or 90) * (rng:NextNumber() < 0.5 and -1 or 1) }, Enum.EasingStyle.Linear)
+		local fadeAt = math.max(0, life - 0.35)
+		for _, s in strokes do
+			tween(s, 0.35, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, fadeAt)
+		end
+		for _, d in dots do
+			tween(d, 0.35, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, fadeAt)
+		end
+		cleanup(p, life + 0.1)
+		return p
+	end
+	local function groundAt(pos)
+		local hit = groundRay(pos + UP * 4, 40)
+		return hit and hit.Position or pos
+	end
+	local function flash(pos, color, size, life)
+		local b = newPart(Vector3.one * size * 0.3, CFrame.new(pos), color, Enum.Material.Neon, Enum.PartType.Ball)
+		b.Transparency = 0.1
+		tween(b, life or 0.25, { Size = Vector3.one * size, Transparency = 1 })
+		cleanup(b, (life or 0.25) + 0.05)
+		local light = Instance.new("PointLight")
+		light.Color = color
+		light.Range = size * 3
+		light.Brightness = 4
+		light.Parent = b
+	end
+	-- lightning between two points: a jagged neon line, flickering out
+	local function zap(a, b, color, life, width)
+		local n = math.max(3, math.floor((b - a).Magnitude / 3))
+		local points = { a }
+		local d = (b - a)
+		for i = 1, n - 1 do
+			local t = i / n
+			table.insert(points, a + d * t + rng:NextUnitVector() * math.min(1.6, d.Magnitude * 0.06))
+		end
+		table.insert(points, b)
+		for i = 1, #points - 1 do
+			local p0, p1 = points[i], points[i + 1]
+			local seg = newPart(Vector3.new(width or 0.22, width or 0.22, (p1 - p0).Magnitude + 0.1), CFrame.lookAt((p0 + p1) / 2, p1), color, Enum.Material.Neon)
+			tween(seg, life or 0.25, { Transparency = 1, Size = Vector3.new(0.04, 0.04, (p1 - p0).Magnitude) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			cleanup(seg, (life or 0.25) + 0.05)
+		end
+	end
+	-- a ball (or shard) flying from a to b over t, with a trail
+	local function projectile(a, b, t, color, size, shard)
+		local look = (b - a).Magnitude > 0.05 and CFrame.lookAt(a, b) or CFrame.new(a)
+		local p
+		if shard then
+			p = newPart(Vector3.new(size * 0.45, size * 0.45, size * 1.8), look, color, Enum.Material.Glass)
+			p.Transparency = 0.15
+		else
+			p = newPart(Vector3.one * size, look, color, Enum.Material.Neon, Enum.PartType.Ball)
+		end
+		local stop = addTrail(p, color, 0.18, size * 0.8)
+		local light = Instance.new("PointLight")
+		light.Color = color
+		light.Range = size * 6
+		light.Brightness = 2
+		light.Parent = p
+		tween(p, math.max(t, 0.03), { CFrame = look + (b - a) }, Enum.EasingStyle.Linear)
+		task.delay(t, function()
+			stop()
+			p.Transparency = 1
+			light.Enabled = false
+		end)
+		cleanup(p, t + 0.5)
+		return p
+	end
+	-- fire round a point: a burst of cel puffs and sparks
+	local function fireBurst(pos, radius, sch)
+		flash(pos, sch.Hot, radius * 1.2, 0.2)
+		if toonExplosion then
+			pcall(toonExplosion, pos, math.max(0.4, radius / 9), { Color = sch.Color })
+		end
+		sparks(pos, radius / 6, sch.Hot, sch.Color, math.floor(radius) + 6)
+		billboardRing(pos, radius * 0.6, radius * 2.4, sch.Color, 6, 0.35)
+	end
+	local function iceBurst(pos, radius, sch)
+		flash(pos, sch.Hot, radius, 0.18)
+		for _ = 1, math.floor(radius) + 3 do
+			local dir = (rng:NextUnitVector() + UP * 0.6).Unit
+			local len = rand(0.8, 2.2) * math.max(1, radius / 6)
+			local s = newPart(Vector3.new(0.35, 0.35, len), CFrame.lookAt(pos, pos + dir) * CFrame.new(0, 0, -len / 2), sch.Color, Enum.Material.Glass)
+			s.Transparency = 0.2
+			tween(s, 0.5, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0.4)
+			cleanup(s, 1)
+		end
+		billboardRing(pos, radius * 0.5, radius * 2, sch.Hot, 5, 0.3)
+	end
+
+	-- R: the wand drawn (or put away) - the clip, a glint at the tip
+	function Effects.ArcWand(char, data, isLocal)
+		local drawing = not (char:GetAttribute("WandOut") == true)
+		playClip(char, drawing and "MoveArcDraw" or "MoveArcSheathe")
+		VFX.PlaySound(drawing and "ArcDraw" or "ArcSheathe", GR.tip(char))
+		if drawing then
+			task.delay(0.22, function()
+				local a = (Config.Quirks.Arcanist or {}).AccentColor or WHITE
+				sparks(GR.tip(char), 0.3, WHITE, a, 6)
+				GR.glow(char, a, 0.5)
+			end)
+		end
+	end
+
+	-- a spell going off (everyone: the server's broadcast; his own screen:
+	-- his press): the clip, the tip lighting up, a small rune at the wand
+	local function castFx(id)
+		return function(char, data, isLocal)
+			local sch, s = school(id)
+			if not s then
+				return
+			end
+			playClip(char, s.Clip or "MoveArcCast")
+			VFX.PlaySound("ArcCharge", GR.tip(char), 0.8)
+			GR.glow(char, sch.Color, (s.Windup or 0.15) + 0.5)
+			task.delay(math.max(0, (s.Windup or 0.15) - 0.1), function()
+				local root = char:FindFirstChild("HumanoidRootPart")
+				if not root then
+					return
+				end
+				local tip = GR.tip(char)
+				local d = typeof(data.Dir) == "Vector3" and data.Dir.Magnitude > 0.01 and data.Dir.Unit or root.CFrame.LookVector
+				GR.rune(CFrame.lookAt(tip, tip - d), 1.3, sch.Color, 0.45, 160)
+				sparks(tip, 0.25, sch.Hot, sch.Color, 5)
+			end)
+		end
+	end
+	for id in GC.Spells do
+		Effects["Arc" .. id] = castFx(id)
+	end
+
+	-- what the spells do, on every screen (the server's ArcFx)
+	local SOUND = {
+		Pyro = { "ArcFire", "ArcFireHit" }, Cryo = { "ArcIce", "ArcIceHit" }, Storm = { "ArcStorm", "ArcStorm" },
+		Aero = { "ArcWind", "ArcWind" }, Arcane = { "ArcArcane", "ArcArcane" }, Umbra = { "ArcVoid", "ArcVoidPop" }, Verdant = { "ArcHeal", "ArcHeal" },
+	}
+	function Effects.ArcFx(char, data)
+		local kind = data.Kind
+		local sch, s = school(data.Spell)
+		local snd = SOUND[s and s.School or "Arcane"] or SOUND.Arcane
+		if kind == "Bolt" then
+			local shard = s and s.School == "Cryo"
+			projectile(data.From, data.To, data.Time or 0.2, sch.Color, data.Spell == "Fireball" and 1.6 or 0.8, shard)
+			VFX.PlaySound(snd[1], data.From)
+		elseif kind == "Fan" then
+			for _, shot in data.Shots or {} do
+				projectile(shot.From, shot.To, shot.Time or 0.2, sch.Color, 0.7, s and s.School == "Cryo")
+			end
+			VFX.PlaySound(snd[1], (data.Shots and data.Shots[1] and data.Shots[1].From) or GR.tip(char))
+		elseif kind == "Impact" then
+			local r = data.Radius or 2.5
+			if s and s.School == "Pyro" then
+				fireBurst(data.Pos, r, sch)
+				if data.Radius then
+					VFX.ShakeAt(data.Pos, 0.5, 50, 0.3)
+				end
+			elseif s and s.School == "Cryo" then
+				iceBurst(data.Pos, r, sch)
+			else
+				flash(data.Pos, sch.Color, r * 1.5, 0.2)
+				sparks(data.Pos, 0.4, sch.Hot, sch.Color, 7)
+			end
+			VFX.PlaySound(snd[2], data.Pos, data.Radius and 1 or 0.7)
+		elseif kind == "Cone" then
+			local from, d = data.From, data.Dir
+			if windBlast then
+				pcall(windBlast, from + UP * 1.5 + d * 2, d, math.max(1, (data.Range or 20) / 16))
+			end
+			streaks(from + UP * 1.5, d, 14, 3, 5, data.Range or 20, sch.Color, 0.35)
+			shockDisc(from + UP * 1.5 + d * 2, d, 3, (data.Range or 20) * 0.9, 0.35, sch.Hot, data.Range or 20)
+			VFX.PlaySound("ArcWind", from)
+		elseif kind == "Heal" then
+			local t = data.Time or 3
+			local root = char:FindFirstChild("HumanoidRootPart")
+			if root then
+				local g = groundAt(root.Position)
+				GR.rune(GR.flat(g + UP * 0.1), 4, sch.Color, t, 120)
+				for i = 0, math.floor(t / 0.3) do
+					task.delay(i * 0.3, function()
+						if root.Parent then
+							local at = root.Position + Vector3.new(rand(-1.5, 1.5), rand(-2.5, 0), rand(-1.5, 1.5))
+							local leaf = newPart(Vector3.new(0.3, 0.3, 0.3), CFrame.new(at), sch.Color, Enum.Material.Neon, Enum.PartType.Ball)
+							tween(leaf, 0.9, { CFrame = CFrame.new(at + UP * 3.5), Transparency = 1, Size = Vector3.one * 0.08 })
+							cleanup(leaf, 1)
+						end
+					end)
+				end
+			end
+			VFX.PlaySound("ArcHeal", root and root.Position)
+		elseif kind == "Chain" then
+			local pts = data.Points or {}
+			for i = 1, #pts - 1 do
+				task.delay((i - 1) * 0.06, function()
+					zap(pts[i], pts[i + 1], sch.Hot, 0.3, 0.26)
+					zap(pts[i], pts[i + 1], sch.Color, 0.22, 0.14)
+					flash(pts[i + 1], sch.Color, 3, 0.18)
+				end)
+			end
+			VFX.PlaySound("ArcStorm", pts[1])
+		elseif kind == "Blink" then
+			for _, at in { data.From, data.To } do
+				flash(at, sch.Color, 5, 0.25)
+				billboardRing(at, 1, 7, sch.Hot, 6, 0.3)
+				sparks(at, 0.6, sch.Hot, sch.Color, 10)
+			end
+			streaks(data.From, (data.To - data.From).Magnitude > 0.1 and (data.To - data.From).Unit or UP, 10, 1.4, 4, (data.To - data.From).Magnitude, sch.Color, 0.25)
+			VFX.PlaySound("ArcBlink", data.To)
+		elseif kind == "Rune" then
+			local t = data.Time or 0.6
+			GR.rune(GR.flat(data.Pos + UP * 0.12), data.Radius or 8, sch.Color, t + 0.4, 70)
+			if data.Spell == "Meteor" then
+				-- a burning rock out of the sky, down onto the rune on the beat
+				local sky = data.Pos + Vector3.new(rand(-30, 30), 140, rand(-30, 30))
+				local rock = newPart(Vector3.one * 7, CFrame.new(sky), Color3.fromRGB(60, 40, 34), Enum.Material.Basalt, Enum.PartType.Ball)
+				local core = newPart(Vector3.one * 8.5, CFrame.new(sky), sch.Color, Enum.Material.Neon, Enum.PartType.Ball)
+				core.Transparency = 0.45
+				local stop = addTrail(core, sch.Color, 0.5, 6)
+				tween(rock, t, { CFrame = CFrame.new(data.Pos + UP * 2) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				tween(core, t, { CFrame = CFrame.new(data.Pos + UP * 2) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				task.delay(t, function()
+					stop()
+					rock:Destroy()
+					core.Transparency = 1
+				end)
+				cleanup(core, t + 1)
+				VFX.PlaySound("ArcMeteorFall", data.Pos)
+			elseif data.Spell == "Thundercall" then
+				-- the sky darkens over it: a cloud of grey puffs
+				for _ = 1, 6 do
+					local at = data.Pos + Vector3.new(rand(-6, 6), 38 + rand(-2, 3), rand(-6, 6))
+					local c = newPart(Vector3.one * rand(6, 10), CFrame.new(at), Color3.fromRGB(70, 72, 90), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+					c.Transparency = 0.3
+					tween(c, 0.4, { Transparency = 1 }, nil, nil, t + 0.3)
+					cleanup(c, t + 0.8)
+				end
+				VFX.PlaySound("ArcStorm", data.Pos)
+			elseif data.Spell == "ShadeSnare" then
+				VFX.PlaySound("ArcVoid", data.Pos, 0.7)
+			end
+		elseif kind == "Strike" then
+			local r = data.Radius or 8
+			if data.Spell == "Thundercall" then
+				local top = data.Pos + UP * 40
+				zap(top, data.Pos, WHITE, 0.35, 1.1)
+				zap(top, data.Pos, sch.Color, 0.3, 0.6)
+				for _ = 1, 3 do
+					zap(data.Pos + UP * 1, data.Pos + Vector3.new(rand(-r, r), 0.5, rand(-r, r)), sch.Color, 0.25, 0.2)
+				end
+				flash(data.Pos, WHITE, r * 1.6, 0.25)
+				billboardRing(data.Pos, r * 0.5, r * 2.6, sch.Color, 8, 0.4)
+				VFX.PlaySound("ArcThunder", data.Pos)
+				VFX.ShakeAt(data.Pos, 1, 70, 0.4)
+			elseif data.Spell == "Meteor" then
+				fireBurst(data.Pos, r, sch)
+				if VFX.ImpactFrame then
+					local me = Players.LocalPlayer
+					local mine = me and me.Character
+					local rootM = mine and mine:FindFirstChild("HumanoidRootPart")
+					if rootM and (rootM.Position - data.Pos).Magnitude < r * 3 then
+						VFX.ImpactFrame(0.08)
+					end
+				end
+				if dustPuffs then
+					pcall(dustPuffs, data.Pos, r / 6, 10, Color3.fromRGB(110, 90, 80), 1.4)
+				end
+				VFX.PlaySound("ArcMeteor", data.Pos)
+				VFX.ShakeAt(data.Pos, 2.2, 120, 0.7)
+			else
+				-- (Shade Snare) shadow hands up out of the rune
+				for i = 1, 7 do
+					local a = i / 7 * math.pi * 2
+					local at = data.Pos + Vector3.new(math.cos(a) * r * 0.6, 0, math.sin(a) * r * 0.6)
+					local hand = newPart(Vector3.new(0.8, 0.2, 0.8), CFrame.new(at), sch.Color, Enum.Material.Neon)
+					tween(hand, 0.25, { Size = Vector3.new(0.8, 4.5, 0.8), CFrame = CFrame.new(at + UP * 2.2) * CFrame.Angles(rand(-0.3, 0.3), 0, rand(-0.3, 0.3)) })
+					tween(hand, 0.4, { Transparency = 1 }, nil, nil, 1)
+					cleanup(hand, 1.5)
+				end
+				flash(data.Pos + UP, sch.Hot, r, 0.3)
+				VFX.PlaySound("ArcVoidPop", data.Pos, 0.7)
+			end
+		elseif kind == "Line" then
+			local a, b = data.From, data.To
+			local len = (b - a).Magnitude
+			if len > 0.5 then
+				local lance = newPart(Vector3.new((data.Width or 5) * 0.4, (data.Width or 5) * 0.4, len), CFrame.lookAt((a + b) / 2, b), sch.Color, Enum.Material.Glass)
+				lance.Transparency = 0.15
+				local core = newPart(Vector3.new(0.5, 0.5, len), CFrame.lookAt((a + b) / 2, b), sch.Hot, Enum.Material.Neon)
+				tween(lance, 0.5, { Transparency = 1 }, nil, nil, 0.4)
+				tween(core, 0.3, { Transparency = 1, Size = Vector3.new(0.05, 0.05, len) }, nil, nil, 0.1)
+				cleanup(lance, 1)
+				cleanup(core, 0.5)
+				for i = 1, math.floor(len / 6) do
+					iceBurst(a + (b - a) * (i / math.floor(len / 6)), 2, sch)
+				end
+			end
+			VFX.PlaySound("ArcFreeze", a, 0.7)
+		elseif kind == "Ward" then
+			local root = char:FindFirstChild("HumanoidRootPart")
+			if root then
+				local shell = newPart(Vector3.one * 7.5, root.CFrame, sch.Color, Enum.Material.ForceField, Enum.PartType.Ball)
+				shell.Name = "ArcWard"
+				shell.Transparency = 0.2
+				shell.Parent = char
+				local w = Instance.new("WeldConstraint")
+				w.Part0 = root
+				w.Part1 = shell
+				shell.Anchored = false
+				shell.Massless = true
+				w.Parent = shell
+				cleanup(shell, (data.Time or 5) + 0.2)
+				GR.rune(GR.flat(groundAt(root.Position) + UP * 0.1), 4, sch.Color, data.Time or 5, 60)
+			end
+			VFX.PlaySound("ArcWard", root and root.Position)
+		elseif kind == "WardHit" then
+			local shell = char:FindFirstChild("ArcWard")
+			if shell then
+				flash(shell.Position, sch.Hot, 8, 0.15)
+			end
+			VFX.PlaySound("ArcWardHit", shell and shell.Position)
+		elseif kind == "WardEnd" then
+			local shell = char:FindFirstChild("ArcWard")
+			if shell then
+				if data.Broke then
+					sparks(shell.Position, 1, WHITE, sch.Color, 16)
+					VFX.PlaySound("ArcWardBreak", shell.Position)
+				end
+				shell:Destroy()
+			end
+		elseif kind == "Orb" then
+			local t, d, far = data.Time or 2, data.Dir, math.max(0, data.Far or 20)
+			local orb = newPart(Vector3.one * 3, CFrame.new(data.From), Color3.new(0.04, 0.02, 0.07), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+			local rim = newPart(Vector3.one * 3.8, CFrame.new(data.From), sch.Color, Enum.Material.ForceField, Enum.PartType.Ball)
+			local reach = math.min(far, (data.Speed or 26) * t)
+			local to = data.From + d * reach
+			local tw1 = tween(orb, reach / (data.Speed or 26), { CFrame = CFrame.new(to) }, Enum.EasingStyle.Linear)
+			local tw2 = tween(rim, reach / (data.Speed or 26), { CFrame = CFrame.new(to) }, Enum.EasingStyle.Linear)
+			GR.orbs = GR.orbs or setmetatable({}, { __mode = "k" })
+			GR.orbs[char] = { orb, rim, tw1, tw2 }
+			-- dark wisps drawn in toward it while it pulls
+			for i = 0, math.floor(t / 0.12) do
+				task.delay(i * 0.12, function()
+					if orb.Parent then
+						local at = orb.Position + rng:NextUnitVector() * 9
+						local w = newPart(Vector3.new(0.2, 0.2, 2.2), CFrame.lookAt(at, orb.Position), sch.Color, Enum.Material.Neon)
+						tween(w, 0.3, { CFrame = CFrame.lookAt(orb.Position, orb.Position + (orb.Position - at)), Transparency = 1 })
+						cleanup(w, 0.35)
+					end
+				end)
+			end
+			cleanup(orb, t + 0.1)
+			cleanup(rim, t + 0.1)
+			VFX.PlaySound("ArcVoid", data.From)
+		elseif kind == "OrbStop" then
+			-- (it reached someone: it stops there and pulls)
+			local o = GR.orbs and GR.orbs[char]
+			if o then
+				for i = 3, 4 do
+					pcall(function()
+						o[i]:Cancel()
+					end)
+				end
+				for i = 1, 2 do
+					if o[i].Parent then
+						o[i].CFrame = CFrame.new(data.Pos)
+					end
+				end
+			end
+		elseif kind == "Pop" then
+			local o = GR.orbs and GR.orbs[char]
+			if o then
+				GR.orbs[char] = nil
+				for i = 1, 2 do
+					o[i].Transparency = 1
+				end
+			end
+			local r = data.Radius or 10
+			flash(data.Pos, sch.Hot, r * 1.3, 0.3)
+			billboardRing(data.Pos, 1, r * 2.5, sch.Color, 10, 0.4, true)
+			shockDisc(data.Pos, UP, 2, r * 2.2, 0.35, sch.Color)
+			VFX.PlaySound("ArcVoidPop", data.Pos)
+			VFX.ShakeAt(data.Pos, 0.8, 60, 0.3)
+		elseif kind == "Tornado" then
+			local t, r = data.Time or 2, data.Radius or 8
+			local a, b = data.From, data.To
+			local steps = math.max(1, math.floor(t / 0.05))
+			for i = 0, steps do
+				task.delay(i * 0.05, function()
+					local at = a + (b - a) * (i / steps)
+					for k = 1, 3 do
+						local h = rand(0, 16)
+						local ang = rand(0, math.pi * 2)
+						local rr = (0.4 + h / 16) * r * 0.8
+						local p0 = at + Vector3.new(math.cos(ang) * rr, h, math.sin(ang) * rr)
+						local s = newPart(Vector3.new(0.25, 0.25, 3 + h / 4), CFrame.lookAt(p0, p0 + Vector3.new(-math.sin(ang), 0.15, math.cos(ang))), k == 1 and sch.Hot or sch.Color, Enum.Material.Neon)
+						tween(s, 0.25, { Transparency = 1, CFrame = s.CFrame * CFrame.new(0, 0.6, -2) })
+						cleanup(s, 0.3)
+					end
+					if i % 8 == 0 then
+						zap(at + UP * rand(6, 14), at + Vector3.new(rand(-r, r), rand(0, 4), rand(-r, r)), sch.Hot, 0.15, 0.15)
+					end
+				end)
+			end
+			VFX.PlaySound("ArcTempest", a)
+		elseif kind == "Nova" then
+			local r = data.Radius or 18
+			local g = groundAt(data.Pos)
+			GR.rune(GR.flat(g + UP * 0.1), r, sch.Color, 1.2, 40)
+			shockDisc(g + UP * 1, UP, 2, r * 2, 0.35, sch.Hot)
+			for i = 1, 16 do
+				local a = i / 16 * math.pi * 2
+				local at = g + Vector3.new(math.cos(a), 0, math.sin(a)) * rand(r * 0.3, r * 0.95)
+				local len = rand(3, 7)
+				local spike = newPart(Vector3.new(1.2, 0.1, 1.2), CFrame.new(at) * CFrame.Angles(rand(-0.4, 0.4), 0, rand(-0.4, 0.4)), sch.Color, Enum.Material.Glass)
+				spike.Transparency = 0.15
+				tween(spike, 0.2, { Size = Vector3.new(1.2, len, 1.2), CFrame = spike.CFrame * CFrame.new(0, len / 2, 0) }, Enum.EasingStyle.Back, nil, rand(0, 0.12))
+				tween(spike, 0.5, { Transparency = 1 }, nil, nil, 1.4)
+				cleanup(spike, 2)
+			end
+			if iceFog then
+				pcall(iceFog, g, r, 1.5)
+			end
+			VFX.PlaySound("ArcFreeze", g)
+			VFX.ShakeAt(g, 1, 60, 0.4)
+		elseif kind == "Star" then
+			local sky = data.Pos + Vector3.new(rand(-8, 8), 70, rand(-8, 8))
+			local star = newPart(Vector3.one * 1.6, CFrame.new(sky), sch.Hot, Enum.Material.Neon, Enum.PartType.Ball)
+			local stop = addTrail(star, sch.Color, 0.25, 1.4)
+			tween(star, 0.3, { CFrame = CFrame.new(data.Pos + UP) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			task.delay(0.3, function()
+				stop()
+				star.Transparency = 1
+				flash(data.Pos + UP, sch.Hot, 7, 0.22)
+				billboardRing(data.Pos + UP, 1, 9, sch.Color, 6, 0.3)
+				sparks(data.Pos + UP, 0.5, WHITE, sch.Color, 8)
+				VFX.PlaySound("ArcStar", data.Pos)
+			end)
+			cleanup(star, 0.8)
+		end
+	end
+
+	-- THE WAND'S M1s (Effects.Punch hands them here first): a flick of the
+	-- wand and a bolt down where he faces - to the first body in line or
+	-- the first wall (this screen's own look: the server's the judge).
+	-- true: it was his
+	function GR.m1(char, data, isLocal)
+		if char:GetAttribute("WandOut") ~= true then
+			return false
+		end
+		local plr = Players:GetPlayerFromCharacter(char)
+		if not plr or plr:GetAttribute("Quirk") ~= "Arcanist" then
+			return false
+		end
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return true
+		end
+		local count = math.clamp(data.Count or 1, 1, 4)
+		local fin = data.Finisher == true
+		local B = GC.Bolt
+		playClip(char, fin and B.Clips[4] or B.Clips[((count - 1) % 3) + 1])
+		local a = (Config.Quirks.Arcanist or {}).AccentColor or WHITE
+		task.delay(fin and 0.14 or 0.06, function()
+			if not char.Parent then
+				return
+			end
+			local look = root.CFrame.LookVector
+			local d = Vector3.new(look.X, 0, look.Z)
+			d = d.Magnitude > 0.05 and d.Unit or Vector3.new(0, 0, -1)
+			local from = GR.tip(char)
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = { char, folder }
+			local hit = workspace:Raycast(from, d * B.Range, params)
+			local to = hit and hit.Position or from + d * B.Range
+			local t = (to - from).Magnitude / B.Speed
+			projectile(from, to, t, a, fin and 1.1 or 0.6)
+			GR.glow(char, a, 0.3)
+			VFX.PlaySound("ArcBolt", from, fin and 1.2 or 0.8)
+			task.delay(t, function()
+				flash(to, a, fin and 5 or 2.5, 0.18)
+				sparks(to, fin and 0.6 or 0.3, WHITE, a, fin and 10 or 5)
+				if hit then
+					VFX.PlaySound("ArcBoltHit", to, fin and 1.2 or 0.7)
+				end
+			end)
+		end)
+		return true
+	end
+
+	-- THE BOOK (Y): the clip on his own body while the grimoire's open
+	function GR.book(char, open)
+		if open then
+			playClip(char, "MoveArcBook", 600)
+			VFX.PlaySound("GrimoireOpen", nil, 0.8)
+		elseif VFX.ReleasePose then
+			VFX.ReleasePose(char, 0.2)
+			if VFX.StopClip then
+				pcall(VFX.StopClip, char)
+			end
+		end
+	end
 end)()
 
 return VFX
